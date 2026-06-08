@@ -13,6 +13,8 @@ var NOMBRE_HOJA_PRODUCTOS_INVENTARIO = "_PRODUCTOS_INVENTARIO";
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Sistema cocina")
+    .addItem("Autorizar / renovar permisos", "AutorizarSistema")
+    .addSeparator()
     .addItem("Registrar decomiso MISE AN PLACE", "AbrirDecomisoMiseAnPlace")
     .addSeparator()
     .addItem("Diagnosticar botones", "DiagnosticarBotonesSistema")
@@ -23,6 +25,23 @@ function onOpen() {
     .addItem("Agregar renglon de Inventario", "AgregarRenglonInventario")
     .addItem("Actualizar conteo de Inventario", "ActualizarConteoInventario")
     .addToUi();
+}
+
+function AutorizarSistema() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  ss.getId();
+  DriveApp.getRootFolder().getName();
+  MailApp.getRemainingDailyQuota();
+  UrlFetchApp.getRequest("https://www.googleapis.com/");
+
+  ui.alert(
+    "Permisos autorizados",
+    "La autorizacion del sistema se verifico correctamente.\n\n" +
+      "Si Google mostro una ventana de permisos, el usuario ya puede volver a ejecutar las acciones del sistema.",
+    ui.ButtonSet.OK
+  );
 }
 
 function onEdit(e) {
@@ -177,6 +196,7 @@ function LimpiarDecomiso() {
 
 function DiagnosticarBotonesSistema() {
   var funciones = [
+    "AutorizarSistema",
     "GuardarEntrada",
     "LimpiarEntrada",
     "GuardarSalida",
