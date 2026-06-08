@@ -14,6 +14,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Sistema cocina")
     .addItem("Autorizar / renovar permisos", "AutorizarSistema")
+    .addItem("Diagnosticar protecciones", "DiagnosticarProteccionesSistema")
+    .addItem("Quitar protecciones detectadas", "QuitarProteccionesSistema")
     .addSeparator()
     .addItem("Registrar decomiso MISE AN PLACE", "AbrirDecomisoMiseAnPlace")
     .addSeparator()
@@ -42,6 +44,123 @@ function AutorizarSistema() {
       "Si Google mostro una ventana de permisos, el usuario ya puede volver a ejecutar las acciones del sistema.",
     ui.ButtonSet.OK
   );
+}
+
+function DiagnosticarProteccionesSistema() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var protecciones = ObtenerProteccionesSistema_(ss);
+
+  if (protecciones.length === 0) {
+    ui.alert(
+      "Diagnostico de protecciones",
+      "No se encontraron hojas ni rangos protegidos en este archivo.",
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  var resumen = protecciones.map(function (item, index) {
+    return [
+      index + 1 + ". " + item.tipo + ": " + item.destino,
+      "Puede editar quien ejecuta: " + (item.puedeEditar ? "SI" : "NO"),
+      "Solo advertencia: " + (item.soloAdvertencia ? "SI" : "NO"),
+      "Descripcion: " + (item.descripcion || "(sin descripcion)"),
+      "Editores: " + (item.editores.length ? item.editores.join(", ") : "(sin lista visible)")
+    ].join("\n");
+  }).join("\n\n");
+
+  ui.alert(
+    "Diagnostico de protecciones",
+    "Se encontraron " + protecciones.length + " protecciones.\n\n" + resumen.slice(0, 4500),
+    ui.ButtonSet.OK
+  );
+}
+
+function QuitarProteccionesSistema() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var respuesta = ui.alert(
+    "Quitar protecciones",
+    "Esta accion intentara quitar las protecciones de hojas y rangos que el usuario actual puede editar.\n\n" +
+      "Si el usuario actual no es propietario o no puede editar una proteccion especifica, esa proteccion no se quitara.\n\n" +
+      "Desea continuar?",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (respuesta !== ui.Button.OK) {
+    return;
+  }
+
+  var protecciones = []
+    .concat(ss.getProtections(SpreadsheetApp.ProtectionType.SHEET))
+    .concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE));
+  var quitadas = 0;
+  var omitidas = [];
+
+  for (var i = 0; i < protecciones.length; i++) {
+    var proteccion = protecciones[i];
+
+    if (!proteccion.canEdit()) {
+      omitidas.push(ObtenerDestinoProteccion_(proteccion));
+      continue;
+    }
+
+    proteccion.remove();
+    quitadas++;
+  }
+
+  ui.alert(
+    "Protecciones revisadas",
+    "Protecciones quitadas: " + quitadas + "\n" +
+      "Protecciones omitidas: " + omitidas.length +
+      (omitidas.length ? "\n\nOmitidas:\n" + omitidas.join("\n").slice(0, 3500) : ""),
+    ui.ButtonSet.OK
+  );
+}
+
+function ObtenerProteccionesSistema_(ss) {
+  var protecciones = []
+    .concat(ss.getProtections(SpreadsheetApp.ProtectionType.SHEET))
+    .concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE));
+  var resultado = [];
+
+  for (var i = 0; i < protecciones.length; i++) {
+    var proteccion = protecciones[i];
+    resultado.push({
+      tipo: ObtenerTipoProteccion_(proteccion),
+      destino: ObtenerDestinoProteccion_(proteccion),
+      descripcion: proteccion.getDescription(),
+      puedeEditar: proteccion.canEdit(),
+      soloAdvertencia: proteccion.isWarningOnly(),
+      editores: ObtenerEditoresProteccion_(proteccion)
+    });
+  }
+
+  return resultado;
+}
+
+function ObtenerTipoProteccion_(proteccion) {
+  return proteccion.getProtectionType() === SpreadsheetApp.ProtectionType.SHEET ? "Hoja" : "Rango";
+}
+
+function ObtenerDestinoProteccion_(proteccion) {
+  if (proteccion.getProtectionType() === SpreadsheetApp.ProtectionType.SHEET) {
+    return proteccion.getRange().getSheet().getName();
+  }
+
+  var rango = proteccion.getRange();
+  return rango.getSheet().getName() + "!" + rango.getA1Notation();
+}
+
+function ObtenerEditoresProteccion_(proteccion) {
+  try {
+    return proteccion.getEditors().map(function (editor) {
+      return editor.getEmail();
+    });
+  } catch (error) {
+    return [];
+  }
 }
 
 function onEdit(e) {
@@ -197,6 +316,8 @@ function LimpiarDecomiso() {
 function DiagnosticarBotonesSistema() {
   var funciones = [
     "AutorizarSistema",
+    "DiagnosticarProteccionesSistema",
+    "QuitarProteccionesSistema",
     "GuardarEntrada",
     "LimpiarEntrada",
     "GuardarSalida",
