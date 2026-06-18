@@ -4,10 +4,11 @@ const BRANCH_CONFIG_STORAGE_KEY = "sharp_limpieza_branch_config_v1";
 const SYNC_DEBOUNCE_MS = 250;
 
 const DEFAULT_BRANCHES = [
-  { id: "venezuela",  name: "Venezuela",  pin: "0001", masterPin: "852347" },
-  { id: "naco",       name: "Naco",       pin: "0002", masterPin: "852347" },
-  { id: "san-isidro", name: "San Isidro", pin: "0003", masterPin: "852347" },
-  { id: "miami",      name: "Miami",      pin: "0004", masterPin: "852347" },
+  { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
+];
+const CLEANING_MODULES = [
+  { id: "cocina", name: "Cocina" },
+  { id: "servicio", name: "Servicio" },
 ];
 
 // Paste here the URL of your deployed Google Apps Script web app
@@ -152,6 +153,7 @@ let pinGateCancel    = null;
 let branches         = [];
 let currentBranch    = null;
 let currentBranchIsAdmin = false;
+let currentCleaningModule = null;
 let branchesConfigRef = null;
 let pendingBranchLogin = null;
 let branchConfigReady = false;
@@ -164,6 +166,9 @@ let _pinCountdownTimer = null; // interval id for lockout countdown
 // DOM refs
 const collaboratorForm  = document.getElementById("collaborator-form");
 const collaboratorInput = document.getElementById("collaborator-name");
+const moduleSelectorOverlay = document.getElementById("module-selector");
+const moduleList = document.getElementById("module-list");
+const headerModuleName = document.getElementById("header-module-name");
 const taskSearchInput   = document.getElementById("task-search");
 const taskSearchClear   = document.getElementById("task-search-clear");
 const taskSearchCount   = document.getElementById("task-search-count");
@@ -249,7 +254,13 @@ let invoiceFiles      = [];
 let invoiceItems      = [];
 
 renderWeekLabel();
+updateModuleLabel();
 initFirebaseConnection(); // loads branches, library; shows branch selector
+if (moduleList) {
+  moduleList.querySelectorAll("[data-cleaning-module]").forEach((btn) => {
+    btn.addEventListener("click", () => selectCleaningModule(btn.getAttribute("data-cleaning-module")));
+  });
+}
 
 // Auto-rollover: check every 60 s if we need to advance the week
 setInterval(() => {
@@ -835,6 +846,8 @@ async function sendInvoiceItemsToSheet() {
       action: "saveInvoiceProducts",
       branchId: currentBranch?.id || "",
       branchName: currentBranch?.name || "",
+      cleaningModule: getCleaningModuleId(),
+      cleaningModuleName: getCleaningModuleName(),
       createdAt: new Date().toISOString(),
       rawText: invoiceRawText.value,
       items: validItems.map((item) => ({
@@ -1059,7 +1072,8 @@ branchSelect.addEventListener("change", () => {
   syncBranchSelect();
 });
 
-document.getElementById("branch-settings-btn").addEventListener("click", openBranchSettings);
+const branchSettingsBtn = document.getElementById("branch-settings-btn");
+if (branchSettingsBtn) branchSettingsBtn.addEventListener("click", openBranchSettings);
 document.getElementById("branch-selector-close-btn").addEventListener("click", () => {
   if (currentBranch) hideBranchSelector();
 });
@@ -1631,8 +1645,20 @@ function createInitialState() {
   return { collaborators: [], tasks: {} };
 }
 
+function getCleaningModuleId() {
+  return currentCleaningModule && currentCleaningModule.id ? currentCleaningModule.id : "cocina";
+}
+
+function getCleaningModuleName() {
+  return currentCleaningModule && currentCleaningModule.name ? currentCleaningModule.name : "Cocina";
+}
+
+function updateModuleLabel() {
+  if (headerModuleName) headerModuleName.textContent = getCleaningModuleName();
+}
+
 function getBoardStorageKey() {
-  return currentBranch ? `${STORAGE_KEY}_${currentBranch.id}` : null;
+  return currentBranch ? `${STORAGE_KEY}_${currentBranch.id}_${getCleaningModuleId()}` : null;
 }
 
 function loadState() {
@@ -1807,12 +1833,42 @@ function initBranchConfigSync() {
 }
 
 function showBranchSelector() {
+  if (!currentCleaningModule) {
+    showModuleSelector();
+    return;
+  }
   updateBranchSelectorClose();
   document.getElementById("branch-selector").classList.remove("hidden");
 }
 
 function hideBranchSelector() {
   document.getElementById("branch-selector").classList.add("hidden");
+}
+
+function showModuleSelector() {
+  if (moduleSelectorOverlay) moduleSelectorOverlay.classList.remove("hidden");
+}
+
+function hideModuleSelector() {
+  if (moduleSelectorOverlay) moduleSelectorOverlay.classList.add("hidden");
+}
+
+function selectCleaningModule(moduleId) {
+  const found = CLEANING_MODULES.find((item) => item.id === moduleId) || CLEANING_MODULES[0];
+  currentCleaningModule = found;
+  updateModuleLabel();
+  hideModuleSelector();
+  state = currentBranch ? loadState() || createInitialState() : createInitialState();
+  selectedCell = null;
+  updateTeamSelectors();
+  renderTable();
+  renderRealizadasPanel();
+  if (currentBranch) {
+    if (firebaseDB && !usingBranchConfigFallback) connectBoardSync(currentBranch.id);
+    else setSyncStatus("Modo local", "offline");
+  } else {
+    showBranchSelector();
+  }
 }
 
 function renderBranchList() {
@@ -1903,6 +1959,7 @@ function logoutBranch() {
   // Limpiar estado local
   currentBranch = null;
   currentBranchIsAdmin = false;
+  currentCleaningModule = null;
   state = createInitialState();
   hasRemoteSnapshot = false;
   
@@ -1912,12 +1969,13 @@ function logoutBranch() {
   
   // Actualizar UI
   document.getElementById("header-branch-name").textContent = "—";
+  updateModuleLabel();
   setSyncStatus("Selecciona sucursal...", "busy");
   syncBranchSelect();
   updateBranchSelectorClose();
   
   // Mostrar selector de sucursales
-  showBranchSelector();
+  showModuleSelector();
   renderBranchList();
 }
 
@@ -1941,7 +1999,7 @@ function enterBranch(branch, options = {}) {
 function connectBoardSync(branchId) {
   if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
   hasRemoteSnapshot = false;
-  remoteBoardRef = firebaseDB.ref(`boards/${branchId}`);
+  remoteBoardRef = firebaseDB.ref(`boards/${branchId}_${getCleaningModuleId()}`);
   setSyncStatus("Conectando...", "busy");
   remoteBoardRef.on("value", (snap) => {
     hasRemoteSnapshot = true;
@@ -2081,23 +2139,15 @@ function persistBranchConfigLocal() {
 }
 
 function normalizeBranchConfig(value) {
+  const fixed = DEFAULT_BRANCHES[0];
   const source = Array.isArray(value) ? value : DEFAULT_BRANCHES;
-  const seen = new Set();
-  const normalized = [];
-
-  for (const branch of source) {
-    if (!branch || typeof branch !== "object") continue;
-    const name = typeof branch.name === "string" ? branch.name.trim() : "";
-    const pin = typeof branch.pin === "string" ? branch.pin.trim() : "";
-    const masterPin = typeof branch.masterPin === "string" ? branch.masterPin.trim() : ADMIN_PIN;
-    const rawId = typeof branch.id === "string" ? branch.id.trim() : "";
-    const id = rawId || slugifyBranchName(name);
-    if (!id || !name || !pin || seen.has(id)) continue;
-    seen.add(id);
-    normalized.push({ id, name, pin, masterPin });
-  }
-
-  return normalized.length > 0 ? normalized : DEFAULT_BRANCHES.map((branch) => ({ ...branch }));
+  const remoteVenezuela = source.find((branch) => branch && typeof branch === "object" && String(branch.id || "").trim() === fixed.id) || {};
+  return [{
+    id: fixed.id,
+    name: fixed.name,
+    pin: typeof remoteVenezuela.pin === "string" && remoteVenezuela.pin.trim() ? remoteVenezuela.pin.trim() : fixed.pin,
+    masterPin: typeof remoteVenezuela.masterPin === "string" && remoteVenezuela.masterPin.trim() ? remoteVenezuela.masterPin.trim() : fixed.masterPin
+  }];
 }
 
 function slugifyBranchName(value) {

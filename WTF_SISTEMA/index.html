@@ -2053,7 +2053,7 @@ Solicitado: ${cantidad}`);
     if (!modulo) {
       return /* @__PURE__ */ React.createElement(
         "div",
-        { style: { position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(160deg,#0f2027 0%,#1a3a2e 50%,#0f2027 100%)", overflow: "hidden" } },
+        { style: { position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(160deg,#0f2027 0%,#1a3a2e 50%,#0f2027 100%)", overflowY: "auto", overflowX: "hidden" } },
         /* @__PURE__ */ React.createElement("style", null, `
           .modulo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; width: 100%; max-width: 1120px; padding: 0 20px; }
           @media (max-width: 900px) { .modulo-grid { grid-template-columns: 1fr 1fr; max-width: 760px; } }
@@ -2423,33 +2423,20 @@ Solicitado: ${cantidad}`);
     ))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: confirmar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Confirmar"))));
   }
   function SharpLimpiezaPage() {
-    const [frameKey, setFrameKey] = useState(() => Date.now());
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } },
-      /* @__PURE__ */ React.createElement("div", { className: "card" },
-        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
-          /* @__PURE__ */ React.createElement("h2", null, "Sharp de Limpieza"),
-          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setFrameKey(Date.now()) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-right" }), "Recargar"),
-            /* @__PURE__ */ React.createElement("a", { className: "btn btn-azul btn-sm", href: "./sharp-limpieza/index.html", target: "_blank", rel: "noreferrer" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-up-right-from-square" }), "Abrir aparte")
-          )
-        ),
-        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { padding: 0 } },
-          /* @__PURE__ */ React.createElement("iframe", {
-            key: frameKey,
-            src: "./sharp-limpieza/index.html",
-            title: "Sharp de Limpieza",
-            allow: "camera; clipboard-read; clipboard-write; fullscreen",
-            style: {
-              display: "block",
-              width: "100%",
-              height: "calc(100dvh - 180px)",
-              minHeight: "720px",
-              border: 0,
-              background: "#f3f4f6"
-            }
-          })
-        )
-      )
+    return /* @__PURE__ */ React.createElement("div", { style: { borderRadius: 14, overflow: "hidden", background: "#f3f4f6", boxShadow: "0 1px 4px rgba(0,0,0,.08)" } },
+      /* @__PURE__ */ React.createElement("iframe", {
+        src: "./sharp-limpieza/index.html",
+        title: "Sharp de Limpieza",
+        allow: "camera; clipboard-read; clipboard-write; fullscreen",
+        style: {
+          display: "block",
+          width: "100%",
+          height: "calc(100dvh - 112px)",
+          minHeight: "780px",
+          border: 0,
+          background: "#f3f4f6"
+        }
+      })
     );
   }
   function Dashboard({ inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, onQuickNavigate }) {

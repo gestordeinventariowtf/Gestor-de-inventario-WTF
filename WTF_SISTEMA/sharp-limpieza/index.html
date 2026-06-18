@@ -11,6 +11,7 @@
     <div class="header-top">
       <div class="header-left">
         <h1>Sharp de Limpieza</h1>
+        <p>Modulo: <strong id="header-module-name">—</strong></p>
         <p>Sucursal: <strong id="header-branch-name">—</strong></p>
         <span id="sync-status" class="sync-status" data-state="busy">Selecciona sucursal...</span>
       </div>
@@ -29,9 +30,28 @@
       </div>
     </div>
   </header>
+  <div id="module-selector" class="branch-selector-overlay">
+    <div class="branch-selector-box">
+      <div class="branch-selector-logo">
+        <h1>Sharp de Limpieza</h1>
+        <p>Selecciona el modulo operativo</p>
+      </div>
+      <h2 class="branch-selector-subtitle">Modulos</h2>
+      <div id="module-list" class="branch-list">
+        <button type="button" class="branch-card" data-cleaning-module="cocina">
+          <span class="branch-card-name">Cocina</span>
+          <span class="branch-card-status">›</span>
+        </button>
+        <button type="button" class="branch-card" data-cleaning-module="servicio">
+          <span class="branch-card-name">Servicio</span>
+          <span class="branch-card-status">›</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Pantalla de selección de sucursal -->
-  <div id="branch-selector" class="branch-selector-overlay">
+  <div id="branch-selector" class="branch-selector-overlay hidden">
     <div class="branch-selector-box">
       <div class="branch-selector-logo">
         <h1>Sharp de Limpieza</h1>
