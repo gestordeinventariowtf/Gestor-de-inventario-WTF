@@ -2398,6 +2398,91 @@ Solicitado: ${cantidad}`);
       }
       toast(`Producción agregada como nuevo producto en Mise an Place: ${productoNombre}`, "ok");
     }
+    function eliminarProduccion(row) {
+      if (!row) return;
+      if (!confirm(`¿Eliminar la producción "${row.productoProducido}"? Esta acción revertirá inventario y transferencias relacionadas.`)) return;
+      const cantidadProducida = Number(row.cantidadProducida || 0);
+      if (!Number.isFinite(cantidadProducida) || cantidadProducida <= 0) {
+        toast("La producción no tiene una cantidad válida para revertir.", "error");
+        return;
+      }
+      const nombreProducido = String(row.productoProducido || "").trim();
+      const productoInventario = productosInventario.find(function(product) {
+        return normalizar(product.nombre) === normalizar(nombreProducido);
+      });
+      if (!productoInventario) {
+        toast("No se encontró el producto producido en Inventario para revertir.", "error");
+        return;
+      }
+      const cantidadReversaInventario = convertMeasureQuantity(cantidadProducida, row.medidaProducida, productoInventario.medida);
+      if (cantidadReversaInventario == null) {
+        toast(`No se puede revertir ${row.medidaProducida} hacia ${productoInventario.medida} en Inventario.`, "error");
+        return;
+      }
+      if (getInventoryExistence(productoInventario) + 1e-9 < cantidadReversaInventario) {
+        toast(`No se puede eliminar porque ${productoInventario.nombre} ya fue usado y no tiene existencia suficiente para revertir esta producción.`, "error");
+        return;
+      }
+      if (row.transferidoAMiseAt) {
+        const targetName = String(row.transferidoAMiseTarget || row.productoProducido || "").trim();
+        const miseTarget = (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(item) {
+          return normalizar(item.producto) === normalizar(targetName);
+        });
+        if (!miseTarget) {
+          toast("No se encontró el producto transferido en Mise an Place para revertir.", "error");
+          return;
+        }
+        const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
+        if (cantidadReversaMise == null) {
+          toast(`No se puede revertir la transferencia hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place.`, "error");
+          return;
+        }
+        if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
+          toast(`No se puede eliminar porque ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir.`, "error");
+          return;
+        }
+      }
+      setInventario(function(prev) {
+        return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
+          if (item.tipo !== "producto") return [item];
+          const itemNombre = normalizar(item.nombre);
+          const insumo = (row.insumos || []).find(function(entry) {
+            return Number(entry.productId) === Number(item.id) || normalizar(entry.producto) === itemNombre;
+          });
+          if (insumo) {
+            return [Object.assign({}, item, {
+              salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
+            })];
+          }
+          if (itemNombre === normalizar(nombreProducido)) {
+            const nextEntrada = Math.max(0, Number((item.entrada || 0) - cantidadReversaInventario).toFixed(4));
+            const shouldRemove = normalizar(item.suplidor || "") === normalizar("Produccion") && nextEntrada <= 0 && Number(item.salida || 0) <= 0 && Number(item.decomiso || 0) <= 0;
+            if (shouldRemove) return [];
+            return [Object.assign({}, item, { entrada: nextEntrada })];
+          }
+          return [item];
+        });
+      });
+      if (row.transferidoAMiseAt) {
+        const targetName = String(row.transferidoAMiseTarget || row.productoProducido || "").trim();
+        setMise(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(item) {
+            if (normalizar(item.producto) !== normalizar(targetName)) return item;
+            const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), item.medida || "Uni");
+            if (cantidadReversaMise == null) return item;
+            return Object.assign({}, item, {
+              existencia: Math.max(0, Number(((Number(item.existencia) || 0) - cantidadReversaMise).toFixed(4)))
+            });
+          });
+        });
+      }
+      setProducciones(function(prev) {
+        return (Array.isArray(prev) ? prev : []).filter(function(item) {
+          return item.id !== row.id;
+        });
+      });
+      toast(`Producción eliminada: ${nombreProducido}`, "ok");
+    }
     function resetProductionForm() {
       setBusqueda("");
       setInsumos([]);
@@ -2739,10 +2824,13 @@ Solicitado: ${cantidad}`);
                     }))
                   ),
                   /* @__PURE__ */ React.createElement("td", null,
-                    row.transferidoAMiseAt ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
-                      /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Transferido"),
-                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", minWidth: 140 } }, row.transferidoAMiseTarget || "Mise an Place")
-                    ) : /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { transferirProduccion(row); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir producción")
+                    /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 165 } },
+                      row.transferidoAMiseAt ? /* @__PURE__ */ React.createElement(React.Fragment, null,
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Transferido"),
+                        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.transferidoAMiseTarget || "Mise an Place")
+                      ) : /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { transferirProduccion(row); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir producción"),
+                      /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: function() { eliminarProduccion(row); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar")
+                    )
                   )
                 );
               }))
