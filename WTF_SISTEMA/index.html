@@ -943,7 +943,8 @@
     { key: "listado", label: "Listado de Compra" },
     { key: "registros", label: "Registros" },
     { key: "histDecomiso", label: "Historial Decomiso" },
-    { key: "produccion", label: "Produccion" }
+    { key: "produccion", label: "Produccion" },
+    { key: "sharp", label: "Sharp de Limpieza" }
   ];
   const DEFAULT_FIREBASE_SYNC_CONFIG = {
     enabled: false,
@@ -1697,12 +1698,13 @@
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
       setAuthUserEmail(user.email);
-      setPage(isAdminUser(user) ? "dashboard" : user.permisos && user.permisos[0] || "dashboard");
+      const userModulo = isAdminUser(user) ? "ambos" : (user.modulo || "ambos");
+      const initialPage = userModulo === "sharp" ? "sharp" : isAdminUser(user) ? "dashboard" : user.permisos && user.permisos[0] || "dashboard";
+      setPage(initialPage);
       // Auto-asignar módulo si el usuario tiene uno específico
-      const um = isAdminUser(user) ? "ambos" : (user.modulo || "ambos");
-      if (um !== "ambos") {
-        sessionStorage.setItem("wtf_modulo", um);
-        setModulo(um);
+      if (userModulo !== "ambos") {
+        sessionStorage.setItem("wtf_modulo", userModulo);
+        setModulo(userModulo);
       } else {
         sessionStorage.removeItem("wtf_modulo");
         setModulo(null);
@@ -1870,6 +1872,11 @@
         setPage(firstAllowed);
       }
     }, [currentUser, page]);
+    useEffect(() => {
+      if (modulo === "sharp" && page !== "sharp" && page !== "usuarios") {
+        setPage("sharp");
+      }
+    }, [modulo, page]);
     const productos = useMemo(
       () => inventario.filter((r) => r.tipo === "producto").map((p) => ({
         ...p,
@@ -1985,6 +1992,7 @@ Solicitado: ${cantidad}`);
     }
     const navItems = [
       { key: "dashboard", icon: "fa-home", label: "Dashboard", section: "GENERAL" },
+      { key: "sharp", icon: "fa-soap", label: "Sharp de Limpieza", section: null },
       { key: "inventario", icon: "fa-boxes-stacked", label: "Inventario", section: null },
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
@@ -1998,6 +2006,7 @@ Solicitado: ${cantidad}`);
     ];
     const titles = {
       dashboard: "Dashboard",
+      sharp: "Sharp de Limpieza",
       inventario: "Inventario",
       entradas: "Registrar Entrada",
       salidas: "Registrar Salida",
@@ -2010,6 +2019,7 @@ Solicitado: ${cantidad}`);
       produccion: "Produccion"
     };
     const esBar = modulo === "bar";
+    const esSharp = modulo === "sharp";
     const activeInv = esBar ? barInventario : inventario;
     const setActiveInv = esBar ? setBarInventario : setInventario;
     const activeProductos = activeInv.filter((r) => r.tipo === "producto").map((p) => ({
@@ -2025,6 +2035,7 @@ Solicitado: ${cantidad}`);
     const activeAddMovimiento = esBar ? addMovimientoBar : addMovimiento;
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, miseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
+      sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeProductos, addMovimiento: activeAddMovimiento }),
@@ -2044,7 +2055,8 @@ Solicitado: ${cantidad}`);
         "div",
         { style: { position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(160deg,#0f2027 0%,#1a3a2e 50%,#0f2027 100%)", overflow: "hidden" } },
         /* @__PURE__ */ React.createElement("style", null, `
-          .modulo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 860px; padding: 0 20px; }
+          .modulo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; width: 100%; max-width: 1120px; padding: 0 20px; }
+          @media (max-width: 900px) { .modulo-grid { grid-template-columns: 1fr 1fr; max-width: 760px; } }
           @media (max-width: 600px) { .modulo-grid { grid-template-columns: 1fr; max-width: 400px; gap: 14px; } }
           .modulo-card { background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; transition: transform .18s, border-color .18s, background .18s; aspect-ratio: 1 / 0.85; min-height: 200px; }
           @media (max-width: 600px) { .modulo-card { aspect-ratio: unset; padding: 32px 20px; min-height: 160px; } }
@@ -2052,6 +2064,7 @@ Solicitado: ${cantidad}`);
           .modulo-card:active { transform: scale(0.98); }
           .modulo-card-cocina:hover { border-color: #22c55e; }
           .modulo-card-bar:hover { border-color: #f59e0b; }
+          .modulo-card-sharp:hover { border-color: #38bdf8; }
         `),
         /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 32 } },
           /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } },
@@ -2089,6 +2102,20 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 } }, "Inventario independiente", /* @__PURE__ */ React.createElement("br"), "Entradas · Salidas · Decomiso · Listado")
                 )
               )
+            ),
+            /* @__PURE__ */ React.createElement("button", {
+              className: "modulo-card modulo-card-sharp",
+              onClick: () => { sessionStorage.setItem("wtf_modulo", "sharp"); setModulo("sharp"); setPage("sharp"); }
+            },
+              /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "28px 20px" } },
+                /* @__PURE__ */ React.createElement("div", { style: { width: 72, height: 72, borderRadius: "50%", background: "linear-gradient(135deg,#0f766e,#38bdf8)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(56,189,248,0.35)" } },
+                  /* @__PURE__ */ React.createElement("i", { className: "fas fa-soap", style: { fontSize: 30, color: "#fff" } })
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } },
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: "clamp(18px,3vw,24px)", fontWeight: 800, color: "#fff", marginBottom: 6 } }, "Sharp de Limpieza"),
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 } }, "Sucursales · Calendario", /* @__PURE__ */ React.createElement("br"), "Fotos · Facturas · Tareas")
+                )
+              )
             )
           ),
           /* @__PURE__ */ React.createElement("button", {
@@ -2100,6 +2127,7 @@ Solicitado: ${cantidad}`);
     }
     const barOcultos = ["mise"];
     const visibleNavItems = navItems.filter(function(item) {
+      if (esSharp && item.key !== "sharp" && item.key !== "usuarios") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
       return hasAccess(item.key);
@@ -2111,11 +2139,11 @@ Solicitado: ${cantidad}`);
         className: `sidebar-overlay ${sidebarOpen && window.innerWidth <= 768 ? "visible" : ""}`,
         onClick: () => setSidebarOpen(false)
       }
-    ), /* @__PURE__ */ React.createElement("aside", { className: `sidebar ${sidebarOpen ? "" : "collapsed"}` }, /* @__PURE__ */ React.createElement("div", { className: "sidebar-logo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils logo-icon" }), /* @__PURE__ */ React.createElement("div", { className: "logo-text" }, /* @__PURE__ */ React.createElement("span", null, "WTF Sistema"), /* @__PURE__ */ React.createElement("small", null, esBar ? "Módulo Bar" : "Módulo Cocina")), /* @__PURE__ */ React.createElement("button", { className: "sidebar-close-btn", onClick: () => setSidebarOpen(false), title: "Cerrar menú" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("nav", { className: "sidebar-nav" }, visibleNavItems.map((item) => {
+    ), /* @__PURE__ */ React.createElement("aside", { className: `sidebar ${sidebarOpen ? "" : "collapsed"}` }, /* @__PURE__ */ React.createElement("div", { className: "sidebar-logo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils logo-icon" }), /* @__PURE__ */ React.createElement("div", { className: "logo-text" }, /* @__PURE__ */ React.createElement("span", null, "WTF Sistema"), /* @__PURE__ */ React.createElement("small", null, esSharp ? "Módulo Sharp" : esBar ? "Módulo Bar" : "Módulo Cocina")), /* @__PURE__ */ React.createElement("button", { className: "sidebar-close-btn", onClick: () => setSidebarOpen(false), title: "Cerrar menú" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("nav", { className: "sidebar-nav" }, visibleNavItems.map((item) => {
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${page === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[page])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { const um = isAdminUser(currentUser) ? "ambos" : (currentUser.modulo || "ambos"); if (um !== "ambos") { setPedirClaveModulo(true); } else { sessionStorage.removeItem("wtf_modulo"); setModulo(null); } }, title: "Cambiar módulo", style: { background: esBar ? "rgba(245,158,11,0.12)" : "rgba(21,128,61,0.12)", borderColor: esBar ? "#f59e0b" : "#15803d", color: esBar ? "#b45309" : "#15803d" } }, /* @__PURE__ */ React.createElement("i", { className: esBar ? "fas fa-fire-burner" : "fas fa-martini-glass" }), "Cocina / Bar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${page}-${pageFx}`, className: "content page-enter" }, pages[page])), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[page])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { const um = isAdminUser(currentUser) ? "ambos" : (currentUser.modulo || "ambos"); if (um !== "ambos") { setPedirClaveModulo(true); } else { sessionStorage.removeItem("wtf_modulo"); setModulo(null); } }, title: "Cambiar módulo", style: { background: esSharp ? "rgba(14,116,144,0.12)" : esBar ? "rgba(245,158,11,0.12)" : "rgba(21,128,61,0.12)", borderColor: esSharp ? "#0ea5e9" : esBar ? "#f59e0b" : "#15803d", color: esSharp ? "#0f766e" : esBar ? "#b45309" : "#15803d" } }, /* @__PURE__ */ React.createElement("i", { className: esSharp ? "fas fa-soap" : esBar ? "fas fa-martini-glass" : "fas fa-fire-burner" }), esSharp ? "Sharp de Limpieza" : "Cocina / Bar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${page}-${pageFx}`, className: "content page-enter" }, pages[page])), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -2243,7 +2271,9 @@ Solicitado: ${cantidad}`);
       const email = (form.email || "").trim().toLowerCase();
       const nombre = (form.nombre || "").trim();
       const password = String(form.password || "");
-      const permisos = Array.from(new Set(form.permisos || []));
+      const permisosSet = new Set(form.permisos || []);
+      if ((form.modulo || "ambos") === "sharp") permisosSet.add("sharp");
+      const permisos = Array.from(permisosSet);
       if (!nombre) {
         toast("Ingrese el nombre del usuario.", "error");
         return;
@@ -2319,14 +2349,14 @@ Solicitado: ${cantidad}`);
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Ambos (Cocina y Bar)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Solo Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Solo Bar")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "Si se asigna un módulo específico, el otro requerirá clave del administrador para acceder.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Solo Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Solo Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Solo Sharp de Limpieza")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "Si se asigna un módulo específico, los demás requerirán clave del administrador para acceder.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
       return /* @__PURE__ */ React.createElement("label", { key: perm.key, style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: checked ? "#f0fdf4" : "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange: () => togglePermiso(perm.key) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, perm.label));
     })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 6 } }, "Ningun usuario creado puede acceder a funciones administrativas del sistema.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarUsuario }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingId ? "Guardar cambios" : "Crear usuario"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetForm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users", style: { marginRight: 7 } }), "Usuarios registrados"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, usuariosVisibles.length, " usuarios")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Nombre"), /* @__PURE__ */ React.createElement("th", null, "Correo"), /* @__PURE__ */ React.createElement("th", null, "Rol"), /* @__PURE__ */ React.createElement("th", null, "Módulo"), /* @__PURE__ */ React.createElement("th", null, "Permisos"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, usuariosVisibles.map(function(user) {
       const isAdmin = user.role === "admin";
-      return /* @__PURE__ */ React.createElement("tr", { key: user.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, user.nombre || "Sin nombre"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, user.email), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${isAdmin ? "pill-rojo" : "pill-azul"}` }, isAdmin ? "Admin" : "Usuario")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${user.modulo === "bar" ? "pill-naranja" : user.modulo === "cocina" ? "pill-verde" : "pill-gris"}` }, user.modulo === "bar" ? "Bar" : user.modulo === "cocina" ? "Cocina" : "Ambos")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, (user.permisos || []).map(function(key) {
+      return /* @__PURE__ */ React.createElement("tr", { key: user.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, user.nombre || "Sin nombre"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, user.email), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${isAdmin ? "pill-rojo" : "pill-azul"}` }, isAdmin ? "Admin" : "Usuario")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${user.modulo === "bar" ? "pill-naranja" : user.modulo === "cocina" ? "pill-verde" : user.modulo === "sharp" ? "pill-azul" : "pill-gris"}` }, user.modulo === "bar" ? "Bar" : user.modulo === "cocina" ? "Cocina" : user.modulo === "sharp" ? "Sharp" : "Todos")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, (user.permisos || []).map(function(key) {
         const found = PERMISSION_OPTIONS.find(function(perm) {
           return perm.key === key;
         });
@@ -2391,6 +2421,36 @@ Solicitado: ${cantidad}`);
         autoFocus: true
       }
     ))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: confirmar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Confirmar"))));
+  }
+  function SharpLimpiezaPage() {
+    const [frameKey, setFrameKey] = useState(() => Date.now());
+    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } },
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, "Sharp de Limpieza"),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setFrameKey(Date.now()) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-right" }), "Recargar"),
+            /* @__PURE__ */ React.createElement("a", { className: "btn btn-azul btn-sm", href: "./sharp-limpieza/index.html", target: "_blank", rel: "noreferrer" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-up-right-from-square" }), "Abrir aparte")
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { padding: 0 } },
+          /* @__PURE__ */ React.createElement("iframe", {
+            key: frameKey,
+            src: "./sharp-limpieza/index.html",
+            title: "Sharp de Limpieza",
+            allow: "camera; clipboard-read; clipboard-write; fullscreen",
+            style: {
+              display: "block",
+              width: "100%",
+              height: "calc(100dvh - 180px)",
+              minHeight: "720px",
+              border: 0,
+              background: "#f3f4f6"
+            }
+          })
+        )
+      )
+    );
   }
   function Dashboard({ inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, onQuickNavigate }) {
     const productos = inventario.filter((r) => r.tipo === "producto").map((p) => ({
