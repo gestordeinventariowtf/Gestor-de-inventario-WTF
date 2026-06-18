@@ -879,6 +879,7 @@
     regSalidas: "wtf_reg_salidas",
     regDecomiso: "wtf_reg_decomiso",
     regProduccion: "wtf_reg_produccion",
+    recetasProduccion: "wtf_recetas_produccion",
     histDecomisoCocina: "wtf_hist_decomiso",
     googleConfig: "wtf_google_config",
     usuarios: "wtf_usuarios",
@@ -890,6 +891,7 @@
     regSalidas: "wtf_bar_reg_salidas",
     regDecomiso: "wtf_bar_reg_decomiso",
     regProduccion: "wtf_bar_reg_produccion",
+    recetasProduccion: "wtf_bar_recetas_produccion",
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
@@ -1055,6 +1057,7 @@
       regSalidas: state.regSalidas || [],
       regDecomiso: state.regDecomiso || [],
       regProduccion: state.regProduccion || [],
+      recetasProduccion: state.recetasProduccion || [],
       histDecomisoCocina: state.histDecomisoCocina || [],
       neveras: state.neveras || [],
       correos: state.correos || [],
@@ -1063,7 +1066,8 @@
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
       barRegDecomiso: state.barRegDecomiso || [],
-      barRegProduccion: state.barRegProduccion || []
+      barRegProduccion: state.barRegProduccion || [],
+      barRecetasProduccion: state.barRecetasProduccion || []
     });
   }
   async function googleFetchJson(url, token, options = {}) {
@@ -1571,6 +1575,7 @@
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
+    const [recetasProduccion, setRecetasProduccion] = useState(() => load(KEYS.recetasProduccion, []));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [neveras, setNeveras] = useState(() => load("wtf_neveras", [
       { nombre: "NEVERA 1", items: [] },
@@ -1586,6 +1591,7 @@
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
+    const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
     const [googleConfig, setGoogleConfig] = useState(() => {
       const saved = load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG);
       if (!saved.clientId) return GOOGLE_DEFAULT_CONFIG;
@@ -1613,6 +1619,7 @@
       regSalidas,
       regDecomiso,
       regProduccion,
+      recetasProduccion,
       histDecomisoCocina,
       neveras,
       correos,
@@ -1622,6 +1629,7 @@
       barRegSalidas,
       barRegDecomiso,
       barRegProduccion,
+      barRecetasProduccion,
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
@@ -1634,6 +1642,7 @@
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
+      if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
@@ -1643,6 +1652,7 @@
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
+      if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion);
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
@@ -1656,12 +1666,14 @@
     useEffect(() => save(KEYS.regSalidas, regSalidas), [regSalidas]);
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
+    useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
     useEffect(() => save(BAR_KEYS.regSalidas, barRegSalidas), [barRegSalidas]);
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
+    useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion), [barRecetasProduccion]);
     useEffect(() => {
       function checkGoogleReady() {
         const ready = Boolean(window.google && window.google.accounts && window.google.accounts.oauth2);
@@ -1898,7 +1910,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion]);
+    }, [firebaseCfg, inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -2094,6 +2106,8 @@ Solicitado: ${cantidad}`);
     const setActiveDecomiso = esBar ? setBarRegDecomiso : setRegDecomiso;
     const activeProduccion = esBar ? barRegProduccion : regProduccion;
     const setActiveProduccion = esBar ? setBarRegProduccion : setRegProduccion;
+    const activeRecetasProduccion = esBar ? barRecetasProduccion : recetasProduccion;
+    const setActiveRecetasProduccion = esBar ? setBarRecetasProduccion : setRecetasProduccion;
     const activeAddMovimiento = esBar ? addMovimientoBar : addMovimiento;
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, miseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
@@ -2107,7 +2121,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, producciones: activeProduccion, setProducciones: setActiveProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -2233,9 +2247,10 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, producciones, setProducciones, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
+    const [recipeModalOpen, setRecipeModalOpen] = useState(false);
     const [busqueda, setBusqueda] = useState("");
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
@@ -2265,6 +2280,9 @@ Solicitado: ${cantidad}`);
     const historial = useMemo(function() {
       return Array.isArray(producciones) ? [...producciones].reverse() : [];
     }, [producciones]);
+    const recetasOrdenadas = useMemo(function() {
+      return Array.isArray(recetas) ? [...recetas].reverse() : [];
+    }, [recetas]);
     function resetProductionForm() {
       setBusqueda("");
       setInsumos([]);
@@ -2277,6 +2295,14 @@ Solicitado: ${cantidad}`);
     }
     function closeProductionModal() {
       setModalOpen(false);
+      setError("");
+    }
+    function openRecipeModal() {
+      resetProductionForm();
+      setRecipeModalOpen(true);
+    }
+    function closeRecipeModal() {
+      setRecipeModalOpen(false);
       setError("");
     }
     function addInsumo(product) {
@@ -2439,6 +2465,80 @@ Solicitado: ${cantidad}`);
       closeProductionModal();
       resetProductionForm();
     }
+    function guardarReceta() {
+      setError("");
+      const nombreReceta = String(resultado.nombre || "").trim();
+      if (!insumos.length) {
+        setError("Agrega al menos un insumo para guardar la receta.");
+        return;
+      }
+      if (!nombreReceta) {
+        setError("Escribe el nombre de la receta o del producto producido.");
+        return;
+      }
+      const recetaItems = [];
+      for (const item of insumos) {
+        const product = productosMap[item.productId];
+        const qty = Number(String(item.cantidad || "").replace(",", "."));
+        if (!product) {
+          setError("Uno de los productos de la receta ya no existe.");
+          return;
+        }
+        if (!Number.isFinite(qty) || qty <= 0) {
+          setError(`Indica una cantidad valida para ${product.nombre}.`);
+          return;
+        }
+        recetaItems.push({
+          productId: product.id,
+          producto: product.nombre,
+          cantidad: Number(qty.toFixed(4)),
+          unidad: item.unidad,
+          medidaInventario: product.medida
+        });
+      }
+      setRecetas(function(prev) {
+        return [...(Array.isArray(prev) ? prev : []), {
+          id: `rec-${Date.now()}-${Math.random()}`,
+          fecha: new Date().toISOString(),
+          modulo: moduleLabel,
+          usuario: getUserDisplayLabel(currentUser),
+          nombre: nombreReceta,
+          cantidadObjetivo: Number(Number(String(resultado.cantidad || 0).replace(",", ".") || 0).toFixed(4)),
+          medidaObjetivo: resultado.medida,
+          insumos: recetaItems
+        }];
+      });
+      toast(`Receta guardada: ${nombreReceta}`, "ok");
+      closeRecipeModal();
+      resetProductionForm();
+    }
+    function cargarReceta(receta) {
+      setInsumos((receta.insumos || []).map(function(item) {
+        return {
+          rowId: `ins-${Date.now()}-${Math.random()}`,
+          productId: item.productId,
+          cantidad: String(item.cantidad || ""),
+          unidad: item.unidad || inferProductionUnit(item.medidaInventario)
+        };
+      }));
+      setResultado({
+        nombre: receta.nombre || "",
+        cantidad: receta.cantidadObjetivo ? String(receta.cantidadObjetivo) : "",
+        medida: receta.medidaObjetivo || "Uni"
+      });
+      setBusqueda("");
+      setError("");
+      setModalOpen(true);
+    }
+    function eliminarReceta(recetaId) {
+      if (!confirm("¿Eliminar esta receta?")) return;
+      setRecetas(function(prev) {
+        return (Array.isArray(prev) ? prev : []).filter(function(item) {
+          return item.id !== recetaId;
+        });
+      });
+      toast("Receta eliminada", "info");
+    }
     return /* @__PURE__ */ React.createElement("div", null,
       /* @__PURE__ */ React.createElement("div", { className: "action-bar" },
         /* @__PURE__ */ React.createElement("div", { className: "card", style: { flex: 1, minWidth: 220, marginBottom: 0 } },
@@ -2447,34 +2547,47 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18, color: "#111827", marginBottom: 4 } }, "Producción"),
               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Transforma productos de Inventario en nuevos productos producidos para ", moduleLabel, ".")
             ),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open" }), "Nueva receta"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
+            )
           )
         )
       ),
       /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
         /* @__PURE__ */ React.createElement("div", { className: "card" },
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
-            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-boxes-stacked", style: { marginRight: 7, color: "var(--verde)" } }), "Inventario disponible"),
-            /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, productosInventario.length, " productos")
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Recetas de Producción"),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, recetasOrdenadas.length, " recetas")
           ),
-          /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
-            /* @__PURE__ */ React.createElement("table", null,
-              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
-                /* @__PURE__ */ React.createElement("th", null, "Producto"),
-                /* @__PURE__ */ React.createElement("th", null, "Medida"),
-                /* @__PURE__ */ React.createElement("th", null, "Existencia")
-              )),
-              /* @__PURE__ */ React.createElement("tbody", null,
-                productosInventario.slice(0, 12).map(function(product) {
-                  return /* @__PURE__ */ React.createElement("tr", { key: product.id },
-                    /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, product.nombre),
-                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, product.medida)),
-                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: product.existencia <= 0 ? "exist-zero" : product.existencia < product.stockLunesJueves ? "exist-low" : "exist-ok" }, Number(product.existencia.toFixed(2)), " ", product.medida))
+          recetasOrdenadas.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
+            /* @__PURE__ */ React.createElement("i", { className: "fas fa-book", style: { fontSize: 30, display: "block", marginBottom: 8, color: "#9ca3af" } }),
+            "Aun no has guardado recetas para este módulo."
+          ) : /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+            recetasOrdenadas.map(function(receta) {
+              return /* @__PURE__ */ React.createElement("div", { key: receta.id, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#f8fafc", display: "grid", gap: 10 } },
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+                  /* @__PURE__ */ React.createElement("div", null,
+                    /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: "#111827" } }, receta.nombre),
+                    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, formatDatetime(receta.fecha), " · ", receta.usuario)
+                  ),
+                  /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, receta.cantidadObjetivo || 0, " ", receta.medidaObjetivo || "Uni")
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 5 } }, (receta.insumos || []).map(function(item, idx) {
+                  return /* @__PURE__ */ React.createElement("div", { key: `${receta.id}-${idx}`, style: { fontSize: 12, color: "#374151" } },
+                    /* @__PURE__ */ React.createElement("strong", null, item.producto),
+                    " · ",
+                    item.cantidad,
+                    " ",
+                    item.unidad
                   );
-                }),
-                productosInventario.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "3", style: { textAlign: "center", padding: "24px", color: "var(--gris)" } }, "No hay productos en inventario."))
-              )
-            )
+                })),
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                  /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { cargarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar en producción"),
+                  /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { eliminarReceta(receta.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar")
+                )
+              );
+            })
           )
         ),
         /* @__PURE__ */ React.createElement("div", { className: "card" },
@@ -2623,6 +2736,110 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeProductionModal }, "Cancelar"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarProduccion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Confirmar producción")
+            )
+          )
+        )
+      ),
+      recipeModalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: closeRecipeModal },
+        /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980, maxHeight: "92dvh" }, onClick: function(e) { e.stopPropagation(); } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Guardar Receta"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 16 } },
+            error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
+            /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+              /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "1. Buscar insumos")),
+                /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+                  /* @__PURE__ */ React.createElement("div", { className: "search-wrap" },
+                    /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busqueda, onChange: function(e) { setBusqueda(e.target.value); } })
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
+                    productosFiltrados.map(function(product) {
+                      return /* @__PURE__ */ React.createElement("button", {
+                        key: product.id,
+                        type: "button",
+                        className: "btn btn-outline",
+                        style: { justifyContent: "space-between", width: "100%", textAlign: "left", padding: "12px 14px" },
+                        onClick: function() { addInsumo(product); }
+                      },
+                        /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
+                          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" } }, product.nombre),
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                        ),
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Agregar")
+                      );
+                    }),
+                    productosFiltrados.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "var(--gris)", padding: "20px 12px", fontSize: 13 } }, "No hay productos disponibles para esa busqueda.")
+                  )
+                )
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+                  /* @__PURE__ */ React.createElement("h2", null, "2. Definir receta"),
+                  /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, insumos.length, " insumos")
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
+                    insumos.map(function(item) {
+                      const product = productosMap[item.productId];
+                      return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
+                          /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
+                            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
+                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                          ),
+                          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                        ),
+                        /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad de la receta"),
+                            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: item.cantidad, onChange: function(e) { updateInsumo(item.rowId, "cantidad", e.target.value); }, placeholder: "0.00" })
+                          ),
+                          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
+                            /* @__PURE__ */ React.createElement("select", { className: "form-control", value: item.unidad, onChange: function(e) { updateInsumo(item.rowId, "unidad", e.target.value); } },
+                              PRODUCTION_UNITS.map(function(unit) {
+                                return /* @__PURE__ */ React.createElement("option", { key: unit, value: unit }, unit);
+                              })
+                            )
+                          )
+                        )
+                      );
+                    }),
+                    insumos.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px dashed #cbd5e1", borderRadius: 12, padding: 18, textAlign: "center", color: "var(--gris)", fontSize: 13 } }, "Selecciona los productos que formaran parte de esta receta.")
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #e5e7eb", paddingTop: 14, display: "grid", gap: 12 } },
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre de la receta"),
+                      /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setError(""); }, placeholder: "Ej: Salsa burger, base alfredo, costillas marinadas..." })
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                      /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                        /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad objetivo"),
+                        /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: resultado.cantidad, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { cantidad: e.target.value }); }); setError(""); }, placeholder: "0.00" })
+                      ),
+                      /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                        /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad objetivo"),
+                        /* @__PURE__ */ React.createElement("select", { className: "form-control", value: resultado.medida, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { medida: e.target.value }); }); setError(""); } },
+                          PRODUCTION_UNITS.map(function(unit) {
+                            return /* @__PURE__ */ React.createElement("option", { key: unit, value: unit }, unit);
+                          })
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Guarda una receta para reutilizarla luego dentro del mismo módulo de Producción."),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeRecipeModal }, "Cancelar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarReceta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar receta")
             )
           )
         )
