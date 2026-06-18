@@ -1690,6 +1690,8 @@
       }
       resetGoogleSession();
       setAuthUserEmail("");
+      sessionStorage.removeItem("wtf_modulo");
+      setModulo(null);
       setPage("dashboard");
     }
     function loginWithCredentials(email, password) {
@@ -1699,7 +1701,7 @@
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
       setAuthUserEmail(user.email);
       const userModulo = isAdminUser(user) ? "ambos" : (user.modulo || "ambos");
-      const initialPage = userModulo === "sharp" ? "sharp" : isAdminUser(user) ? "dashboard" : user.permisos && user.permisos[0] || "dashboard";
+      const initialPage = userModulo === "sharp" ? "sharp" : "dashboard";
       setPage(initialPage);
       // Auto-asignar módulo si el usuario tiene uno específico
       if (userModulo !== "ambos") {
@@ -1875,6 +1877,11 @@
     useEffect(() => {
       if (modulo === "sharp" && page !== "sharp" && page !== "usuarios") {
         setPage("sharp");
+      }
+    }, [modulo, page]);
+    useEffect(() => {
+      if ((modulo === "cocina" || modulo === "bar") && page === "sharp") {
+        setPage("dashboard");
       }
     }, [modulo, page]);
     const productos = useMemo(
@@ -2077,7 +2084,7 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "modulo-grid" },
             /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-cocina",
-              onClick: () => { sessionStorage.setItem("wtf_modulo", "cocina"); setModulo("cocina"); }
+              onClick: () => { sessionStorage.setItem("wtf_modulo", "cocina"); setModulo("cocina"); setPage("dashboard"); }
             },
               /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "28px 20px" } },
                 /* @__PURE__ */ React.createElement("div", { style: { width: 72, height: 72, borderRadius: "50%", background: "linear-gradient(135deg,#15803d,#22c55e)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(34,197,94,0.35)" } },
@@ -2091,7 +2098,7 @@ Solicitado: ${cantidad}`);
             ),
             /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-bar",
-              onClick: () => { sessionStorage.setItem("wtf_modulo", "bar"); setModulo("bar"); }
+              onClick: () => { sessionStorage.setItem("wtf_modulo", "bar"); setModulo("bar"); setPage("dashboard"); }
             },
               /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "28px 20px" } },
                 /* @__PURE__ */ React.createElement("div", { style: { width: 72, height: 72, borderRadius: "50%", background: "linear-gradient(135deg,#b45309,#f59e0b)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(245,158,11,0.35)" } },
@@ -2127,6 +2134,7 @@ Solicitado: ${cantidad}`);
     }
     const barOcultos = ["mise"];
     const visibleNavItems = navItems.filter(function(item) {
+      if (!esSharp && item.key === "sharp") return false;
       if (esSharp && item.key !== "sharp" && item.key !== "usuarios") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
