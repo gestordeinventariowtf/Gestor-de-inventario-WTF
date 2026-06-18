@@ -34,7 +34,7 @@ const LEGEND = {
   none:   { symbol: "⚪", label: "Sin color definido en PDF",        short: "Sin color",            css: "lg-none"   }
 };
 
-let TASK_LIBRARY = {
+const DEFAULT_TASK_LIBRARY_COCINA = {
   Freidora: [
     { id: "canastas",            name: "Canastas",                              color: "orange" },
     { id: "tapas",               name: "Tapas",                                 color: "red"    },
@@ -140,6 +140,12 @@ let TASK_LIBRARY = {
   ]
 };
 
+function cloneDefaultTaskLibrary(moduleId) {
+  if (moduleId === "servicio") return {};
+  return JSON.parse(JSON.stringify(DEFAULT_TASK_LIBRARY_COCINA));
+}
+
+let TASK_LIBRARY = cloneDefaultTaskLibrary("cocina");
 let TEAM_NAMES = Object.keys(TASK_LIBRARY);
 const TASK_INDEX = buildTaskIndex();
 
@@ -1263,6 +1269,10 @@ function rebuildLibraryDerived() {
   updateTeamSelectors();
 }
 
+function getLibraryPathForModule() {
+  return getCleaningModuleId() === "servicio" ? "library_servicio" : "library_cocina";
+}
+
 function saveLibraryToFirebase() {
   if (!libraryRef) return;
   libraryRef.set(JSON.stringify(TASK_LIBRARY))
@@ -1270,21 +1280,41 @@ function saveLibraryToFirebase() {
 }
 
 function initLibrarySync() {
-  if (!firebaseDB) return;
-  libraryRef = firebaseDB.ref("library");
-  libraryRef.on("value", (snap) => {
+  if (libraryRef) {
+    libraryRef.off();
+    libraryRef = null;
+  }
+  TASK_LIBRARY = cloneDefaultTaskLibrary(getCleaningModuleId());
+  rebuildLibraryDerived();
+  renderTable();
+  if (!firebaseDB || !currentCleaningModule) return;
+  libraryRef = firebaseDB.ref(getLibraryPathForModule());
+  libraryRef.on("value", async (snap) => {
     const json = snap.val();
-    if (!json) return;
-    try {
-      TASK_LIBRARY = JSON.parse(json);
-      TEAM_NAMES   = Object.keys(TASK_LIBRARY);
-      TASK_INDEX.clear();
-      for (const [team, tasks] of Object.entries(TASK_LIBRARY)) {
-        for (const task of tasks) TASK_INDEX.set(`${team}__${task.id}`, task);
+    if (!json) {
+      if (getCleaningModuleId() === "cocina") {
+        try {
+          const legacySnap = await firebaseDB.ref("library").get();
+          const legacyJson = legacySnap.val();
+          if (legacyJson) {
+            TASK_LIBRARY = JSON.parse(legacyJson);
+            saveLibraryToFirebase();
+            rebuildLibraryDerived();
+            renderTable();
+            if (!modalOverlay.classList.contains("hidden")) renderTaskChecklist(taskTeam.value);
+            if (!libraryMgmtView.classList.contains("hidden")) renderLibraryMgmt();
+            return;
+          }
+        } catch (_) {}
       }
-      updateTeamSelectors();
+      saveLibraryToFirebase();
+      return;
+    }
+    try {
+      TASK_LIBRARY = JSON.parse(json) || {};
+      rebuildLibraryDerived();
       if (modalOverlay.classList.contains("hidden")) {
-        renderTable(); // re-render chips with proper task names now that library loaded
+        renderTable();
       }
       if (!modalOverlay.classList.contains("hidden")) {
         renderTaskChecklist(taskTeam.value);
@@ -1773,7 +1803,6 @@ function initFirebaseConnection() {
       }
     });
 
-    initLibrarySync();
     initBranchConfigSync();
     window.setTimeout(() => {
       if (branchConfigReady || branches.length > 0) return;
@@ -1858,6 +1887,7 @@ function selectCleaningModule(moduleId) {
   currentCleaningModule = found;
   updateModuleLabel();
   hideModuleSelector();
+  initLibrarySync();
   state = currentBranch ? loadState() || createInitialState() : createInitialState();
   selectedCell = null;
   updateTeamSelectors();
