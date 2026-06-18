@@ -2136,7 +2136,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, miseAnPlace, setMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -2262,7 +2262,7 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -2304,6 +2304,100 @@ Solicitado: ${cantidad}`);
       setRecipesUnlocked(false);
       setRecipeAccessModal(false);
     }, [moduleLabel]);
+    function resolveProducedMiseUnit(unit) {
+      const normalized = normalizeUnit(unit);
+      if (normalized === "lb") return "Lb";
+      if (normalized === "oz") return "Oz";
+      return "Uni";
+    }
+    function getNameSimilarityScore(sourceName, targetName) {
+      const source = normalizar(sourceName);
+      const target = normalizar(targetName);
+      if (!source || !target) return 0;
+      if (source === target) return 100;
+      if (source.includes(target) || target.includes(source)) return 80;
+      const sourceTokens = source.split(/\s+/).filter(Boolean);
+      const targetTokens = target.split(/\s+/).filter(Boolean);
+      if (!sourceTokens.length || !targetTokens.length) return 0;
+      const sharedTokens = sourceTokens.filter(function(token) {
+        return targetTokens.includes(token);
+      });
+      if (!sharedTokens.length) return 0;
+      return Math.round(sharedTokens.length / Math.max(sourceTokens.length, targetTokens.length) * 70);
+    }
+    function findBestMiseMatch(productoProducido) {
+      let bestMatch = null;
+      let bestScore = 0;
+      for (const item of Array.isArray(miseAnPlace) ? miseAnPlace : []) {
+        const score = getNameSimilarityScore(productoProducido, item.producto);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+        }
+      }
+      return bestScore >= 55 ? bestMatch : null;
+    }
+    function transferirProduccion(row) {
+      if (!row || row.transferidoAMiseAt) {
+        toast("Esta producción ya fue transferida a Mise an Place.", "info");
+        return;
+      }
+      const cantidad = Number(row.cantidadProducida || 0);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        toast("La producción no tiene una cantidad válida para transferir.", "error");
+        return;
+      }
+      const productoNombre = String(row.productoProducido || "").trim();
+      if (!productoNombre) {
+        toast("La producción no tiene nombre de producto.", "error");
+        return;
+      }
+      const unidadProducida = resolveProducedMiseUnit(row.medidaProducida);
+      const match = findBestMiseMatch(productoNombre);
+      const fechaTransferencia = new Date().toISOString();
+      setMise(function(prev) {
+        const current = Array.isArray(prev) ? prev : [];
+        if (match) {
+          const destinoUnidad = normalizarMedidaMise(match.medida || unidadProducida);
+          const cantidadConvertida = convertirCantidadMise(cantidad, unidadProducida, destinoUnidad);
+          if (cantidadConvertida != null) {
+            return current.map(function(item) {
+              if (item.id !== match.id) return item;
+              return Object.assign({}, item, {
+                existencia: Number(((Number(item.existencia) || 0) + cantidadConvertida).toFixed(4)),
+                medida: destinoUnidad
+              });
+            });
+          }
+        }
+        const nextId = Math.max(0, ...current.map(function(item) {
+          return Number(item.id) || 0;
+        })) + 1;
+        return [...current, {
+          id: nextId,
+          producto: productoNombre,
+          existencia: Number(cantidad.toFixed(4)),
+          medida: unidadProducida
+        }];
+      });
+      setProducciones(function(prev) {
+        return (Array.isArray(prev) ? prev : []).map(function(item) {
+          return item.id === row.id ? Object.assign({}, item, {
+            transferidoAMiseAt: fechaTransferencia,
+            transferidoAMiseTarget: match ? match.producto : productoNombre
+          }) : item;
+        });
+      });
+      if (match) {
+        const unidadDestino = normalizarMedidaMise(match.medida || unidadProducida);
+        const cantidadDestino = convertirCantidadMise(cantidad, unidadProducida, unidadDestino);
+        if (cantidadDestino != null) {
+          toast(`Producción transferida a Mise an Place: ${match.producto}`, "ok");
+          return;
+        }
+      }
+      toast(`Producción agregada como nuevo producto en Mise an Place: ${productoNombre}`, "ok");
+    }
     function resetProductionForm() {
       setBusqueda("");
       setInsumos([]);
@@ -2617,7 +2711,8 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("th", null, "Fecha"),
                 /* @__PURE__ */ React.createElement("th", null, "Producto producido"),
                 /* @__PURE__ */ React.createElement("th", null, "Cantidad"),
-                /* @__PURE__ */ React.createElement("th", null, "Insumos")
+                /* @__PURE__ */ React.createElement("th", null, "Insumos"),
+                /* @__PURE__ */ React.createElement("th", null, "Acciones")
               )),
               /* @__PURE__ */ React.createElement("tbody", null, historial.map(function(row) {
                 return /* @__PURE__ */ React.createElement("tr", { key: row.id },
@@ -2642,6 +2737,12 @@ Solicitado: ${cantidad}`);
                         ")"
                       );
                     }))
+                  ),
+                  /* @__PURE__ */ React.createElement("td", null,
+                    row.transferidoAMiseAt ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
+                      /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Transferido"),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", minWidth: 140 } }, row.transferidoAMiseTarget || "Mise an Place")
+                    ) : /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { transferirProduccion(row); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir producción")
                   )
                 );
               }))
