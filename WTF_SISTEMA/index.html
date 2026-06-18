@@ -38,7 +38,7 @@
       --blanco: #fff;
       --borde: #e5e7eb;
       --sidebar-w: 240px;
-      --topbar-h: 54px;
+      --topbar-h: 50px;
     }
 
     /* ── Scrollbar ── */
@@ -148,40 +148,48 @@
     .topbar {
       background: var(--blanco);
       border-bottom: 1px solid var(--borde);
-      padding: 0 16px;
+      padding: 0 14px;
       height: var(--topbar-h);
       display: flex; align-items: center; justify-content: space-between;
       position: sticky; top: 0; z-index: 100;
       flex-shrink: 0;
-      gap: 10px;
+      gap: 8px;
     }
-    .topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .topbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .hamburger {
       background: transparent;
       border: 0;
       cursor: pointer;
       color: #374151;
       font-size: 18px;
-      padding: 4px 6px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
       border-radius: 5px;
       flex-shrink: 0;
       display: none;
     }
     .hamburger:hover { background: #f3f4f6; }
     .topbar h1 {
-      font-size: clamp(14px, 3vw, 18px);
+      font-size: clamp(13px, 2.3vw, 17px);
       font-weight: 600;
       color: #111;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      max-width: min(72vw, 980px);
+    }
     .date-badge {
       background: #fef3c7;
       color: #92400e;
-      font-size: 11px;
-      padding: 3px 9px;
+      font-size: 10px;
+      padding: 3px 8px;
       border-radius: 999px;
       font-weight: 600;
       white-space: nowrap;
@@ -189,9 +197,9 @@
     .sync-badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      padding: 4px 9px;
+      gap: 5px;
+      font-size: 10px;
+      padding: 4px 8px;
       border-radius: 999px;
       font-weight: 600;
       white-space: nowrap;
@@ -204,19 +212,23 @@
     .account-badge {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 4px 10px;
+      gap: 6px;
+      padding: 4px 8px;
       border-radius: 999px;
       background: #eff6ff;
       color: #1d4ed8;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       white-space: nowrap;
-      max-width: 280px;
+      max-width: 160px;
     }
     .account-badge span {
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .topbar-right .btn.btn-sm {
+      padding: 5px 8px;
+      font-size: 11px;
     }
 
     .login-screen {
@@ -410,6 +422,7 @@
       margin-bottom: 14px; align-items: center;
     }
     .action-bar .search-wrap { flex: 1; min-width: 160px; max-width: 320px; }
+    .action-bar > * { min-width: 0; }
     .stock-alert-banner {
       flex: 1 1 260px;
       min-width: 220px;
@@ -435,6 +448,10 @@
       justify-content: flex-end;
     }
     .stock-alert-banner .btn { box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    .stock-alert-banner > div:first-child {
+      min-width: 0;
+      flex: 1 1 180px;
+    }
 
     /* ── Forms ── */
     .form-group { margin-bottom: 13px; }
@@ -458,6 +475,8 @@
     .search-wrap { position: relative; }
     .search-wrap .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 13px; pointer-events: none; }
     .search-wrap input { padding-left: 32px; }
+    .search-wrap,
+    .search-wrap input { min-width: 0; }
 
     /* ── Table ── */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
@@ -631,6 +650,97 @@
       .sidebar-close-btn { display: flex; align-items: center; }
       .hamburger { display: flex; align-items: center; justify-content: center; }
       .main { margin-left: 0 !important; }
+      .topbar {
+        height: auto;
+        min-height: var(--topbar-h);
+        align-items: flex-start;
+        flex-wrap: wrap;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        row-gap: 10px;
+      }
+      .topbar-left {
+        width: 100%;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .topbar h1 {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        line-height: 1.2;
+        padding-top: 3px;
+      }
+      .topbar-right {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 10px;
+        padding-left: 0;
+      }
+      .topbar-right > * {
+        margin: 0;
+      }
+      .topbar-right .btn,
+      .topbar-right .sync-badge,
+      .topbar-right .date-badge {
+        min-height: 40px;
+      }
+      .topbar-right .btn {
+        justify-content: center;
+        padding: 8px 12px;
+      }
+      .action-bar {
+        align-items: stretch;
+        gap: 10px;
+      }
+      .action-bar .search-wrap,
+      .action-bar > .btn,
+      .action-bar > .btn-outline,
+      .action-bar > .btn-verde,
+      .action-bar > .btn-azul,
+      .action-bar > .btn-naranja,
+      .action-bar > .btn-rojo,
+      .action-bar > select,
+      .action-bar > input {
+        flex: 1 1 220px;
+      }
+      .stock-alert-banner {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .stock-alert-banner small {
+        white-space: normal;
+      }
+      .stock-alert-banner-actions {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+      }
+      .stock-alert-banner-actions .btn {
+        flex: 1 1 180px;
+      }
+      .table-wrap {
+        border-radius: 10px;
+      }
+      table {
+        min-width: 640px;
+      }
+      .tabs {
+        gap: 6px;
+        padding-bottom: 4px;
+        scrollbar-width: thin;
+      }
+      .tab {
+        padding: 10px 12px;
+      }
+      .modal-footer {
+        justify-content: stretch;
+      }
+      .modal-footer .btn {
+        flex: 1 1 180px;
+        justify-content: center;
+      }
       .grid-dash { grid-template-columns: 1fr; }
       .grid-2 { grid-template-columns: 1fr; }
       .modal { max-width: 100%; border-radius: 14px; }
@@ -640,7 +750,7 @@
 
     /* Mobile ≤ 480px */
     @media (max-width: 480px) {
-      :root { --topbar-h: 50px; }
+      :root { --topbar-h: 56px; }
       .content { padding: 10px; }
       .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
       .stat-card { padding: 11px 12px; }
@@ -649,8 +759,59 @@
       .card-header { padding: 10px 12px; }
       .card-body { padding: 12px; }
       .action-bar { gap: 6px; }
+      .action-bar .search-wrap,
+      .action-bar > .btn,
+      .action-bar > .btn-outline,
+      .action-bar > .btn-verde,
+      .action-bar > .btn-azul,
+      .action-bar > .btn-naranja,
+      .action-bar > .btn-rojo,
+      .action-bar > select,
+      .action-bar > input {
+        flex-basis: 100%;
+        max-width: 100%;
+      }
       .btn { font-size: 12px; padding: 7px 11px; }
       .btn-sm { padding: 4px 8px; font-size: 11px; }
+      .hamburger {
+        width: 46px;
+        height: 46px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid #dbe3ea;
+        box-shadow: 0 1px 2px rgba(15,23,42,.06);
+      }
+      .topbar {
+        padding-top: 12px;
+        padding-bottom: 12px;
+      }
+      .topbar-left {
+        align-items: center;
+      }
+      .topbar-right {
+        gap: 8px;
+      }
+      .topbar-right .btn,
+      .topbar-right .sync-badge {
+        width: 100%;
+      }
+      .stock-alert-banner {
+        min-width: 0;
+        padding: 10px 12px;
+      }
+      .stock-alert-banner-actions {
+        gap: 8px;
+      }
+      .stock-alert-banner-actions .btn {
+        width: 100%;
+      }
+      .tabs {
+        gap: 8px;
+      }
+      .tab {
+        padding: 10px 11px;
+        font-size: 12px;
+      }
       thead th { font-size: 10px; padding: 8px 9px; }
       tbody td { padding: 8px 9px; font-size: 12px; }
       .mise-row { grid-template-columns: 1fr 76px 26px; gap: 5px; }
@@ -658,6 +819,9 @@
       .modal-body { padding: 14px; }
       .modal-header { padding: 12px 14px; }
       .modal-footer { padding: 10px 14px; }
+      .modal-footer .btn {
+        flex-basis: 100%;
+      }
       .date-badge { display: none; }
     }
 
@@ -665,6 +829,16 @@
     @media (max-width: 360px) {
       .stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
       .stat-value { font-size: 20px; }
+      .topbar h1 {
+        font-size: 14px;
+      }
+      .hamburger {
+        width: 44px;
+        height: 44px;
+      }
+      .topbar-right {
+        gap: 6px;
+      }
     }
 
     /* Safe area insets for notched devices */
@@ -751,7 +925,8 @@
     { key: "mise", label: "Mise an Place" },
     { key: "listado", label: "Listado de Compra" },
     { key: "registros", label: "Registros" },
-    { key: "histDecomiso", label: "Historial Decomiso" }
+    { key: "histDecomiso", label: "Historial Decomiso" },
+    { key: "produccion", label: "Produccion" }
   ];
   const DEFAULT_FIREBASE_SYNC_CONFIG = {
     enabled: false,
@@ -1801,7 +1976,8 @@ Solicitado: ${cantidad}`);
       { key: "listado", icon: "fa-cart-shopping", label: "Listado de Compra", section: null },
       { key: "registros", icon: "fa-clock-rotate-left", label: "Registros", section: "REPORTES" },
       { key: "histDecomiso", icon: "fa-file-lines", label: "Historial Decomiso", section: null },
-      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" }
+      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" },
+      { key: "produccion", icon: "fa-industry", label: "Produccion", section: null }
     ];
     const titles = {
       dashboard: "Dashboard",
@@ -1813,7 +1989,8 @@ Solicitado: ${cantidad}`);
       listado: "Listado de Compra",
       registros: "Registros de Movimientos",
       histDecomiso: "Historial Decomiso Cocina",
-      usuarios: "Administrar Usuarios"
+      usuarios: "Administrar Usuarios",
+      produccion: "Produccion"
     };
     const esBar = modulo === "bar";
     const activeInv = esBar ? barInventario : inventario;
@@ -1836,10 +2013,11 @@ Solicitado: ${cantidad}`);
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras }),
-      listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession }),
+      listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
-      usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios })
+      usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, null)
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -1891,7 +2069,7 @@ Solicitado: ${cantidad}`);
                 ),
                 /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } },
                   /* @__PURE__ */ React.createElement("div", { style: { fontSize: "clamp(18px,3vw,24px)", fontWeight: 800, color: "#fff", marginBottom: 6 } }, "Bar"),
-                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 } }, "Inventario independiente", /* @__PURE__ */ React.createElement("br"), "Entradas · Salidas · Decomiso")
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 } }, "Inventario independiente", /* @__PURE__ */ React.createElement("br"), "Entradas · Salidas · Decomiso · Listado")
                 )
               )
             )
@@ -1903,7 +2081,7 @@ Solicitado: ${cantidad}`);
         )
       );
     }
-    const barOcultos = ["mise", "listado"];
+    const barOcultos = ["mise"];
     const visibleNavItems = navItems.filter(function(item) {
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
@@ -1946,6 +2124,23 @@ Solicitado: ${cantidad}`);
         onConfirm: () => { setPedirClaveModulo(false); sessionStorage.removeItem("wtf_modulo"); setModulo(null); }
       }
     ));
+  }
+  function ProduccionPage() {
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      { className: "card" },
+      /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Produccion")),
+      /* @__PURE__ */ React.createElement(
+        "div",
+        { className: "card-body" },
+        /* @__PURE__ */ React.createElement("p", null, "Modulo de produccion activo."),
+        /* @__PURE__ */ React.createElement(
+          "a",
+          { className: "btn btn-verde", href: "https://gestor-de-inventario-wtf-prod.web.app", target: "_blank", rel: "noreferrer" },
+          "Abrir sitio"
+        )
+      )
+    );
   }
   function LoginScreen({ onLogin, toast }) {
     const [email, setEmail] = useState("");
@@ -2716,7 +2911,7 @@ Cantidad: ${cant}`);
       }
     ))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: confirmar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir"))));
   }
-  function ListadoCompra({ inventario, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession }) {
+  function ListadoCompra({ inventario, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel = "Cocina" }) {
     const toast = useToast();
     const [tipoStock, setTipoStock] = useState("lunes_jueves");
     const [listado, setListado] = useState(null);
@@ -3003,7 +3198,8 @@ Cantidad: ${cant}`);
         toast(`Descargado: ${nombreArchivo} - Configura Google para crear la hoja online.`);
       }
     }
-    const titulo = tipoStock === "lunes_jueves" ? "LUNES \u2014 JUEVES" : "VIERNES \u2014 DOMINGO";
+    const periodoTitulo = tipoStock === "lunes_jueves" ? "LUNES \u2014 JUEVES" : "VIERNES \u2014 DOMINGO";
+    const titulo = `${moduleLabel} \u2014 ${periodoTitulo}`;
     const itemsFiltrados = listado ? listado.items.filter((p) => {
       const f = filtros;
       return (!f.producto || p.nombre.toLowerCase().includes(f.producto.toLowerCase())) && (!f.suplidor || (p.suplidor || "").toLowerCase().includes(f.suplidor.toLowerCase())) && (!f.medida || (p.medida || "").toLowerCase().includes(f.medida.toLowerCase())) && (!f.stockReq || String(p.stock).includes(f.stockReq)) && (!f.existencia || String(Number(p.existencia.toFixed(2))).includes(f.existencia)) && (!f.comprar || String(Number(p.comprar.toFixed(2))).includes(f.comprar));
