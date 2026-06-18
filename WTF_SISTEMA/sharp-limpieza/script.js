@@ -2512,6 +2512,102 @@ function autoFillCalendar() {
   if (selectedCell) closeModal();
 }
 
+function resolveTaskFrequencyInterval(task) {
+  const legend = LEGEND[task && task.color] || LEGEND.none;
+  const rawText = `${task && task.frequency ? task.frequency : ""} ${legend.short || ""} ${legend.label || ""}`;
+  const normalized = normalizeText(rawText);
+  const match = normalized.match(/cada\s+(\d+)\s+dia/);
+  if (match) {
+    const parsed = Number(match[1]);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (normalized.includes("seman")) return 7;
+  if (task && task.color === "red") return 1;
+  if (task && task.color === "orange") return 3;
+  if (task && task.color === "yellow") return 4;
+  return 7;
+}
+
+function buildTaskDaysForWeek(task) {
+  const interval = resolveTaskFrequencyInterval(task);
+  if (interval <= 1) return [0, 1, 2, 3, 4, 5, 6];
+  if (interval >= 7) return [Math.floor(Math.random() * 7)];
+  const startOffset = Math.floor(Math.random() * Math.min(interval, 7));
+  const days = [];
+  for (let day = startOffset; day < 7; day += interval) {
+    days.push(day);
+  }
+  return days.length ? days : [Math.floor(Math.random() * 7)];
+}
+
+function pickCollaboratorForAutoFill(dayIndex, dayLoads, weekLoads) {
+  let bestDayLoad = Infinity;
+  let bestWeekLoad = Infinity;
+  let candidates = [];
+  for (let index = 0; index < dayLoads.length; index++) {
+    const currentDayLoad = dayLoads[index][dayIndex];
+    const currentWeekLoad = weekLoads[index];
+    if (currentDayLoad < bestDayLoad || currentDayLoad === bestDayLoad && currentWeekLoad < bestWeekLoad) {
+      bestDayLoad = currentDayLoad;
+      bestWeekLoad = currentWeekLoad;
+      candidates = [index];
+      continue;
+    }
+    if (currentDayLoad === bestDayLoad && currentWeekLoad === bestWeekLoad) {
+      candidates.push(index);
+    }
+  }
+  if (!candidates.length) return 0;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function autoFillCalendar() {
+  const allTasks = [];
+  for (const [team, tasks] of Object.entries(TASK_LIBRARY)) {
+    for (const task of tasks) {
+      allTasks.push({ team, taskId: task.id, color: task.color || "none", frequency: task.frequency || "" });
+    }
+  }
+  if (allTasks.length === 0) {
+    alert("La biblioteca estÃ¡ vacÃ­a. Agrega tareas antes de usar Auto-llenar.");
+    return;
+  }
+  const collabs = state.collaborators;
+  const numCollabs = collabs.length;
+  if (numCollabs === 0) {
+    alert("Agrega colaboradores antes de usar Auto-llenar.");
+    return;
+  }
+  for (const key of Object.keys(state.tasks)) {
+    if (key.startsWith(`${currentWeekStart}__`)) delete state.tasks[key];
+  }
+  const dayPools = Array.from({ length: 7 }, () => []);
+  for (const task of allTasks) {
+    for (const dayIndex of buildTaskDaysForWeek(task)) {
+      dayPools[dayIndex].push(task);
+    }
+  }
+  const dayLoads = Array.from({ length: numCollabs }, () => Array(7).fill(0));
+  const weekLoads = Array(numCollabs).fill(0);
+  for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+    const usedPerDay = new Set();
+    for (const task of shuffleArray(dayPools[dayIndex])) {
+      const uid = `${task.team}__${task.taskId}`;
+      if (usedPerDay.has(uid)) continue;
+      usedPerDay.add(uid);
+      const collaboratorIndex = pickCollaboratorForAutoFill(dayIndex, dayLoads, weekLoads);
+      const key = buildCellKey(collabs[collaboratorIndex].id, dayIndex);
+      if (!state.tasks[key]) state.tasks[key] = { free: false, items: [] };
+      state.tasks[key].items.push({ id: createId(), team: task.team, taskId: task.taskId, done: false });
+      dayLoads[collaboratorIndex][dayIndex] += 1;
+      weekLoads[collaboratorIndex] += 1;
+    }
+  }
+  saveState();
+  renderTable();
+  if (selectedCell) closeModal();
+}
+
 // Returns "YYYY-MM-DD" of the active week's Monday.
 // If today is Sunday at or after 05:00, the active week is next week.
 function getActiveWeekMondayStr() {
