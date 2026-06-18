@@ -878,6 +878,7 @@
     regEntradas: "wtf_reg_entradas",
     regSalidas: "wtf_reg_salidas",
     regDecomiso: "wtf_reg_decomiso",
+    regProduccion: "wtf_reg_produccion",
     histDecomisoCocina: "wtf_hist_decomiso",
     googleConfig: "wtf_google_config",
     usuarios: "wtf_usuarios",
@@ -888,6 +889,7 @@
     regEntradas: "wtf_bar_reg_entradas",
     regSalidas: "wtf_bar_reg_salidas",
     regDecomiso: "wtf_bar_reg_decomiso",
+    regProduccion: "wtf_bar_reg_produccion",
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
@@ -912,6 +914,46 @@
     if (!d) return "";
     const dt = new Date(d);
     return isNaN(dt) ? String(d) : dt.toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+  const PRODUCTION_UNITS = ["Uni", "g", "oz", "lb"];
+  function normalizeUnit(unit) {
+    const normalized = normalizar(unit);
+    if (!normalized) return "uni";
+    if (["uni", "unidad", "unidades", "und", "unds"].includes(normalized)) return "uni";
+    if (["g", "gr", "gramo", "gramos"].includes(normalized)) return "g";
+    if (["kg", "kilo", "kilos", "kilogramo", "kilogramos"].includes(normalized)) return "kg";
+    if (["oz", "onza", "onzas"].includes(normalized)) return "oz";
+    if (["lb", "lbs", "libra", "libras"].includes(normalized)) return "lb";
+    return normalized;
+  }
+  function inferProductionUnit(unit) {
+    const normalized = normalizeUnit(unit);
+    if (normalized === "kg") return "g";
+    if (normalized === "g" || normalized === "oz" || normalized === "lb") return normalized;
+    return "Uni";
+  }
+  function convertMeasureQuantity(amount, fromUnit, toUnit) {
+    const qty = Number(amount);
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+    const from = normalizeUnit(fromUnit);
+    const to = normalizeUnit(toUnit);
+    if (from === to) return qty;
+    const gramsPerUnit = { g: 1, kg: 1e3, oz: 28.349523125, lb: 453.59237 };
+    if (gramsPerUnit[from] && gramsPerUnit[to]) {
+      return qty * gramsPerUnit[from] / gramsPerUnit[to];
+    }
+    const fromMass = Boolean(gramsPerUnit[from]);
+    const toMass = Boolean(gramsPerUnit[to]);
+    if (!fromMass && !toMass) {
+      return qty;
+    }
+    return null;
+  }
+  function getInventoryExistence(item) {
+    return Number((item && item.entrada || 0) - (item && item.salida || 0) - (item && item.decomiso || 0));
+  }
+  function nextInventoryRowId(rows) {
+    return Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
   }
   const GOOGLE_SCOPES = [
     "openid",
@@ -1012,6 +1054,7 @@
       regEntradas: state.regEntradas || [],
       regSalidas: state.regSalidas || [],
       regDecomiso: state.regDecomiso || [],
+      regProduccion: state.regProduccion || [],
       histDecomisoCocina: state.histDecomisoCocina || [],
       neveras: state.neveras || [],
       correos: state.correos || [],
@@ -1019,7 +1062,8 @@
       barInventario: state.barInventario || [],
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
-      barRegDecomiso: state.barRegDecomiso || []
+      barRegDecomiso: state.barRegDecomiso || [],
+      barRegProduccion: state.barRegProduccion || []
     });
   }
   async function googleFetchJson(url, token, options = {}) {
@@ -1526,6 +1570,7 @@
     const [regEntradas, setRegEntradas] = useState(() => loadSeeded(KEYS.regEntradas, initRegEntradas, []));
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
+    const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [neveras, setNeveras] = useState(() => load("wtf_neveras", [
       { nombre: "NEVERA 1", items: [] },
@@ -1540,6 +1585,7 @@
     const [barRegEntradas, setBarRegEntradas] = useState(() => load(BAR_KEYS.regEntradas, []));
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
+    const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [googleConfig, setGoogleConfig] = useState(() => {
       const saved = load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG);
       if (!saved.clientId) return GOOGLE_DEFAULT_CONFIG;
@@ -1566,6 +1612,7 @@
       regEntradas,
       regSalidas,
       regDecomiso,
+      regProduccion,
       histDecomisoCocina,
       neveras,
       correos,
@@ -1574,6 +1621,7 @@
       barRegEntradas,
       barRegSalidas,
       barRegDecomiso,
+      barRegProduccion,
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
@@ -1585,6 +1633,7 @@
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(nextState.regEntradas);
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
+      if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
@@ -1593,6 +1642,7 @@
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(nextState.barRegEntradas);
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
+      if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
@@ -1605,11 +1655,13 @@
     useEffect(() => save(KEYS.regEntradas, regEntradas), [regEntradas]);
     useEffect(() => save(KEYS.regSalidas, regSalidas), [regSalidas]);
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
+    useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
     useEffect(() => save(BAR_KEYS.regSalidas, barRegSalidas), [barRegSalidas]);
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
+    useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
     useEffect(() => {
       function checkGoogleReady() {
         const ready = Boolean(window.google && window.google.accounts && window.google.accounts.oauth2);
@@ -1846,7 +1898,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, histDecomisoCocina, neveras, correos, usuarios, barInventario, barRegEntradas, barRegSalidas, barRegDecomiso]);
+    }, [firebaseCfg, inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -2001,6 +2053,7 @@ Solicitado: ${cantidad}`);
       { key: "dashboard", icon: "fa-home", label: "Dashboard", section: "GENERAL" },
       { key: "sharp", icon: "fa-soap", label: "Sharp de Limpieza", section: null },
       { key: "inventario", icon: "fa-boxes-stacked", label: "Inventario", section: null },
+      { key: "produccion", icon: "fa-industry", label: "Producción", section: null },
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
       { key: "decomiso", icon: "fa-trash-can", label: "Decomiso", section: null },
@@ -2008,8 +2061,7 @@ Solicitado: ${cantidad}`);
       { key: "listado", icon: "fa-cart-shopping", label: "Listado de Compra", section: null },
       { key: "registros", icon: "fa-clock-rotate-left", label: "Registros", section: "REPORTES" },
       { key: "histDecomiso", icon: "fa-file-lines", label: "Historial Decomiso", section: null },
-      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" },
-      { key: "produccion", icon: "fa-industry", label: "Produccion", section: null }
+      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" }
     ];
     const titles = {
       dashboard: "Dashboard",
@@ -2023,7 +2075,7 @@ Solicitado: ${cantidad}`);
       registros: "Registros de Movimientos",
       histDecomiso: "Historial Decomiso Cocina",
       usuarios: "Administrar Usuarios",
-      produccion: "Produccion"
+      produccion: "Producción"
     };
     const esBar = modulo === "bar";
     const esSharp = modulo === "sharp";
@@ -2040,6 +2092,8 @@ Solicitado: ${cantidad}`);
     const setActiveSalidas = esBar ? setBarRegSalidas : setRegSalidas;
     const activeDecomiso = esBar ? barRegDecomiso : regDecomiso;
     const setActiveDecomiso = esBar ? setBarRegDecomiso : setRegDecomiso;
+    const activeProduccion = esBar ? barRegProduccion : regProduccion;
+    const setActiveProduccion = esBar ? setBarRegProduccion : setRegProduccion;
     const activeAddMovimiento = esBar ? addMovimientoBar : addMovimiento;
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, miseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
@@ -2053,7 +2107,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, null)
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, producciones: activeProduccion, setProducciones: setActiveProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -2179,19 +2233,398 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage() {
-    return /* @__PURE__ */ React.createElement(
-      "div",
-      { className: "card" },
-      /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Produccion")),
-      /* @__PURE__ */ React.createElement(
-        "div",
-        { className: "card-body" },
-        /* @__PURE__ */ React.createElement("p", null, "Modulo de produccion activo."),
-        /* @__PURE__ */ React.createElement(
-          "a",
-          { className: "btn btn-verde", href: "https://gestor-de-inventario-wtf-prod.web.app", target: "_blank", rel: "noreferrer" },
-          "Abrir sitio"
+  function ProduccionPage({ inventario, setInventario, producciones, setProducciones, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, moduleLabel }) {
+    const toast = useToast();
+    const [modalOpen, setModalOpen] = useState(false);
+    const [busqueda, setBusqueda] = useState("");
+    const [insumos, setInsumos] = useState([]);
+    const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
+    const [error, setError] = useState("");
+    const productosInventario = useMemo(function() {
+      return inventario.filter(function(row) {
+        return row.tipo === "producto";
+      }).map(function(row) {
+        return Object.assign({}, row, { existencia: getInventoryExistence(row) });
+      }).sort(function(a, b) {
+        return a.nombre.localeCompare(b.nombre);
+      });
+    }, [inventario]);
+    const productosMap = useMemo(function() {
+      const map = {};
+      for (const product of productosInventario) map[product.id] = product;
+      return map;
+    }, [productosInventario]);
+    const productosFiltrados = useMemo(function() {
+      const q = normalizar(busqueda);
+      return productosInventario.filter(function(product) {
+        if (insumos.some(function(item) { return item.productId === product.id; })) return false;
+        if (!q) return true;
+        return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q);
+      }).slice(0, 18);
+    }, [productosInventario, busqueda, insumos]);
+    const historial = useMemo(function() {
+      return Array.isArray(producciones) ? [...producciones].reverse() : [];
+    }, [producciones]);
+    function resetProductionForm() {
+      setBusqueda("");
+      setInsumos([]);
+      setResultado({ nombre: "", cantidad: "", medida: "Uni" });
+      setError("");
+    }
+    function openProductionModal() {
+      resetProductionForm();
+      setModalOpen(true);
+    }
+    function closeProductionModal() {
+      setModalOpen(false);
+      setError("");
+    }
+    function addInsumo(product) {
+      setInsumos(function(prev) {
+        if (prev.some(function(item) { return item.productId === product.id; })) return prev;
+        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, cantidad: "", unidad: inferProductionUnit(product.medida) }];
+      });
+      setBusqueda("");
+      setError("");
+    }
+    function updateInsumo(rowId, field, value) {
+      setInsumos(function(prev) {
+        return prev.map(function(item) {
+          return item.rowId === rowId ? Object.assign({}, item, { [field]: value }) : item;
+        });
+      });
+      setError("");
+    }
+    function removeInsumo(rowId) {
+      setInsumos(function(prev) {
+        return prev.filter(function(item) {
+          return item.rowId !== rowId;
+        });
+      });
+      setError("");
+    }
+    function resolveInsumo(item) {
+      const product = productosMap[item.productId];
+      if (!product) return { error: "Uno de los productos seleccionados ya no existe en inventario." };
+      const qty = Number(String(item.cantidad || "").replace(",", "."));
+      if (!Number.isFinite(qty) || qty <= 0) return { error: `Indica una cantidad valida para ${product.nombre}.` };
+      const converted = convertMeasureQuantity(qty, item.unidad, product.medida);
+      if (converted == null) {
+        return { error: `No se puede convertir ${item.unidad} hacia ${product.medida} en ${product.nombre}.` };
+      }
+      if (converted - product.existencia > 1e-9) {
+        return { error: `${product.nombre} no tiene suficiente existencia. Disponible: ${Number(product.existencia.toFixed(2))} ${product.medida}.` };
+      }
+      return {
+        product,
+        qtyInput: qty,
+        inputUnit: item.unidad,
+        convertedQty: converted
+      };
+    }
+    function guardarProduccion() {
+      setError("");
+      const nombreProducido = String(resultado.nombre || "").trim();
+      const cantidadProducidaInput = Number(String(resultado.cantidad || "").replace(",", "."));
+      if (!insumos.length) {
+        setError("Agrega al menos un insumo desde Inventario.");
+        return;
+      }
+      if (!nombreProducido) {
+        setError("Escribe el nombre del producto producido.");
+        return;
+      }
+      if (!Number.isFinite(cantidadProducidaInput) || cantidadProducidaInput <= 0) {
+        setError("La cantidad producida debe ser mayor a cero.");
+        return;
+      }
+      const resolvedInsumos = [];
+      for (const item of insumos) {
+        const resolved = resolveInsumo(item);
+        if (resolved.error) {
+          setError(resolved.error);
+          return;
+        }
+        resolvedInsumos.push(resolved);
+      }
+      const existingProduced = productosInventario.find(function(product) {
+        return normalizar(product.nombre) === normalizar(nombreProducido);
+      });
+      const cantidadProducidaInventario = existingProduced ? convertMeasureQuantity(cantidadProducidaInput, resultado.medida, existingProduced.medida) : cantidadProducidaInput;
+      if (existingProduced && cantidadProducidaInventario == null) {
+        setError(`No se puede convertir ${resultado.medida} hacia ${existingProduced.medida} para el producto producido.`);
+        return;
+      }
+      const now = new Date().toISOString();
+      const usuario = getUserDisplayLabel(currentUser);
+      setInventario(function(prev) {
+        let nextId = nextInventoryRowId(prev);
+        let producedExists = false;
+        const updated = prev.map(function(row) {
+          if (row.tipo !== "producto") return row;
+          const consumo = resolvedInsumos.find(function(entry) {
+            return entry.product.id === row.id;
+          });
+          if (consumo) {
+            return Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) });
+          }
+          if (normalizar(row.nombre) === normalizar(nombreProducido)) {
+            producedExists = true;
+            return Object.assign({}, row, { entrada: Number((row.entrada || 0) + cantidadProducidaInventario) });
+          }
+          return row;
+        });
+        if (!producedExists) {
+          updated.push({
+            id: nextId,
+            tipo: "producto",
+            nombre: nombreProducido,
+            medida: resultado.medida,
+            suplidor: "Produccion",
+            stockLunesJueves: 0,
+            stockViernesDomingo: 0,
+            entrada: cantidadProducidaInput,
+            salida: 0,
+            decomiso: 0
+          });
+        }
+        return updated;
+      });
+      setRegSalidas(function(prev) {
+        return [...prev, ...resolvedInsumos.map(function(entry) {
+          return {
+            fecha: now,
+            numero: entry.product.id,
+            medida: entry.product.medida,
+            producto: entry.product.nombre,
+            cantidad: Number(entry.convertedQty.toFixed(4)),
+            usuario,
+            motivo: `Produccion: ${nombreProducido}`
+          };
+        })];
+      });
+      setRegEntradas(function(prev) {
+        return [...prev, {
+          fecha: now,
+          numero: existingProduced ? existingProduced.id : `prod-${Date.now()}`,
+          medida: existingProduced ? existingProduced.medida : resultado.medida,
+          producto: nombreProducido,
+          cantidad: Number((existingProduced ? cantidadProducidaInventario : cantidadProducidaInput).toFixed(4)),
+          usuario,
+          motivo: "Produccion"
+        }];
+      });
+      setProducciones(function(prev) {
+        return [...(Array.isArray(prev) ? prev : []), {
+          id: `prod-${Date.now()}-${Math.random()}`,
+          fecha: now,
+          modulo: moduleLabel,
+          usuario,
+          productoProducido: nombreProducido,
+          cantidadProducida: Number(cantidadProducidaInput.toFixed(4)),
+          medidaProducida: resultado.medida,
+          insumos: resolvedInsumos.map(function(entry) {
+            return {
+              productId: entry.product.id,
+              producto: entry.product.nombre,
+              cantidadUsada: Number(entry.qtyInput.toFixed(4)),
+              unidadUsada: entry.inputUnit,
+              cantidadDescontada: Number(entry.convertedQty.toFixed(4)),
+              unidadInventario: entry.product.medida
+            };
+          })
+        }];
+      });
+      toast(`Produccion registrada: ${nombreProducido}`, "ok");
+      closeProductionModal();
+      resetProductionForm();
+    }
+    return /* @__PURE__ */ React.createElement("div", null,
+      /* @__PURE__ */ React.createElement("div", { className: "action-bar" },
+        /* @__PURE__ */ React.createElement("div", { className: "card", style: { flex: 1, minWidth: 220, marginBottom: 0 } },
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("div", null,
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18, color: "#111827", marginBottom: 4 } }, "Producción"),
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Transforma productos de Inventario en nuevos productos producidos para ", moduleLabel, ".")
+            ),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
+          )
+        )
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-boxes-stacked", style: { marginRight: 7, color: "var(--verde)" } }), "Inventario disponible"),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, productosInventario.length, " productos")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+            /* @__PURE__ */ React.createElement("table", null,
+              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
+                /* @__PURE__ */ React.createElement("th", null, "Producto"),
+                /* @__PURE__ */ React.createElement("th", null, "Medida"),
+                /* @__PURE__ */ React.createElement("th", null, "Existencia")
+              )),
+              /* @__PURE__ */ React.createElement("tbody", null,
+                productosInventario.slice(0, 12).map(function(product) {
+                  return /* @__PURE__ */ React.createElement("tr", { key: product.id },
+                    /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, product.nombre),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, product.medida)),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: product.existencia <= 0 ? "exist-zero" : product.existencia < product.stockLunesJueves ? "exist-low" : "exist-ok" }, Number(product.existencia.toFixed(2)), " ", product.medida))
+                  );
+                }),
+                productosInventario.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "3", style: { textAlign: "center", padding: "24px", color: "var(--gris)" } }, "No hay productos en inventario."))
+              )
+            )
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clock-rotate-left", style: { marginRight: 7, color: "var(--azul)" } }), "Historial de Producción"),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, historial.length, " registros")
+          ),
+          historial.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
+            /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry", style: { fontSize: 30, display: "block", marginBottom: 8, color: "#9ca3af" } }),
+            "Aun no se ha registrado ninguna producción."
+          ) : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+            /* @__PURE__ */ React.createElement("table", null,
+              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
+                /* @__PURE__ */ React.createElement("th", null, "Fecha"),
+                /* @__PURE__ */ React.createElement("th", null, "Producto producido"),
+                /* @__PURE__ */ React.createElement("th", null, "Cantidad"),
+                /* @__PURE__ */ React.createElement("th", null, "Insumos")
+              )),
+              /* @__PURE__ */ React.createElement("tbody", null, historial.map(function(row) {
+                return /* @__PURE__ */ React.createElement("tr", { key: row.id },
+                  /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(row.fecha)),
+                  /* @__PURE__ */ React.createElement("td", null,
+                    /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.productoProducido),
+                    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, row.usuario, " · ", row.modulo)
+                  ),
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, row.cantidadProducida, " ", row.medidaProducida)),
+                  /* @__PURE__ */ React.createElement("td", null,
+                    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 220 } }, row.insumos.map(function(item, idx) {
+                      return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${idx}`, style: { fontSize: 12 } },
+                        /* @__PURE__ */ React.createElement("strong", null, item.producto),
+                        " · ",
+                        item.cantidadUsada,
+                        " ",
+                        item.unidadUsada,
+                        " (desc. ",
+                        Number(item.cantidadDescontada.toFixed ? item.cantidadDescontada.toFixed(2) : item.cantidadDescontada),
+                        " ",
+                        item.unidadInventario,
+                        ")"
+                      );
+                    }))
+                  )
+                );
+              }))
+            )
+          )
+        )
+      ),
+      modalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: closeProductionModal },
+        /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980, maxHeight: "92dvh" }, onClick: function(e) { e.stopPropagation(); } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry", style: { marginRight: 7, color: "var(--verde)" } }), "Realizar Producción"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 16 } },
+            error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
+            /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+              /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "1. Buscar insumos")),
+                /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+                  /* @__PURE__ */ React.createElement("div", { className: "search-wrap" },
+                    /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busqueda, onChange: function(e) { setBusqueda(e.target.value); } })
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
+                    productosFiltrados.map(function(product) {
+                      return /* @__PURE__ */ React.createElement("button", {
+                        key: product.id,
+                        type: "button",
+                        className: "btn btn-outline",
+                        style: { justifyContent: "space-between", width: "100%", textAlign: "left", padding: "12px 14px" },
+                        onClick: function() { addInsumo(product); }
+                      },
+                        /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
+                          /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" } }, product.nombre),
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                        ),
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Agregar")
+                      );
+                    }),
+                    productosFiltrados.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "var(--gris)", padding: "20px 12px", fontSize: 13 } }, "No hay productos disponibles para esa busqueda.")
+                  )
+                )
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+                  /* @__PURE__ */ React.createElement("h2", null, "2. Definir producción"),
+                  /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, insumos.length, " insumos")
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
+                    insumos.map(function(item) {
+                      const product = productosMap[item.productId];
+                      return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
+                          /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
+                            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
+                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                          ),
+                          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                        ),
+                        /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad a utilizar"),
+                            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: item.cantidad, onChange: function(e) { updateInsumo(item.rowId, "cantidad", e.target.value); }, placeholder: "0.00" })
+                          ),
+                          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
+                            /* @__PURE__ */ React.createElement("select", { className: "form-control", value: item.unidad, onChange: function(e) { updateInsumo(item.rowId, "unidad", e.target.value); } },
+                              PRODUCTION_UNITS.map(function(unit) {
+                                return /* @__PURE__ */ React.createElement("option", { key: unit, value: unit }, unit);
+                              })
+                            )
+                          )
+                        )
+                      );
+                    }),
+                    insumos.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px dashed #cbd5e1", borderRadius: 12, padding: 18, textAlign: "center", color: "var(--gris)", fontSize: 13 } }, "Selecciona uno o varios productos desde Inventario para usarlos como insumos.")
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #e5e7eb", paddingTop: 14, display: "grid", gap: 12 } },
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto producido"),
+                      /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setError(""); }, placeholder: "Ej: Salsa base, pollo marinado, mezcla preparada..." })
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                      /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                        /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad producida"),
+                        /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: resultado.cantidad, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { cantidad: e.target.value }); }); setError(""); }, placeholder: "0.00" })
+                      ),
+                      /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                        /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad del producto producido"),
+                        /* @__PURE__ */ React.createElement("select", { className: "form-control", value: resultado.medida, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { medida: e.target.value }); }); setError(""); } },
+                          PRODUCTION_UNITS.map(function(unit) {
+                            return /* @__PURE__ */ React.createElement("option", { key: unit, value: unit }, unit);
+                          })
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "El sistema descontara insumos del inventario y registrara la producción en el historial."),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeProductionModal }, "Cancelar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarProduccion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Confirmar producción")
+            )
+          )
         )
       )
     );
