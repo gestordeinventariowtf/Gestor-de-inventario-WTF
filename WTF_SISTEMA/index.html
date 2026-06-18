@@ -2430,30 +2430,6 @@ Solicitado: ${cantidad}`);
         }
         return updated;
       });
-      setRegSalidas(function(prev) {
-        return [...prev, ...resolvedInsumos.map(function(entry) {
-          return {
-            fecha: now,
-            numero: entry.product.id,
-            medida: entry.product.medida,
-            producto: entry.product.nombre,
-            cantidad: Number(entry.convertedQty.toFixed(4)),
-            usuario,
-            motivo: `Produccion: ${nombreProducido}`
-          };
-        })];
-      });
-      setRegEntradas(function(prev) {
-        return [...prev, {
-          fecha: now,
-          numero: existingProduced ? existingProduced.id : `prod-${Date.now()}`,
-          medida: existingProduced ? existingProduced.medida : resultado.medida,
-          producto: nombreProducido,
-          cantidad: Number((existingProduced ? cantidadProducidaInventario : cantidadProducidaInput).toFixed(4)),
-          usuario,
-          motivo: "Produccion"
-        }];
-      });
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
