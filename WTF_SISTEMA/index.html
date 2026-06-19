@@ -591,6 +591,24 @@
     .exist-ok   { color: var(--verde); font-weight: 600; }
     .exist-low  { color: #f59e0b;      font-weight: 600; }
     .exist-zero { color: var(--rojo);  font-weight: 600; }
+    .mise-stock-low {
+      color: #f59e0b;
+      font-weight: 700;
+      animation: miseLowPulse 1.05s ease-in-out infinite;
+    }
+    .mise-stock-zero {
+      color: var(--rojo);
+      font-weight: 700;
+      animation: miseZeroPulse 0.78s ease-in-out infinite;
+    }
+    @keyframes miseLowPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .4; transform: scale(1.04); }
+    }
+    @keyframes miseZeroPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .2; transform: scale(1.06); }
+    }
     .col-div-left { border-left: 4px solid #94a3b8 !important; }
 
     /* ── Toast ── */
@@ -2131,7 +2149,7 @@ Solicitado: ${cantidad}`);
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeProductos, addMovimiento: activeAddMovimiento }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones: activeProduccion, setProducciones: setActiveProduccion }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
@@ -2405,7 +2423,7 @@ Solicitado: ${cantidad}`);
     }
     function prepararEliminacionProduccion(row) {
       if (!row) return { error: "Producción no válida." };
-      const cantidadProducida = Number(row.cantidadProducida || 0);
+      const cantidadProducida = Number(row.cantidadProducidaOriginal != null ? row.cantidadProducidaOriginal : row.cantidadProducida || 0);
       if (!Number.isFinite(cantidadProducida) || cantidadProducida <= 0) {
         return { error: "La producción no tiene una cantidad válida para revertir." };
       }
@@ -2741,6 +2759,7 @@ Solicitado: ${cantidad}`);
           usuario,
           productoProducido: nombre,
           cantidadProducida: Number(cantidad.toFixed(4)),
+          cantidadProducidaOriginal: Number(cantidad.toFixed(4)),
           medidaProducida: unidad,
           insumos: [],
           cargaDirecta: true,
@@ -2828,6 +2847,7 @@ Solicitado: ${cantidad}`);
           usuario,
           productoProducido: nombreProducido,
           cantidadProducida: Number(cantidadProducidaInput.toFixed(4)),
+          cantidadProducidaOriginal: Number(cantidadProducidaInput.toFixed(4)),
           medidaProducida: resultado.medida,
           insumos: resolvedInsumos.map(function(entry) {
             return {
@@ -3770,7 +3790,7 @@ Cantidad: ${cant}`);
       setSuccess("");
     } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))));
   }
-  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras }) {
+  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones, setProducciones }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -3790,7 +3810,7 @@ Cantidad: ${cant}`);
         return;
       }
       const id = Math.max(0, ...miseAnPlace.map((m) => m.id)) + 1;
-      setMise((p) => [...p, { id, producto: newProd.producto.trim(), existencia: parseFloat(newProd.existencia) || 0 }]);
+      setMise((p) => [...p, { id, producto: newProd.producto.trim(), existencia: parseFloat(newProd.existencia) || 0, medida: "Uni" }]);
       setNewProd({ producto: "", existencia: 0 });
       setModalAdd(false);
       toast("Producto agregado");
@@ -3806,16 +3826,17 @@ Cantidad: ${cant}`);
       toast("Existencia actualizada");
     }
     const tableRows = miseFiltrada.map((m, i) => {
-      return /* @__PURE__ */ React.createElement("tr", { key: m.id }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: m.existencia <= 0 ? "exist-zero" : m.existencia < 2 ? "exist-low" : "exist-ok" }, Number((m.existencia || 0).toFixed(2)), m.medida ? " " + m.medida : "")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar existencia", onClick: () => setEditItem(m) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+      const existenciaClass = m.existencia <= 0 ? "mise-stock-zero" : m.existencia <= 5 ? "mise-stock-low" : "exist-ok";
+      return /* @__PURE__ */ React.createElement("tr", { key: m.id }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, Number((m.existencia || 0).toFixed(2)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar existencia", onClick: () => setEditItem(m) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
     if (miseAnPlace.length === 0) {
-      tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
+      tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
     } else if (miseFiltrada.length === 0) {
-      tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "no-results" }, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "No hay productos que coincidan con la b\xFAsqueda")));
+      tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "no-results" }, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "No hay productos que coincidan con la b\xFAsqueda")));
     }
     let mainView = null;
     if (tab === "tabla") {
-      mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
+      mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Unidad de Medida"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
     } else if (tab === "neveras") {
       mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseAnPlace, productos });
     } else if (tab === "historial") {
@@ -3826,7 +3847,7 @@ Cantidad: ${cant}`);
     const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
     const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
     const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace, setMise, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
-    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, onClose: () => setModalSalida(false), toast, syncNeveras }) : null;
+    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeveras }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
   function EditMiseItemModal({ item, onClose, onSave }) {
@@ -3897,7 +3918,7 @@ Cantidad: ${cant}`);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, miseAnPlace.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, p: e.target.value } : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
-  function SalidaRapidaModal({ miseAnPlace, setMise, onClose, toast, syncNeveras }) {
+  function SalidaRapidaModal({ miseAnPlace, setMise, producciones, setProducciones, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
     function guardar() {
@@ -3922,6 +3943,48 @@ Cantidad: ${cant}`);
         const k = normalizar(m.producto);
         return acum[k] !== void 0 ? { ...m, existencia: m.existencia - acum[k] } : m;
       }));
+      if (setProducciones) {
+        setProducciones(function(prev) {
+          const current = Array.isArray(prev) ? prev : [];
+          const orderedIndexes = current.map(function(_, index) { return index; }).sort(function(a, b) {
+            return new Date(current[b].fecha || 0) - new Date(current[a].fecha || 0);
+          });
+          const next = current.map(function(row) {
+            const originalQty = Number(row.cantidadProducidaOriginal != null ? row.cantidadProducidaOriginal : row.cantidadProducida || 0);
+            return Object.assign({}, row, {
+              cantidadProducidaOriginal: originalQty
+            });
+          });
+          for (const [k, total] of Object.entries(acum)) {
+            const miseInfo = miseAnPlace.find(function(item) {
+              return normalizar(item.producto) === k;
+            });
+            if (!miseInfo) continue;
+            let remaining = Number(total) || 0;
+            for (const idx of orderedIndexes) {
+              if (!(remaining > 0)) break;
+              const row = next[idx];
+              if (!row || normalizar(row.transferidoAMiseTarget || row.productoProducido || "") !== k) continue;
+              const currentAvailable = Number(row.cantidadProducida || 0);
+              if (!(currentAvailable > 0)) continue;
+              const converted = convertMeasureQuantity(remaining, miseInfo.medida || "Uni", row.medidaProducida || miseInfo.medida || "Uni");
+              if (converted == null || !(converted > 0)) continue;
+              const consume = Math.min(currentAvailable, Number(converted.toFixed(4)));
+              next[idx] = Object.assign({}, row, {
+                cantidadProducida: Math.max(0, Number((currentAvailable - consume).toFixed(4))),
+                cantidadProducidaOriginal: Number(row.cantidadProducidaOriginal != null ? row.cantidadProducidaOriginal : currentAvailable)
+              });
+              const consumedBackToMise = convertMeasureQuantity(consume, row.medidaProducida || miseInfo.medida || "Uni", miseInfo.medida || "Uni");
+              if (consumedBackToMise != null) {
+                remaining = Math.max(0, Number((remaining - consumedBackToMise).toFixed(4)));
+              } else {
+                remaining = 0;
+              }
+            }
+          }
+          return next;
+        });
+      }
       if (syncNeveras) {
         syncNeveras(Object.entries(acum).map(([k, v]) => {
           var _a, _b;
