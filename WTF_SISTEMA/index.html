@@ -2266,6 +2266,7 @@ Solicitado: ${cantidad}`);
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
+    const [directLoadModalOpen, setDirectLoadModalOpen] = useState(false);
     const [recipesUnlocked, setRecipesUnlocked] = useState(false);
     const [recipeAccessModal, setRecipeAccessModal] = useState(false);
     const [deleteRequest, setDeleteRequest] = useState(null);
@@ -2274,6 +2275,8 @@ Solicitado: ${cantidad}`);
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [error, setError] = useState("");
+    const [directLoad, setDirectLoad] = useState({ nombre: "", cantidad: "", medida: "Uni" });
+    const [directLoadError, setDirectLoadError] = useState("");
     const productosInventario = useMemo(function() {
       return inventario.filter(function(row) {
         return row.tipo === "producto";
@@ -2407,6 +2410,39 @@ Solicitado: ${cantidad}`);
         return { error: "La producción no tiene una cantidad válida para revertir." };
       }
       const nombreProducido = String(row.productoProducido || "").trim();
+      if (row.cargaDirecta) {
+        let transferData = null;
+        const targetName = String(row.transferidoAMiseTarget || row.productoProducido || "").trim();
+        const miseTarget = (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(item) {
+          return normalizar(item.producto) === normalizar(targetName);
+        });
+        if (!miseTarget) {
+          transferData = {
+            targetName,
+            missingTarget: true,
+            warningMessage: 'El producto cargado ya no aparece en Mise en place. Si continúas, se eliminará definitivamente solo el registro de producción.'
+          };
+        } else {
+          const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
+          if (cantidadReversaMise == null) {
+            return { error: `No se puede revertir la carga directa hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place.` };
+          }
+          if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
+            return { error: `No se puede eliminar porque ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir.` };
+          }
+          transferData = {
+            targetName,
+            missingTarget: false,
+            cantidadReversaMise
+          };
+        }
+        return {
+          row,
+          nombreProducido,
+          cantidadReversaInventario: 0,
+          transferData
+        };
+      }
       const productoInventario = productosInventario.find(function(product) {
         return normalizar(product.nombre) === normalizar(nombreProducido);
       });
@@ -2471,27 +2507,29 @@ Solicitado: ${cantidad}`);
       }
       const row = deleteRequest.row;
       const nombreProducido = deleteRequest.nombreProducido;
-      setInventario(function(prev) {
-        return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
-          if (item.tipo !== "producto") return [item];
-          const itemNombre = normalizar(item.nombre);
-          const insumo = (row.insumos || []).find(function(entry) {
-            return Number(entry.productId) === Number(item.id) || normalizar(entry.producto) === itemNombre;
+      if (!row.cargaDirecta) {
+        setInventario(function(prev) {
+          return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
+            if (item.tipo !== "producto") return [item];
+            const itemNombre = normalizar(item.nombre);
+            const insumo = (row.insumos || []).find(function(entry) {
+              return Number(entry.productId) === Number(item.id) || normalizar(entry.producto) === itemNombre;
+            });
+            if (insumo) {
+              return [Object.assign({}, item, {
+                salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
+              })];
+            }
+            if (itemNombre === normalizar(nombreProducido)) {
+              const nextEntrada = Math.max(0, Number((item.entrada || 0) - deleteRequest.cantidadReversaInventario).toFixed(4));
+              const shouldRemove = normalizar(item.suplidor || "") === normalizar("Produccion") && nextEntrada <= 0 && Number(item.salida || 0) <= 0 && Number(item.decomiso || 0) <= 0;
+              if (shouldRemove) return [];
+              return [Object.assign({}, item, { entrada: nextEntrada })];
+            }
+            return [item];
           });
-          if (insumo) {
-            return [Object.assign({}, item, {
-              salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
-            })];
-          }
-          if (itemNombre === normalizar(nombreProducido)) {
-            const nextEntrada = Math.max(0, Number((item.entrada || 0) - deleteRequest.cantidadReversaInventario).toFixed(4));
-            const shouldRemove = normalizar(item.suplidor || "") === normalizar("Produccion") && nextEntrada <= 0 && Number(item.salida || 0) <= 0 && Number(item.decomiso || 0) <= 0;
-            if (shouldRemove) return [];
-            return [Object.assign({}, item, { entrada: nextEntrada })];
-          }
-          return [item];
         });
-      });
+      }
       if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget) {
         const targetName = String(deleteRequest.transferData.targetName || row.transferidoAMiseTarget || row.productoProducido || "").trim();
         setMise(function(prev) {
@@ -2517,6 +2555,10 @@ Solicitado: ${cantidad}`);
       setResultado({ nombre: "", cantidad: "", medida: "Uni" });
       setError("");
     }
+    function resetDirectLoadForm() {
+      setDirectLoad({ nombre: "", cantidad: "", medida: "Uni" });
+      setDirectLoadError("");
+    }
     function openProductionModal() {
       resetProductionForm();
       setModalOpen(true);
@@ -2532,6 +2574,14 @@ Solicitado: ${cantidad}`);
     function closeRecipeModal() {
       setRecipeModalOpen(false);
       setError("");
+    }
+    function openDirectLoadModal() {
+      resetDirectLoadForm();
+      setDirectLoadModalOpen(true);
+    }
+    function closeDirectLoadModal() {
+      setDirectLoadModalOpen(false);
+      setDirectLoadError("");
     }
     function solicitarAccesoRecetas() {
       setRecipeAccessModal(true);
@@ -2587,6 +2637,80 @@ Solicitado: ${cantidad}`);
         inputUnit: item.unidad,
         convertedQty: converted
       };
+    }
+    function guardarCargaDirecta() {
+      setDirectLoadError("");
+      const nombre = String(directLoad.nombre || "").trim();
+      const cantidad = Number(String(directLoad.cantidad || "").replace(",", "."));
+      const unidad = normalizarMedidaMise(directLoad.medida || "Uni");
+      if (!nombre) {
+        setDirectLoadError("Escribe el nombre del producto.");
+        return;
+      }
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        setDirectLoadError("La cantidad debe ser mayor a cero.");
+        return;
+      }
+      const existingMise = (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(item) {
+        return normalizar(item.producto) === normalizar(nombre);
+      });
+      if (!existingMise) {
+        const shouldCreate = confirm(`"${nombre}" no existe en Mise an Place. ¿Deseas crearlo y dar entrada?`);
+        if (!shouldCreate) return;
+      }
+      const now = new Date().toISOString();
+      const usuario = getUserDisplayLabel(currentUser);
+      const targetName = existingMise ? existingMise.producto : nombre;
+      setMise(function(prev) {
+        const current = Array.isArray(prev) ? prev : [];
+        if (existingMise) {
+          const targetUnit = normalizarMedidaMise(existingMise.medida || unidad);
+          const converted = convertirCantidadMise(cantidad, unidad, targetUnit);
+          if (converted == null) {
+            setDirectLoadError(`No se puede convertir ${unidad} hacia ${targetUnit} en ${existingMise.producto}.`);
+            return current;
+          }
+          return current.map(function(item) {
+            if (item.id !== existingMise.id) return item;
+            return Object.assign({}, item, {
+              existencia: Number(((Number(item.existencia) || 0) + converted).toFixed(4)),
+              medida: targetUnit
+            });
+          });
+        }
+        const nextId = Math.max(0, ...current.map(function(item) {
+          return Number(item.id) || 0;
+        })) + 1;
+        return [...current, {
+          id: nextId,
+          producto: nombre,
+          existencia: Number(cantidad.toFixed(4)),
+          medida: unidad
+        }];
+      });
+      if (existingMise) {
+        const targetUnit = normalizarMedidaMise(existingMise.medida || unidad);
+        const converted = convertirCantidadMise(cantidad, unidad, targetUnit);
+        if (converted == null) return;
+      }
+      setProducciones(function(prev) {
+        return [...(Array.isArray(prev) ? prev : []), {
+          id: `prod-${Date.now()}-${Math.random()}`,
+          fecha: now,
+          modulo: moduleLabel,
+          usuario,
+          productoProducido: nombre,
+          cantidadProducida: Number(cantidad.toFixed(4)),
+          medidaProducida: unidad,
+          insumos: [],
+          cargaDirecta: true,
+          transferidoAMiseAt: now,
+          transferidoAMiseTarget: targetName
+        }];
+      });
+      toast(existingMise ? `Carga rápida aplicada a Mise an Place: ${targetName}` : `Producto creado y cargado en Mise an Place: ${targetName}`, "ok");
+      closeDirectLoadModal();
+      resetDirectLoadForm();
     }
     function guardarProduccion() {
       setError("");
@@ -2765,6 +2889,7 @@ Solicitado: ${cantidad}`);
             ),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open" }), "Nueva receta"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openDirectLoadModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar Producción realizada"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
             )
           )
@@ -2840,7 +2965,7 @@ Solicitado: ${cantidad}`);
                   ),
                   /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, row.cantidadProducida, " ", row.medidaProducida)),
                   /* @__PURE__ */ React.createElement("td", null,
-                    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 220 } }, row.insumos.map(function(item, idx) {
+                    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 220 } }, (row.insumos || []).length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontStyle: "italic" } }, row.cargaDirecta ? "Carga directa a Mise an Place" : "Sin insumos") : row.insumos.map(function(item, idx) {
                       return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${idx}`, style: { fontSize: 12 } },
                         /* @__PURE__ */ React.createElement("strong", null, item.producto),
                         " · ",
@@ -2890,6 +3015,46 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeDeleteModal }, "Cancelar"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: confirmarEliminarProduccion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar definitivamente")
+          )
+        )
+      ),
+      directLoadModalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: closeDirectLoadModal },
+        /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: function(e) { e.stopPropagation(); } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload", style: { marginRight: 7, color: "var(--azul)" } }), "Cargar Producción realizada"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeDirectLoadModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
+            directLoadError && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), directLoadError),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-direct-load-list", value: directLoad.nombre, onChange: function(e) { setDirectLoad(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setDirectLoadError(""); }, placeholder: "Selecciona o escribe un producto", autoFocus: true }),
+              /* @__PURE__ */ React.createElement("datalist", { id: "mise-direct-load-list" }, (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
+                return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, item.producto, item.medida ? ` — ${item.medida}` : "");
+              })),
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Los nombres se toman de Mise an Place. Si no existe, el sistema te preguntará si deseas crearlo.")
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+              /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: directLoad.cantidad, onChange: function(e) { setDirectLoad(function(prev) { return Object.assign({}, prev, { cantidad: e.target.value }); }); setDirectLoadError(""); }, placeholder: "0.00" })
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad de medida"),
+                /* @__PURE__ */ React.createElement("select", { className: "form-control", value: directLoad.medida, onChange: function(e) { setDirectLoad(function(prev) { return Object.assign({}, prev, { medida: e.target.value }); }); setDirectLoadError(""); } },
+                  MISE_MEDIDAS.map(function(unit) {
+                    return /* @__PURE__ */ React.createElement("option", { key: unit, value: unit }, unit);
+                  })
+                )
+              )
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Esta acción agrega directamente el producto elaborado a Mise an Place, sin descontar almacén."),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeDirectLoadModal }, "Cancelar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardarCargaDirecta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar producción")
+            )
           )
         )
       ),
