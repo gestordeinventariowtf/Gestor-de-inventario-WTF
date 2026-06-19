@@ -2410,6 +2410,7 @@ Solicitado: ${cantidad}`);
         return { error: "La producción no tiene una cantidad válida para revertir." };
       }
       const nombreProducido = String(row.productoProducido || "").trim();
+      const warnings = [];
       if (row.cargaDirecta) {
         let transferData = null;
         const targetName = String(row.transferidoAMiseTarget || row.productoProducido || "").trim();
@@ -2420,41 +2421,63 @@ Solicitado: ${cantidad}`);
           transferData = {
             targetName,
             missingTarget: true,
+            skipReverse: true,
             warningMessage: 'El producto cargado ya no aparece en Mise en place. Si continúas, se eliminará definitivamente solo el registro de producción.'
           };
+          warnings.push(transferData.warningMessage);
         } else {
           const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
           if (cantidadReversaMise == null) {
-            return { error: `No se puede revertir la carga directa hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place.` };
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: true,
+              warningMessage: `No se puede revertir la carga directa hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place. Se eliminará solo el historial.`
+            };
+            warnings.push(transferData.warningMessage);
+          } else if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: true,
+              warningMessage: `El producto ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir. Se eliminará solo el historial.`
+            };
+            warnings.push(transferData.warningMessage);
+          } else {
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: false,
+              cantidadReversaMise
+            };
           }
-          if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
-            return { error: `No se puede eliminar porque ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir.` };
-          }
-          transferData = {
-            targetName,
-            missingTarget: false,
-            cantidadReversaMise
-          };
         }
         return {
           row,
           nombreProducido,
           cantidadReversaInventario: 0,
-          transferData
+          transferData,
+          warnings
         };
       }
       const productoInventario = productosInventario.find(function(product) {
         return normalizar(product.nombre) === normalizar(nombreProducido);
       });
+      let cantidadReversaInventario = 0;
+      let reverseInventario = false;
       if (!productoInventario) {
-        return { error: "No se encontró el producto producido en Inventario para revertir." };
-      }
-      const cantidadReversaInventario = convertMeasureQuantity(cantidadProducida, row.medidaProducida, productoInventario.medida);
-      if (cantidadReversaInventario == null) {
-        return { error: `No se puede revertir ${row.medidaProducida} hacia ${productoInventario.medida} en Inventario.` };
-      }
-      if (getInventoryExistence(productoInventario) + 1e-9 < cantidadReversaInventario) {
-        return { error: `No se puede eliminar porque ${productoInventario.nombre} ya fue usado y no tiene existencia suficiente para revertir esta producción.` };
+        warnings.push("No se encontró el producto producido en Inventario para revertir. Se eliminará solo el historial.");
+      } else {
+        cantidadReversaInventario = convertMeasureQuantity(cantidadProducida, row.medidaProducida, productoInventario.medida);
+        if (cantidadReversaInventario == null) {
+          warnings.push(`No se puede revertir ${row.medidaProducida} hacia ${productoInventario.medida} en Inventario. Se eliminará solo el historial.`);
+          cantidadReversaInventario = 0;
+        } else if (getInventoryExistence(productoInventario) + 1e-9 < cantidadReversaInventario) {
+          warnings.push(`El producto ${productoInventario.nombre} ya fue usado y no tiene existencia suficiente para revertir. Se eliminará solo el historial.`);
+          cantidadReversaInventario = 0;
+        } else {
+          reverseInventario = true;
+        }
       }
       let transferData = null;
       if (row.transferidoAMiseAt) {
@@ -2466,28 +2489,45 @@ Solicitado: ${cantidad}`);
           transferData = {
             targetName,
             missingTarget: true,
+            skipReverse: true,
             warningMessage: 'El producto fue transferido a Mise en place pero no encontrado. Si no se encuentra, se eliminará definitivamente solo la producción y se revertirá Inventario.'
           };
+          warnings.push(transferData.warningMessage);
         } else {
           const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
           if (cantidadReversaMise == null) {
-            return { error: `No se puede revertir la transferencia hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place.` };
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: true,
+              warningMessage: `No se puede revertir la transferencia hacia la unidad ${miseTarget.medida || "Uni"} de Mise an Place. Se eliminará solo el historial.`
+            };
+            warnings.push(transferData.warningMessage);
+          } else if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: true,
+              warningMessage: `El producto ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir. Se eliminará solo el historial.`
+            };
+            warnings.push(transferData.warningMessage);
+          } else {
+            transferData = {
+              targetName,
+              missingTarget: false,
+              skipReverse: false,
+              cantidadReversaMise
+            };
           }
-          if ((Number(miseTarget.existencia) || 0) + 1e-9 < cantidadReversaMise) {
-            return { error: `No se puede eliminar porque ${miseTarget.producto} en Mise an Place ya fue consumido y no tiene existencia suficiente para revertir.` };
-          }
-          transferData = {
-            targetName,
-            missingTarget: false,
-            cantidadReversaMise
-          };
         }
       }
       return {
         row,
         nombreProducido,
         cantidadReversaInventario,
-        transferData
+        transferData,
+        reverseInventario,
+        warnings
       };
     }
     function solicitarEliminarProduccion(row) {
@@ -2507,7 +2547,7 @@ Solicitado: ${cantidad}`);
       }
       const row = deleteRequest.row;
       const nombreProducido = deleteRequest.nombreProducido;
-      if (!row.cargaDirecta) {
+      if (!row.cargaDirecta && deleteRequest.reverseInventario) {
         setInventario(function(prev) {
           return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
             if (item.tipo !== "producto") return [item];
@@ -2530,7 +2570,7 @@ Solicitado: ${cantidad}`);
           });
         });
       }
-      if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget) {
+      if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget && !deleteRequest.transferData.skipReverse) {
         const targetName = String(deleteRequest.transferData.targetName || row.transferidoAMiseTarget || row.productoProducido || "").trim();
         setMise(function(prev) {
           return (Array.isArray(prev) ? prev : []).map(function(item) {
@@ -2547,7 +2587,7 @@ Solicitado: ${cantidad}`);
         });
       });
       closeDeleteModal();
-      toast(deleteRequest.transferData && deleteRequest.transferData.missingTarget ? `Producción eliminada: ${nombreProducido}. El transferido en Mise an Place no fue encontrado.` : `Producción eliminada: ${nombreProducido}`, "ok");
+      toast(deleteRequest.warnings && deleteRequest.warnings.length ? `Producción eliminada: ${nombreProducido}. Se aplicó eliminación definitiva con advertencias.` : `Producción eliminada: ${nombreProducido}`, "ok");
     }
     function resetProductionForm() {
       setBusqueda("");
@@ -3003,6 +3043,9 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
             /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "#374151" } }, "Se eliminará la producción ", /* @__PURE__ */ React.createElement("strong", null, deleteRequest.nombreProducido), " y se revertirá Inventario."),
+            deleteRequest.warnings && deleteRequest.warnings.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, deleteRequest.warnings.map(function(message, idx) {
+              return /* @__PURE__ */ React.createElement("div", { key: `warn-${idx}`, className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-triangle" }), message);
+            })),
             deleteRequest.transferData && /* @__PURE__ */ React.createElement("div", { className: deleteRequest.transferData.missingTarget ? "alert alert-error" : "alert alert-info" },
               /* @__PURE__ */ React.createElement("i", { className: deleteRequest.transferData.missingTarget ? "fas fa-exclamation-triangle" : "fas fa-right-left" }),
               deleteRequest.transferData.missingTarget ? deleteRequest.transferData.warningMessage : `También se revertirá la transferencia a Mise an Place: ${deleteRequest.transferData.targetName}.`
