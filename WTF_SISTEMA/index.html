@@ -601,6 +601,16 @@
       font-weight: 700;
       animation: miseZeroPulse 0.78s ease-in-out infinite;
     }
+    .tr-mise-low td {
+      animation: miseRowLowPulse 1.05s ease-in-out infinite;
+      background: #fff7ed;
+    }
+    .tr-mise-low:hover td { background: #ffedd5 !important; }
+    .tr-mise-zero td {
+      animation: miseRowZeroPulse 0.78s ease-in-out infinite;
+      background: #fff1f2;
+    }
+    .tr-mise-zero:hover td { background: #ffe4e6 !important; }
     @keyframes miseLowPulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: .4; transform: scale(1.04); }
@@ -608,6 +618,14 @@
     @keyframes miseZeroPulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: .2; transform: scale(1.06); }
+    }
+    @keyframes miseRowLowPulse {
+      0%, 100% { background: #fff7ed; }
+      50% { background: #ffedd5; }
+    }
+    @keyframes miseRowZeroPulse {
+      0%, 100% { background: #fff1f2; }
+      50% { background: #ffe4e6; }
     }
     .col-div-left { border-left: 4px solid #94a3b8 !important; }
 
@@ -3827,7 +3845,8 @@ Cantidad: ${cant}`);
     }
     const tableRows = miseFiltrada.map((m, i) => {
       const existenciaClass = m.existencia <= 0 ? "mise-stock-zero" : m.existencia <= 5 ? "mise-stock-low" : "exist-ok";
-      return /* @__PURE__ */ React.createElement("tr", { key: m.id }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, Number((m.existencia || 0).toFixed(2)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar existencia", onClick: () => setEditItem(m) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+      const rowClass = m.existencia <= 0 ? "tr-mise-zero" : m.existencia <= 5 ? "tr-mise-low" : "";
+      return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, Number((m.existencia || 0).toFixed(2)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar existencia", onClick: () => setEditItem(m) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
     if (miseAnPlace.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
