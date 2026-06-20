@@ -950,6 +950,7 @@
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
   const KEYS = {
     inventario: "wtf_inventario",
+    cuartoFrioInventario: "wtf_cuarto_frio_inventario",
     miseAnPlace: "wtf_mise",
     regEntradas: "wtf_reg_entradas",
     regSalidas: "wtf_reg_salidas",
@@ -963,6 +964,7 @@
   };
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
+    cuartoFrioInventario: "wtf_bar_cuarto_frio_inventario",
     regEntradas: "wtf_bar_reg_entradas",
     regSalidas: "wtf_bar_reg_salidas",
     regDecomiso: "wtf_bar_reg_decomiso",
@@ -1056,6 +1058,7 @@
   const PERMISSION_OPTIONS = [
     { key: "dashboard", label: "Dashboard" },
     { key: "inventario", label: "Inventario" },
+    { key: "cuartoFrio", label: "Cuarto Frio" },
     { key: "entradas", label: "Entradas" },
     { key: "salidas", label: "Salidas" },
     { key: "decomiso", label: "Decomiso" },
@@ -1661,6 +1664,7 @@
     const [selfAccessModal, setSelfAccessModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
     const [inventario, setInventario] = useState(() => loadSeeded(KEYS.inventario, initInventario, null) || initInventario());
+    const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => load(KEYS.cuartoFrioInventario, []));
     const [miseAnPlace, setMise] = useState(() => loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise());
     const [regEntradas, setRegEntradas] = useState(() => loadSeeded(KEYS.regEntradas, initRegEntradas, []));
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
@@ -1678,6 +1682,7 @@
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [barInventario, setBarInventario] = useState(() => load(BAR_KEYS.inventario, []));
+    const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => load(BAR_KEYS.cuartoFrioInventario, []));
     const [barRegEntradas, setBarRegEntradas] = useState(() => load(BAR_KEYS.regEntradas, []));
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
@@ -1705,6 +1710,7 @@
     stateSnapshotRef.current = {
       dataVersion: DATA_VERSION,
       inventario,
+      cuartoFrioInventario,
       miseAnPlace,
       regEntradas,
       regSalidas,
@@ -1716,6 +1722,7 @@
       correos,
       usuarios,
       barInventario,
+      barCuartoFrioInventario,
       barRegEntradas,
       barRegSalidas,
       barRegDecomiso,
@@ -1728,6 +1735,7 @@
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
       if (Array.isArray(nextState.inventario)) setInventario(nextState.inventario);
+      if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(nextState.cuartoFrioInventario);
       if (Array.isArray(nextState.miseAnPlace)) setMise(nextState.miseAnPlace);
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(nextState.regEntradas);
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
@@ -1739,6 +1747,7 @@
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
       if (Array.isArray(nextState.barInventario)) setBarInventario(nextState.barInventario);
+      if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(nextState.barCuartoFrioInventario);
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(nextState.barRegEntradas);
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
@@ -1752,6 +1761,7 @@
     useEffect(() => save(KEYS.googleConfig, googleConfig), [googleConfig]);
     useEffect(() => save("wtf_neveras", neveras), [neveras]);
     useEffect(() => save(KEYS.inventario, inventario), [inventario]);
+    useEffect(() => save(KEYS.cuartoFrioInventario, cuartoFrioInventario), [cuartoFrioInventario]);
     useEffect(() => save(KEYS.miseAnPlace, miseAnPlace), [miseAnPlace]);
     useEffect(() => save(KEYS.regEntradas, regEntradas), [regEntradas]);
     useEffect(() => save(KEYS.regSalidas, regSalidas), [regSalidas]);
@@ -1760,6 +1770,7 @@
     useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
+    useEffect(() => save(BAR_KEYS.cuartoFrioInventario, barCuartoFrioInventario), [barCuartoFrioInventario]);
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
     useEffect(() => save(BAR_KEYS.regSalidas, barRegSalidas), [barRegSalidas]);
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
@@ -2156,6 +2167,7 @@ Solicitado: ${cantidad}`);
       { key: "dashboard", icon: "fa-home", label: "Dashboard", section: "GENERAL" },
       { key: "sharp", icon: "fa-soap", label: "Sharp de Limpieza", section: null },
       { key: "inventario", icon: "fa-boxes-stacked", label: "Inventario", section: null },
+      { key: "cuartoFrio", icon: "fa-snowflake", label: "Cuarto Frio", section: null },
       { key: "produccion", icon: "fa-industry", label: "Producción", section: null },
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
@@ -2170,6 +2182,7 @@ Solicitado: ${cantidad}`);
       dashboard: "Dashboard",
       sharp: "Sharp de Limpieza",
       inventario: "Inventario",
+      cuartoFrio: "Cuarto Frio",
       entradas: "Registrar Entrada",
       salidas: "Registrar Salida",
       decomiso: "Registrar Decomiso",
@@ -2185,6 +2198,8 @@ Solicitado: ${cantidad}`);
     const activePage = esSharp ? "sharp" : page;
     const activeInv = esBar ? barInventario : inventario;
     const setActiveInv = esBar ? setBarInventario : setInventario;
+    const activeCuartoFrio = esBar ? barCuartoFrioInventario : cuartoFrioInventario;
+    const setActiveCuartoFrio = esBar ? setBarCuartoFrioInventario : setCuartoFrioInventario;
     const activeProductos = activeInv.filter((r) => r.tipo === "producto").map((p) => ({
       ...p,
       existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
@@ -2200,10 +2215,66 @@ Solicitado: ${cantidad}`);
     const activeRecetasProduccion = esBar ? barRecetasProduccion : recetasProduccion;
     const setActiveRecetasProduccion = esBar ? setBarRecetasProduccion : setRecetasProduccion;
     const activeAddMovimiento = esBar ? addMovimientoBar : addMovimiento;
+    function migrateProductsToCuartoFrio(productIds) {
+      const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
+      if (!ids.length) {
+        throw new Error("Selecciona al menos un producto para migrar.");
+      }
+      const selectedSet = new Set(ids);
+      const movingRows = activeInv.filter((row) => row.tipo === "producto" && selectedSet.has(row.id));
+      if (!movingRows.length) {
+        throw new Error("No se encontraron productos válidos para migrar.");
+      }
+      const duplicateNames = movingRows.filter((row) => activeCuartoFrio.some((targetRow) => targetRow.tipo === "producto" && normalizar(targetRow.nombre) === normalizar(row.nombre))).map((row) => row.nombre);
+      if (duplicateNames.length) {
+        throw new Error(`Estos productos ya existen en Cuarto Frio: ${duplicateNames.join(", ")}`);
+      }
+      const sourceSectionMap = {};
+      let currentSectionName = "";
+      activeInv.forEach(function(row) {
+        if (row.tipo === "separador") {
+          currentSectionName = row.nombre || "";
+          return;
+        }
+        sourceSectionMap[row.id] = currentSectionName;
+      });
+      let nextTarget = Array.isArray(activeCuartoFrio) ? [...activeCuartoFrio] : [];
+      let nextId = nextInventoryRowId(nextTarget);
+      movingRows.forEach(function(row) {
+        const sectionName = sourceSectionMap[row.id];
+        if (sectionName) {
+          let targetSeparator = nextTarget.find(function(item) {
+            return item.tipo === "separador" && normalizar(item.nombre) === normalizar(sectionName);
+          });
+          if (!targetSeparator) {
+            targetSeparator = { id: nextId++, tipo: "separador", nombre: sectionName };
+            nextTarget.push(targetSeparator);
+          }
+          let insertIndex = nextTarget.findIndex(function(item) {
+            return item.id === targetSeparator.id && item.tipo === "separador";
+          }) + 1;
+          while (insertIndex < nextTarget.length && nextTarget[insertIndex].tipo !== "separador") insertIndex++;
+          nextTarget.splice(insertIndex, 0, { ...row, id: nextId++ });
+          return;
+        }
+        nextTarget.push({ ...row, id: nextId++ });
+      });
+      setActiveInv(function(prev) {
+        return prev.filter(function(row) {
+          return !selectedSet.has(row.id);
+        });
+      });
+      setActiveCuartoFrio(nextTarget);
+      return {
+        movedCount: movingRows.length,
+        movedNames: movingRows.map(function(row) { return row.nombre; })
+      };
+    }
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, miseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeProductos, addMovimiento: activeAddMovimiento }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeProductos, addMovimiento: activeAddMovimiento }),
@@ -3673,7 +3744,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios }) {
+  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -3685,6 +3756,8 @@ Solicitado: ${cantidad}`);
     const [busquedaAlerta, setBusquedaAlerta] = useState("");
     const [showRelocateKey, setShowRelocateKey] = useState(false);
     const [modalReubicar, setModalReubicar] = useState(false);
+    const [showMigrateKey, setShowMigrateKey] = useState(false);
+    const [modalMigrar, setModalMigrar] = useState(false);
     const [newProd, setNewProd] = useState({ separadorId: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0 });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
@@ -3784,6 +3857,14 @@ Solicitado: ${cantidad}`);
       }
       setShowRelocateKey(true);
     }
+    function openMigrationAccess() {
+      if (!allowMigration || typeof onMigrateProducts !== "function") return;
+      if (!inventario.some((row) => row.tipo === "producto")) {
+        toast(`No hay productos en ${pageLabel} para migrar.`, "error");
+        return;
+      }
+      setShowMigrateKey(true);
+    }
     function reubicarProductos(targetSeparatorId, productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
       if (!targetSeparatorId || !ids.length) {
@@ -3807,6 +3888,21 @@ Solicitado: ${cantidad}`);
       setModalReubicar(false);
       toast(`${ids.length} producto${ids.length === 1 ? "" : "s"} enviado${ids.length === 1 ? "" : "s"} a ${targetSeparator ? targetSeparator.nombre : "ese renglón"}`);
     }
+    function migrarProductos(productIds) {
+      if (!allowMigration || typeof onMigrateProducts !== "function") return;
+      try {
+        const result = onMigrateProducts(productIds) || {};
+        const movedCount = Number(result.movedCount || 0);
+        if (!movedCount) {
+          toast("No se movieron productos.", "info");
+          return;
+        }
+        setModalMigrar(false);
+        toast(`${movedCount} producto${movedCount === 1 ? "" : "s"} migrado${movedCount === 1 ? "" : "s"} a ${migrateTargetLabel}`);
+      } catch (error) {
+        toast(error && error.message ? error.message : `No se pudo migrar a ${migrateTargetLabel}.`, "error");
+      }
+    }
     const tableRows = rows.map((r) => {
       if (r.tipo === "separador") {
         return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
@@ -3826,10 +3922,15 @@ Solicitado: ${cantidad}`);
       setModalReubicar(true);
     } }) : null;
     const relocateModal = modalReubicar ? /* @__PURE__ */ React.createElement(InventarioReubicarModal, { inventario, onClose: () => setModalReubicar(false), onConfirm: reubicarProductos }) : null;
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { flex: 1, minWidth: 160, maxWidth: 320 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo` }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " producto", bajoStockCount === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
+    const migrateKeyModal = showMigrateKey ? /* @__PURE__ */ React.createElement(AdminKeyModal, { title: `Autorizar migración a ${migrateTargetLabel}`, usuarios, onClose: () => setShowMigrateKey(false), onConfirm: () => {
+      setShowMigrateKey(false);
+      setModalMigrar(true);
+    } }) : null;
+    const migrateModal = modalMigrar ? /* @__PURE__ */ React.createElement(InventarioMigracionModal, { inventario, targetLabel: migrateTargetLabel, onClose: () => setModalMigrar(false), onConfirm: migrarProductos }) : null;
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { flex: 1, minWidth: 160, maxWidth: 320 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo` }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " producto", bajoStockCount === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || "") }));
       setModalAdd(true);
-    } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, "Sin productos")))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal);
+    } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
   }
   function InventarioReubicarModal({ inventario, onClose, onConfirm }) {
     const [step, setStep] = useState(1);
@@ -3879,6 +3980,40 @@ Solicitado: ${cantidad}`);
     }
     const stepTwoNode = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4 } }, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Renglón destino"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 16 } }, selectedSeparator ? selectedSeparator.nombre : "Sin selección")), changeSectionButton), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o renglón actual...", value: busqueda, onChange: (e) => setBusqueda(e.target.value), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Seleccionados: ", /* @__PURE__ */ React.createElement("strong", null, selectedProductIds.length)), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "50vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { width: 48 } }, "Sel."), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Renglón actual"))), /* @__PURE__ */ React.createElement("tbody", null, productRows))));
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left", style: { marginRight: 7, color: "var(--azul)" } }), "Reubicar productos por renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, step === 1 ? stepOneNode : stepTwoNode), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), step === 2 && /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: submit, disabled: !selectedProductIds.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Mover seleccionados"))));
+  }
+  function InventarioMigracionModal({ inventario, targetLabel, onClose, onConfirm }) {
+    const [selectedProductIds, setSelectedProductIds] = useState([]);
+    const [busqueda, setBusqueda] = useState("");
+    const sectionMap = useMemo(() => {
+      const map = {};
+      let currentSection = "SIN RENGLÓN";
+      inventario.forEach((item) => {
+        if (item.tipo === "separador") {
+          currentSection = item.nombre || "SIN RENGLÓN";
+          return;
+        }
+        map[item.id] = currentSection;
+      });
+      return map;
+    }, [inventario]);
+    const productos = useMemo(() => inventario.filter((item) => item.tipo === "producto"), [inventario]);
+    const productosFiltrados = useMemo(() => {
+      if (!busqueda.trim()) return productos;
+      const q = normalizar(busqueda);
+      return productos.filter((item) => normalizar(item.nombre).includes(q) || normalizar(item.suplidor || "").includes(q) || normalizar(sectionMap[item.id] || "").includes(q));
+    }, [productos, busqueda, sectionMap]);
+    function toggleProducto(productId) {
+      setSelectedProductIds((prev) => prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]);
+    }
+    function submit() {
+      if (!selectedProductIds.length) return;
+      onConfirm(selectedProductIds);
+    }
+    const productRows = productosFiltrados.map((producto) => /* @__PURE__ */ React.createElement("tr", { key: producto.id, style: selectedProductIds.includes(producto.id) ? { background: "#ecfeff" } : void 0 }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: selectedProductIds.includes(producto.id), onChange: () => toggleProducto(producto.id) })), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, producto.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, producto.medida)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)" } }, producto.suplidor || "-"), /* @__PURE__ */ React.createElement("td", null, sectionMap[producto.id] || "SIN RENGLÓN")));
+    if (!productRows.length) {
+      productRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "No hay productos para esa búsqueda.")));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { marginRight: 7, color: "#0ea5e9" } }), `Migrar productos a ${targetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)" } }, `Selecciona los productos que saldrán de Inventario y pasarán a ${targetLabel}. El sistema conservará el renglón actual y lo creará si no existe en el destino.`), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o renglón actual...", value: busqueda, onChange: (e) => setBusqueda(e.target.value), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Seleccionados: ", /* @__PURE__ */ React.createElement("strong", null, selectedProductIds.length)), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "50vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { width: 48 } }, "Sel."), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Renglón actual"))), /* @__PURE__ */ React.createElement("tbody", null, productRows)))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: submit, disabled: !selectedProductIds.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), "Migrar seleccionados"))));
   }
   function MovimientoForm({ tipo, productos, addMovimiento }) {
     const toast = useToast();
