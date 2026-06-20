@@ -1043,7 +1043,11 @@
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/gmail.send"
   ].join(" ");
-  const GOOGLE_DEFAULT_CONFIG = { clientId: "207830026406-d12f1jk9bjmdru15e2d7v3d35qjv8hdg.apps.googleusercontent.com", folderId: "1Guly82tDsfunuhfgBBNqEQ6SsnbtQnyL" };
+  const GOOGLE_PRIMARY_CLIENT_ID = "90971754397-ds6hk36u0ctpkafh8oscs8dtchcqmcb8.apps.googleusercontent.com";
+  const GOOGLE_LEGACY_CLIENT_IDS = [
+    "207830026406-d12f1jk9bjmdru15e2d7v3d35qjv8hdg.apps.googleusercontent.com"
+  ];
+  const GOOGLE_DEFAULT_CONFIG = { clientId: GOOGLE_PRIMARY_CLIENT_ID, folderId: "1Guly82tDsfunuhfgBBNqEQ6SsnbtQnyL" };
   const ADMIN_DEFAULT = {
     id: "admin-root",
     nombre: "Administrador Principal",
@@ -1118,6 +1122,15 @@
   }
   function cloneData(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+  function normalizeGoogleConfig(input) {
+    const config = Object.assign({}, GOOGLE_DEFAULT_CONFIG, input || {});
+    const currentClientId = String(config.clientId || "").trim();
+    if (!currentClientId || GOOGLE_LEGACY_CLIENT_IDS.includes(currentClientId)) {
+      config.clientId = GOOGLE_PRIMARY_CLIENT_ID;
+    }
+    config.folderId = String(config.folderId || GOOGLE_DEFAULT_CONFIG.folderId).trim() || GOOGLE_DEFAULT_CONFIG.folderId;
+    return config;
   }
   function getFirebaseSyncConfig() {
     const input = window.WTF_FIREBASE_CONFIG || {};
@@ -1689,11 +1702,7 @@
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
-    const [googleConfig, setGoogleConfig] = useState(() => {
-      const saved = load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG);
-      if (!saved.clientId) return GOOGLE_DEFAULT_CONFIG;
-      return saved;
-    });
+    const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
     const [authorizing, setAuthorizing] = useState(false);
@@ -1759,7 +1768,13 @@
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
     useEffect(() => save(KEYS.authUser, authUserEmail || ""), [authUserEmail]);
-    useEffect(() => save(KEYS.googleConfig, googleConfig), [googleConfig]);
+    useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
+    useEffect(() => {
+      const normalized = normalizeGoogleConfig(googleConfig);
+      if (JSON.stringify(normalized) !== JSON.stringify(googleConfig)) {
+        setGoogleConfig(normalized);
+      }
+    }, []);
     useEffect(() => save("wtf_neveras", neveras), [neveras]);
     useEffect(() => save(KEYS.inventario, inventario), [inventario]);
     useEffect(() => save(KEYS.cuartoFrioInventario, cuartoFrioInventario), [cuartoFrioInventario]);
@@ -4640,11 +4655,7 @@ Cantidad: ${cant}`);
     const [listado, setListado] = useState(null);
     const [modalEnvio, setModalEnvio] = useState(false);
     const [modalGas, setModalGas] = useState(false);
-    const [googleConfigEdit, setGoogleConfigEdit] = useState(() => {
-      const saved = load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG);
-      if (!saved.clientId) return GOOGLE_DEFAULT_CONFIG;
-      return saved;
-    });
+    const [googleConfigEdit, setGoogleConfigEdit] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [subiendo, setSubiendo] = useState(false);
     const filtrosVacios = { producto: "", almacen: "", suplidor: "", medida: "", stockReq: "", existencia: "", comprar: "" };
     const [filtros, setFiltros] = useState(filtrosVacios);
@@ -4657,10 +4668,10 @@ Cantidad: ${cant}`);
       setModalGas(true);
     }
     function guardarGasUrl() {
-      const next = {
+      const next = normalizeGoogleConfig({
         clientId: (googleConfigEdit.clientId || "").trim(),
         folderId: (googleConfigEdit.folderId || "").trim()
-      };
+      });
       setGoogleConfig(next);
       if (!next.clientId) resetGoogleSession();
       setModalGas(false);
@@ -5052,10 +5063,10 @@ Cantidad: ${cant}`);
         className: "btn btn-verde",
         onClick: async () => {
           try {
-            const draft = {
+            const draft = normalizeGoogleConfig({
               clientId: (googleConfigEdit.clientId || "").trim(),
               folderId: (googleConfigEdit.folderId || "").trim()
-            };
+            });
             setGoogleConfig(draft);
             setGoogleConfigEdit(draft);
             await solicitarPermisosGoogle(true, draft);
