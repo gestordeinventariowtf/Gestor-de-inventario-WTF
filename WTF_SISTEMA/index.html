@@ -1048,6 +1048,52 @@
     "207830026406-d12f1jk9bjmdru15e2d7v3d35qjv8hdg.apps.googleusercontent.com"
   ];
   const GOOGLE_DEFAULT_CONFIG = { clientId: GOOGLE_PRIMARY_CLIENT_ID, folderId: "1Guly82tDsfunuhfgBBNqEQ6SsnbtQnyL" };
+  const PRODUCCION_PROGRAMADA_COCINA = [
+    "CARNE DE HAMBURGUESA (Chefandish de 225 uds) (90 gramos)",
+    "PECHUGA (250 GRAMOS)",
+    "POLLO PARA LAS PASTAS (100 GRAMOS)",
+    "CARNE DE CHIMI (120 A 122 GRAMOS)",
+    "ALITAS SERV. (5 MUSLOS Y 5 ALITAS)",
+    "CARNITA DE CERDO PARA LOS MOFONGOS",
+    "CARNITA DE RES PARA LOS MOFONGOS",
+    "POLLO DE NACHO (SERV)",
+    "BACON CARAMELIZADO (SERV. 500 GRAMOS)",
+    "CEBOLLA CARAMELIZADA (SERV. 500 GRAMOS)",
+    "CREMA DE BACON (2 LITROS DE CREMA DE LECHE)",
+    "CREMA DE HONGOS (2 LITROS DE CREMA DE LECHE)",
+    "CREMA DE MOFONGOS (2 LITROS DE CREMA DE LECHE)",
+    "BECHAMEL (2 LITROS DE CREMA DE LECHE)",
+    "SALSA SENCILLO (GALONES)",
+    "SALSA ROSADA (GALONES)",
+    "GOLDEN SALSA PAPAS HONEY MUSTARD (GALONES)",
+    "SALSA BBQ WTF (MEDIO GALON)",
+    "HONEY MUSTARD (MEDIO GALON)",
+    "MAYONESA DE AJO (MEDIO GALON)",
+    "MAYONESA DE CILANTRO (1/4 DE GALON)",
+    "MAYONESA DE ALBAHACA (CUARTO DE GALON)",
+    "SALSA MAYONESA TARTARA",
+    "CROQUETAS DE POLLO (Servicios de 4 UDS)",
+    "CARNE DE BIRRIA (50 gramos)",
+    "CROQUETA DE 3 QUESOS",
+    "CHICHARRON (HERVIDO) (LIBRAS)",
+    "CAPA (HERVIDA) (LIBRAS)",
+    "FILETES DE RES (SERV. 10 Oz)",
+    "FILETE DE CERDO (SERV. 10 Oz)",
+    "MERMELADA DE PIMENTONES ROJO",
+    "PECHURINAS",
+    "PECHUGA PARIS",
+    "SALMON (SAZONADOS Y PORCIONADOS) (7 OZ)",
+    "SAZONAR LAS ALITAS DE LA PARRILLADAS (SUDARLA) (2 UDS C/U)",
+    "SAZONAR LAS CHULETAS DE LA PARRILLADAS (SUDARLA)",
+    "CAMARONES (SAZONADOS Y PORCIONADOS) (10 UDS)",
+    "AJO LICUADO (MEDIO GALON)",
+    "SALSA TERIYAKI (MEDIO GALON)",
+    "COSTILLAS DESMENUZADAS (50 GRAMOS)",
+    "COSTILLA CON HUESO (4 HUESOS)",
+    "REDUCCION DE CHINOLA CON ESPECIES (MEDIO GALON)",
+    "SAZON VERDE (GALON)",
+    "SAZON CRIOLLO PARA LAS CHULETAS (MEDIO GALON)"
+  ];
   const ADMIN_DEFAULT = {
     id: "admin-root",
     nombre: "Administrador Principal",
@@ -2498,6 +2544,8 @@ Solicitado: ${cantidad}`);
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
     const [directLoadModalOpen, setDirectLoadModalOpen] = useState(false);
+    const [pendingModalOpen, setPendingModalOpen] = useState(false);
+    const [pendingSearch, setPendingSearch] = useState("");
     const [recipesUnlocked, setRecipesUnlocked] = useState(false);
     const [recipeAccessModal, setRecipeAccessModal] = useState(false);
     const [deleteRequest, setDeleteRequest] = useState(null);
@@ -2536,9 +2584,14 @@ Solicitado: ${cantidad}`);
     const recetasOrdenadas = useMemo(function() {
       return Array.isArray(recetas) ? [...recetas].reverse() : [];
     }, [recetas]);
+    const produccionProgramadaBase = useMemo(function() {
+      return moduleLabel === "Cocina" ? PRODUCCION_PROGRAMADA_COCINA : [];
+    }, [moduleLabel]);
     useEffect(function() {
       setRecipesUnlocked(false);
       setRecipeAccessModal(false);
+      setPendingModalOpen(false);
+      setPendingSearch("");
     }, [moduleLabel]);
     function resolveProducedMiseUnit(unit) {
       const normalized = normalizeUnit(unit);
@@ -2573,6 +2626,48 @@ Solicitado: ${cantidad}`);
       }
       return bestScore >= 55 ? bestMatch : null;
     }
+    function findBestInventoryProductionMatch(productoProducido) {
+      let bestMatch = null;
+      let bestScore = 0;
+      for (const item of productosInventario) {
+        const score = getNameSimilarityScore(productoProducido, item.nombre);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+        }
+      }
+      return bestScore >= 55 ? bestMatch : null;
+    }
+    function findBestRecipeMatch(productoProducido) {
+      let bestMatch = null;
+      let bestScore = 0;
+      for (const item of recetasOrdenadas) {
+        const score = getNameSimilarityScore(productoProducido, item.nombre);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+        }
+      }
+      return bestScore >= 55 ? bestMatch : null;
+    }
+    const produccionProgramada = useMemo(function() {
+      const q = normalizar(pendingSearch);
+      return produccionProgramadaBase.map(function(nombre, index) {
+        const inventarioMatch = findBestInventoryProductionMatch(nombre);
+        const miseMatch = findBestMiseMatch(nombre);
+        const recetaMatch = findBestRecipeMatch(nombre);
+        return {
+          id: `prod-pend-${index}`,
+          nombre,
+          inventarioMatch,
+          miseMatch,
+          recetaMatch
+        };
+      }).filter(function(item) {
+        if (!q) return true;
+        return normalizar(item.nombre).includes(q) || normalizar(item.inventarioMatch && item.inventarioMatch.nombre || "").includes(q) || normalizar(item.recetaMatch && item.recetaMatch.nombre || "").includes(q);
+      });
+    }, [produccionProgramadaBase, pendingSearch, productosInventario, miseAnPlace, recetasOrdenadas]);
     function transferirProduccion(row) {
       if (!row || row.transferidoAMiseAt) {
         toast("Esta producción ya fue transferida a Mise an Place.", "info");
@@ -2833,6 +2928,14 @@ Solicitado: ${cantidad}`);
     function openProductionModal() {
       resetProductionForm();
       setModalOpen(true);
+    }
+    function openPendingProductionModal() {
+      setPendingSearch("");
+      setPendingModalOpen(true);
+    }
+    function closePendingProductionModal() {
+      setPendingModalOpen(false);
+      setPendingSearch("");
     }
     function closeProductionModal() {
       setModalOpen(false);
@@ -3143,6 +3246,24 @@ Solicitado: ${cantidad}`);
       setError("");
       setModalOpen(true);
     }
+    function seleccionarProduccionProgramada(item) {
+      if (!item) return;
+      if (item.recetaMatch) {
+        cargarReceta(item.recetaMatch);
+        setPendingModalOpen(false);
+        toast(`Receta cargada para ${item.recetaMatch.nombre}`, "ok");
+        return;
+      }
+      resetProductionForm();
+      setResultado({
+        nombre: item.nombre || "",
+        cantidad: "",
+        medida: item.inventarioMatch ? item.inventarioMatch.medida : "Uni"
+      });
+      setModalOpen(true);
+      setPendingModalOpen(false);
+      toast(`Producto seleccionado para producción: ${item.nombre}`, "ok");
+    }
     function eliminarReceta(recetaId) {
       if (!confirm("¿Eliminar esta receta?")) return;
       setRecetas(function(prev) {
@@ -3161,6 +3282,7 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Transforma productos de Inventario en nuevos productos producidos para ", moduleLabel, ".")
             ),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              moduleLabel === "Cocina" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-naranja", onClick: openPendingProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-check" }), "Ver producción pendiente"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open" }), "Nueva receta"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openDirectLoadModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar Producción realizada"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
@@ -3331,6 +3453,52 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeDirectLoadModal }, "Cancelar"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardarCargaDirecta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar producción")
             )
+          )
+        )
+      ),
+      pendingModalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: closePendingProductionModal },
+        /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980, maxHeight: "92dvh" }, onClick: function(e) { e.stopPropagation(); } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-check", style: { marginRight: 7, color: "#f59e0b" } }), "Producción pendiente"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closePendingProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } },
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)" } }, "Esta lista carga automáticamente los productos marcados para producción. Si una receta ya existe, se cargará de inmediato al seleccionarla."),
+            /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 420 } },
+              /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto pendiente...", value: pendingSearch, onChange: function(e) { setPendingSearch(e.target.value); }, autoFocus: true })
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 } },
+              /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, produccionProgramadaBase.length, " pendientes base"),
+              /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, produccionProgramada.length, " visibles")
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, maxHeight: "62vh", overflowY: "auto", paddingRight: 2 } },
+              produccionProgramada.map(function(item) {
+                const inventarioInfo = item.inventarioMatch ? `${Number(getInventoryExistence(item.inventarioMatch).toFixed(2))} ${item.inventarioMatch.medida}` : "No registrado";
+                const miseInfo = item.miseMatch ? `${Number((Number(item.miseMatch.existencia) || 0).toFixed(2))} ${item.miseMatch.medida || "Uni"}` : "Sin coincidencia";
+                return /* @__PURE__ */ React.createElement("div", { key: item.id, style: { border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 12, padding: 14, display: "grid", gap: 10 } },
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "start" } },
+                    /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
+                      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: "#111827", fontSize: 15 } }, item.nombre),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", marginTop: 4 } }, item.recetaMatch ? `Receta encontrada: ${item.recetaMatch.nombre}` : "Sin receta guardada")
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                      item.recetaMatch ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Con receta") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin receta"),
+                      /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Inventario: ", inventarioInfo),
+                      /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Mise: ", miseInfo)
+                    )
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" } },
+                    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, item.inventarioMatch ? "El sistema detectó existencia relacionada para este producto." : "Aún no se detecta una existencia relacionada en Inventario."),
+                    /* @__PURE__ */ React.createElement("button", { className: `btn btn-sm ${item.recetaMatch ? "btn-verde" : "btn-naranja"}`, onClick: function() { seleccionarProduccionProgramada(item); } }, /* @__PURE__ */ React.createElement("i", { className: item.recetaMatch ? "fas fa-flask" : "fas fa-arrow-right" }), item.recetaMatch ? "Usar receta" : "Seleccionar producto")
+                  )
+                );
+              }),
+              produccionProgramada.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "var(--gris)", padding: "26px 12px", border: "1px dashed #cbd5e1", borderRadius: 12 } }, "No hay coincidencias para esa búsqueda.")
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closePendingProductionModal }, "Cerrar")
           )
         )
       ),
