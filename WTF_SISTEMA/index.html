@@ -5101,7 +5101,7 @@ Cantidad: ${cant}`);
       }
     }
     async function enviar() {
-      if (!googleConfigured && destinatarios.length === 0) {
+      if (destinatarios.length === 0) {
         toast("Agregue al menos un destinatario.", "error");
         return;
       }
@@ -5118,8 +5118,9 @@ Cantidad: ${cant}`);
       }
       setEnviando(true);
       try {
+        setCorreos(destinatarios);
         await guardarEnDrive(destinatarios);
-        toast(`Google Sheets creado y correo enviado con Excel adjunto a ${destinatarios.length} destinatario(s).`, "ok");
+        toast(`Archivo guardado en Drive y correo enviado con Excel adjunto a ${destinatarios.length} destinatario(s).`, "ok");
         onSent();
       } catch (err) {
         toast(err && err.message ? err.message : "Error al guardar en Drive.", "error");
@@ -5127,7 +5128,7 @@ Cantidad: ${cant}`);
         setEnviando(false);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-envelope", style: { marginRight: 7 } }), "Enviar Listado de Compra"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Destinatarios", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontWeight: 400, color: "var(--gris)", fontSize: 11 } }, "(", destinatarios.length, " ", destinatarios.length === 1 ? "destinatario" : "destinatarios", ")")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 8 } }, destinatarios.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px", background: "#fef3c7", borderRadius: 6, fontSize: 13, color: "#92400e", border: "1px solid #fcd34d" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-triangle", style: { marginRight: 6 } }), "No hay destinatarios. Agrega al menos uno antes de enviar."), destinatarios.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: {
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-envelope", style: { marginRight: 7 } }), "Enviar Listado de Compra"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info", style: { marginRight: 6 } }), "Este bot\xF3n guardar\xE1 la hoja en Drive y enviar\xE1 un correo con el archivo Excel adjunto a los destinatarios indicados abajo."), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Destinatarios", /* @__PURE__ */ React.createElement("span", { style: { marginLeft: 8, fontWeight: 400, color: "var(--gris)", fontSize: 11 } }, "(", destinatarios.length, " ", destinatarios.length === 1 ? "destinatario" : "destinatarios", ")")), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 8 } }, destinatarios.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px", background: "#fef3c7", borderRadius: 6, fontSize: 13, color: "#92400e", border: "1px solid #fcd34d" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-triangle", style: { marginRight: 6 } }), "No hay destinatarios. Agrega al menos uno antes de enviar."), destinatarios.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: {
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
@@ -5169,7 +5170,7 @@ Cantidad: ${cant}`);
       border: "1px solid var(--borde)",
       fontFamily: "monospace",
       lineHeight: 1.6
-    } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: 4 } }, "LISTADO DE COMPRA \u2014 ", titulo), listado.items.map((p, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 10, justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.nombre), /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", flexShrink: 0 } }, p.suplidor || "\u2014"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "var(--azul)", flexShrink: 0 } }, Number(p.comprar.toFixed(2)), " ", p.medida)))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: googleConfigured ? "#15803d" : "#b45309", margin: 0 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${googleConfigured ? "fa-check-circle" : "fa-exclamation-triangle"}`, style: { marginRight: 4 } }), googleConfigured ? googleAuthed ? "Google Drive listo. El listado se guardara en la carpeta de compras." : "Google configurado. El permiso se pedira al guardar." : "Sin configuracion de Google. Se abrira un borrador de Gmail web para completar el envio manualmente."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, googleConfigured && !googleAuthed && /* @__PURE__ */ React.createElement(
+    } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, marginBottom: 4 } }, "LISTADO DE COMPRA \u2014 ", titulo), listado.items.map((p, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", gap: 10, justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid #e5e7eb" } }, /* @__PURE__ */ React.createElement("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.nombre), /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", flexShrink: 0 } }, p.suplidor || "\u2014"), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700, color: "var(--azul)", flexShrink: 0 } }, Number(p.comprar.toFixed(2)), " ", p.medida)))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: googleConfigured ? "#15803d" : "#b45309", margin: 0 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${googleConfigured ? "fa-check-circle" : "fa-exclamation-triangle"}`, style: { marginRight: 4 } }), googleConfigured ? googleAuthed ? "Google Drive y Gmail listos. Se guardara la hoja y se enviara el Excel por correo." : "Google configurado. El permiso se pedira al guardar y enviar." : "Sin configuracion de Google. Se abrira un borrador de Gmail web para completar el envio manualmente."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, googleConfigured && !googleAuthed && /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "btn btn-gris",
@@ -5190,10 +5191,10 @@ Cantidad: ${cant}`);
       {
         className: "btn btn-azul",
         onClick: enviar,
-        disabled: (googleConfigured ? false : destinatarios.length === 0) || enviando || authorizing,
-        style: { opacity: (googleConfigured ? false : destinatarios.length === 0) || enviando || authorizing ? 0.7 : 1 }
+        disabled: destinatarios.length === 0 || enviando || authorizing,
+        style: { opacity: destinatarios.length === 0 || enviando || authorizing ? 0.7 : 1 }
       },
-      enviando ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Guardando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: `fas ${googleConfigured ? "fa-folder-open" : "fa-up-right-from-square"}` }), googleConfigured ? "Guardar en Drive" : "Abrir Gmail web")
+      enviando ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), googleConfigured ? "Guardando y enviando..." : "Abriendo Gmail...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: `fas ${googleConfigured ? "fa-folder-open" : "fa-up-right-from-square"}` }), googleConfigured ? "Guardar en Drive y Enviar" : "Abrir Gmail web")
     )))));
   }
   function Registros({ inventario, setInventario, regEntradas, setRegEntradas, regSalidas, setRegSalidas, regDecomiso, setRegDecomiso, currentUser, usuarios }) {
