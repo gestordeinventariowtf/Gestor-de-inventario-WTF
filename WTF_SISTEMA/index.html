@@ -2012,7 +2012,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -2022,7 +2022,14 @@
       return () => window.removeEventListener("resize", onResize);
     }, []);
     const isMobile = () => window.innerWidth <= 768;
+    const [movementStorage, setMovementStorage] = useState("inventario");
+    const [movementSelector, setMovementSelector] = useState(null);
     function navigate(p) {
+      if (!esSharp && ["entradas", "salidas", "decomiso"].includes(p)) {
+        setMovementSelector(p);
+        if (isMobile()) setSidebarOpen(false);
+        return;
+      }
       setPage(p);
       setPageFx(Date.now());
       try {
@@ -2163,6 +2170,46 @@ Solicitado: ${cantidad}`);
       }
       syncNeveras({ nombre: prod.nombre, delta: tipo === "entrada" ? cantidad : -cantidad, existenciaAntes: exist });
     }
+    function addMovimientoBarCuartoFrio(tipo, productoNombre, cantidad) {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const prod = barCuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
+      if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
+      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
+      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
+        throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+      const reg = { fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: (r.entrada || 0) + cantidad } : r)); setBarRegEntradas((p) => [...p, reg]); }
+      if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: (r.salida || 0) + cantidad } : r)); setBarRegSalidas((p) => [...p, reg]); }
+      if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: (r.decomiso || 0) + cantidad } : r)); setBarRegDecomiso((p) => [...p, reg]); }
+    }
+    function addMovimientoCuartoFrio(tipo, productoNombre, cantidad) {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const prod = cuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
+      if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
+      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
+      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
+        throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+      const reg = {
+        fecha: now,
+        numero: prod.id,
+        medida: prod.medida,
+        producto: prod.nombre,
+        cantidad,
+        usuario: getUserDisplayLabel(currentUser)
+      };
+      if (tipo === "entrada") {
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: (r.entrada || 0) + cantidad } : r));
+        setRegEntradas((p) => [...p, reg]);
+      }
+      if (tipo === "salida") {
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: (r.salida || 0) + cantidad } : r));
+        setRegSalidas((p) => [...p, reg]);
+      }
+      if (tipo === "decomiso") {
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: (r.decomiso || 0) + cantidad } : r));
+        setRegDecomiso((p) => [...p, reg]);
+      }
+    }
     const navItems = [
       { key: "dashboard", icon: "fa-home", label: "Dashboard", section: "GENERAL" },
       { key: "sharp", icon: "fa-soap", label: "Sharp de Limpieza", section: null },
@@ -2214,7 +2261,12 @@ Solicitado: ${cantidad}`);
     const setActiveProduccion = esBar ? setBarRegProduccion : setRegProduccion;
     const activeRecetasProduccion = esBar ? barRecetasProduccion : recetasProduccion;
     const setActiveRecetasProduccion = esBar ? setBarRecetasProduccion : setRecetasProduccion;
-    const activeAddMovimiento = esBar ? addMovimientoBar : addMovimiento;
+    const activeMovementInv = movementStorage === "cuartoFrio" ? activeCuartoFrio : activeInv;
+    const activeMovementProductos = activeMovementInv.filter((r) => r.tipo === "producto").map((p) => ({
+      ...p,
+      existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+    }));
+    const activeAddMovimiento = movementStorage === "cuartoFrio" ? (esBar ? addMovimientoBarCuartoFrio : addMovimientoCuartoFrio) : (esBar ? addMovimientoBar : addMovimiento);
     function migrateProductsToCuartoFrio(productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
       if (!ids.length) {
@@ -2273,11 +2325,11 @@ Solicitado: ${cantidad}`);
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, miseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null }),
-      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeProductos, addMovimiento: activeAddMovimiento }),
-      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeProductos, addMovimiento: activeAddMovimiento }),
-      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeProductos, addMovimiento: activeAddMovimiento }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], onNavigateToPage: navigate }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], onNavigateToPage: navigate }),
+      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
+      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
+      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones: activeProduccion, setProducciones: setActiveProduccion }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
@@ -2391,6 +2443,22 @@ Solicitado: ${cantidad}`);
           setConfirmNevera(null);
         },
         onCancel: () => setConfirmNevera(null)
+      }
+    ), movementSelector && /* @__PURE__ */ React.createElement(
+      MovementStorageModal,
+      {
+        actionLabel: titles[movementSelector] || "Registrar movimiento",
+        onClose: () => setMovementSelector(null),
+        onSelect: (storageKey) => {
+          setMovementStorage(storageKey);
+          setMovementSelector(null);
+          setPage(movementSelector);
+          setPageFx(Date.now());
+          try {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          } catch (err) {
+          }
+        }
       }
     ), selfAccessModal && currentUser && /* @__PURE__ */ React.createElement(
       SelfAccessModal,
@@ -3744,7 +3812,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null }) {
+  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], onNavigateToPage = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -3766,6 +3834,27 @@ Solicitado: ${cantidad}`);
       const q = normalizar(busqueda);
       return inventario.filter((r) => r.tipo === "producto" && (normalizar(r.nombre).includes(q) || normalizar(r.suplidor || "").includes(q)));
     }, [inventario, busqueda]);
+    const globalSearchResults = useMemo(() => {
+      const q = normalizar(busqueda);
+      if (!q) return [];
+      const found = [];
+      (Array.isArray(searchSources) ? searchSources : []).forEach(function(source) {
+        (Array.isArray(source.inventario) ? source.inventario : []).forEach(function(row) {
+          if (row.tipo !== "producto") return;
+          if (!normalizar(row.nombre).includes(q) && !normalizar(row.suplidor || "").includes(q) && !normalizar(row.medida || "").includes(q)) return;
+          found.push({
+            id: `${source.key}-${row.id}`,
+            pageKey: source.key,
+            pageLabel: source.label,
+            nombre: row.nombre,
+            medida: row.medida,
+            suplidor: row.suplidor || "",
+            existencia: (row.entrada || 0) - (row.salida || 0) - (row.decomiso || 0)
+          });
+        });
+      });
+      return found.slice(0, 12);
+    }, [busqueda, searchSources]);
     const separadores = useMemo(() => inventario.filter((r) => r.tipo === "separador"), [inventario]);
     const conteoMap = useMemo(() => {
       const map = {}, counts = {};
@@ -3865,6 +3954,11 @@ Solicitado: ${cantidad}`);
       }
       setShowMigrateKey(true);
     }
+    function openSearchResult(result) {
+      if (!result || typeof onNavigateToPage !== "function") return;
+      setBusqueda("");
+      onNavigateToPage(result.pageKey);
+    }
     function reubicarProductos(targetSeparatorId, productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
       if (!targetSeparatorId || !ids.length) {
@@ -3927,10 +4021,12 @@ Solicitado: ${cantidad}`);
       setModalMigrar(true);
     } }) : null;
     const migrateModal = modalMigrar ? /* @__PURE__ */ React.createElement(InventarioMigracionModal, { inventario, targetLabel: migrateTargetLabel, onClose: () => setModalMigrar(false), onConfirm: migrarProductos }) : null;
+    const globalResultButtons = globalSearchResults.map((result) => /* @__PURE__ */ React.createElement("button", { key: result.id, type: "button", className: "btn btn-outline", onClick: () => openSearchResult(result), style: { justifyContent: "space-between", textAlign: "left", padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4 } }, /* @__PURE__ */ React.createElement("strong", null, result.nombre), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, result.suplidor || "Sin suplidor")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "end", gap: 4 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${result.pageKey === "cuartoFrio" ? "pill-azul" : "pill-verde"}` }, result.pageLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, Number(result.existencia.toFixed(2)), " ", result.medida))));
+    const globalResultsNode = busqueda.trim() && globalSearchResults.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-compass", style: { marginRight: 7, color: "var(--azul)" } }), "Resultados globales")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, globalResultButtons)) : null;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { flex: 1, minWidth: 160, maxWidth: 320 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo` }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " producto", bajoStockCount === 1 ? "" : "s"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || "") }));
       setModalAdd(true);
-    } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
+    } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón")), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
   }
   function InventarioReubicarModal({ inventario, onClose, onConfirm }) {
     const [step, setStep] = useState(1);
@@ -4015,7 +4111,10 @@ Solicitado: ${cantidad}`);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { marginRight: 7, color: "#0ea5e9" } }), `Migrar productos a ${targetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)" } }, `Selecciona los productos que saldrán de Inventario y pasarán a ${targetLabel}. El sistema conservará el renglón actual y lo creará si no existe en el destino.`), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o renglón actual...", value: busqueda, onChange: (e) => setBusqueda(e.target.value), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Seleccionados: ", /* @__PURE__ */ React.createElement("strong", null, selectedProductIds.length)), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "50vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { width: 48 } }, "Sel."), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Renglón actual"))), /* @__PURE__ */ React.createElement("tbody", null, productRows)))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: submit, disabled: !selectedProductIds.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), "Migrar seleccionados"))));
   }
-  function MovimientoForm({ tipo, productos, addMovimiento }) {
+  function MovementStorageModal({ actionLabel, onClose, onSelect }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { maxWidth: 420 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-warehouse", style: { marginRight: 7, color: "var(--azul)" } }), `Selecciona dónde ${actionLabel.toLowerCase()}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => onSelect("inventario"), style: { justifyContent: "space-between", padding: "14px 16px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, "Inventario"), /* @__PURE__ */ React.createElement("i", { className: "fas fa-boxes-stacked" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => onSelect("cuartoFrio"), style: { justifyContent: "space-between", padding: "14px 16px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, "Cuarto Frio"), /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" })))));
+  }
+  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario" }) {
     const toast = useToast();
     const [producto, setProducto] = useState("");
     const [cantidad, setCantidad] = useState("");
@@ -4053,7 +4152,7 @@ Cantidad: ${cant}`);
         setError(e.message);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label)), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)), success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label), /* @__PURE__ */ React.createElement("span", { className: `pill ${storageLabel === "Cuarto Frio" ? "pill-azul" : "pill-verde"}` }, storageLabel)), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)), success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement(
       "input",
       {
         className: `form-control ${error && !producto ? "error" : ""}`,
@@ -4064,7 +4163,7 @@ Cantidad: ${cant}`);
           setError("");
           setSuccess("");
         },
-        placeholder: "Seleccione un producto...",
+        placeholder: `Seleccione un producto de ${storageLabel}...`,
         autoComplete: "off"
       }
     ), /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.nombre }, p.nombre, " \u2014 ", p.existencia.toFixed(2), " ", p.medida))), prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 20px" } }, /* @__PURE__ */ React.createElement("span", null, "Existencia: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, prodInfo.existencia.toFixed(2), " ", prodInfo.medida)), /* @__PURE__ */ React.createElement("span", null, "Suplidor: ", prodInfo.suplidor || "\u2014"))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"), /* @__PURE__ */ React.createElement(
