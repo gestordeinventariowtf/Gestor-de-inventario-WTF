@@ -1117,6 +1117,7 @@
     { key: "registros", label: "Registros" },
     { key: "histDecomiso", label: "Historial Decomiso" },
     { key: "produccion", label: "Produccion" },
+    { key: "autorizacionRecetas", label: "Autorizacion a Recetas" },
     { key: "sharp", label: "Sharp de Limpieza" }
   ];
   const DEFAULT_FIREBASE_SYNC_CONFIG = {
@@ -2104,7 +2105,7 @@
       if (!currentUser) return;
       if (!hasAccess(page)) {
         const firstAllowed = isAdminUser(currentUser) ? "dashboard" : (PERMISSION_OPTIONS.find(function(item) {
-          return hasAccess(item.key);
+          return item.key !== "autorizacionRecetas" && hasAccess(item.key);
         }) || { key: "dashboard" }).key;
         setPage(firstAllowed);
       }
@@ -2548,6 +2549,8 @@ Solicitado: ${cantidad}`);
     const [pendingSearch, setPendingSearch] = useState("");
     const [recipesUnlocked, setRecipesUnlocked] = useState(false);
     const [recipeAccessModal, setRecipeAccessModal] = useState(false);
+    const [editingRecipeId, setEditingRecipeId] = useState(null);
+    const [recipeEditRequest, setRecipeEditRequest] = useState(null);
     const [deleteRequest, setDeleteRequest] = useState(null);
     const [deletePassword, setDeletePassword] = useState("");
     const [busqueda, setBusqueda] = useState("");
@@ -2584,6 +2587,8 @@ Solicitado: ${cantidad}`);
     const recetasOrdenadas = useMemo(function() {
       return Array.isArray(recetas) ? [...recetas].reverse() : [];
     }, [recetas]);
+    const recipesAuthorizedByPermission = isAdminUser(currentUser) || (Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas"));
+    const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
     const produccionProgramadaBase = useMemo(function() {
       return moduleLabel === "Cocina" ? PRODUCCION_PROGRAMADA_COCINA : [];
     }, [moduleLabel]);
@@ -2943,10 +2948,12 @@ Solicitado: ${cantidad}`);
     }
     function openRecipeModal() {
       resetProductionForm();
+      setEditingRecipeId(null);
       setRecipeModalOpen(true);
     }
     function closeRecipeModal() {
       setRecipeModalOpen(false);
+      setEditingRecipeId(null);
       setError("");
     }
     function openDirectLoadModal() {
@@ -2964,6 +2971,32 @@ Solicitado: ${cantidad}`);
       setRecipesUnlocked(true);
       setRecipeAccessModal(false);
       toast("Acceso a recetas autorizado.", "ok");
+    }
+    function solicitarEditarReceta(receta) {
+      setRecipeEditRequest(receta);
+    }
+    function confirmarEditarReceta() {
+      if (!recipeEditRequest) return;
+      const targetRecipe = recipeEditRequest;
+      setInsumos((targetRecipe.insumos || []).map(function(item) {
+        return {
+          rowId: `ins-${Date.now()}-${Math.random()}`,
+          productId: item.productId,
+          cantidad: String(item.cantidad || ""),
+          unidad: item.unidad || inferProductionUnit(item.medidaInventario)
+        };
+      }));
+      setResultado({
+        nombre: targetRecipe.nombre || "",
+        cantidad: targetRecipe.cantidadObjetivo ? String(targetRecipe.cantidadObjetivo) : "",
+        medida: targetRecipe.medidaObjetivo || "Uni"
+      });
+      setBusqueda("");
+      setError("");
+      setEditingRecipeId(targetRecipe.id);
+      setRecipeEditRequest(null);
+      setRecipeModalOpen(true);
+      toast(`Receta lista para editar: ${targetRecipe.nombre}`, "ok");
     }
     function closeDeleteModal() {
       setDeleteRequest(null);
@@ -3212,19 +3245,31 @@ Solicitado: ${cantidad}`);
           medidaInventario: product.medida
         });
       }
+      const recetaPayload = {
+        fecha: new Date().toISOString(),
+        modulo: moduleLabel,
+        usuario: getUserDisplayLabel(currentUser),
+        nombre: nombreReceta,
+        cantidadObjetivo: Number(Number(String(resultado.cantidad || 0).replace(",", ".") || 0).toFixed(4)),
+        medidaObjetivo: resultado.medida,
+        insumos: recetaItems
+      };
       setRecetas(function(prev) {
-        return [...(Array.isArray(prev) ? prev : []), {
-          id: `rec-${Date.now()}-${Math.random()}`,
-          fecha: new Date().toISOString(),
-          modulo: moduleLabel,
-          usuario: getUserDisplayLabel(currentUser),
-          nombre: nombreReceta,
-          cantidadObjetivo: Number(Number(String(resultado.cantidad || 0).replace(",", ".") || 0).toFixed(4)),
-          medidaObjetivo: resultado.medida,
-          insumos: recetaItems
-        }];
+        const current = Array.isArray(prev) ? prev : [];
+        if (editingRecipeId) {
+          return current.map(function(item) {
+            return item.id === editingRecipeId ? Object.assign({}, item, recetaPayload, {
+              id: item.id,
+              fecha: item.fecha || recetaPayload.fecha,
+              fechaActualizacion: recetaPayload.fecha
+            }) : item;
+          });
+        }
+        return [...current, Object.assign({}, recetaPayload, {
+          id: `rec-${Date.now()}-${Math.random()}`
+        })];
       });
-      toast(`Receta guardada: ${nombreReceta}`, "ok");
+      toast(editingRecipeId ? `Receta actualizada: ${nombreReceta}` : `Receta guardada: ${nombreReceta}`, "ok");
       closeRecipeModal();
       resetProductionForm();
     }
@@ -3296,10 +3341,10 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Recetas de Producción"),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, recetasOrdenadas.length, " recetas"),
-              recipesUnlocked ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Autorizado") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Protegido")
+              recipesAuthorized ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Autorizado") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Protegido")
             )
           ),
-          !recipesUnlocked ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
+          !recipesAuthorized ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
             /* @__PURE__ */ React.createElement("i", { className: "fas fa-lock", style: { fontSize: 30, display: "block", marginBottom: 8, color: "#9ca3af" } }),
             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#111827", marginBottom: 8 } }, "Recetas protegidas"),
             /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, marginBottom: 14 } }, "Para ver las recetas se requiere una contraseña administradora."),
@@ -3328,6 +3373,7 @@ Solicitado: ${cantidad}`);
                 })),
                 /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
                   /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { cargarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar en producción"),
+                  /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { solicitarEditarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"),
                   /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { eliminarReceta(receta.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar")
                 )
               );
@@ -3609,7 +3655,7 @@ Solicitado: ${cantidad}`);
       recipeModalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: closeRecipeModal },
         /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980, maxHeight: "92dvh" }, onClick: function(e) { e.stopPropagation(); } },
           /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
-            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Guardar Receta"),
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), editingRecipeId ? "Editar Receta" : "Guardar Receta"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 16 } },
@@ -3702,10 +3748,10 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Guarda una receta para reutilizarla luego dentro del mismo módulo de Producción."),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, editingRecipeId ? "Actualiza esta receta para reutilizarla luego dentro del mismo módulo de Producción." : "Guarda una receta para reutilizarla luego dentro del mismo módulo de Producción."),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeRecipeModal }, "Cancelar"),
-              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarReceta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar receta")
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarReceta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingRecipeId ? "Guardar cambios" : "Guardar receta")
             )
           )
         )
@@ -3717,6 +3763,15 @@ Solicitado: ${cantidad}`);
           usuarios,
           onClose: () => setRecipeAccessModal(false),
           onConfirm: confirmarAccesoRecetas
+        }
+      ),
+      recipeEditRequest && /* @__PURE__ */ React.createElement(
+        AdminKeyModal,
+        {
+          title: "Clave requerida para editar receta",
+          usuarios,
+          onClose: () => setRecipeEditRequest(null),
+          onConfirm: confirmarEditarReceta
         }
       )
     );
