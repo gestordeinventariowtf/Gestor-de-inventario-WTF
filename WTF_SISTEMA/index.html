@@ -2739,7 +2739,7 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [historial, historySearch]);
-    const recipesAuthorizedByPermission = isAdminUser(currentUser) || (Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas"));
+    const recipesAuthorizedByPermission = Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas");
     const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
     const produccionProgramadaBase = useMemo(function() {
       return moduleLabel === "Cocina" ? PRODUCCION_PROGRAMADA_COCINA : [];
