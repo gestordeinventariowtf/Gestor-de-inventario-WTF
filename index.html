@@ -2739,6 +2739,41 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [historial, historySearch]);
+    const directLoadOptions = useMemo(function() {
+      const map = {};
+      if (moduleLabel === "Bar") {
+        (Array.isArray(recetas) ? recetas : []).forEach(function(item) {
+          const nombre = String(item && item.nombre || "").trim();
+          if (!nombre) return;
+          map[normalizar(nombre)] = {
+            id: item.id || nombre,
+            producto: nombre,
+            medida: item.medidaObjetivo || "Uni"
+          };
+        });
+        (Array.isArray(producciones) ? producciones : []).forEach(function(item) {
+          const nombre = String(item && item.productoProducido || "").trim();
+          if (!nombre) return;
+          map[normalizar(nombre)] = {
+            id: item.id || nombre,
+            producto: nombre,
+            medida: item.medidaProducida || "Uni"
+          };
+        });
+        return Object.values(map).sort(function(a, b) {
+          return a.producto.localeCompare(b.producto);
+        });
+      }
+      return (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
+        return {
+          id: item.id,
+          producto: item.producto,
+          medida: item.medida || "Uni"
+        };
+      }).sort(function(a, b) {
+        return String(a.producto || "").localeCompare(String(b.producto || ""));
+      });
+    }, [moduleLabel, recetas, producciones, miseAnPlace]);
     const recipesAuthorizedByPermission = Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas");
     const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
     const produccionProgramadaBase = useMemo(function() {
@@ -2945,7 +2980,7 @@ Solicitado: ${cantidad}`);
           warnings
         };
       }
-      const productoInventario = productosInventario.find(function(product) {
+      const productoInventario = productosSoloInventario.find(function(product) {
         return normalizar(product.nombre) === normalizar(nombreProducido);
       });
       let cantidadReversaInventario = 0;
@@ -3278,6 +3313,60 @@ Solicitado: ${cantidad}`);
       }
       if (!Number.isFinite(cantidad) || cantidad <= 0) {
         setDirectLoadError("La cantidad debe ser mayor a cero.");
+        return;
+      }
+      if (moduleLabel === "Bar") {
+        const now = new Date().toISOString();
+        const usuario = getUserDisplayLabel(currentUser);
+        const existingProduct = productosSoloInventario.find(function(product) {
+          return normalizar(product.nombre) === normalizar(nombre);
+        });
+        const cantidadInventario = existingProduct ? convertMeasureQuantity(cantidad, unidad, existingProduct.medida) : cantidad;
+        if (existingProduct && cantidadInventario == null) {
+          setDirectLoadError(`No se puede convertir ${unidad} hacia ${existingProduct.medida} para ${existingProduct.nombre}.`);
+          return;
+        }
+        setInventario(function(prev) {
+          const current = Array.isArray(prev) ? prev : [];
+          let found = false;
+          const updated = current.map(function(row) {
+            if (row.tipo !== "producto" || normalizar(row.nombre) !== normalizar(nombre)) return row;
+            found = true;
+            return Object.assign({}, row, { entrada: Number((Number(row.entrada || 0) + cantidadInventario).toFixed(4)) });
+          });
+          if (!found) {
+            updated.push({
+              id: nextInventoryRowId(current),
+              tipo: "producto",
+              nombre,
+              medida: unidad,
+              suplidor: "Produccion",
+              stockLunesJueves: 0,
+              stockViernesDomingo: 0,
+              entrada: Number(cantidad.toFixed(4)),
+              salida: 0,
+              decomiso: 0
+            });
+          }
+          return updated;
+        });
+        setProducciones(function(prev) {
+          return [...(Array.isArray(prev) ? prev : []), {
+            id: `prod-${Date.now()}-${Math.random()}`,
+            fecha: now,
+            modulo: moduleLabel,
+            usuario,
+            productoProducido: nombre,
+            cantidadProducida: Number(cantidad.toFixed(4)),
+            cantidadProducidaOriginal: Number(cantidad.toFixed(4)),
+            medidaProducida: unidad,
+            insumos: [],
+            cargaDirectaBar: true
+          }];
+        });
+        toast(existingProduct ? `Producción cargada en Inventario Bar: ${existingProduct.nombre}` : `Producto creado y cargado en Inventario Bar: ${nombre}`, "ok");
+        closeDirectLoadModal();
+        resetDirectLoadForm();
         return;
       }
       const existingMise = (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(item) {
@@ -3770,10 +3859,10 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto"),
               /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-direct-load-list", value: directLoad.nombre, onChange: function(e) { setDirectLoad(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setDirectLoadError(""); }, placeholder: "Selecciona o escribe un producto", autoFocus: true }),
-              /* @__PURE__ */ React.createElement("datalist", { id: "mise-direct-load-list" }, (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
+              /* @__PURE__ */ React.createElement("datalist", { id: "mise-direct-load-list" }, directLoadOptions.map(function(item) {
                 return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, item.producto, item.medida ? ` — ${item.medida}` : "");
               })),
-              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Los nombres se toman de Mise an Place. Si no existe, el sistema te preguntará si deseas crearlo.")
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, moduleLabel === "Bar" ? "Los nombres se toman de recetas y producciones del Bar. También puedes escribir una nueva producción." : "Los nombres se toman de Mise an Place. Si no existe, el sistema te preguntará si deseas crearlo.")
             ),
             /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
               /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
@@ -3791,7 +3880,7 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Esta acción agrega directamente el producto elaborado a Mise an Place, sin descontar almacén."),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, moduleLabel === "Bar" ? "Esta acción registra directamente la producción en Inventario Bar, sin descontar almacén." : "Esta acción agrega directamente el producto elaborado a Mise an Place, sin descontar almacén."),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeDirectLoadModal }, "Cancelar"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardarCargaDirecta }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar producción")
