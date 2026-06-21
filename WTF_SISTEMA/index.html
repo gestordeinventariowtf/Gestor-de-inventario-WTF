@@ -1094,6 +1094,92 @@
     "SAZON VERDE (GALON)",
     "SAZON CRIOLLO PARA LAS CHULETAS (MEDIO GALON)"
   ];
+  const DEFAULT_RECETAS_PRODUCCION_VERSION = "2026-06-21-lista-produccion-web";
+  const DEFAULT_RECETAS_PRODUCCION_NAMES = [
+    "AJO LICUADO (MEDIO GALON)",
+    "ALITAS SERV. (5 MUSLOS Y 5 ALITAS)",
+    "ALMIBAR PARA PLATANO MADURO AL CALDERO",
+    "BACON CARAMELIZADO  (SERV. 500 GRAMOS)",
+    "BECHAMEL (2 LITROS DE CREMA DE LECHE)",
+    "CAMARONES (SAZONADOS Y PORCIONADOS) (10 UDS)",
+    "CAPA (HERVIDA) (LIBRAS)",
+    "CARNE DE BIRRIA (50 gramos)",
+    "CARNE DE CHIMI (131 GRAMOS)",
+    "CARNE DE HAMBURGUESA (90 gramos)",
+    "CARNITA DE CERDO PARA LOS MOFONGOS",
+    "CARNITA DE RES PARA LOS MOFONGOS",
+    "CEBOLLA CARAMELIZADA  (SERV. 500 GRAMOS",
+    "CHICHARRON (HERVIDO) (LIBRAS)",
+    "COLESLAW   (500 GRAMOS)",
+    "CORTAR PANES Y MANTEQUILLARLOS",
+    "COSTILLA CON HUESO (4 HUESOS)",
+    "COSTILLAS DESMENUZADAS (50 GRAMOS)",
+    "CREMA DE BACON (2 LITROS DE CREMA DE LECHE)",
+    "CREMA DE HONGOS (2 LITROS DE CREMA DE LECHE)",
+    "CREMA DE MOFONGOS (2 LITROS DE CREMA DE LECHE)",
+    "CROQUETA DE 3 QUESOS",
+    "CROQUETA DE QUESO PEPPA PIG (UDS)",
+    "CROQUETAS DE POLLO (Servicios de 4 UDS)",
+    "FILETE DE CERDO (SERV. 10 Oz)",
+    "FILETES DE RES (SERV. 10 Oz)",
+    "GOLDEN SALSA PAPAS HONEY MUSTARD (GALONES)",
+    "HARINA PARA EMPANIZAR (GALON)",
+    "HONEY MUSTARD (MEDIO GALON)",
+    "MAYONESA DE AJO (MEDIO GALON)",
+    "MAYONESA DE ALBAHACA (CUARTO DE GALON)",
+    "MAYONESA DE CILANTRO (1/4 DE GALON)",
+    "MERMELADA DE PIMENTONES ROJO",
+    "PECHUGA (250 GRAMOS)",
+    "PECHUGA PARIS",
+    "PECHURINAS",
+    "PICO DE GALLO (LIBRAS)",
+    "POLLO DE NACHO (SERV)",
+    "POLLO PARA LAS PASTAS (100 GRAMOS)",
+    "QUESO DE CABRA BLUEBERRY",
+    "QUESO DE CABRA TETERO",
+    "REDUCCION DE CHINOLA CON ESPECIES (MEDIO GALON)",
+    "SALMON (SAZONADOS Y PORCIONADOS) (7 OZ)",
+    "SALSA BBQ WTF (MEDIO GALON)",
+    "SALSA CHIMICHURRI  (LIBRAS)",
+    "SALSA MAYONESA TARTARA",
+    "SALSA ROSADA (GALONES)",
+    "SALSA SENCILLO (GALONES)",
+    "SALSA TERIYAKI (MEDIO GALON)",
+    "SAZON CRIOLLO PARA LAS CHULETAS (MEDIO GALON)",
+    "SAZON VERDE (GALON)",
+    "SAZONAR LAS ALITAS DE LA PARRILLADAS (SUDARLA) (2 UDS C/U)",
+    "SAZONAR LAS CHULETAS DE LA PARRILLADAS (SUDARLA) (1 UDS C/U)",
+    "WASAKAKA (GALON)"
+  ];
+  function buildDefaultProductionRecipes() {
+    const fechaBase = "2026-06-21T07:00:00.000Z";
+    return DEFAULT_RECETAS_PRODUCCION_NAMES.map(function(nombre, index) {
+      return {
+        id: `rec-base-${index + 1}-${encodeBase64Url(nombre).slice(0, 12)}`,
+        fecha: fechaBase,
+        modulo: "Cocina",
+        usuario: "Sistema",
+        nombre,
+        cantidadObjetivo: 1,
+        medidaObjetivo: "Uni",
+        insumos: [],
+        recetaBase: true
+      };
+    });
+  }
+  function mergeDefaultProductionRecipes(recipes) {
+    const current = Array.isArray(recipes) ? recipes : [];
+    const recipeNameKey = function(name) {
+      return normalizar(name).replace(/\s+/g, " ");
+    };
+    const existingNames = new Set(current.map(function(item) {
+      return recipeNameKey(item && item.nombre);
+    }));
+    const missing = buildDefaultProductionRecipes().filter(function(item) {
+      return !existingNames.has(recipeNameKey(item.nombre));
+    });
+    return missing.length ? current.concat(missing) : current;
+  }
   const ADMIN_DEFAULT = {
     id: "admin-root",
     nombre: "Administrador Principal",
@@ -1198,6 +1284,7 @@
       regDecomiso: state.regDecomiso || [],
       regProduccion: state.regProduccion || [],
       recetasProduccion: state.recetasProduccion || [],
+      recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       histDecomisoCocina: state.histDecomisoCocina || [],
       neveras: state.neveras || [],
       correos: state.correos || [],
@@ -1732,6 +1819,7 @@
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
     const [recetasProduccion, setRecetasProduccion] = useState(() => load(KEYS.recetasProduccion, []));
+    const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [neveras, setNeveras] = useState(() => load("wtf_neveras", [
       { nombre: "NEVERA 1", items: [] },
@@ -1774,6 +1862,7 @@
       regDecomiso,
       regProduccion,
       recetasProduccion,
+      recetasProduccionBaseVersion,
       histDecomisoCocina,
       neveras,
       correos,
@@ -1799,6 +1888,7 @@
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
+      setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
@@ -1813,6 +1903,7 @@
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
+    useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
     useEffect(() => save(KEYS.authUser, authUserEmail || ""), [authUserEmail]);
     useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
@@ -1831,6 +1922,13 @@
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
     useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
+    useEffect(() => {
+      if (recetasProduccionBaseVersion === DEFAULT_RECETAS_PRODUCCION_VERSION) return;
+      setRecetasProduccion(function(prev) {
+        return mergeDefaultProductionRecipes(prev);
+      });
+      setRecetasProduccionBaseVersion(DEFAULT_RECETAS_PRODUCCION_VERSION);
+    }, [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.cuartoFrioInventario, barCuartoFrioInventario), [barCuartoFrioInventario]);
@@ -2075,7 +2173,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, histDecomisoCocina, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -2554,6 +2652,8 @@ Solicitado: ${cantidad}`);
     const [deleteRequest, setDeleteRequest] = useState(null);
     const [deletePassword, setDeletePassword] = useState("");
     const [busqueda, setBusqueda] = useState("");
+    const [recipeSearch, setRecipeSearch] = useState("");
+    const [historySearch, setHistorySearch] = useState("");
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [error, setError] = useState("");
@@ -2587,6 +2687,24 @@ Solicitado: ${cantidad}`);
     const recetasOrdenadas = useMemo(function() {
       return Array.isArray(recetas) ? [...recetas].reverse() : [];
     }, [recetas]);
+    const recetasFiltradas = useMemo(function() {
+      const q = normalizar(recipeSearch);
+      if (!q) return recetasOrdenadas;
+      return recetasOrdenadas.filter(function(receta) {
+        return normalizar(receta.nombre).includes(q) || normalizar(receta.usuario || "").includes(q) || (receta.insumos || []).some(function(item) {
+          return normalizar(item.producto).includes(q);
+        });
+      });
+    }, [recetasOrdenadas, recipeSearch]);
+    const historialFiltrado = useMemo(function() {
+      const q = normalizar(historySearch);
+      if (!q) return historial;
+      return historial.filter(function(row) {
+        return normalizar(row.productoProducido).includes(q) || normalizar(row.usuario || "").includes(q) || normalizar(row.modulo || "").includes(q) || (row.insumos || []).some(function(item) {
+          return normalizar(item.producto).includes(q);
+        });
+      });
+    }, [historial, historySearch]);
     const recipesAuthorizedByPermission = isAdminUser(currentUser) || (Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas"));
     const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
     const produccionProgramadaBase = useMemo(function() {
@@ -2597,6 +2715,8 @@ Solicitado: ${cantidad}`);
       setRecipeAccessModal(false);
       setPendingModalOpen(false);
       setPendingSearch("");
+      setRecipeSearch("");
+      setHistorySearch("");
     }, [moduleLabel]);
     function resolveProducedMiseUnit(unit) {
       const normalized = normalizeUnit(unit);
@@ -3340,7 +3460,11 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
             /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Recetas de Producción"),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-              /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, recetasOrdenadas.length, " recetas"),
+              recipesAuthorized && /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: 240, maxWidth: "100%" } },
+                /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar receta...", value: recipeSearch, onChange: function(e) { setRecipeSearch(e.target.value); } })
+              ),
+              /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, recetasFiltradas.length, " recetas"),
               recipesAuthorized ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Autorizado") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Protegido")
             )
           ),
@@ -3349,11 +3473,11 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: "#111827", marginBottom: 8 } }, "Recetas protegidas"),
             /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, marginBottom: 14 } }, "Para ver las recetas se requiere una contraseña administradora."),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: solicitarAccesoRecetas }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-key" }), "Ingresar clave administradora")
-          ) : recetasOrdenadas.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
+          ) : recetasFiltradas.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
             /* @__PURE__ */ React.createElement("i", { className: "fas fa-book", style: { fontSize: 30, display: "block", marginBottom: 8, color: "#9ca3af" } }),
-            "Aun no has guardado recetas para este módulo."
+            recipeSearch ? "No hay recetas que coincidan con la busqueda." : "Aun no has guardado recetas para este módulo."
           ) : /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
-            recetasOrdenadas.map(function(receta) {
+            recetasFiltradas.map(function(receta) {
               return /* @__PURE__ */ React.createElement("div", { key: receta.id, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#f8fafc", display: "grid", gap: 10 } },
                 /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
                   /* @__PURE__ */ React.createElement("div", null,
@@ -3383,11 +3507,17 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("div", { className: "card" },
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
             /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clock-rotate-left", style: { marginRight: 7, color: "var(--azul)" } }), "Historial de Producción"),
-            /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, historial.length, " registros")
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: 240, maxWidth: "100%" } },
+                /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar historial...", value: historySearch, onChange: function(e) { setHistorySearch(e.target.value); } })
+              ),
+              /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, historialFiltrado.length, " registros")
+            )
           ),
-          historial.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
+          historialFiltrado.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 30, paddingBottom: 30 } },
             /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry", style: { fontSize: 30, display: "block", marginBottom: 8, color: "#9ca3af" } }),
-            "Aun no se ha registrado ninguna producción."
+            historySearch ? "No hay registros que coincidan con la busqueda." : "Aun no se ha registrado ninguna producción."
           ) : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
             /* @__PURE__ */ React.createElement("table", null,
               /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
@@ -3397,7 +3527,7 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("th", null, "Insumos"),
                 /* @__PURE__ */ React.createElement("th", null, "Acciones")
               )),
-              /* @__PURE__ */ React.createElement("tbody", null, historial.map(function(row) {
+              /* @__PURE__ */ React.createElement("tbody", null, historialFiltrado.map(function(row) {
                 return /* @__PURE__ */ React.createElement("tr", { key: row.id },
                   /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(row.fecha)),
                   /* @__PURE__ */ React.createElement("td", null,
