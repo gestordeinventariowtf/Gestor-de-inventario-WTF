@@ -2422,6 +2422,11 @@ Solicitado: ${cantidad}`);
     const setActiveProduccion = esBar ? setBarRegProduccion : setRegProduccion;
     const activeRecetasProduccion = esBar ? barRecetasProduccion : recetasProduccion;
     const setActiveRecetasProduccion = esBar ? setBarRecetasProduccion : setRecetasProduccion;
+    const otherModuleLabel = esBar ? "Cocina" : "Bar";
+    const otherInventario = esBar ? inventario : barInventario;
+    const setOtherInventario = esBar ? setInventario : setBarInventario;
+    const otherCuartoFrio = esBar ? cuartoFrioInventario : barCuartoFrioInventario;
+    const setOtherCuartoFrio = esBar ? setCuartoFrioInventario : setBarCuartoFrioInventario;
     const activeMovementInv = movementStorage === "cuartoFrio" ? activeCuartoFrio : activeInv;
     const activeMovementProductos = activeMovementInv.filter((r) => r.tipo === "producto").map((p) => ({
       ...p,
@@ -2496,7 +2501,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace, setMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace, setMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -2638,7 +2643,7 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -2659,44 +2664,46 @@ Solicitado: ${cantidad}`);
     const [error, setError] = useState("");
     const [directLoad, setDirectLoad] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [directLoadError, setDirectLoadError] = useState("");
+    function buildSearchProducts(rows, origen, almacenLabel, storageKey, sourceModuleLabel) {
+      return (Array.isArray(rows) ? rows : []).filter(function(row) {
+        return row.tipo === "producto";
+      }).map(function(row) {
+        return Object.assign({}, row, {
+          existencia: getInventoryExistence(row),
+          origen,
+          almacenLabel,
+          sourceModuleLabel,
+          storageKey,
+          origenLabel: `${sourceModuleLabel} · ${almacenLabel}`,
+          productKey: `${storageKey}-${row.id}`
+        });
+      }).sort(function(a, b) {
+        return a.nombre.localeCompare(b.nombre);
+      });
+    }
     const productosSoloInventario = useMemo(function() {
-      return inventario.filter(function(row) {
-        return row.tipo === "producto";
-      }).map(function(row) {
-        return Object.assign({}, row, {
-          existencia: getInventoryExistence(row),
-          origen: "inventario",
-          origenLabel: "Inventario",
-          productKey: `inventario-${row.id}`
-        });
-      }).sort(function(a, b) {
-        return a.nombre.localeCompare(b.nombre);
-      });
-    }, [inventario]);
+      return buildSearchProducts(inventario, "inventario", "Inventario", "inventario", moduleLabel);
+    }, [inventario, moduleLabel]);
     const productosCuartoFrio = useMemo(function() {
-      return (Array.isArray(cuartoFrioInventario) ? cuartoFrioInventario : []).filter(function(row) {
-        return row.tipo === "producto";
-      }).map(function(row) {
-        return Object.assign({}, row, {
-          existencia: getInventoryExistence(row),
-          origen: "cuartoFrio",
-          origenLabel: "Cuarto Frio",
-          productKey: `cuartoFrio-${row.id}`
-        });
-      }).sort(function(a, b) {
-        return a.nombre.localeCompare(b.nombre);
-      });
-    }, [cuartoFrioInventario]);
+      return buildSearchProducts(cuartoFrioInventario, "cuartoFrio", "Cuarto Frio", "cuartoFrio", moduleLabel);
+    }, [cuartoFrioInventario, moduleLabel]);
+    const productosOtherInventario = useMemo(function() {
+      return buildSearchProducts(otherInventario, "inventario", "Inventario", "otherInventario", otherModuleLabel);
+    }, [otherInventario, otherModuleLabel]);
+    const productosOtherCuartoFrio = useMemo(function() {
+      return buildSearchProducts(otherCuartoFrioInventario, "cuartoFrio", "Cuarto Frio", "otherCuartoFrio", otherModuleLabel);
+    }, [otherCuartoFrioInventario, otherModuleLabel]);
     const productosInventario = useMemo(function() {
-      return productosSoloInventario.concat(productosCuartoFrio).sort(function(a, b) {
+      return productosSoloInventario.concat(productosCuartoFrio, productosOtherInventario, productosOtherCuartoFrio).sort(function(a, b) {
         return a.nombre.localeCompare(b.nombre) || a.origenLabel.localeCompare(b.origenLabel);
       });
-    }, [productosSoloInventario, productosCuartoFrio]);
+    }, [productosSoloInventario, productosCuartoFrio, productosOtherInventario, productosOtherCuartoFrio]);
     const productosMap = useMemo(function() {
       const map = {};
       for (const product of productosInventario) {
         map[product.productKey] = product;
-        if (product.origen === "inventario") map[`inventario-${product.id}`] = product;
+        if (product.storageKey === "inventario") map[`inventario-${product.id}`] = product;
+        if (product.storageKey === "cuartoFrio") map[`cuartoFrio-${product.id}`] = product;
       }
       return map;
     }, [productosInventario]);
@@ -3027,10 +3034,16 @@ Solicitado: ${cantidad}`);
       const nombreProducido = deleteRequest.nombreProducido;
       if (!row.cargaDirecta && deleteRequest.reverseInventario) {
         const inventarioInsumos = (row.insumos || []).filter(function(entry) {
-          return (entry.origen || "inventario") !== "cuartoFrio";
+          return (entry.storageKey || entry.origen || "inventario") === "inventario";
         });
         const cuartoFrioInsumos = (row.insumos || []).filter(function(entry) {
-          return entry.origen === "cuartoFrio";
+          return (entry.storageKey || entry.origen) === "cuartoFrio";
+        });
+        const otherInventarioInsumos = (row.insumos || []).filter(function(entry) {
+          return entry.storageKey === "otherInventario";
+        });
+        const otherCuartoFrioInsumos = (row.insumos || []).filter(function(entry) {
+          return entry.storageKey === "otherCuartoFrio";
         });
         setInventario(function(prev) {
           return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
@@ -3060,6 +3073,34 @@ Solicitado: ${cantidad}`);
               const itemNombre = normalizar(item.nombre);
               const insumo = cuartoFrioInsumos.find(function(entry) {
                 return Number(entry.productId) === Number(item.id) || entry.productKey === `cuartoFrio-${item.id}` || normalizar(entry.producto) === itemNombre;
+              });
+              return insumo ? Object.assign({}, item, {
+                salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
+              }) : item;
+            });
+          });
+        }
+        if (typeof setOtherInventario === "function" && otherInventarioInsumos.length) {
+          setOtherInventario(function(prev) {
+            return (Array.isArray(prev) ? prev : []).map(function(item) {
+              if (item.tipo !== "producto") return item;
+              const itemNombre = normalizar(item.nombre);
+              const insumo = otherInventarioInsumos.find(function(entry) {
+                return Number(entry.productId) === Number(item.id) || entry.productKey === `otherInventario-${item.id}` || normalizar(entry.producto) === itemNombre;
+              });
+              return insumo ? Object.assign({}, item, {
+                salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
+              }) : item;
+            });
+          });
+        }
+        if (typeof setOtherCuartoFrioInventario === "function" && otherCuartoFrioInsumos.length) {
+          setOtherCuartoFrioInventario(function(prev) {
+            return (Array.isArray(prev) ? prev : []).map(function(item) {
+              if (item.tipo !== "producto") return item;
+              const itemNombre = normalizar(item.nombre);
+              const insumo = otherCuartoFrioInsumos.find(function(entry) {
+                return Number(entry.productId) === Number(item.id) || entry.productKey === `otherCuartoFrio-${item.id}` || normalizar(entry.producto) === itemNombre;
               });
               return insumo ? Object.assign({}, item, {
                 salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
@@ -3147,11 +3188,15 @@ Solicitado: ${cantidad}`);
       const targetRecipe = recipeEditRequest;
       setInsumos((targetRecipe.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
+        const storageKey = item.storageKey || origen;
         return {
           rowId: `ins-${Date.now()}-${Math.random()}`,
           productId: item.productId,
-          productKey: item.productKey || `${origen}-${item.productId}`,
+          productKey: item.productKey || `${storageKey}-${item.productId}`,
           origen,
+          storageKey,
+          sourceModuleLabel: item.sourceModuleLabel || (storageKey.startsWith("other") ? otherModuleLabel : moduleLabel),
+          almacenLabel: item.almacenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario)
@@ -3176,7 +3221,7 @@ Solicitado: ${cantidad}`);
     function addInsumo(product) {
       setInsumos(function(prev) {
         if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
-        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", unidad: inferProductionUnit(product.medida) }];
+        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", storageKey: product.storageKey || product.origen || "inventario", sourceModuleLabel: product.sourceModuleLabel || moduleLabel, almacenLabel: product.almacenLabel || "Inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", unidad: inferProductionUnit(product.medida) }];
       });
       setBusqueda("");
       setError("");
@@ -3213,6 +3258,9 @@ Solicitado: ${cantidad}`);
         product,
         productKey: product.productKey,
         origen: product.origen || "inventario",
+        storageKey: product.storageKey || product.origen || "inventario",
+        sourceModuleLabel: product.sourceModuleLabel || moduleLabel,
+        almacenLabel: product.almacenLabel || "Inventario",
         origenLabel: product.origenLabel || "Inventario",
         qtyInput: qty,
         inputUnit: item.unidad,
@@ -3320,10 +3368,16 @@ Solicitado: ${cantidad}`);
         resolvedInsumos.push(resolved);
       }
       const resolvedInventarioInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.origen !== "cuartoFrio";
+        return (entry.storageKey || "inventario") === "inventario";
       });
       const resolvedCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.origen === "cuartoFrio";
+        return entry.storageKey === "cuartoFrio";
+      });
+      const resolvedOtherInventarioInsumos = resolvedInsumos.filter(function(entry) {
+        return entry.storageKey === "otherInventario";
+      });
+      const resolvedOtherCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
+        return entry.storageKey === "otherCuartoFrio";
       });
       const existingProduced = productosSoloInventario.find(function(product) {
         return normalizar(product.nombre) === normalizar(nombreProducido);
@@ -3379,6 +3433,28 @@ Solicitado: ${cantidad}`);
           });
         });
       }
+      if (typeof setOtherInventario === "function" && resolvedOtherInventarioInsumos.length) {
+        setOtherInventario(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(row) {
+            if (row.tipo !== "producto") return row;
+            const consumo = resolvedOtherInventarioInsumos.find(function(entry) {
+              return entry.product.id === row.id;
+            });
+            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
+          });
+        });
+      }
+      if (typeof setOtherCuartoFrioInventario === "function" && resolvedOtherCuartoFrioInsumos.length) {
+        setOtherCuartoFrioInventario(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(row) {
+            if (row.tipo !== "producto") return row;
+            const consumo = resolvedOtherCuartoFrioInsumos.find(function(entry) {
+              return entry.product.id === row.id;
+            });
+            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
+          });
+        });
+      }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
@@ -3394,6 +3470,9 @@ Solicitado: ${cantidad}`);
               productId: entry.product.id,
               productKey: entry.productKey,
               origen: entry.origen,
+              storageKey: entry.storageKey,
+              sourceModuleLabel: entry.sourceModuleLabel,
+              almacenLabel: entry.almacenLabel,
               origenLabel: entry.origenLabel,
               producto: entry.product.nombre,
               cantidadUsada: Number(entry.qtyInput.toFixed(4)),
@@ -3435,6 +3514,9 @@ Solicitado: ${cantidad}`);
           productId: product.id,
           productKey: product.productKey,
           origen: product.origen || "inventario",
+          storageKey: product.storageKey || product.origen || "inventario",
+          sourceModuleLabel: product.sourceModuleLabel || moduleLabel,
+          almacenLabel: product.almacenLabel || "Inventario",
           origenLabel: product.origenLabel || "Inventario",
           producto: product.nombre,
           cantidad: Number(qty.toFixed(4)),
@@ -3473,11 +3555,15 @@ Solicitado: ${cantidad}`);
     function cargarReceta(receta) {
       setInsumos((receta.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
+        const storageKey = item.storageKey || origen;
         return {
           rowId: `ins-${Date.now()}-${Math.random()}`,
           productId: item.productId,
-          productKey: item.productKey || `${origen}-${item.productId}`,
+          productKey: item.productKey || `${storageKey}-${item.productId}`,
           origen,
+          storageKey,
+          sourceModuleLabel: item.sourceModuleLabel || (storageKey.startsWith("other") ? otherModuleLabel : moduleLabel),
+          almacenLabel: item.almacenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario)
