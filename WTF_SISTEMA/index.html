@@ -2496,7 +2496,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, miseAnPlace, setMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace, setMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -2638,7 +2638,7 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, currentUser, usuarios, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -2659,27 +2659,54 @@ Solicitado: ${cantidad}`);
     const [error, setError] = useState("");
     const [directLoad, setDirectLoad] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [directLoadError, setDirectLoadError] = useState("");
-    const productosInventario = useMemo(function() {
+    const productosSoloInventario = useMemo(function() {
       return inventario.filter(function(row) {
         return row.tipo === "producto";
       }).map(function(row) {
-        return Object.assign({}, row, { existencia: getInventoryExistence(row) });
+        return Object.assign({}, row, {
+          existencia: getInventoryExistence(row),
+          origen: "inventario",
+          origenLabel: "Inventario",
+          productKey: `inventario-${row.id}`
+        });
       }).sort(function(a, b) {
         return a.nombre.localeCompare(b.nombre);
       });
     }, [inventario]);
+    const productosCuartoFrio = useMemo(function() {
+      return (Array.isArray(cuartoFrioInventario) ? cuartoFrioInventario : []).filter(function(row) {
+        return row.tipo === "producto";
+      }).map(function(row) {
+        return Object.assign({}, row, {
+          existencia: getInventoryExistence(row),
+          origen: "cuartoFrio",
+          origenLabel: "Cuarto Frio",
+          productKey: `cuartoFrio-${row.id}`
+        });
+      }).sort(function(a, b) {
+        return a.nombre.localeCompare(b.nombre);
+      });
+    }, [cuartoFrioInventario]);
+    const productosInventario = useMemo(function() {
+      return productosSoloInventario.concat(productosCuartoFrio).sort(function(a, b) {
+        return a.nombre.localeCompare(b.nombre) || a.origenLabel.localeCompare(b.origenLabel);
+      });
+    }, [productosSoloInventario, productosCuartoFrio]);
     const productosMap = useMemo(function() {
       const map = {};
-      for (const product of productosInventario) map[product.id] = product;
+      for (const product of productosInventario) {
+        map[product.productKey] = product;
+        if (product.origen === "inventario") map[`inventario-${product.id}`] = product;
+      }
       return map;
     }, [productosInventario]);
     const productosFiltrados = useMemo(function() {
       const q = normalizar(busqueda);
       return productosInventario.filter(function(product) {
-        if (insumos.some(function(item) { return item.productId === product.id; })) return false;
+        if (insumos.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return false;
         if (!q) return true;
-        return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q);
-      }).slice(0, 18);
+        return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q) || normalizar(product.origenLabel || "").includes(q);
+      });
     }, [productosInventario, busqueda, insumos]);
     const historial = useMemo(function() {
       return Array.isArray(producciones) ? [...producciones].reverse() : [];
@@ -2754,7 +2781,7 @@ Solicitado: ${cantidad}`);
     function findBestInventoryProductionMatch(productoProducido) {
       let bestMatch = null;
       let bestScore = 0;
-      for (const item of productosInventario) {
+      for (const item of productosSoloInventario) {
         const score = getNameSimilarityScore(productoProducido, item.nombre);
         if (score > bestScore) {
           bestScore = score;
@@ -2792,7 +2819,7 @@ Solicitado: ${cantidad}`);
         if (!q) return true;
         return normalizar(item.nombre).includes(q) || normalizar(item.inventarioMatch && item.inventarioMatch.nombre || "").includes(q) || normalizar(item.recetaMatch && item.recetaMatch.nombre || "").includes(q);
       });
-    }, [produccionProgramadaBase, pendingSearch, productosInventario, miseAnPlace, recetasOrdenadas]);
+    }, [produccionProgramadaBase, pendingSearch, productosSoloInventario, miseAnPlace, recetasOrdenadas]);
     function transferirProduccion(row) {
       if (!row || row.transferidoAMiseAt) {
         toast("Esta producción ya fue transferida a Mise an Place.", "info");
@@ -2999,12 +3026,18 @@ Solicitado: ${cantidad}`);
       const row = deleteRequest.row;
       const nombreProducido = deleteRequest.nombreProducido;
       if (!row.cargaDirecta && deleteRequest.reverseInventario) {
+        const inventarioInsumos = (row.insumos || []).filter(function(entry) {
+          return (entry.origen || "inventario") !== "cuartoFrio";
+        });
+        const cuartoFrioInsumos = (row.insumos || []).filter(function(entry) {
+          return entry.origen === "cuartoFrio";
+        });
         setInventario(function(prev) {
           return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
             if (item.tipo !== "producto") return [item];
             const itemNombre = normalizar(item.nombre);
-            const insumo = (row.insumos || []).find(function(entry) {
-              return Number(entry.productId) === Number(item.id) || normalizar(entry.producto) === itemNombre;
+            const insumo = inventarioInsumos.find(function(entry) {
+              return Number(entry.productId) === Number(item.id) || entry.productKey === `inventario-${item.id}` || normalizar(entry.producto) === itemNombre;
             });
             if (insumo) {
               return [Object.assign({}, item, {
@@ -3020,6 +3053,20 @@ Solicitado: ${cantidad}`);
             return [item];
           });
         });
+        if (typeof setCuartoFrioInventario === "function" && cuartoFrioInsumos.length) {
+          setCuartoFrioInventario(function(prev) {
+            return (Array.isArray(prev) ? prev : []).map(function(item) {
+              if (item.tipo !== "producto") return item;
+              const itemNombre = normalizar(item.nombre);
+              const insumo = cuartoFrioInsumos.find(function(entry) {
+                return Number(entry.productId) === Number(item.id) || entry.productKey === `cuartoFrio-${item.id}` || normalizar(entry.producto) === itemNombre;
+              });
+              return insumo ? Object.assign({}, item, {
+                salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
+              }) : item;
+            });
+          });
+        }
       }
       if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget && !deleteRequest.transferData.skipReverse) {
         const targetName = String(deleteRequest.transferData.targetName || row.transferidoAMiseTarget || row.productoProducido || "").trim();
@@ -3099,9 +3146,13 @@ Solicitado: ${cantidad}`);
       if (!recipeEditRequest) return;
       const targetRecipe = recipeEditRequest;
       setInsumos((targetRecipe.insumos || []).map(function(item) {
+        const origen = item.origen || "inventario";
         return {
           rowId: `ins-${Date.now()}-${Math.random()}`,
           productId: item.productId,
+          productKey: item.productKey || `${origen}-${item.productId}`,
+          origen,
+          origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario)
         };
@@ -3124,8 +3175,8 @@ Solicitado: ${cantidad}`);
     }
     function addInsumo(product) {
       setInsumos(function(prev) {
-        if (prev.some(function(item) { return item.productId === product.id; })) return prev;
-        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, cantidad: "", unidad: inferProductionUnit(product.medida) }];
+        if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
+        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", unidad: inferProductionUnit(product.medida) }];
       });
       setBusqueda("");
       setError("");
@@ -3147,8 +3198,8 @@ Solicitado: ${cantidad}`);
       setError("");
     }
     function resolveInsumo(item) {
-      const product = productosMap[item.productId];
-      if (!product) return { error: "Uno de los productos seleccionados ya no existe en inventario." };
+      const product = productosMap[item.productKey || `inventario-${item.productId}`];
+      if (!product) return { error: "Uno de los productos seleccionados ya no existe en Inventario o Cuarto Frio." };
       const qty = Number(String(item.cantidad || "").replace(",", "."));
       if (!Number.isFinite(qty) || qty <= 0) return { error: `Indica una cantidad valida para ${product.nombre}.` };
       const converted = convertMeasureQuantity(qty, item.unidad, product.medida);
@@ -3160,6 +3211,9 @@ Solicitado: ${cantidad}`);
       }
       return {
         product,
+        productKey: product.productKey,
+        origen: product.origen || "inventario",
+        origenLabel: product.origenLabel || "Inventario",
         qtyInput: qty,
         inputUnit: item.unidad,
         convertedQty: converted
@@ -3245,7 +3299,7 @@ Solicitado: ${cantidad}`);
       const nombreProducido = String(resultado.nombre || "").trim();
       const cantidadProducidaInput = Number(String(resultado.cantidad || "").replace(",", "."));
       if (!insumos.length) {
-        setError("Agrega al menos un insumo desde Inventario.");
+        setError("Agrega al menos un insumo desde Inventario o Cuarto Frio.");
         return;
       }
       if (!nombreProducido) {
@@ -3265,7 +3319,13 @@ Solicitado: ${cantidad}`);
         }
         resolvedInsumos.push(resolved);
       }
-      const existingProduced = productosInventario.find(function(product) {
+      const resolvedInventarioInsumos = resolvedInsumos.filter(function(entry) {
+        return entry.origen !== "cuartoFrio";
+      });
+      const resolvedCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
+        return entry.origen === "cuartoFrio";
+      });
+      const existingProduced = productosSoloInventario.find(function(product) {
         return normalizar(product.nombre) === normalizar(nombreProducido);
       });
       const cantidadProducidaInventario = existingProduced ? convertMeasureQuantity(cantidadProducidaInput, resultado.medida, existingProduced.medida) : cantidadProducidaInput;
@@ -3280,7 +3340,7 @@ Solicitado: ${cantidad}`);
         let producedExists = false;
         const updated = prev.map(function(row) {
           if (row.tipo !== "producto") return row;
-          const consumo = resolvedInsumos.find(function(entry) {
+          const consumo = resolvedInventarioInsumos.find(function(entry) {
             return entry.product.id === row.id;
           });
           if (consumo) {
@@ -3308,6 +3368,17 @@ Solicitado: ${cantidad}`);
         }
         return updated;
       });
+      if (typeof setCuartoFrioInventario === "function" && resolvedCuartoFrioInsumos.length) {
+        setCuartoFrioInventario(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(row) {
+            if (row.tipo !== "producto") return row;
+            const consumo = resolvedCuartoFrioInsumos.find(function(entry) {
+              return entry.product.id === row.id;
+            });
+            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
+          });
+        });
+      }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
@@ -3321,6 +3392,9 @@ Solicitado: ${cantidad}`);
           insumos: resolvedInsumos.map(function(entry) {
             return {
               productId: entry.product.id,
+              productKey: entry.productKey,
+              origen: entry.origen,
+              origenLabel: entry.origenLabel,
               producto: entry.product.nombre,
               cantidadUsada: Number(entry.qtyInput.toFixed(4)),
               unidadUsada: entry.inputUnit,
@@ -3347,7 +3421,7 @@ Solicitado: ${cantidad}`);
       }
       const recetaItems = [];
       for (const item of insumos) {
-        const product = productosMap[item.productId];
+        const product = productosMap[item.productKey || `inventario-${item.productId}`];
         const qty = Number(String(item.cantidad || "").replace(",", "."));
         if (!product) {
           setError("Uno de los productos de la receta ya no existe.");
@@ -3359,6 +3433,9 @@ Solicitado: ${cantidad}`);
         }
         recetaItems.push({
           productId: product.id,
+          productKey: product.productKey,
+          origen: product.origen || "inventario",
+          origenLabel: product.origenLabel || "Inventario",
           producto: product.nombre,
           cantidad: Number(qty.toFixed(4)),
           unidad: item.unidad,
@@ -3395,9 +3472,13 @@ Solicitado: ${cantidad}`);
     }
     function cargarReceta(receta) {
       setInsumos((receta.insumos || []).map(function(item) {
+        const origen = item.origen || "inventario";
         return {
           rowId: `ins-${Date.now()}-${Math.random()}`,
           productId: item.productId,
+          productKey: item.productKey || `${origen}-${item.productId}`,
+          origen,
+          origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario)
         };
@@ -3697,7 +3778,7 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
                     productosFiltrados.map(function(product) {
                       return /* @__PURE__ */ React.createElement("button", {
-                        key: product.id,
+                        key: product.productKey,
                         type: "button",
                         className: "btn btn-outline",
                         style: { justifyContent: "space-between", width: "100%", textAlign: "left", padding: "12px 14px" },
@@ -3705,7 +3786,7 @@ Solicitado: ${cantidad}`);
                       },
                         /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" } }, product.nombre),
-                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · ", product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
                         ),
                         /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Agregar")
                       );
@@ -3722,12 +3803,12 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
-                      const product = productosMap[item.productId];
+                      const product = productosMap[item.productKey || `inventario-${item.productId}`];
                       return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
-                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
                           ),
                           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                         ),
@@ -3747,7 +3828,7 @@ Solicitado: ${cantidad}`);
                         )
                       );
                     }),
-                    insumos.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px dashed #cbd5e1", borderRadius: 12, padding: 18, textAlign: "center", color: "var(--gris)", fontSize: 13 } }, "Selecciona uno o varios productos desde Inventario para usarlos como insumos.")
+                    insumos.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px dashed #cbd5e1", borderRadius: 12, padding: 18, textAlign: "center", color: "var(--gris)", fontSize: 13 } }, "Selecciona uno o varios productos desde Inventario o Cuarto Frio para usarlos como insumos.")
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #e5e7eb", paddingTop: 14, display: "grid", gap: 12 } },
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
@@ -3774,7 +3855,7 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "El sistema descontara insumos del inventario y registrara la producción en el historial."),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "El sistema descontara insumos de Inventario o Cuarto Frio y registrara la producción en el historial."),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeProductionModal }, "Cancelar"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarProduccion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Confirmar producción")
@@ -3801,7 +3882,7 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
                     productosFiltrados.map(function(product) {
                       return /* @__PURE__ */ React.createElement("button", {
-                        key: product.id,
+                        key: product.productKey,
                         type: "button",
                         className: "btn btn-outline",
                         style: { justifyContent: "space-between", width: "100%", textAlign: "left", padding: "12px 14px" },
@@ -3809,7 +3890,7 @@ Solicitado: ${cantidad}`);
                       },
                         /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" } }, product.nombre),
-                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · ", product.suplidor || "Sin suplidor", " · ", Number(product.existencia.toFixed(2)), " ", product.medida)
                         ),
                         /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Agregar")
                       );
@@ -3826,12 +3907,12 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
-                      const product = productosMap[item.productId];
+                      const product = productosMap[item.productKey || `inventario-${item.productId}`];
                       return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
-                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
+                            product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
                           ),
                           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                         ),
