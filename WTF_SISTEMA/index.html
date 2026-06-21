@@ -1,0 +1,2917 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>WTF Sistema Cocina</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body, #root {
+      height: 100%;
+      min-height: 100%;
+      min-height: 100dvh;
+    }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f2f5;
+      color: #222;
+      overflow-x: hidden;
+    }
+
+    :root {
+      --verde: #0a9f28;
+      --verde-oscuro: #087a22;
+      --rojo: #b00020;
+      --azul: #2563eb;
+      --gris: #6b7280;
+      --fondo: #f0f2f5;
+      --blanco: #fff;
+      --borde: #e5e7eb;
+      --sidebar-w: 240px;
+      --topbar-h: 54px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+    /* ── Root layout ── */
+    #root { display: flex; height: 100%; min-height: 100dvh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: #1a1f2e;
+      color: #d1d5db;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0;
+      height: 100%;
+      height: 100dvh;
+      z-index: 200;
+      transition: transform .28s cubic-bezier(.4,0,.2,1);
+      will-change: transform;
+      overflow: hidden;
+    }
+    .sidebar.collapsed { transform: translateX(-100%); }
+
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 199;
+      transition: opacity .28s;
+    }
+    .sidebar-overlay.visible { display: block; }
+
+    .sidebar-logo {
+      padding: 16px 14px 12px;
+      border-bottom: 1px solid #2d3448;
+      display: flex; align-items: center; gap: 10px;
+      flex-shrink: 0;
+    }
+    .sidebar-logo .logo-icon { font-size: 22px; color: #0a9f28; flex-shrink: 0; }
+    .sidebar-logo .logo-text { min-width: 0; }
+    .sidebar-logo .logo-text span { font-size: 17px; font-weight: 700; color: #fff; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar-logo .logo-text small { font-size: 11px; color: #9ca3af; display: block; margin-top: 1px; white-space: nowrap; }
+
+    .sidebar-close-btn {
+      display: none;
+      margin-left: auto;
+      background: transparent;
+      border: 0;
+      color: #9ca3af;
+      cursor: pointer;
+      padding: 4px;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
+    .nav-section {
+      padding: 10px 14px 3px;
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #4b5563;
+      letter-spacing: .1em;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px;
+      cursor: pointer;
+      border-radius: 7px;
+      margin: 1px 7px;
+      font-size: 13.5px;
+      transition: background .14s, color .14s;
+      color: #9ca3af;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .nav-item:hover { background: #2d3448; color: #fff; }
+    .nav-item.active { background: var(--verde); color: #fff; }
+    .nav-item i { width: 17px; text-align: center; font-size: 13px; flex-shrink: 0; }
+
+    .sidebar-footer {
+      padding: 10px 14px;
+      border-top: 1px solid #2d3448;
+      font-size: 10.5px;
+      color: #4b5563;
+      flex-shrink: 0;
+    }
+
+    /* ── Main ── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      min-width: 0;
+      transition: margin-left .28s cubic-bezier(.4,0,.2,1);
+    }
+    .main.full { margin-left: 0; }
+
+    /* ── Topbar ── */
+    .topbar {
+      background: var(--blanco);
+      border-bottom: 1px solid var(--borde);
+      padding: 0 16px;
+      height: var(--topbar-h);
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+      flex-shrink: 0;
+      gap: 10px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .hamburger {
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      color: #374151;
+      font-size: 18px;
+      padding: 4px 6px;
+      border-radius: 5px;
+      flex-shrink: 0;
+      display: none;
+    }
+    .hamburger:hover { background: #f3f4f6; }
+    .topbar h1 {
+      font-size: clamp(14px, 3vw, 18px);
+      font-weight: 600;
+      color: #111;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .date-badge {
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    /* ── Content ── */
+    .content {
+      padding: clamp(12px, 3vw, 24px);
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--blanco);
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      min-width: 0;
+    }
+    .card-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--borde);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .card-header h2 { font-size: 14px; font-weight: 600; }
+    .card-body { padding: 16px; }
+
+    /* ── Stat Cards ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(clamp(130px, 20vw, 180px), 1fr));
+      gap: clamp(8px, 2vw, 16px);
+      margin-bottom: clamp(12px, 2vw, 20px);
+    }
+    .stat-card {
+      background: var(--blanco);
+      border-radius: 10px;
+      padding: clamp(12px, 2vw, 16px) clamp(12px, 2vw, 18px);
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      border-left: 4px solid transparent;
+    }
+    .stat-label { font-size: 11px; color: var(--gris); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-value { font-size: clamp(20px, 4vw, 26px); font-weight: 700; }
+    .stat-card.verde { border-color: var(--verde); } .stat-card.verde .stat-value { color: var(--verde); }
+    .stat-card.azul  { border-color: var(--azul);  } .stat-card.azul  .stat-value { color: var(--azul);  }
+    .stat-card.rojo  { border-color: var(--rojo);  } .stat-card.rojo  .stat-value { color: var(--rojo);  }
+    .stat-card.naranja { border-color: #f59e0b; } .stat-card.naranja .stat-value { color: #d97706; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 13px;
+      border-radius: 7px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer; border: 0;
+      transition: opacity .14s, background .14s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn:hover { opacity: .87; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-verde   { background: var(--verde);  color: #fff; }
+    .btn-naranja { background: #f59e0b;        color: #fff; }
+    .btn-rojo   { background: var(--rojo);  color: #fff; }
+    .btn-azul   { background: var(--azul);  color: #fff; }
+    .btn-gris   { background: #e5e7eb; color: #374151; }
+    .btn-outline { background: transparent; border: 1.5px solid var(--borde); color: #374151; }
+    .btn-sm  { padding: 5px 9px; font-size: 12px; }
+    .btn-icon { padding: 7px 8px; }
+
+    /* ── Action bar ── */
+    .action-bar {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 14px; align-items: center;
+    }
+    .action-bar .search-wrap { flex: 1; min-width: 160px; max-width: 320px; }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 13px; }
+    .form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #374151; }
+    .form-control {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1.5px solid var(--borde);
+      border-radius: 6px;
+      font-size: 14px;
+      background: var(--blanco);
+      transition: border-color .14s;
+      min-width: 0;
+    }
+    .form-control:focus { outline: 0; border-color: var(--verde); }
+    .form-control.error { border-color: var(--rojo); }
+    select.form-control { cursor: pointer; }
+    textarea.form-control { resize: vertical; min-height: 68px; }
+
+    /* ── Search ── */
+    .search-wrap { position: relative; }
+    .search-wrap .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 13px; pointer-events: none; }
+    .search-wrap input { padding-left: 32px; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: #f9fafb;
+      padding: 9px 12px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #6b7280;
+      border-bottom: 2px solid var(--borde);
+      white-space: nowrap;
+    }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid var(--borde); vertical-align: middle; }
+    tbody tr:hover td { background: #f9fafb; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .tr-separator td { background: #fce8e8 !important; font-weight: 700; color: #7f1d1d; text-align: center; font-size: 12px; letter-spacing: .06em; }
+    .tr-separator:hover td { background: #fce8e8 !important; }
+
+    /* ── Pills ── */
+    .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .pill-verde   { background: #d1fae5; color: #065f46; }
+    .pill-rojo    { background: #fee2e2; color: #991b1b; }
+    .pill-azul    { background: #dbeafe; color: #1e40af; }
+    .pill-gris    { background: #f3f4f6; color: #374151; }
+    .pill-naranja { background: #fef3c7; color: #92400e; }
+
+    /* ── Alerts ── */
+    .alert { border-radius: 8px; padding: 10px 13px; font-size: 13px; margin-bottom: 12px; display: flex; align-items: flex-start; gap: 8px; }
+    .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .alert-ok    { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .alert-info  { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+    .alert-warn  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+
+    /* ── Grids ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .grid-dash { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.48);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500;
+      padding: 12px;
+    }
+    .modal {
+      background: var(--blanco);
+      border-radius: 12px;
+      width: 100%; max-width: 500px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.22);
+      display: flex; flex-direction: column;
+      max-height: calc(100dvh - 24px);
+    }
+    .modal-lg { max-width: 660px; }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--borde);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .modal-header h3 { font-size: 15px; font-weight: 600; }
+    .modal-body { padding: 18px; overflow-y: auto; flex: 1; }
+    .modal-footer {
+      padding: 12px 18px;
+      border-top: 1px solid var(--borde);
+      display: flex; gap: 8px; justify-content: flex-end;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--borde); margin-bottom: 14px; overflow-x: auto; }
+    .tab {
+      padding: 8px 14px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      color: var(--gris);
+      transition: all .14s;
+      white-space: nowrap;
+    }
+    .tab.active { color: var(--verde); border-color: var(--verde); }
+    .tab:hover { color: var(--verde); }
+
+    /* ── Mise multi-row ── */
+    .mise-row {
+      display: grid;
+      grid-template-columns: 1fr 90px 28px;
+      gap: 7px;
+      margin-bottom: 7px;
+      align-items: center;
+    }
+    .mise-row-header {
+      display: grid;
+      grid-template-columns: 1fr 90px 28px;
+      gap: 7px;
+      margin-bottom: 4px;
+    }
+    .mise-row-header span { font-size: 11px; font-weight: 600; color: var(--gris); text-transform: uppercase; letter-spacing: .04em; }
+
+    /* ── Exist colors ── */
+    .exist-ok   { color: var(--verde); font-weight: 600; }
+    .exist-low  { color: #f59e0b;      font-weight: 600; }
+    .exist-zero { color: var(--rojo);  font-weight: 600; }
+    .col-div-left { border-left: 4px solid #94a3b8 !important; }
+
+    /* ── Toast ── */
+    .toast-container {
+      position: fixed;
+      bottom: clamp(12px, 3vw, 24px);
+      right: clamp(12px, 3vw, 24px);
+      z-index: 9999;
+      display: flex; flex-direction: column; gap: 7px;
+      max-width: min(340px, calc(100vw - 24px));
+    }
+    .toast {
+      background: #1a1f2e; color: #fff;
+      padding: 11px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 4px 18px rgba(0,0,0,.26);
+      display: flex; align-items: center; gap: 9px;
+      animation: slideIn .22s ease;
+      word-break: break-word;
+    }
+    .toast.ok    { border-left: 4px solid var(--verde); }
+    .toast.error { border-left: 4px solid var(--rojo);  }
+    .toast.info  { border-left: 4px solid var(--azul);  }
+    @keyframes slideIn { from { transform: translateX(50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Number input fix ── */
+    input[type=number] { -moz-appearance: textfield; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+    /* ═══════════════════════
+       RESPONSIVE BREAKPOINTS
+    ═══════════════════════ */
+
+    /* Tablet landscape / small desktop ≤ 1024px */
+    @media (max-width: 1024px) {
+      :root { --sidebar-w: 220px; }
+    }
+
+    /* Tablet portrait ≤ 768px: sidebar becomes overlay */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar:not(.collapsed) { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.25); }
+      .sidebar-close-btn { display: flex; align-items: center; }
+      .hamburger { display: flex; align-items: center; justify-content: center; }
+      .main { margin-left: 0 !important; }
+      .grid-dash { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .modal { max-width: 100%; border-radius: 14px; }
+      .modal-overlay { padding: 8px; align-items: flex-end; }
+      .modal { border-bottom-left-radius: 0; border-bottom-right-radius: 0; max-height: 92dvh; }
+    }
+
+    /* Mobile ≤ 480px */
+    @media (max-width: 480px) {
+      :root { --topbar-h: 50px; }
+      .content { padding: 10px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .stat-card { padding: 11px 12px; }
+      .stat-value { font-size: 22px; }
+      .stat-label { font-size: 10px; }
+      .card-header { padding: 10px 12px; }
+      .card-body { padding: 12px; }
+      .action-bar { gap: 6px; }
+      .btn { font-size: 12px; padding: 7px 11px; }
+      .btn-sm { padding: 4px 8px; font-size: 11px; }
+      thead th { font-size: 10px; padding: 8px 9px; }
+      tbody td { padding: 8px 9px; font-size: 12px; }
+      .mise-row { grid-template-columns: 1fr 76px 26px; gap: 5px; }
+      .mise-row-header { grid-template-columns: 1fr 76px 26px; gap: 5px; }
+      .modal-body { padding: 14px; }
+      .modal-header { padding: 12px 14px; }
+      .modal-footer { padding: 10px 14px; }
+      .date-badge { display: none; }
+    }
+
+    /* Very small ≤ 360px */
+    @media (max-width: 360px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+      .stat-value { font-size: 20px; }
+    }
+
+    /* Safe area insets for notched devices */
+    @supports (padding: max(0px)) {
+      .topbar  { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+      .content { padding-left: max(clamp(10px, 3vw, 24px), env(safe-area-inset-left)); padding-right: max(clamp(10px, 3vw, 24px), env(safe-area-inset-right)); padding-bottom: max(clamp(10px, 3vw, 24px), env(safe-area-inset-bottom)); }
+      .sidebar { padding-left: env(safe-area-inset-left); }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+/* ── Storage ── */
+const KEYS = {
+  inventario: 'wtf_inventario', miseAnPlace: 'wtf_mise',
+  regEntradas: 'wtf_reg_entradas', regSalidas: 'wtf_reg_salidas',
+  regDecomiso: 'wtf_reg_decomiso', histDecomisoCocina: 'wtf_hist_decomiso',
+  googleConfig: 'wtf_google_config',
+};
+function load(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } }
+function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function normalizar(t) { return String(t||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/:/g,''); }
+function formatDatetime(d) { if (!d) return ''; const dt = new Date(d); return isNaN(dt) ? String(d) : dt.toLocaleString('es-DO',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/gmail.send',
+].join(' ');
+const GOOGLE_DEFAULT_CONFIG = { clientId: '', folderId: '' };
+function escapeHtml(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function encodeBase64Url(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
+}
+function buildListadoRows(listado, titulo) {
+  return [
+    [`LISTADO DE COMPRA - ${titulo}`],
+    [`Generado: ${new Date(listado.fecha).toLocaleString('es-DO')}`],
+    [],
+    ['Producto','Suplidor','Medida','Stock Req.','Existencia','A Comprar'],
+    ...listado.items.map(p=>[
+      p.nombre,
+      p.suplidor || '-',
+      p.medida,
+      Number(p.stock || 0),
+      Number((p.existencia || 0).toFixed(2)),
+      Number((p.comprar || 0).toFixed(2)),
+    ]),
+    [],
+    [`Total: ${listado.items.length} productos a comprar`],
+  ];
+}
+function buildListadoEmailHtml({items, titulo, fecha}) {
+  const filas = items.map(function (p) {
+    return '<tr>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">' + escapeHtml(p.nombre) + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;color:#6b7280">' + escapeHtml(p.suplidor || '-') + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:center">' + escapeHtml(p.medida) + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:center">' + escapeHtml(p.stock) + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:center">' + escapeHtml(p.existencia) + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:bold;color:#1d4ed8;text-align:center">' + escapeHtml(p.comprar) + ' ' + escapeHtml(p.medida) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto">'
+    + '<div style="background:#1f7a3a;padding:20px 24px;border-radius:8px 8px 0 0">'
+    + '<h2 style="color:#fff;margin:0;font-size:18px">LISTADO DE COMPRA - ' + escapeHtml(titulo) + '</h2>'
+    + '<p style="color:#bbf7d0;margin:4px 0 0;font-size:13px">Generado: ' + escapeHtml(fecha) + '</p>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;background:#fff">'
+    + '<thead><tr style="background:#f0fdf4">'
+    + '<th style="padding:8px 10px;text-align:left;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">PRODUCTO</th>'
+    + '<th style="padding:8px 10px;text-align:left;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">SUPLIDOR</th>'
+    + '<th style="padding:8px 10px;text-align:center;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">MEDIDA</th>'
+    + '<th style="padding:8px 10px;text-align:center;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">STOCK REQ.</th>'
+    + '<th style="padding:8px 10px;text-align:center;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">EXISTENCIA</th>'
+    + '<th style="padding:8px 10px;text-align:center;font-size:12px;color:#15803d;border-bottom:2px solid #1f7a3a">A COMPRAR</th>'
+    + '</tr></thead>'
+    + '<tbody>' + filas + '</tbody>'
+    + '</table>'
+    + '<div style="background:#f9fafb;padding:12px 16px;border-radius:0 0 8px 8px;border-top:1px solid #e5e7eb">'
+    + '<p style="margin:0;font-size:12px;color:#6b7280">Total: <strong>' + escapeHtml(items.length) + ' productos</strong> - Enviado desde WTF Sistema Cocina</p>'
+    + '</div></div>';
+}
+async function googleFetchJson(url, token, options={}) {
+  const headers = Object.assign(
+    { Authorization: `Bearer ${token}` },
+    options.body ? { 'Content-Type': 'application/json' } : {},
+    options.headers || {}
+  );
+  const response = await fetch(url, Object.assign({}, options, {
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  }));
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = text; }
+  }
+  if (!response.ok) {
+    const message = data && data.error && data.error.message
+      ? data.error.message
+      : `Google API devolvio ${response.status}`;
+    throw new Error(message);
+  }
+  return data;
+}
+
+/* ── Init data ── */
+function initInventario() {
+  var rows=[
+    {tipo:'producto',nombre:'Aceite de trufa',medida:'uni',suplidor:'Alvarez y Sanchez',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aceite de oliva',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aceite sesame',medida:'uni',suplidor:'Barrio Chino',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aceite de Freidora',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:3,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aceite en Lata',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mayonesa',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mostaza',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Ketchup',medida:'uni',suplidor:'Alvarez y Sanchez',stockLunesJueves:3,stockViernesDomingo:6,entrada:7,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pasta Penne',medida:'uni',suplidor:'Bravo',stockLunesJueves:6,stockViernesDomingo:10,entrada:11,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pasta Fettuchini',medida:'uni',suplidor:'Bravo',stockLunesJueves:3,stockViernesDomingo:6,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Sal molida',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Hongo Lata',medida:'uni',suplidor:'Eurcarlac',stockLunesJueves:3,stockViernesDomingo:6,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Vainilla',medida:'uni',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Harina Blanquita',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:3,entrada:1,salida:1,decomiso:0},
+    {tipo:'producto',nombre:'Maizena',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Panko',medida:'uni',suplidor:'Alvarez y Sanchez',stockLunesJueves:3,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pan Molido',medida:'uni',suplidor:'Bravo',stockLunesJueves:3,stockViernesDomingo:5,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Masa Tacos Amarilla',medida:'Paq',suplidor:'Esquinita Mexicana',stockLunesJueves:4,stockViernesDomingo:6,entrada:11,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Masa de nachos Freir',medida:'Uni',suplidor:'Esquinita Mexicana',stockLunesJueves:8,stockViernesDomingo:10,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Masa tacos Blanca (Old Passo)',medida:'Uni',suplidor:'Sirena',stockLunesJueves:4,stockViernesDomingo:6,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Arroz Blanco (5lbs)',medida:'paq',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:0.5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Azúcar morena',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:10,stockViernesDomingo:10,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Azúcar blanca',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:10,stockViernesDomingo:10,entrada:30,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Chile guajillo',medida:'uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Chile Pasilla',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Chile ancho',medida:'uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Ajonjoli blanco',medida:'uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Vinagre Blanco',medida:'uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Vinagre Dorado',medida:'uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Vinagre balsamico',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'SALSAS'},
+    {tipo:'producto',nombre:'Salsa Pomodoro',medida:'uni',suplidor:'Bravo',stockLunesJueves:5,stockViernesDomingo:7,entrada:8,salida:1,decomiso:0},
+    {tipo:'producto',nombre:'Picante Galon',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa BBQ',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:4,entrada:0.5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Picante Sriracha',medida:'uni',suplidor:'Barrio Chino',stockLunesJueves:1,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa China',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa de Soya',medida:'uni',suplidor:'Barrio Chino',stockLunesJueves:1,stockViernesDomingo:1,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa Inglesa',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa de tomate',medida:'uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salsa de ostras',medida:'uni',suplidor:'Barrio Chino',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Miel',medida:'Uni',suplidor:'Chicho vendedor',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Sazonadores'},
+    {tipo:'producto',nombre:'Sazon Super Completo Baldom',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Azafran Baldom',medida:'Paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:3,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Adobo goya Azul',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Ajo en polvo badia',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cebolla en polvo badia',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pimienta negra',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pimienta negra entera',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Oregano',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:3,stockViernesDomingo:3,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Glutamatato',medida:'Uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Perejil Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:2,stockViernesDomingo:3,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Perejil Spice Classics',medida:'Uni',suplidor:'Amazon',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Paprika en polvo',medida:'uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Comino Badia',medida:'uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tomillo Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Curry Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cajun Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Polvo de Chili Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Curcuma Badia',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Jengibre en polvo',medida:'uni',suplidor:'Sirena',stockLunesJueves:2,stockViernesDomingo:3,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pimienta roja (Redpepper)',medida:'Uni',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:1,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Canela entera',medida:'paq',suplidor:'Sirena',stockLunesJueves:2,stockViernesDomingo:3,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Clavo Dulce',medida:'paq',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Malagueta',medida:'paq',suplidor:'Sirena',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Lácteos y Derivados'},
+    {tipo:'producto',nombre:'Leche Entera',medida:'uni',suplidor:'Bravo',stockLunesJueves:12,stockViernesDomingo:18,entrada:11,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Leche de Coco',medida:'uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mantequilla 5 LB',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:3,stockViernesDomingo:6,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso Cheddar Americano',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:4,stockViernesDomingo:6,entrada:5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso Suizo',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mozzarella',medida:'Uni',suplidor:'Bravo',stockLunesJueves:6,stockViernesDomingo:8,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Crema Agria',medida:'Uni',suplidor:'Bravo',stockLunesJueves:4,stockViernesDomingo:6,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso parmesano Rallado',medida:'Lb',suplidor:'PetroAntillana',stockLunesJueves:2,stockViernesDomingo:5,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso de Freir',medida:'Lb',suplidor:'Surtidora El Mana de Dios',stockLunesJueves:10,stockViernesDomingo:10,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso de cabra',medida:'Lb',suplidor:'Eurcarlac',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mozzarella Stick',medida:'Fundas',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:13,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Jamón',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0.5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Queso de hoja',medida:'Lb',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:3,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Crema de Leche',medida:'uni',suplidor:'Eurcarlac',stockLunesJueves:30,stockViernesDomingo:60,entrada:7,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Frutas y Vegetales'},
+    {tipo:'producto',nombre:'Cebolla Roja',medida:'lb',suplidor:'PriceSmart',stockLunesJueves:5,stockViernesDomingo:5,entrada:6,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cebolla Blanca',medida:'lb',suplidor:'PriceSmart',stockLunesJueves:20,stockViernesDomingo:20,entrada:15,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Ajo',medida:'lb',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aguacate',medida:'uni',suplidor:'Bravo',stockLunesJueves:3,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Puerro',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:4,stockViernesDomingo:6,entrada:7,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Romero',medida:'Paq.',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Albahaca',medida:'Paq.',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tomillo',medida:'Paq.',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cilantro',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Lechuga Romana',medida:'Lb',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pimientos Rojos (Morron)',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:6,stockViernesDomingo:8,entrada:8,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tomate ensalada',medida:'Uni',suplidor:'Bravo',stockLunesJueves:8,stockViernesDomingo:8,entrada:7,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tomate Cherry',medida:'Uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Platano verde',medida:'Uni',suplidor:'Javier Platanero',stockLunesJueves:300,stockViernesDomingo:300,entrada:40,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Platano Maduro',medida:'Uni',suplidor:'Javier Platanero',stockLunesJueves:40,stockViernesDomingo:50,entrada:14,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pepinillo',medida:'Uni',suplidor:'Alvarez y Sanchez',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Repollo Blanco',medida:'Uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Repollo Morado',medida:'Uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Berenjena',medida:'Lb',suplidor:'Bravo',stockLunesJueves:3,stockViernesDomingo:3,entrada:3,salida:1,decomiso:0},
+    {tipo:'producto',nombre:'Jengibre',medida:'Lb',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Zanahoria',medida:'Lb',suplidor:'Bravo',stockLunesJueves:4,stockViernesDomingo:4,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Hongo porcini',medida:'uni',suplidor:'Alvarez y Sanchez',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Blueberry (Congelado)',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Desechables'},
+    {tipo:'producto',nombre:'Papel Toalla',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:3,stockViernesDomingo:6,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel de Baño faldo (30)',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:15,stockViernesDomingo:30,entrada:8,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda de lleve Grande',medida:'fardo',suplidor:'La tienda de la fabrica',stockLunesJueves:1,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda de lleve Pequenas',medida:'uni',suplidor:'La tienda de la fabrica',stockLunesJueves:100,stockViernesDomingo:200,entrada:200,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda de Emp. Azul',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:5,stockViernesDomingo:10,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda de Emp. Rosa',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:5,stockViernesDomingo:10,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda Transp. Grande',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Funda Transp. Pequeña',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Envase 1 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:3,stockViernesDomingo:5,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Envase 2 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Envase 4 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:3,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tapa 1 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:3,stockViernesDomingo:5,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tapa 2 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tapa 4 Oz (Paq)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:3,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Gustes Nitrilo',medida:'paq',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:3,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Platos plásticos negro',medida:'paq',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Platos de Pasta (Aluminio)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:60,stockViernesDomingo:100,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Band. Negras S/D (Paq. 100)',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:4,stockViernesDomingo:6,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Bandejas Negras Pequeñas',medida:'Paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:3,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel Aluminio Mof (500 Uni)',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel Encerado',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:2,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pvc Plastic film',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel Periódico',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:8,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Ace en Polvo',medida:'Lb',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:10,stockViernesDomingo:20,entrada:30,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cloró',medida:'Uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:4,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Desgrasante AyB',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:3,stockViernesDomingo:6,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Desgrasante fuerte',medida:'Uni',suplidor:'Jose Quimicos',stockLunesJueves:3,stockViernesDomingo:6,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Jabón de Cubeta',medida:'Uni',suplidor:'Manuel Quimicos',stockLunesJueves:1,stockViernesDomingo:2,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Descalin',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Jabón de baño',medida:'Uni',suplidor:'Manuel Quimicos',stockLunesJueves:2,stockViernesDomingo:4,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Brillo Grueso negro',medida:'Uni',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Brillo fino verde',medida:'Uni',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Brillo de alambre',medida:'Uni',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Esponja con brillo verde',medida:'Uni',suplidor:'Bravo',stockLunesJueves:2,stockViernesDomingo:4,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Yodo',medida:'Uni',suplidor:'Manuel Quimicos',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Gas butano',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Limpia Cristales',medida:'Uni',suplidor:'Bravo',stockLunesJueves:1,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Mistolin',medida:'Uni',suplidor:'Manuel Quimicos',stockLunesJueves:4,stockViernesDomingo:6,entrada:9,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Desechables Caja + Salón'},
+    {tipo:'producto',nombre:'Cubierto',medida:'fardo',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cuchillo',medida:'fardo',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:1,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Vasos Transp 16 Oz',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tapa Transp 16 Oz',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Sorbetes Gruesos (500 uni)',medida:'caja',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Guantes Transparentes',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:1,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cuchará postres',medida:'paq',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:2,stockViernesDomingo:4,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Servilletas (Paquetes)',medida:'uni',suplidor:'Distribuidora 3 Dragones',stockLunesJueves:6,stockViernesDomingo:10,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel Veriphone',medida:'uni',suplidor:'Azul',stockLunesJueves:20,stockViernesDomingo:50,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papel impresora',medida:'uni',suplidor:'Supply Banca Rody',stockLunesJueves:30,stockViernesDomingo:100,entrada:0,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'Perecederos'},
+    {tipo:'producto',nombre:'Huevo',medida:'Uni',suplidor:'Bravo',stockLunesJueves:30,stockViernesDomingo:30,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pan de Chimi',medida:'Uni',suplidor:'La Boulangerie',stockLunesJueves:20,stockViernesDomingo:30,entrada:24,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pan de Hamburguesa',medida:'Uni',suplidor:'Triticum',stockLunesJueves:200,stockViernesDomingo:300,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pan Baguette',medida:'Uni',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Papas de Freir',medida:'Funda',suplidor:'PetroAntillana',stockLunesJueves:30,stockViernesDomingo:50,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tequeños',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:4,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cativias',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:6,stockViernesDomingo:6,entrada:4,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Aros de cebolla',medida:'Fundas',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:2,entrada:2,salida:0,decomiso:0},
+    {tipo:'separador',nombre:'PROTEINAS'},
+    {tipo:'producto',nombre:'Carne Molida',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:80,stockViernesDomingo:80,entrada:80,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Pechuga de Pollo',medida:'Lb',suplidor:'Eccus Pollo',stockLunesJueves:40,stockViernesDomingo:40,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Alitas de Pollo',medida:'Lb',suplidor:'Eccus Pollo',stockLunesJueves:20,stockViernesDomingo:20,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Lomo de Cerdo',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:2,stockViernesDomingo:3,entrada:2,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Costilla Baby Back',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:6,stockViernesDomingo:8,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Tocineta',medida:'Lb',suplidor:'PetroAntillana',stockLunesJueves:30,stockViernesDomingo:45,entrada:10,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Longaniza Gruesa',medida:'Lb',suplidor:'Bravo',stockLunesJueves:8,stockViernesDomingo:10,entrada:3,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salchicha Parrillera',medida:'Paq.',suplidor:'Bravo',stockLunesJueves:8,stockViernesDomingo:10,entrada:5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Capa de Chicharron',medida:'Lb',suplidor:'Josepra',stockLunesJueves:80,stockViernesDomingo:120,entrada:120,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Chicharron',medida:'Lb',suplidor:'Josepra',stockLunesJueves:80,stockViernesDomingo:100,entrada:100,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Cortes Sirloin',medida:'Paq.',suplidor:'PriceSmart',stockLunesJueves:5,stockViernesDomingo:5,entrada:5,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Filete de Res',medida:'Lb',suplidor:'Cabo Carniceria',stockLunesJueves:5,stockViernesDomingo:8,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Chuleta Fresca',medida:'Caja',suplidor:'jejejeje',stockLunesJueves:1,stockViernesDomingo:1,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Filete de Cerdo',medida:'Lb',suplidor:'Josepra',stockLunesJueves:4,stockViernesDomingo:4,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Carne de Birria',medida:'Lb',suplidor:'Josepra',stockLunesJueves:8,stockViernesDomingo:16,entrada:17,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Camarones',medida:'Caja',suplidor:'PetroAntillana',stockLunesJueves:2,stockViernesDomingo:2,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Salmon',medida:'Penca',suplidor:'PriceSmart',stockLunesJueves:3,stockViernesDomingo:4,entrada:1,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Carnita cerdo Mofongo',medida:'Lb',suplidor:'Josepra',stockLunesJueves:7,stockViernesDomingo:15,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Carnita de Res Mofongo',medida:'Lb',suplidor:'Josepra',stockLunesJueves:7,stockViernesDomingo:15,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Churrasco Angus',medida:'Lb',suplidor:'Pacheco Parrillada',stockLunesJueves:12,stockViernesDomingo:15,entrada:0,salida:0,decomiso:0},
+    {tipo:'producto',nombre:'Picaña Angus',medida:'Lb',suplidor:'PriceSmart',stockLunesJueves:4,stockViernesDomingo:6,entrada:6,salida:0,decomiso:0},
+  ];
+  return rows.map(function(r,i){return Object.assign({id:i+1},r);});
+}
+function initMise() {
+  var rows=[
+    {producto:'PECHUGA PLANCHA',existencia:48},
+    {producto:'FILETE CERDO',existencia:7},
+    {producto:'CHURRASCO',existencia:8},
+    {producto:'PICAÑA',existencia:10},
+    {producto:'FILETE RES',existencia:19},
+    {producto:'COSTILLA CHINOLA',existencia:8},
+    {producto:'CARNITA MIX',existencia:59},
+    {producto:'SALMON',existencia:2},
+    {producto:'CARNE CHIMI',existencia:23},
+    {producto:'CARNE DE HAMBURGUESA',existencia:279},
+    {producto:'BACON',existencia:10},
+    {producto:'PARRILLADA',existencia:10},
+    {producto:'PECHURINA',existencia:13},
+    {producto:'LONGANIZA',existencia:10},
+    {producto:'CHORIZO',existencia:24},
+    {producto:'SIRLOIN',existencia:1},
+    {producto:'PECHUGA PARIS',existencia:12},
+    {producto:'PECHUGA PASTA',existencia:62},
+    {producto:'ALITAS',existencia:5},
+    {producto:'COSTILLA DESMENUZADA',existencia:84},
+    {producto:'CAMARON',existencia:49},
+    {producto:'BIRRIA',existencia:3},
+    {producto:'CHIMICHURRI',existencia:5},
+    {producto:'POMODORO',existencia:20},
+    {producto:'CREMA AGRIA',existencia:3},
+    {producto:'CHEDDAR FUNDIDO',existencia:6},
+    {producto:'CHEDDAR',existencia:20},
+    {producto:'MOZZARELLA',existencia:20},
+    {producto:'QUESO DE HOJA',existencia:20},
+    {producto:'QUESO SUIZO',existencia:20},
+    {producto:'QUESO DE FREIR',existencia:18},
+    {producto:'PENNE',existencia:9},
+    {producto:'FETUCHINI',existencia:5},
+    {producto:'PAN DE HAMBURGUESA',existencia:223},
+    {producto:'PAN DE CHIMI',existencia:28},
+    {producto:'MASA GOLD',existencia:10},
+    {producto:'PAPAS DE FREIR',existencia:16},
+    {producto:'CROQUETAS',existencia:36},
+    {producto:'CATIVIAS',existencia:6},
+    {producto:'TEQUEÑOS',existencia:14},
+    {producto:'AROS DE CEBOLLA',existencia:10},
+    {producto:'MOZZARELLA STICK',existencia:16},
+    {producto:'MASA TACOS',existencia:10},
+    {producto:'VEGETALES A LA PLANCHA',existencia:9},
+    {producto:'PAPAS DE FREIR (SALON)',existencia:40},
+    {producto:'TOSTONES',existencia:7},
+    {producto:'PURE DE PAPA',existencia:4},
+    {producto:'YUQUITAS',existencia:39},
+  ];
+  return rows.map(function(r,i){return Object.assign({id:i+1},r);});
+}
+
+/* ── Toast ── */
+const ToastCtx = React.createContext(null);
+function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
+  const toast = useCallback((msg, type='ok', dur=3400) => {
+    const id = Date.now()+Math.random();
+    setToasts(p=>[...p,{id,msg,type}]);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)), dur);
+  },[]);
+  return (
+    <ToastCtx.Provider value={toast}>
+      {children}
+      <div className="toast-container">
+        {toasts.map(t=>(
+          <div key={t.id} className={`toast ${t.type}`}>
+            <i className={`fas fa-${t.type==='ok'?'check-circle':t.type==='error'?'exclamation-circle':'info-circle'}`}/>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+function useToast() { return React.useContext(ToastCtx); }
+
+/* ════════════════════
+   APP ROOT
+════════════════════ */
+function App() {
+  const [page, setPage] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
+  const [inventario, setInventario]   = useState(()=>load(KEYS.inventario,null)||initInventario());
+  const [miseAnPlace, setMise]         = useState(()=>load(KEYS.miseAnPlace,null)||initMise());
+  const [regEntradas, setRegEntradas] = useState(()=>load(KEYS.regEntradas,[]));
+  const [regSalidas, setRegSalidas]   = useState(()=>load(KEYS.regSalidas,[]));
+  const [regDecomiso, setRegDecomiso] = useState(()=>load(KEYS.regDecomiso,[]));
+  const [histDecomisoCocina, setHistDecomisoCocina] = useState(()=>load(KEYS.histDecomisoCocina,[]));
+  const [neveras, setNeveras] = useState(()=>load('wtf_neveras',[
+    {nombre:'NEVERA 1',items:[]},
+    {nombre:'NEVERA 2',items:[]},
+    {nombre:'NEVERA 3',items:[]},
+  ]));
+
+  const [correos, setCorreos] = useState(()=>load('wtf_correos',['henryortiz1704@gmail.com','wtfoodrdav.venezuela@gmail.com','jhonndell077@gmail.com','cocinaplazaduarte@gmail.com']));
+  useEffect(()=>save('wtf_correos',correos),[correos]);
+
+  useEffect(()=>save('wtf_neveras',neveras),[neveras]);
+  useEffect(()=>save(KEYS.inventario,inventario),[inventario]);
+  useEffect(()=>save(KEYS.miseAnPlace,miseAnPlace),[miseAnPlace]);
+  useEffect(()=>save(KEYS.regEntradas,regEntradas),[regEntradas]);
+  useEffect(()=>save(KEYS.regSalidas,regSalidas),[regSalidas]);
+  useEffect(()=>save(KEYS.regDecomiso,regDecomiso),[regDecomiso]);
+  useEffect(()=>save(KEYS.histDecomisoCocina,histDecomisoCocina),[histDecomisoCocina]);
+
+  /* Responsive: auto-collapse on small screens */
+  useEffect(()=>{
+    function onResize() {
+      if (window.innerWidth <= 768) setSidebarOpen(false);
+      else setSidebarOpen(true);
+    }
+    window.addEventListener('resize', onResize);
+    return ()=>window.removeEventListener('resize', onResize);
+  },[]);
+
+  const isMobile = () => window.innerWidth <= 768;
+
+  function navigate(p) {
+    setPage(p);
+    if (isMobile()) setSidebarOpen(false);
+  }
+
+  const productos = useMemo(()=>
+    inventario.filter(r=>r.tipo==='producto').map(p=>({
+      ...p, existencia:(p.entrada||0)-(p.salida||0)-(p.decomiso||0)
+    })).sort((a,b)=>a.nombre.localeCompare(b.nombre)),
+  [inventario]);
+
+  const [confirmNevera, setConfirmNevera] = useState(null); // {items:[{nombre,delta,totalEnNeveras}]}
+
+  function _applySync(productoNombre, delta) {
+    const key = normalizar(productoNombre);
+    setNeveras(ns=>ns.map(n=>({
+      ...n,
+      items: n.items.map(it=>
+        normalizar(it.producto)===key
+          ? {...it, existencia: Math.max(0, it.existencia+delta)}
+          : it
+      )
+    })));
+  }
+
+  // Smart sync: auto-applies when nevera holds all remaining stock; asks confirmation otherwise.
+  // Accepts {nombre, delta, existenciaAntes} or array thereof.
+  function syncNeveras(payload) {
+    const arr = Array.isArray(payload) ? payload : [payload];
+    const needsConfirm = [];
+    arr.forEach(({nombre, delta, existenciaAntes}) => {
+      const key = normalizar(nombre);
+      let totalEnNeveras = 0;
+      neveras.forEach(n => {
+        const it = n.items.find(x=>normalizar(x.producto)===key);
+        if (it) totalEnNeveras += it.existencia;
+      });
+      if (totalEnNeveras <= 0) return; // not in any nevera
+      if (delta < 0 && existenciaAntes > totalEnNeveras) {
+        needsConfirm.push({nombre, delta, totalEnNeveras});
+      } else {
+        _applySync(nombre, delta);
+      }
+    });
+    if (needsConfirm.length > 0) setConfirmNevera({items: needsConfirm});
+  }
+
+  function addMovimiento(tipo, productoNombre, cantidad) {
+    const now = new Date().toISOString();
+    const prod = inventario.find(r=>r.tipo==='producto'&&normalizar(r.nombre)===normalizar(productoNombre));
+    if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
+    const exist = (prod.entrada||0)-(prod.salida||0)-(prod.decomiso||0);
+    if ((tipo==='salida'||tipo==='decomiso')&&cantidad>exist)
+      throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+    const reg = {fecha:now,numero:prod.id,medida:prod.medida,producto:prod.nombre,cantidad};
+    if (tipo==='entrada')  { setInventario(p=>p.map(r=>r.id===prod.id?{...r,entrada:(r.entrada||0)+cantidad}:r)); setRegEntradas(p=>[...p,reg]); }
+    if (tipo==='salida')   { setInventario(p=>p.map(r=>r.id===prod.id?{...r,salida:(r.salida||0)+cantidad}:r));   setRegSalidas(p=>[...p,reg]);  }
+    if (tipo==='decomiso') { setInventario(p=>p.map(r=>r.id===prod.id?{...r,decomiso:(r.decomiso||0)+cantidad}:r));setRegDecomiso(p=>[...p,reg]); }
+    syncNeveras({nombre: prod.nombre, delta: tipo==='entrada' ? cantidad : -cantidad, existenciaAntes: exist});
+  }
+
+  const navItems = [
+    {key:'dashboard', icon:'fa-home',                 label:'Dashboard',         section:'GENERAL'},
+    {key:'inventario',icon:'fa-boxes-stacked',         label:'Inventario',        section:null},
+    {key:'entradas',  icon:'fa-arrow-right-to-bracket',label:'Entradas',          section:'MOVIMIENTOS'},
+    {key:'salidas',   icon:'fa-arrow-right-from-bracket',label:'Salidas',         section:null},
+    {key:'decomiso',  icon:'fa-trash-can',             label:'Decomiso',          section:null},
+    {key:'mise',      icon:'fa-fire-burner',           label:'Mise an Place',     section:'COCINA'},
+    {key:'listado',   icon:'fa-cart-shopping',         label:'Listado de Compra', section:null},
+    {key:'registros', icon:'fa-clock-rotate-left',     label:'Registros',         section:'REPORTES'},
+    {key:'histDecomiso',icon:'fa-file-lines',          label:'Historial Decomiso',section:null},
+  ];
+
+  const titles = {
+    dashboard:'Dashboard', inventario:'Inventario',
+    entradas:'Registrar Entrada', salidas:'Registrar Salida', decomiso:'Registrar Decomiso',
+    mise:'Mise an Place', listado:'Listado de Compra',
+    registros:'Registros de Movimientos', histDecomiso:'Historial Decomiso Cocina',
+  };
+
+  const pages = {
+    dashboard:   <Dashboard inventario={inventario} miseAnPlace={miseAnPlace} regEntradas={regEntradas} regSalidas={regSalidas} regDecomiso={regDecomiso}/>,
+    inventario:  <InventarioPage inventario={inventario} setInventario={setInventario}/>,
+    entradas:    <MovimientoForm tipo="entrada"  productos={productos} addMovimiento={addMovimiento}/>,
+    salidas:     <MovimientoForm tipo="salida"   productos={productos} addMovimiento={addMovimiento}/>,
+    decomiso:    <MovimientoForm tipo="decomiso" productos={productos} addMovimiento={addMovimiento}/>,
+    mise:        <MisePage miseAnPlace={miseAnPlace} setMise={setMise} histDecomisoCocina={histDecomisoCocina} setHistDecomisoCocina={setHistDecomisoCocina} neveras={neveras} setNeveras={setNeveras} productos={productos} syncNeveras={syncNeveras}/>,
+    listado:     <ListadoCompra inventario={inventario} correos={correos} setCorreos={setCorreos}/>,
+    registros:   <Registros regEntradas={regEntradas} regSalidas={regSalidas} regDecomiso={regDecomiso}/>,
+    histDecomiso:<HistorialDecomisoCocina data={histDecomisoCocina}/>,
+  };
+
+  let lastSection = null;
+  return (
+    <ToastProvider>
+      {/* Sidebar overlay (mobile) */}
+      <div
+        className={`sidebar-overlay ${sidebarOpen && window.innerWidth<=768 ? 'visible':''}`}
+        onClick={()=>setSidebarOpen(false)}
+      />
+
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
+        <div className="sidebar-logo">
+          <i className="fas fa-utensils logo-icon"/>
+          <div className="logo-text">
+            <span>WTF Sistema</span>
+            <small>Gestión de Cocina</small>
+          </div>
+          <button className="sidebar-close-btn" onClick={()=>setSidebarOpen(false)} title="Cerrar menú">
+            <i className="fas fa-times"/>
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">
+          {navItems.map(item=>{
+            const showSection = item.section && item.section!==lastSection;
+            if (item.section) lastSection = item.section;
+            return (
+              <React.Fragment key={item.key}>
+                {showSection && <div className="nav-section">{item.section}</div>}
+                <div className={`nav-item ${page===item.key?'active':''}`} onClick={()=>navigate(item.key)}>
+                  <i className={`fas ${item.icon}`}/>
+                  {item.label}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer">WTF Sistema Cocina v1.0</div>
+      </aside>
+
+      {/* Main */}
+      <div className={`main ${sidebarOpen && window.innerWidth>768 ? '' : 'full'}`}>
+        {/* Topbar */}
+        <div className="topbar">
+          <div className="topbar-left">
+            <button className="hamburger" onClick={()=>setSidebarOpen(o=>!o)} title="Menú">
+              <i className={`fas ${sidebarOpen ? 'fa-times':'fa-bars'}`}/>
+            </button>
+            <h1>{titles[page]}</h1>
+          </div>
+          <div className="topbar-right">
+            <span className="date-badge">
+              <i className="fas fa-calendar-day" style={{marginRight:4}}/>
+              {new Date().toLocaleDateString('es-DO',{weekday:'long',day:'numeric',month:'short'})}
+            </span>
+          </div>
+        </div>
+
+        {/* Page content */}
+        <div className="content">
+          {pages[page]}
+        </div>
+      </div>
+      {confirmNevera && (
+        <ConfirmNeveraModal
+          items={confirmNevera.items}
+          onConfirm={()=>{
+            confirmNevera.items.forEach(it=>_applySync(it.nombre, it.delta));
+            setConfirmNevera(null);
+          }}
+          onCancel={()=>setConfirmNevera(null)}
+        />
+      )}
+    </ToastProvider>
+  );
+}
+
+/* ════════════════════
+   DASHBOARD
+════════════════════ */
+function Dashboard({inventario, miseAnPlace, regEntradas, regSalidas, regDecomiso}) {
+  const productos = inventario.filter(r=>r.tipo==='producto').map(p=>({
+    ...p, existencia:(p.entrada||0)-(p.salida||0)-(p.decomiso||0)
+  }));
+  const bajoStock = productos.filter(p=>p.existencia < p.stockLunesJueves).length;
+  const sinStock  = productos.filter(p=>p.existencia<=0).length;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const entradasHoy  = regEntradas.filter(r=>new Date(r.fecha)>=hoy).length;
+  const salidasHoy   = regSalidas.filter(r=>new Date(r.fecha)>=hoy).length;
+  const decomisosHoy = regDecomiso.filter(r=>new Date(r.fecha)>=hoy).length;
+  const alertas = productos.filter(p=>p.existencia<p.stockLunesJueves).slice(0,8);
+
+  const actividad = [
+    ...regEntradas.slice(-5).map(r=>({...r,tipo:'Entrada'})),
+    ...regSalidas.slice(-5).map(r=>({...r,tipo:'Salida'})),
+    ...regDecomiso.slice(-5).map(r=>({...r,tipo:'Decomiso'})),
+  ].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,10);
+
+  return (
+    <div>
+      <div className="stats-grid">
+        <StatCard label="Total Productos" value={productos.length} color="verde"/>
+        <StatCard label="Mise an Place"   value={miseAnPlace.length} color="azul"/>
+        <StatCard label="Bajo Stock"      value={bajoStock} color="naranja"/>
+        <StatCard label="Sin Stock"       value={sinStock}  color="rojo"/>
+        <StatCard label="Entradas Hoy"    value={entradasHoy}  color="verde"/>
+        <StatCard label="Salidas Hoy"     value={salidasHoy}   color="azul"/>
+        <StatCard label="Decomisos Hoy"   value={decomisosHoy} color="rojo"/>
+        <StatCard label="Total Registros" value={regEntradas.length+regSalidas.length+regDecomiso.length} color="naranja"/>
+      </div>
+
+      <div className="grid-dash" style={{marginBottom:16}}>
+        <div className="card">
+          <div className="card-header">
+            <h2><i className="fas fa-triangle-exclamation" style={{color:'#f59e0b',marginRight:6}}/>Alertas de Stock</h2>
+          </div>
+          {alertas.length===0 ? (
+            <div style={{padding:'24px',textAlign:'center',color:'var(--gris)',fontSize:13}}>
+              <i className="fas fa-check-circle" style={{color:'var(--verde)',fontSize:28,display:'block',marginBottom:6}}/>
+              Inventario sobre el mínimo
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Producto</th><th>Existencia</th><th>Mín.</th></tr></thead>
+                <tbody>
+                  {alertas.map(p=>(
+                    <tr key={p.id}>
+                      <td>{p.nombre}</td>
+                      <td><span className={p.existencia<=0?'exist-zero':'exist-low'}>{Number(p.existencia.toFixed(2))} {p.medida}</span></td>
+                      <td>{p.stockLunesJueves} {p.medida}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="card-header"><h2><i className="fas fa-fire-burner" style={{color:'var(--azul)',marginRight:6}}/>Mise an Place</h2></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Producto</th><th>Existencia</th></tr></thead>
+              <tbody>
+                {miseAnPlace.map(m=>(
+                  <tr key={m.id}>
+                    <td>{m.producto}</td>
+                    <td><span className={m.existencia<=0?'exist-zero':m.existencia<2?'exist-low':'exist-ok'}>{m.existencia}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h2><i className="fas fa-clock-rotate-left" style={{color:'var(--gris)',marginRight:6}}/>Actividad Reciente</h2></div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Cantidad</th></tr></thead>
+            <tbody>
+              {actividad.map((r,i)=>(
+                <tr key={i}>
+                  <td style={{fontSize:11,color:'var(--gris)',whiteSpace:'nowrap'}}>{formatDatetime(r.fecha)}</td>
+                  <td><span className={`pill ${r.tipo==='Entrada'?'pill-verde':r.tipo==='Salida'?'pill-azul':'pill-rojo'}`}>{r.tipo}</span></td>
+                  <td>{r.producto}</td>
+                  <td>{r.cantidad} {r.medida}</td>
+                </tr>
+              ))}
+              {actividad.length===0 && <tr><td colSpan="4" style={{textAlign:'center',padding:'24px',color:'var(--gris)'}}>Sin actividad aún</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({label,value,color}) {
+  return (
+    <div className={`stat-card ${color}`}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+    </div>
+  );
+}
+
+/* ════════════════════
+   INVENTARIO
+════════════════════ */
+function InventarioPage({inventario, setInventario}) {
+  const toast = useToast();
+  const [busqueda, setBusqueda] = useState('');
+  const [modalAdd, setModalAdd] = useState(false);
+  const [modalSep, setModalSep] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [confirmReset, setConfirmReset] = useState(null);
+  const [newProd, setNewProd] = useState({nombre:'',medida:'kg',suplidor:'',stockLunesJueves:0,stockViernesDomingo:0});
+  const [newSep, setNewSep] = useState('');
+
+  const nextId = () => Math.max(0,...inventario.map(r=>r.id))+1;
+
+  const rows = useMemo(()=>{
+    if (!busqueda.trim()) return inventario;
+    const q=normalizar(busqueda);
+    return inventario.filter(r=>r.tipo==='separador'||normalizar(r.nombre).includes(q)||normalizar(r.suplidor||'').includes(q));
+  },[inventario,busqueda]);
+
+  const conteoMap = useMemo(()=>{
+    const map={}, counts={};
+    for (const r of inventario) {
+      if (r.tipo==='separador'){counts._cur=r.id;continue;}
+      const key=counts._cur||'root';
+      if (!counts[key]) counts[key]=0;
+      counts[key]++;
+      map[r.id]=counts[key];
+    }
+    return map;
+  },[inventario]);
+
+  function deleteRow(id) {
+    if (!confirm('¿Eliminar esta fila?')) return;
+    setInventario(p=>p.filter(r=>r.id!==id));
+    toast('Fila eliminada','info');
+  }
+  function startEdit(r) { setEditingId(r.id); setEditData({...r}); }
+  function saveEdit() {
+    setInventario(p=>p.map(r=>r.id===editingId?{...r,...editData}:r));
+    setEditingId(null); toast('Producto actualizado');
+  }
+  function resetMovs(r) {
+    setInventario(p=>p.map(x=>x.id===r.id?{...x,entrada:0,salida:0,decomiso:0}:x));
+    setConfirmReset(null); toast('Movimientos reiniciados de '+r.nombre);
+  }
+  function addProducto() {
+    if (!newProd.nombre.trim()){toast('Ingrese el nombre','error');return;}
+    setInventario(p=>[...p,{...newProd,id:nextId(),tipo:'producto',entrada:0,salida:0,decomiso:0}]);
+    setNewProd({nombre:'',medida:'kg',suplidor:'',stockLunesJueves:0,stockViernesDomingo:0});
+    setModalAdd(false); toast('Producto agregado');
+  }
+  function addSeparador() {
+    if (!newSep.trim()){toast('Ingrese el nombre','error');return;}
+    setInventario(p=>[...p,{id:nextId(),tipo:'separador',nombre:newSep.trim().toUpperCase()}]);
+    setNewSep(''); setModalSep(false); toast('Renglón agregado');
+  }
+
+  return (
+    <div>
+      <div className="action-bar">
+        <div className="search-wrap" style={{flex:1,minWidth:160,maxWidth:320}}>
+          <i className="fas fa-search search-icon"/>
+          <input className="form-control" placeholder="Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>
+        </div>
+        <button className="btn btn-verde" onClick={()=>setModalAdd(true)}><i className="fas fa-plus"/>Agregar</button>
+        <button className="btn btn-outline" onClick={()=>setModalSep(true)}><i className="fas fa-layer-group"/>Renglón</button>
+      </div>
+
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th colSpan="6" style={{borderBottom:'none',background:'transparent'}}></th>
+                <th colSpan="4" className="col-div-left" style={{textAlign:'center',background:'#f0fdf4',color:'#166534',fontSize:11,fontWeight:700,letterSpacing:'.05em',paddingTop:4,paddingBottom:4,borderBottom:'none'}}>MOVIMIENTOS &amp; EXISTENCIA</th>
+                <th style={{borderBottom:'none',background:'transparent'}}></th>
+              </tr>
+              <tr>
+                <th>#</th><th>Producto</th><th>Medida</th><th>Suplidor</th>
+                <th>Stock L-J</th><th>Stock V-D</th>
+                <th className="col-div-left">Entradas</th><th>Salidas</th><th>Decomiso</th>
+                <th>Existencia</th><th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r=>{
+                if (r.tipo==='separador') return (
+                  <tr key={r.id} className="tr-separator">
+                    <td colSpan="10">{r.nombre}</td>
+                    <td>
+                      <button className="btn btn-sm btn-gris btn-icon" onClick={()=>deleteRow(r.id)}>
+                        <i className="fas fa-trash"/>
+                      </button>
+                    </td>
+                  </tr>
+                );
+                const exist=(r.entrada||0)-(r.salida||0)-(r.decomiso||0);
+                if (editingId===r.id) return (
+                  <tr key={r.id} style={{background:'#fffbeb'}}>
+                    <td>{conteoMap[r.id]}</td>
+                    <td><input className="form-control" value={editData.nombre||''} onChange={e=>setEditData(p=>({...p,nombre:e.target.value}))} style={{minWidth:110}}/></td>
+                    <td><input className="form-control" value={editData.medida||''} onChange={e=>setEditData(p=>({...p,medida:e.target.value}))} style={{width:60}}/></td>
+                    <td><input className="form-control" value={editData.suplidor||''} onChange={e=>setEditData(p=>({...p,suplidor:e.target.value}))} style={{minWidth:90}}/></td>
+                    <td><input className="form-control" type="number" value={editData.stockLunesJueves||0} onChange={e=>setEditData(p=>({...p,stockLunesJueves:parseFloat(e.target.value)||0}))} style={{width:60}}/></td>
+                    <td><input className="form-control" type="number" value={editData.stockViernesDomingo||0} onChange={e=>setEditData(p=>({...p,stockViernesDomingo:parseFloat(e.target.value)||0}))} style={{width:60}}/></td>
+                    <td colSpan="4" className="col-div-left" style={{color:'var(--gris)',fontSize:11}}>Solo se editan datos básicos y stock.</td>
+                    <td>
+                      <div style={{display:'flex',gap:4}}>
+                        <button className="btn btn-sm btn-verde" onClick={saveEdit}><i className="fas fa-check"/></button>
+                        <button className="btn btn-sm btn-gris" onClick={()=>setEditingId(null)}><i className="fas fa-times"/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+                return (
+                  <tr key={r.id}>
+                    <td style={{color:'var(--gris)',fontSize:11}}>{conteoMap[r.id]}</td>
+                    <td style={{fontWeight:500,whiteSpace:'nowrap'}}>{r.nombre}</td>
+                    <td><span className="pill pill-gris">{r.medida}</span></td>
+                    <td style={{color:'var(--gris)',fontSize:12,whiteSpace:'nowrap'}}>{r.suplidor}</td>
+                    <td>{r.stockLunesJueves}</td>
+                    <td>{r.stockViernesDomingo}</td>
+                    <td className="col-div-left" style={{color:'var(--verde)',fontWeight:600}}>{r.entrada||0}</td>
+                    <td style={{color:'var(--azul)',fontWeight:600}}>{r.salida||0}</td>
+                    <td style={{color:'#f59e0b',fontWeight:600}}>{r.decomiso||0}</td>
+                    <td>
+                      <span className={exist<=0?'exist-zero':exist<r.stockLunesJueves?'exist-low':'exist-ok'}>
+                        {Number(exist.toFixed(2))} {r.medida}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{display:'flex',gap:4}}>
+                        <button className="btn btn-sm btn-outline btn-icon" title="Editar" onClick={()=>startEdit(r)}><i className="fas fa-pen"/></button>
+                        <button className="btn btn-sm btn-outline btn-icon" title="Reiniciar" onClick={()=>setConfirmReset(r)}><i className="fas fa-rotate-left"/></button>
+                        <button className="btn btn-sm btn-outline btn-icon" title="Eliminar" onClick={()=>deleteRow(r.id)}><i className="fas fa-trash"/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {rows.length===0 && <tr><td colSpan="11" style={{textAlign:'center',padding:'30px',color:'var(--gris)'}}>Sin productos</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal agregar producto */}
+      {modalAdd && (
+        <div className="modal-overlay" onClick={()=>setModalAdd(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fas fa-plus" style={{marginRight:7}}/>Agregar Producto</h3>
+              <button className="btn btn-gris btn-icon btn-sm" onClick={()=>setModalAdd(false)}><i className="fas fa-times"/></button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group"><label className="form-label">Nombre *</label><input className="form-control" value={newProd.nombre} onChange={e=>setNewProd(p=>({...p,nombre:e.target.value}))} placeholder="Ej: Pollo entero" autoFocus/></div>
+              <div className="grid-2">
+                <div className="form-group"><label className="form-label">Medida</label><input className="form-control" value={newProd.medida} onChange={e=>setNewProd(p=>({...p,medida:e.target.value}))} placeholder="kg, lb, lt..."/></div>
+                <div className="form-group"><label className="form-label">Suplidor</label><input className="form-control" value={newProd.suplidor} onChange={e=>setNewProd(p=>({...p,suplidor:e.target.value}))}/></div>
+              </div>
+              <div className="grid-2">
+                <div className="form-group"><label className="form-label">Stock L,M,M,J</label><input className="form-control" type="number" min="0" step="0.01" value={newProd.stockLunesJueves} onChange={e=>setNewProd(p=>({...p,stockLunesJueves:parseFloat(e.target.value)||0}))}/></div>
+                <div className="form-group"><label className="form-label">Stock V,S,D</label><input className="form-control" type="number" min="0" step="0.01" value={newProd.stockViernesDomingo} onChange={e=>setNewProd(p=>({...p,stockViernesDomingo:parseFloat(e.target.value)||0}))}/></div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-gris" onClick={()=>setModalAdd(false)}>Cancelar</button>
+              <button className="btn btn-verde" onClick={addProducto}><i className="fas fa-plus"/>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal separador */}
+      {modalSep && (
+        <div className="modal-overlay" onClick={()=>setModalSep(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fas fa-layer-group" style={{marginRight:7}}/>Agregar Renglón</h3>
+              <button className="btn btn-gris btn-icon btn-sm" onClick={()=>setModalSep(false)}><i className="fas fa-times"/></button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group"><label className="form-label">Nombre del Renglón</label><input className="form-control" value={newSep} onChange={e=>setNewSep(e.target.value)} placeholder="Ej: CARNES Y PROTEÍNAS" autoFocus/></div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-gris" onClick={()=>setModalSep(false)}>Cancelar</button>
+              <button className="btn btn-verde" onClick={addSeparador}><i className="fas fa-plus"/>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm reset */}
+      {confirmReset && (
+        <div className="modal-overlay">
+          <div className="modal" style={{maxWidth:360}}>
+            <div className="modal-header"><h3>Reiniciar movimientos</h3></div>
+            <div className="modal-body">
+              <p style={{fontSize:14}}>¿Reiniciar entradas, salidas y decomiso de <strong>{confirmReset.nombre}</strong> a cero?</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-gris" onClick={()=>setConfirmReset(null)}>Cancelar</button>
+              <button className="btn btn-rojo" onClick={()=>resetMovs(confirmReset)}><i className="fas fa-rotate-left"/>Reiniciar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════
+   MOVIMIENTO FORM
+════════════════════ */
+function MovimientoForm({tipo, productos, addMovimiento}) {
+  const toast = useToast();
+  const [producto, setProducto] = useState('');
+  const [cantidad, setCantidad] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const cfg = {
+    entrada:  {color:'verde', icon:'fa-arrow-right-to-bracket',  label:'Entrada',  verb:'Guardar entrada'},
+    salida:   {color:'azul',  icon:'fa-arrow-right-from-bracket', label:'Salida',   verb:'Guardar salida'},
+    decomiso: {color:'rojo',  icon:'fa-trash-can',               label:'Decomiso', verb:'Registrar decomiso'},
+  }[tipo];
+
+  const prodInfo = useMemo(()=>productos.find(p=>normalizar(p.nombre)===normalizar(producto)),[productos,producto]);
+  const cant = parseFloat(String(cantidad).replace(',','.'));
+  const excede = prodInfo && (tipo==='salida'||tipo==='decomiso') && !isNaN(cant) && cant>prodInfo.existencia;
+
+  function guardar() {
+    setError(''); setSuccess('');
+    if (!producto.trim()){setError('Seleccione un producto.');return;}
+    if (isNaN(cant)||cant<=0){setError('Ingrese una cantidad válida mayor a cero.');return;}
+    try {
+      addMovimiento(tipo, producto, cant);
+      setSuccess(`${cfg.label} registrada.\n\nProducto: ${producto}\nCantidad: ${cant}`);
+      setProducto(''); setCantidad('');
+      toast(`${cfg.label} guardada: ${producto} x${cant}`);
+    } catch(e){setError(e.message);}
+  }
+
+  return (
+    <div style={{maxWidth:520}}>
+      <div className="card">
+        <div className="card-header">
+          <h2><i className={`fas ${cfg.icon}`} style={{marginRight:7,color:`var(--${cfg.color})`}}/>Formulario de {cfg.label}</h2>
+        </div>
+        <div className="card-body">
+          {error   && <div className="alert alert-error"><i className="fas fa-exclamation-circle"/><pre style={{whiteSpace:'pre-wrap',fontFamily:'inherit',fontSize:13}}>{error}</pre></div>}
+          {success && <div className="alert alert-ok"><i className="fas fa-check-circle"/><pre style={{whiteSpace:'pre-wrap',fontFamily:'inherit',fontSize:13}}>{success}</pre></div>}
+
+          <div className="form-group">
+            <label className="form-label">Producto</label>
+            <input className={`form-control ${error&&!producto?'error':''}`} list="prod-list" value={producto}
+              onChange={e=>{setProducto(e.target.value);setError('');setSuccess('');}} placeholder="Seleccione un producto..." autoComplete="off"/>
+            <datalist id="prod-list">
+              {productos.map(p=><option key={p.id} value={p.nombre}>{p.nombre} — {p.existencia.toFixed(2)} {p.medida}</option>)}
+            </datalist>
+            {prodInfo && (
+              <div style={{marginTop:5,fontSize:12,color:'var(--gris)',display:'flex',flexWrap:'wrap',gap:'10px 20px'}}>
+                <span>Existencia: <span className={prodInfo.existencia<=0?'exist-zero':'exist-ok'}>{prodInfo.existencia.toFixed(2)} {prodInfo.medida}</span></span>
+                <span>Suplidor: {prodInfo.suplidor||'—'}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Cantidad</label>
+            <input className={`form-control ${excede?'error':''}`} type="number" min="0.01" step="0.01"
+              value={cantidad} onChange={e=>{setCantidad(e.target.value);setError('');setSuccess('');}} placeholder="0.00"/>
+            {excede && <div style={{marginTop:4,fontSize:12,color:'var(--rojo)'}}>
+              <i className="fas fa-exclamation-circle" style={{marginRight:4}}/>Excede existencia actual ({prodInfo.existencia.toFixed(2)} {prodInfo.medida})
+            </div>}
+          </div>
+
+          <div style={{display:'flex',gap:8,marginTop:18,flexWrap:'wrap'}}>
+            <button className={`btn btn-${cfg.color}`} onClick={guardar} disabled={excede} style={{flex:1,minWidth:140}}>
+              <i className={`fas ${cfg.icon}`}/>{cfg.verb}
+            </button>
+            <button className="btn btn-gris" onClick={()=>{setProducto('');setCantidad('');setError('');setSuccess('');}}>
+              <i className="fas fa-eraser"/>Limpiar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════
+   MISE AN PLACE
+════════════════════ */
+function MisePage({miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras}) {
+  const toast = useToast();
+  const [tab, setTab] = useState('tabla');
+  const [modalDecomiso, setModalDecomiso] = useState(false);
+  const [modalSalida,   setModalSalida]   = useState(false);
+  const [modalEntrada,  setModalEntrada]  = useState(false);
+  const [modalAdd,      setModalAdd]      = useState(false);
+  const [newProd, setNewProd] = useState({producto:'',existencia:0});
+
+  function addProd() {
+    if (!newProd.producto.trim()){toast('Ingrese el nombre','error');return;}
+    const id = Math.max(0,...miseAnPlace.map(m=>m.id))+1;
+    setMise(p=>[...p,{id,producto:newProd.producto.trim(),existencia:parseFloat(newProd.existencia)||0}]);
+    setNewProd({producto:'',existencia:0}); setModalAdd(false); toast('Producto agregado');
+  }
+  function deleteProd(id) {
+    if (!confirm('¿Eliminar?')) return;
+    setMise(p=>p.filter(m=>m.id!==id)); toast('Eliminado','info');
+  }
+
+  return (
+    <div>
+      <div className="tabs">
+        <div className={`tab ${tab==='tabla'?'active':''}`} onClick={()=>setTab('tabla')}>Tabla Mise an Place</div>
+        <div className={`tab ${tab==='neveras'?'active':''}`} onClick={()=>setTab('neveras')}>Neveras</div>
+        <div className={`tab ${tab==='historial'?'active':''}`} onClick={()=>setTab('historial')}>Historial Decomiso</div>
+      </div>
+
+      {tab==='tabla' && (
+        <div>
+          <div className="action-bar">
+            <button className="btn btn-verde" onClick={()=>setModalAdd(true)}><i className="fas fa-plus"/>Agregar</button>
+            <button className="btn btn-rojo"  onClick={()=>setModalDecomiso(true)}><i className="fas fa-trash-can"/>Decomiso</button>
+            <button className="btn btn-verde" onClick={()=>setModalEntrada(true)}><i className="fas fa-arrow-up"/>Entrada rápida</button>
+            <button className="btn btn-azul"  onClick={()=>setModalSalida(true)}><i className="fas fa-bolt"/>Salida rápida</button>
+          </div>
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>#</th><th>Producto</th><th>Existencia</th><th>Acciones</th></tr></thead>
+                <tbody>
+                  {miseAnPlace.map((m,i)=>(
+                    <tr key={m.id}>
+                      <td style={{color:'var(--gris)',fontSize:11}}>{i+1}</td>
+                      <td style={{fontWeight:500}}>{m.producto}</td>
+                      <td>
+                        <span className={m.existencia<=0?'exist-zero':m.existencia<2?'exist-low':'exist-ok'}>{m.existencia}</span>
+                      </td>
+                      <td>
+                        <button className="btn btn-sm btn-outline btn-icon" onClick={()=>deleteProd(m.id)}><i className="fas fa-trash"/></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {miseAnPlace.length===0 && <tr><td colSpan="4" style={{textAlign:'center',padding:'28px',color:'var(--gris)'}}>Sin productos en Mise an Place</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab==='neveras' && <NeverasView neveras={neveras} setNeveras={setNeveras} miseItems={miseAnPlace} productos={productos}/>}
+
+      {tab==='historial' && (
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Producto</th><th>Fecha</th><th>Cantidad</th><th>Motivo</th><th>Área</th><th>Responsable</th></tr></thead>
+              <tbody>
+                {[...histDecomisoCocina].reverse().map((h,i)=>(
+                  <tr key={i}>
+                    <td style={{fontWeight:500}}>{h.producto}</td>
+                    <td style={{fontSize:11}}>{h.fecha}</td>
+                    <td style={{fontWeight:600,color:'var(--rojo)'}}>{h.cantidad}</td>
+                    <td style={{maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.motivo}</td>
+                    <td><span className={`pill ${h.area==='COCINA'?'pill-rojo':h.area==='SALON'?'pill-azul':h.area==='ALMACEN'?'pill-naranja':'pill-gris'}`}>{h.area}</span></td>
+                    <td>{h.responsable}</td>
+                  </tr>
+                ))}
+                {histDecomisoCocina.length===0 && <tr><td colSpan="6" style={{textAlign:'center',padding:'24px',color:'var(--gris)'}}>Sin decomisos</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {modalAdd && (
+        <div className="modal-overlay" onClick={()=>setModalAdd(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><h3>Agregar a Mise an Place</h3><button className="btn btn-gris btn-icon btn-sm" onClick={()=>setModalAdd(false)}><i className="fas fa-times"/></button></div>
+            <div className="modal-body">
+              <div className="form-group"><label className="form-label">Nombre del producto</label><input className="form-control" value={newProd.producto} onChange={e=>setNewProd(p=>({...p,producto:e.target.value}))} autoFocus/></div>
+              <div className="form-group"><label className="form-label">Existencia inicial</label><input className="form-control" type="number" min="0" step="0.01" value={newProd.existencia} onChange={e=>setNewProd(p=>({...p,existencia:e.target.value}))}/></div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-gris" onClick={()=>setModalAdd(false)}>Cancelar</button>
+              <button className="btn btn-verde" onClick={addProd}><i className="fas fa-plus"/>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalDecomiso && <DecomisoMiseModal miseAnPlace={miseAnPlace} setMise={setMise} setHistDecomisoCocina={setHistDecomisoCocina} onClose={()=>setModalDecomiso(false)} toast={toast} syncNeveras={syncNeveras}/>}
+      {modalEntrada  && <EntradaRapidaModal miseAnPlace={miseAnPlace} setMise={setMise} onClose={()=>setModalEntrada(false)} toast={toast} syncNeveras={syncNeveras}/>}
+      {modalSalida   && <SalidaRapidaModal miseAnPlace={miseAnPlace} setMise={setMise} onClose={()=>setModalSalida(false)} toast={toast} syncNeveras={syncNeveras}/>}
+    </div>
+  );
+}
+
+function DecomisoMiseModal({miseAnPlace, setMise, setHistDecomisoCocina, onClose, toast, syncNeveras}) {
+  const hoy = new Date().toISOString().slice(0,10);
+  const [data, setData] = useState({producto:'',fecha:hoy,cantidad:'',motivo:'',area:'',responsable:''});
+  const [error, setError] = useState('');
+  const prodInfo = miseAnPlace.find(m=>normalizar(m.producto)===normalizar(data.producto));
+
+  function guardar() {
+    setError('');
+    if (!data.producto.trim()) return setError('Ingrese el producto.');
+    if (!data.fecha) return setError('Ingrese la fecha.');
+    const cant = parseFloat(String(data.cantidad).replace(',','.'));
+    if (isNaN(cant)||cant<=0) return setError('Cantidad inválida.');
+    if (!data.motivo.trim()) return setError('Ingrese el motivo.');
+    if (!data.area) return setError('Seleccione el área.');
+    if (!data.responsable.trim()) return setError('Ingrese el responsable.');
+    if (!prodInfo) return setError(`"${data.producto}" no existe en Mise an Place.`);
+    if (cant>prodInfo.existencia) return setError(`Excede la existencia actual (${prodInfo.existencia}).`);
+    setMise(p=>p.map(m=>normalizar(m.producto)===normalizar(data.producto)?{...m,existencia:m.existencia-cant}:m));
+    setHistDecomisoCocina(p=>[...p,{...data,cantidad:cant}]);
+    syncNeveras&&syncNeveras({nombre:data.producto, delta:-cant, existenciaAntes:prodInfo.existencia});
+    toast(`Decomiso: ${data.producto} x${cant}`);
+    onClose();
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-trash-can" style={{color:'var(--rojo)',marginRight:7}}/>Decomiso MISE AN PLACE</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="alert alert-error"><i className="fas fa-exclamation-circle"/>{error}</div>}
+          <div className="form-group">
+            <label className="form-label">Producto</label>
+            <input className="form-control" list="mise-dec-list" value={data.producto} onChange={e=>setData(p=>({...p,producto:e.target.value}))} autoComplete="off"/>
+            <datalist id="mise-dec-list">{miseAnPlace.map(m=><option key={m.id} value={m.producto}>{m.producto} — {m.existencia}</option>)}</datalist>
+            {prodInfo && <div style={{marginTop:4,fontSize:12,color:'var(--gris)'}}>Disponible: <strong>{prodInfo.existencia}</strong></div>}
+          </div>
+          <div className="grid-2">
+            <div className="form-group"><label className="form-label">Fecha</label><input className="form-control" type="date" value={data.fecha} onChange={e=>setData(p=>({...p,fecha:e.target.value}))}/></div>
+            <div className="form-group"><label className="form-label">Cantidad</label><input className="form-control" type="number" min="0.01" step="0.01" value={data.cantidad} onChange={e=>setData(p=>({...p,cantidad:e.target.value}))}/></div>
+          </div>
+          <div className="form-group"><label className="form-label">Razón / Motivo</label><textarea className="form-control" value={data.motivo} onChange={e=>setData(p=>({...p,motivo:e.target.value}))}/></div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Área</label>
+              <select className="form-control" value={data.area} onChange={e=>setData(p=>({...p,area:e.target.value}))}>
+                <option value="">Seleccione un área</option>
+                <option>COCINA</option><option>SALON</option><option>ALMACEN</option><option>CUARTO FRIO</option>
+              </select>
+            </div>
+            <div className="form-group"><label className="form-label">Responsable</label><input className="form-control" value={data.responsable} onChange={e=>setData(p=>({...p,responsable:e.target.value}))}/></div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-gris" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-rojo" onClick={guardar}><i className="fas fa-trash-can"/>Guardar decomiso</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EntradaRapidaModal({miseAnPlace, setMise, onClose, toast, syncNeveras}) {
+  const [filas, setFilas] = useState([{p:'',c:''},{p:'',c:''},{p:'',c:''}]);
+  const [error, setError] = useState('');
+
+  function guardar() {
+    setError('');
+    const items = filas.filter(f=>f.p.trim()||f.c);
+    if (!items.length) return setError('Ingrese al menos un producto.');
+    const acum = {};
+    for (const f of items) {
+      if (!f.p.trim()) return setError('Hay una fila sin producto.');
+      const c = parseFloat(String(f.c).replace(',','.'));
+      if (isNaN(c)||c<=0) return setError(`Cantidad inválida en "${f.p}".`);
+      const key = normalizar(f.p);
+      const info = miseAnPlace.find(m=>normalizar(m.producto)===key);
+      if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
+      acum[key] = (acum[key]||0)+c;
+    }
+    setMise(p=>p.map(m=>{
+      const k=normalizar(m.producto);
+      return acum[k]!==undefined ? {...m,existencia:m.existencia+acum[k]} : m;
+    }));
+    if (syncNeveras) {
+      syncNeveras(Object.entries(acum).map(([k,v])=>({
+        nombre: miseAnPlace.find(m=>normalizar(m.producto)===k)?.producto||k,
+        delta: +v,
+        existenciaAntes: (miseAnPlace.find(m=>normalizar(m.producto)===k)?.existencia||0),
+      })));
+    }
+    toast(`Entrada rápida: ${Object.keys(acum).length} productos actualizados`);
+    onClose();
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-arrow-up" style={{color:'var(--verde)',marginRight:7}}/>Entrada Rápida MISE AN PLACE</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="alert alert-error"><i className="fas fa-exclamation-circle"/>{error}</div>}
+          <datalist id="mise-ent-list">{miseAnPlace.map(m=><option key={m.id} value={m.producto}>{m.producto} — {m.existencia}</option>)}</datalist>
+          <div className="mise-row-header"><span>Producto</span><span>Cantidad</span><span/></div>
+          {filas.map((f,i)=>(
+            <div className="mise-row" key={i}>
+              <input className="form-control" list="mise-ent-list" value={f.p} onChange={e=>setFilas(fs=>fs.map((x,j)=>j===i?{...x,p:e.target.value}:x))} placeholder="Producto" autoComplete="off"/>
+              <input className="form-control" type="number" min="0.01" step="0.01" value={f.c} onChange={e=>setFilas(fs=>fs.map((x,j)=>j===i?{...x,c:e.target.value}:x))} placeholder="0"/>
+              <button className="btn btn-sm btn-gris btn-icon" onClick={()=>setFilas(fs=>fs.filter((_,j)=>j!==i))}><i className="fas fa-times"/></button>
+            </div>
+          ))}
+          <button className="btn btn-outline btn-sm" style={{marginTop:5}} onClick={()=>setFilas(fs=>[...fs,{p:'',c:''}])}>
+            <i className="fas fa-plus"/>Agregar fila
+          </button>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-gris" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-verde" onClick={guardar}><i className="fas fa-arrow-up"/>Registrar entrada rápida</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SalidaRapidaModal({miseAnPlace, setMise, onClose, toast, syncNeveras}) {
+  const [filas, setFilas] = useState([{p:'',c:''},{p:'',c:''},{p:'',c:''}]);
+  const [error, setError] = useState('');
+
+  function guardar() {
+    setError('');
+    const items = filas.filter(f=>f.p.trim()||f.c);
+    if (!items.length) return setError('Ingrese al menos un producto.');
+    const acum = {};
+    for (const f of items) {
+      if (!f.p.trim()) return setError('Hay una fila sin producto.');
+      const c = parseFloat(String(f.c).replace(',','.'));
+      if (isNaN(c)||c<=0) return setError(`Cantidad inválida en "${f.p}".`);
+      const key = normalizar(f.p);
+      const info = miseAnPlace.find(m=>normalizar(m.producto)===key);
+      if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
+      acum[key] = (acum[key]||0)+c;
+    }
+    for (const [k,total] of Object.entries(acum)) {
+      const info = miseAnPlace.find(m=>normalizar(m.producto)===k);
+      if (total>info.existencia) return setError(`Salida excede existencia de "${info.producto}" (${info.existencia}).`);
+    }
+    setMise(p=>p.map(m=>{
+      const k=normalizar(m.producto);
+      return acum[k]!==undefined ? {...m,existencia:m.existencia-acum[k]} : m;
+    }));
+    if (syncNeveras) {
+      syncNeveras(Object.entries(acum).map(([k,v])=>({
+        nombre: miseAnPlace.find(m=>normalizar(m.producto)===k)?.producto||k,
+        delta: -v,
+        existenciaAntes: (miseAnPlace.find(m=>normalizar(m.producto)===k)?.existencia||0),
+      })));
+    }
+    toast(`Salida rápida: ${Object.keys(acum).length} productos actualizados`);
+    onClose();
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-bolt" style={{color:'var(--azul)',marginRight:7}}/>Salida Rápida MISE AN PLACE</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="alert alert-error"><i className="fas fa-exclamation-circle"/>{error}</div>}
+          <datalist id="mise-sal-list">{miseAnPlace.map(m=><option key={m.id} value={m.producto}>{m.producto} — {m.existencia}</option>)}</datalist>
+          <div className="mise-row-header"><span>Producto</span><span>Cantidad</span><span/></div>
+          {filas.map((f,i)=>(
+            <div className="mise-row" key={i}>
+              <input className="form-control" list="mise-sal-list" value={f.p} onChange={e=>setFilas(fs=>fs.map((x,j)=>j===i?{...x,p:e.target.value}:x))} placeholder="Producto" autoComplete="off"/>
+              <input className="form-control" type="number" min="0.01" step="0.01" value={f.c} onChange={e=>setFilas(fs=>fs.map((x,j)=>j===i?{...x,c:e.target.value}:x))} placeholder="0"/>
+              <button className="btn btn-sm btn-gris btn-icon" onClick={()=>setFilas(fs=>fs.filter((_,j)=>j!==i))}><i className="fas fa-times"/></button>
+            </div>
+          ))}
+          <button className="btn btn-outline btn-sm" style={{marginTop:5}} onClick={()=>setFilas(fs=>[...fs,{p:'',c:''}])}>
+            <i className="fas fa-plus"/>Agregar fila
+          </button>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-gris" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-azul" onClick={guardar}><i className="fas fa-bolt"/>Registrar salida rápida</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════
+   NEVERAS
+════════════════════ */
+function ConfirmNeveraModal({items, onConfirm, onCancel}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-snowflake" style={{color:'var(--azul)',marginRight:7}}/>Actualizar neveras</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onCancel}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body">
+          <p style={{fontSize:13,marginBottom:12,color:'#374151'}}>
+            Hay existencias en neveras que podrían no estar directamente relacionadas con este movimiento. ¿Descontar también de las neveras?
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Producto</th><th>En neveras</th><th>Cambio</th></tr>
+              </thead>
+              <tbody>
+                {items.map((it,i)=>(
+                  <tr key={i}>
+                    <td style={{fontWeight:500}}>{it.nombre}</td>
+                    <td><span className="exist-ok">{it.totalEnNeveras}</span></td>
+                    <td style={{color:'var(--rojo)',fontWeight:600}}>{it.delta}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-gris" onClick={onCancel}><i className="fas fa-times"/>No, mantener nevera</button>
+          <button className="btn btn-azul" onClick={onConfirm}><i className="fas fa-check"/>Sí, actualizar nevera</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NeverasView({neveras, setNeveras, miseItems, productos}) {
+  const toast = useToast();
+  const [transferModal, setTransferModal] = useState(null);
+
+  function addToNevera(neveraIdx, producto, cantidad) {
+    setNeveras(ns=>ns.map((n,i)=>{
+      if (i!==neveraIdx) return n;
+      const key = normalizar(producto);
+      const existe = n.items.find(it=>normalizar(it.producto)===key);
+      if (existe) {
+        return {...n, items: n.items.map(it=>normalizar(it.producto)===key ? {...it, existencia: it.existencia+cantidad} : it)};
+      }
+      return {...n, items: [...n.items, {id: Date.now()+Math.random(), producto, existencia: cantidad}]};
+    }));
+  }
+
+  function removeFromNevera(neveraIdx, itemId) {
+    setNeveras(ns=>ns.map((n,i)=>i!==neveraIdx ? n : {...n, items: n.items.filter(it=>it.id!==itemId)}));
+  }
+
+  function transferir(fromIdx, item, toIdx, cantidad) {
+    setNeveras(ns=>ns.map((n,i)=>{
+      if (i===fromIdx) {
+        const resto = item.existencia - cantidad;
+        return {...n, items: resto<=0
+          ? n.items.filter(it=>it.id!==item.id)
+          : n.items.map(it=>it.id===item.id ? {...it, existencia: resto} : it)};
+      }
+      if (i===toIdx) {
+        const key = normalizar(item.producto);
+        const existe = n.items.find(it=>normalizar(it.producto)===key);
+        if (existe) return {...n, items: n.items.map(it=>normalizar(it.producto)===key ? {...it, existencia: it.existencia+cantidad} : it)};
+        return {...n, items: [...n.items, {id: Date.now()+Math.random(), producto: item.producto, existencia: cantidad}]};
+      }
+      return n;
+    }));
+    toast(`Transferido: ${item.producto} → ${neveras[toIdx].nombre}`);
+    setTransferModal(null);
+  }
+
+  return (
+    <div>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:16}}>
+        {neveras.map((nevera,idx)=>(
+          <NeveraCard key={idx} nevera={nevera} neveraIdx={idx}
+            miseItems={miseItems}
+            inventarioItems={idx===2 ? (productos||[]).map(p=>({id:p.id,producto:p.nombre,existencia:p.existencia})) : null}
+            onAdd={(prod,cant)=>{ addToNevera(idx,prod,cant); toast(`${prod} → ${nevera.nombre}`); }}
+            onRemove={(id)=>removeFromNevera(idx,id)}
+            onTransfer={(item)=>setTransferModal({fromIdx:idx, item})}
+          />
+        ))}
+      </div>
+      {transferModal && (
+        <TransferirModal
+          fromIdx={transferModal.fromIdx}
+          item={transferModal.item}
+          neveras={neveras}
+          onTransfer={transferir}
+          onClose={()=>setTransferModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function NeveraCard({nevera, neveraIdx, miseItems, inventarioItems, onAdd, onRemove, onTransfer}) {
+  const [form, setForm] = useState({producto:'', cantidad:''});
+  const [error, setError] = useState('');
+  // null | 'mise' | 'inventario'
+  const [modalSelector, setModalSelector] = useState(null);
+  const icons = ['fa-snowflake','fa-temperature-low','fa-box-open'];
+  const colors = ['var(--azul)','var(--verde)','#f59e0b'];
+
+  function guardar() {
+    setError('');
+    if (!form.producto.trim()) return setError('Seleccione un producto.');
+    const c = parseFloat(String(form.cantidad).replace(',','.'));
+    if (isNaN(c)||c<=0) return setError('Cantidad inválida.');
+    onAdd(form.producto.trim(), c);
+    setForm({producto:'', cantidad:''});
+  }
+
+  function onConfirmSelector(seleccion) {
+    seleccion.forEach(({producto, cantidad}) => onAdd(producto, cantidad));
+    setModalSelector(null);
+  }
+
+  const dlId = `nevera-dl-${neveraIdx}`;
+  const selectorItems = modalSelector==='inventario' ? (inventarioItems||[]) : (miseItems||[]);
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2><i className={`fas ${icons[neveraIdx]}`} style={{marginRight:7, color:colors[neveraIdx]}}/>{nevera.nombre}</h2>
+        <span className="pill pill-azul">{nevera.items.length} productos</span>
+      </div>
+      <div className="card-body">
+        {error && <div className="alert alert-error" style={{marginBottom:8,padding:'7px 10px'}}><i className="fas fa-exclamation-circle"/>{error}</div>}
+        <div style={{display:'flex', gap:6, marginBottom:6, alignItems:'flex-end'}}>
+          <div style={{flex:1, minWidth:0}}>
+            <label className="form-label">Producto</label>
+            <input className="form-control" list={dlId} value={form.producto}
+              onChange={e=>setForm(p=>({...p,producto:e.target.value}))}
+              placeholder="Seleccione un producto..." autoComplete="off"/>
+            <datalist id={dlId}>
+              {(miseItems||[]).map(m=><option key={m.id} value={m.producto}>{m.producto} — {m.existencia}</option>)}
+              {(inventarioItems||[]).map(p=><option key={'inv-'+p.id} value={p.producto}>{p.producto} — {p.existencia}</option>)}
+            </datalist>
+          </div>
+          <div style={{width:76, flexShrink:0}}>
+            <label className="form-label">Cantidad</label>
+            <input className="form-control" type="number" min="0.01" step="0.01" value={form.cantidad}
+              onChange={e=>setForm(p=>({...p,cantidad:e.target.value}))} placeholder="0.00"
+              onKeyDown={e=>e.key==='Enter'&&guardar()}/>
+          </div>
+          <div style={{display:'flex', gap:4, flexShrink:0}}>
+            <button className="btn btn-verde btn-sm btn-icon" onClick={guardar} title="Guardar entrada"><i className="fas fa-arrow-right-to-bracket"/></button>
+            <button className="btn btn-gris btn-sm btn-icon" onClick={()=>{setForm({producto:'',cantidad:''});setError('');}} title="Limpiar"><i className="fas fa-eraser"/></button>
+          </div>
+        </div>
+        <div style={{display:'flex', gap:6, marginBottom:12}}>
+          <button className="btn btn-outline btn-sm" style={{flex:1}} onClick={()=>setModalSelector('mise')}>
+            <i className="fas fa-fire-burner"/>Mise an Place
+          </button>
+          {inventarioItems && (
+            <button className="btn btn-outline btn-sm" style={{flex:1}} onClick={()=>setModalSelector('inventario')}>
+              <i className="fas fa-boxes-stacked"/>Inventario
+            </button>
+          )}
+        </div>
+        {modalSelector && (
+          <SelectorProductosModal
+            miseItems={selectorItems}
+            neveraNombre={nevera.nombre}
+            titulo={modalSelector==='inventario' ? 'Inventario' : 'Mise an Place'}
+            onConfirm={onConfirmSelector}
+            onClose={()=>setModalSelector(null)}
+          />
+        )}
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Producto</th><th>Exist.</th><th>Acciones</th></tr></thead>
+            <tbody>
+              {nevera.items.map((it,i)=>(
+                <tr key={it.id}>
+                  <td style={{color:'var(--gris)',fontSize:11}}>{i+1}</td>
+                  <td style={{fontWeight:500}}>{it.producto}</td>
+                  <td><span className={it.existencia<=0?'exist-zero':it.existencia<2?'exist-low':'exist-ok'}>{it.existencia}</span></td>
+                  <td>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="btn btn-sm btn-azul" onClick={()=>onTransfer(it)}>
+                        <i className="fas fa-right-left"/>Transferir
+                      </button>
+                      <button className="btn btn-sm btn-outline btn-icon" onClick={()=>onRemove(it.id)}>
+                        <i className="fas fa-trash"/>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {nevera.items.length===0 && (
+                <tr><td colSpan="4" style={{textAlign:'center',padding:'20px 12px',color:'var(--gris)',fontSize:12}}>Sin productos en {nevera.nombre}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SelectorProductosModal({miseItems, neveraNombre, titulo, onConfirm, onClose}) {
+  const [buscar, setBuscar] = useState('');
+  const [seleccion, setSeleccion] = useState({});
+  const [error, setError] = useState('');
+
+  const filtrados = (miseItems||[]).filter(m=>
+    normalizar(m.producto).includes(normalizar(buscar))
+  );
+
+  function toggleProducto(producto) {
+    setSeleccion(s=>{
+      if (s[producto]) { const n={...s}; delete n[producto]; return n; }
+      return {...s, [producto]: {cantidad:'', producto}};
+    });
+    setError('');
+  }
+
+  function setCantidad(producto, val) {
+    setSeleccion(s=>({...s, [producto]: {...s[producto], cantidad: val}}));
+  }
+
+  function confirmar() {
+    setError('');
+    const items = Object.values(seleccion);
+    if (!items.length) return setError('Seleccione al menos un producto.');
+    for (const it of items) {
+      const c = parseFloat(String(it.cantidad).replace(',','.'));
+      if (isNaN(c)||c<=0) return setError(`Cantidad inválida en "${it.producto}".`);
+    }
+    onConfirm(items.map(it=>({producto:it.producto, cantidad:parseFloat(String(it.cantidad).replace(',','.'))})));
+  }
+
+  const totalSel = Object.keys(seleccion).length;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" style={{maxHeight:'92dvh'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-table-list" style={{color:'var(--verde)',marginRight:7}}/>Seleccionar de {titulo||'Mise an Place'} — {neveraNombre}</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body" style={{padding:'12px 16px'}}>
+          {error && <div className="alert alert-error" style={{marginBottom:8}}><i className="fas fa-exclamation-circle"/>{error}</div>}
+          <div className="search-wrap" style={{marginBottom:10}}>
+            <i className="fas fa-search search-icon"/>
+            <input className="form-control" value={buscar} onChange={e=>setBuscar(e.target.value)}
+              placeholder="Buscar producto..." autoFocus/>
+          </div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:6, maxHeight:'52dvh', overflowY:'auto', paddingRight:2}}>
+            {filtrados.map(m=>{
+              const sel = !!seleccion[m.producto];
+              return (
+                <div key={m.id}
+                  onClick={()=>toggleProducto(m.producto)}
+                  style={{
+                    border: sel ? '2px solid var(--verde)' : '1.5px solid var(--borde)',
+                    borderRadius:8, padding:'8px 10px', cursor:'pointer',
+                    background: sel ? '#f0fdf4' : '#fff',
+                    transition:'all .12s', userSelect:'none',
+                  }}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: sel?6:0}}>
+                    <span style={{fontWeight:600, fontSize:12, color: sel?'var(--verde)':'#374151', lineHeight:1.3}}>{m.producto}</span>
+                    <span style={{fontSize:11, color:'var(--gris)', marginLeft:6, flexShrink:0}}>
+                      {sel
+                        ? <i className="fas fa-check-circle" style={{color:'var(--verde)'}}/>
+                        : <i className="fas fa-circle" style={{color:'#d1d5db'}}/>}
+                    </span>
+                  </div>
+                  <div style={{fontSize:11, color:'var(--gris)'}}>Exist: <strong>{m.existencia}</strong></div>
+                  {sel && (
+                    <input
+                      className="form-control"
+                      type="number" min="0.01" step="0.01"
+                      placeholder="Cantidad"
+                      value={seleccion[m.producto].cantidad}
+                      onClick={e=>e.stopPropagation()}
+                      onChange={e=>setCantidad(m.producto, e.target.value)}
+                      style={{marginTop:6, fontSize:12, padding:'5px 8px'}}
+                      autoFocus
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {filtrados.length===0 && (
+              <div style={{gridColumn:'1/-1', textAlign:'center', padding:24, color:'var(--gris)', fontSize:13}}>
+                Sin resultados para "{buscar}"
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="modal-footer" style={{justifyContent:'space-between'}}>
+          <span style={{fontSize:12, color:'var(--gris)', alignSelf:'center'}}>
+            {totalSel>0 ? <><i className="fas fa-check-circle" style={{color:'var(--verde)',marginRight:4}}/>{totalSel} producto{totalSel>1?'s':''} seleccionado{totalSel>1?'s':''}</> : 'Toca un producto para seleccionarlo'}
+          </span>
+          <div style={{display:'flex', gap:8}}>
+            <button className="btn btn-gris" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-verde" onClick={confirmar} disabled={!totalSel}>
+              <i className="fas fa-arrow-right-to-bracket"/>Agregar {totalSel>0?totalSel:''} a {neveraNombre}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransferirModal({fromIdx, item, neveras, onTransfer, onClose}) {
+  const [toIdx, setToIdx] = useState('');
+  const [cantidad, setCantidad] = useState(String(item.existencia));
+  const [error, setError] = useState('');
+
+  function confirmar() {
+    setError('');
+    if (toIdx==='') return setError('Seleccione la nevera de destino.');
+    const c = parseFloat(String(cantidad).replace(',','.'));
+    if (isNaN(c)||c<=0) return setError('Cantidad inválida.');
+    if (c>item.existencia) return setError(`Excede la existencia disponible (${item.existencia}).`);
+    onTransfer(fromIdx, item, parseInt(toIdx), c);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-right-left" style={{color:'var(--azul)',marginRight:7}}/>Transferir Producto</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+        <div className="modal-body">
+          {error && <div className="alert alert-error"><i className="fas fa-exclamation-circle"/>{error}</div>}
+          <div className="form-group">
+            <label className="form-label">Producto</label>
+            <input className="form-control" value={item.producto} readOnly style={{background:'#f9fafb',color:'#374151'}}/>
+          </div>
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Desde</label>
+              <input className="form-control" value={neveras[fromIdx].nombre} readOnly style={{background:'#f9fafb',color:'#374151'}}/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Hacia</label>
+              <select className="form-control" value={toIdx} onChange={e=>setToIdx(e.target.value)}>
+                <option value="">Seleccione nevera...</option>
+                {neveras.map((n,i)=>i!==fromIdx&&<option key={i} value={i}>{n.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">
+              Cantidad a transferir
+              <span style={{fontWeight:400,color:'var(--gris)',marginLeft:6}}>disponible: <strong>{item.existencia}</strong></span>
+            </label>
+            <input className="form-control" type="number" min="0.01" step="0.01" max={item.existencia}
+              value={cantidad} onChange={e=>setCantidad(e.target.value)}/>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-gris" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-azul" onClick={confirmar}><i className="fas fa-right-left"/>Transferir</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════
+   LISTADO DE COMPRA
+════════════════════ */
+function ListadoCompra({inventario, correos, setCorreos}) {
+  const toast = useToast();
+  const [tipoStock,  setTipoStock]  = useState('lunes_jueves');
+  const [listado,    setListado]    = useState(null);
+  const [modalEnvio, setModalEnvio] = useState(false);
+  const [modalGas,   setModalGas]   = useState(false);
+  const [googleConfig, setGoogleConfig] = useState(()=>load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG));
+  const [googleConfigEdit, setGoogleConfigEdit] = useState(()=>load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG));
+  const [googleReady, setGoogleReady] = useState(false);
+  const [googleAuthed, setGoogleAuthed] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [subiendo,   setSubiendo]   = useState(false);
+  const filtrosVacios = {producto:'',suplidor:'',medida:'',stockReq:'',existencia:'',comprar:''};
+  const [filtros, setFiltros] = useState(filtrosVacios);
+  const accessTokenRef = useRef('');
+  const accessTokenExpiryRef = useRef(0);
+
+  function setFiltro(k, v) { setFiltros(p=>({...p,[k]:v})); }
+
+  useEffect(()=>save(KEYS.googleConfig, googleConfig),[googleConfig]);
+
+  useEffect(()=>{
+    function checkGoogleReady() {
+      const ready = Boolean(window.google && window.google.accounts && window.google.accounts.oauth2);
+      setGoogleReady(ready);
+      return ready;
+    }
+    if (checkGoogleReady()) return;
+    const timer = window.setInterval(function () {
+      if (checkGoogleReady()) window.clearInterval(timer);
+    }, 400);
+    return ()=>window.clearInterval(timer);
+  },[]);
+
+  function resetGoogleSession() {
+    accessTokenRef.current = '';
+    accessTokenExpiryRef.current = 0;
+    setGoogleAuthed(false);
+  }
+
+  function abrirConfigGas() {
+    setGoogleConfigEdit(googleConfig);
+    setModalGas(true);
+  }
+
+  function guardarGasUrl() {
+    const next = {
+      clientId: (googleConfigEdit.clientId || '').trim(),
+      folderId: (googleConfigEdit.folderId || '').trim(),
+    };
+    setGoogleConfig(next);
+    if (!next.clientId) resetGoogleSession();
+    setModalGas(false);
+    toast(next.clientId ? 'Configuracion de Google guardada.' : 'Configuracion eliminada.');
+  }
+
+  async function solicitarPermisosGoogle(forcePrompt, configOverride) {
+    const currentConfig = configOverride || googleConfig;
+    if (window.location.protocol === 'file:') {
+      throw new Error('Google OAuth no funciona desde file://. Abra este sistema en http://localhost o HTTPS.');
+    }
+    if (!currentConfig.clientId) {
+      throw new Error('Primero configure el Client ID de Google.');
+    }
+    if (!googleReady || !window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+      throw new Error('La libreria de Google aun no termina de cargar.');
+    }
+
+    const prompt = forcePrompt || !accessTokenRef.current ? 'consent' : '';
+    setAuthorizing(true);
+    try {
+      const token = await new Promise(function (resolve, reject) {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: currentConfig.clientId,
+          scope: GOOGLE_SCOPES,
+          callback: function (response) {
+            if (!response || response.error) {
+              reject(new Error(response && response.error ? response.error : 'No se pudo obtener el token de Google.'));
+              return;
+            }
+            accessTokenRef.current = response.access_token;
+            accessTokenExpiryRef.current = Date.now() + Math.max((response.expires_in || 3600) - 60, 60) * 1000;
+            setGoogleAuthed(true);
+            resolve(response.access_token);
+          },
+          error_callback: function (error) {
+            reject(new Error(error && error.type ? error.type : 'La autorizacion de Google fue cancelada.'));
+          },
+        });
+        client.requestAccessToken({ prompt });
+      });
+      return token;
+    } finally {
+      setAuthorizing(false);
+    }
+  }
+
+  async function ensureGoogleToken(forcePrompt) {
+    if (!forcePrompt && accessTokenRef.current && Date.now() < accessTokenExpiryRef.current) {
+      return accessTokenRef.current;
+    }
+    return solicitarPermisosGoogle(Boolean(forcePrompt));
+  }
+
+  async function crearHojaListadoGoogle(payload) {
+    const token = await ensureGoogleToken(false);
+    const created = await googleFetchJson('https://sheets.googleapis.com/v4/spreadsheets', token, {
+      method: 'POST',
+      body: {
+        properties: { title: payload.filename.replace('.xlsx', '') },
+        sheets: [{ properties: { title: 'Listado', gridProperties: { frozenRowCount: 4 } } }],
+      },
+    });
+
+    const spreadsheetId = created.spreadsheetId;
+    const firstSheetId = created.sheets && created.sheets[0] && created.sheets[0].properties
+      ? created.sheets[0].properties.sheetId
+      : 0;
+
+    await googleFetchJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Listado!A1?valueInputOption=USER_ENTERED`,
+      token,
+      { method: 'PUT', body: { range: 'Listado!A1', majorDimension: 'ROWS', values: payload.rows } }
+    );
+
+    await googleFetchJson(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, token, {
+      method: 'POST',
+      body: {
+        requests: [
+          {
+            repeatCell: {
+              range: { sheetId: firstSheetId, startRowIndex: 3, endRowIndex: 4 },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: { red: 0.12, green: 0.48, blue: 0.23 },
+                  textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true },
+                  horizontalAlignment: 'CENTER',
+                },
+              },
+              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+            },
+          },
+          {
+            updateDimensionProperties: {
+              range: { sheetId: firstSheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 6 },
+              properties: { pixelSize: 180 },
+              fields: 'pixelSize',
+            },
+          },
+        ],
+      },
+    });
+
+    if (googleConfig.folderId) {
+      const fileMeta = await googleFetchJson(
+        `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=parents`,
+        token
+      );
+      const currentParents = fileMeta.parents && fileMeta.parents.length ? fileMeta.parents.join(',') : '';
+      const moveUrl = currentParents
+        ? `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${encodeURIComponent(googleConfig.folderId)}&removeParents=${encodeURIComponent(currentParents)}&fields=id,webViewLink`
+        : `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${encodeURIComponent(googleConfig.folderId)}&fields=id,webViewLink`;
+      await googleFetchJson(moveUrl, token, { method: 'PATCH', body: {} });
+    }
+
+    return created;
+  }
+
+  async function enviarListadoPorGmail(destinatarios) {
+    const token = await ensureGoogleToken(false);
+    const fechaStr = new Date(listado.fecha).toLocaleDateString('es-DO',{day:'2-digit',month:'short',year:'numeric'});
+    const items = listado.items.map(function (p) {
+      return {
+        nombre: p.nombre,
+        suplidor: p.suplidor || '-',
+        medida: p.medida,
+        stock: p.stock,
+        existencia: Number(p.existencia.toFixed(2)),
+        comprar: Number(p.comprar.toFixed(2)),
+      };
+    });
+    const subject = `LISTADO DE COMPRA - ${titulo} - ${fechaStr}`;
+    const html = buildListadoEmailHtml({ items, titulo, fecha: fechaStr });
+    const mime = [
+      `To: ${destinatarios.join(', ')}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'MIME-Version: 1.0',
+      `Subject: ${subject}`,
+      '',
+      html,
+    ].join('\r\n');
+
+    await googleFetchJson('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', token, {
+      method: 'POST',
+      body: { raw: encodeBase64Url(mime) },
+    });
+  }
+
+  function generar() {
+    const compras = inventario.filter(r=>r.tipo==='producto').reduce((acc,p)=>{
+      const stock = tipoStock==='lunes_jueves' ? (p.stockLunesJueves||0) : (p.stockViernesDomingo||0);
+      const exist = (p.entrada||0)-(p.salida||0)-(p.decomiso||0);
+      if (stock>0 && exist<stock) acc.push({...p,existencia:exist,stock,comprar:stock-exist});
+      return acc;
+    },[]);
+    setListado({items:compras,tipo:tipoStock,fecha:new Date()});
+    setFiltros(filtrosVacios);
+    toast(`Listado generado: ${compras.length} productos`);
+  }
+
+  async function exportar() {
+    if (!listado || listado.items.length===0) { toast('No hay productos en el listado.','error'); return; }
+    if (typeof XLSX === 'undefined') { toast('Libreria de Excel no disponible.','error'); return; }
+
+    const fechaStr = new Date(listado.fecha).toLocaleDateString('es-DO',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'-');
+    const tituloLimpio = titulo.replace(/[— ]+/g,'_');
+    const nombreArchivo = `Listado_Compra_${tituloLimpio}_${fechaStr}.xlsx`;
+    const filas = buildListadoRows(listado, titulo);
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(filas);
+    ws['!cols'] = [{wch:32},{wch:24},{wch:10},{wch:12},{wch:12},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Listado de Compra');
+    XLSX.writeFile(wb, nombreArchivo);
+
+    if (googleConfig.clientId) {
+      setSubiendo(true);
+      try {
+        await crearHojaListadoGoogle({
+          filename: nombreArchivo,
+          titulo,
+          fecha: new Date(listado.fecha).toLocaleString('es-DO'),
+          rows: filas,
+        });
+        toast(`Google Sheets creado: ${nombreArchivo}`,'ok');
+      } catch(err) {
+        resetGoogleSession();
+        toast(err && err.message ? err.message : 'Error al crear la hoja en Google.','error');
+      } finally {
+        setSubiendo(false);
+      }
+    } else {
+      toast(`Descargado: ${nombreArchivo} - Configura Google para crear la hoja online.`);
+    }
+  }
+
+  const titulo = tipoStock==='lunes_jueves' ? 'LUNES — JUEVES' : 'VIERNES — DOMINGO';
+
+  const itemsFiltrados = listado ? listado.items.filter(p=>{
+    const f = filtros;
+    return (
+      (!f.producto   || p.nombre.toLowerCase().includes(f.producto.toLowerCase())) &&
+      (!f.suplidor   || (p.suplidor||'').toLowerCase().includes(f.suplidor.toLowerCase())) &&
+      (!f.medida     || (p.medida||'').toLowerCase().includes(f.medida.toLowerCase())) &&
+      (!f.stockReq   || String(p.stock).includes(f.stockReq)) &&
+      (!f.existencia || String(Number(p.existencia.toFixed(2))).includes(f.existencia)) &&
+      (!f.comprar    || String(Number(p.comprar.toFixed(2))).includes(f.comprar))
+    );
+  }) : [];
+
+  const hayFiltros = Object.values(filtros).some(v=>v!=='');
+
+  const thFiltro = {padding:'4px 6px', background:'#e8f5e9'};
+  const inputFiltro = {width:'100%',padding:'3px 7px',border:'1px solid #a7d7b5',borderRadius:4,fontSize:11,outline:'none',background:'#fff'};
+
+  return (
+    <div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="card-header"><h2><i className="fas fa-sliders" style={{marginRight:7}}/>Configuración</h2></div>
+        <div className="card-body">
+          <div className="form-group" style={{maxWidth:340}}>
+            <label className="form-label">Período de stock</label>
+            <select className="form-control" value={tipoStock} onChange={e=>setTipoStock(e.target.value)}>
+              <option value="lunes_jueves">1 — Lunes, Martes, Miércoles, Jueves</option>
+              <option value="viernes_domingo">2 — Viernes, Sábado, Domingo</option>
+            </select>
+          </div>
+          <div className="action-bar" style={{marginBottom:0,flexWrap:'wrap',gap:8}}>
+            <button className="btn btn-verde" onClick={generar}><i className="fas fa-cart-shopping"/>Generar listado</button>
+            {listado && (
+              <button className="btn btn-azul" onClick={exportar} disabled={subiendo} style={{opacity:subiendo?0.7:1}}>
+                {subiendo
+                  ? <><i className="fas fa-spinner fa-spin"/>Subiendo...</>
+                  : <><i className="fas fa-file-excel"/>{googleConfig.clientId ? 'Exportar a Google' : 'Exportar'}</>
+                }
+              </button>
+            )}
+            {listado && <button className="btn btn-naranja" onClick={()=>setModalEnvio(true)}><i className="fas fa-envelope"/>Enviar correo</button>}
+            {listado && <button className="btn btn-gris" onClick={()=>{setListado(null);setFiltros(filtrosVacios);}}><i className="fas fa-trash"/>Limpiar</button>}
+            <button
+              className="btn btn-gris"
+              onClick={abrirConfigGas}
+              title={googleConfig.clientId ? 'Google configurado' : 'Configurar Google Workspace'}
+              style={{marginLeft:'auto',padding:'0 10px'}}
+            >
+              <i className="fas fa-cloud-upload-alt" style={{color: googleConfig.clientId ? '#16a34a' : '#6b7280'}}/>
+              <span style={{fontSize:11,marginLeft:5}}>{googleConfig.clientId ? 'Google OK' : 'Config. Google'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {listado && (
+        <div className="card">
+          <div className="card-header">
+            <h2><i className="fas fa-cart-shopping" style={{marginRight:7,color:'var(--verde)'}}/>LISTADO — {titulo}</h2>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{fontSize:11,color:'var(--gris)'}}>
+                {new Date(listado.fecha).toLocaleString('es-DO',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+              </span>
+              <span className={`pill ${listado.items.length>0?'pill-rojo':'pill-verde'}`}>{listado.items.length} productos</span>
+              {hayFiltros && <span className="pill pill-azul">{itemsFiltrados.length} visibles</span>}
+            </div>
+          </div>
+          {listado.items.length===0 ? (
+            <div className="card-body" style={{textAlign:'center',color:'var(--verde)',paddingTop:30,paddingBottom:30}}>
+              <i className="fas fa-check-circle" style={{fontSize:34,display:'block',marginBottom:8}}/>
+              Inventario completo, nada por comprar.
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr style={{background:'#1f7a3a'}}>
+                    {['Producto','Suplidor','Medida','Stock Req.','Existencia','A COMPRAR'].map(h=>(
+                      <th key={h} style={{color:'#fff',background:'#1f7a3a'}}>{h}</th>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th style={thFiltro}><input style={inputFiltro} placeholder="Buscar producto" value={filtros.producto} onChange={e=>setFiltro('producto',e.target.value)}/></th>
+                    <th style={thFiltro}><input style={inputFiltro} placeholder="Buscar suplidor" value={filtros.suplidor} onChange={e=>setFiltro('suplidor',e.target.value)}/></th>
+                    <th style={thFiltro}><input style={inputFiltro} placeholder="Buscar medida"   value={filtros.medida}   onChange={e=>setFiltro('medida',e.target.value)}/></th>
+                    <th style={thFiltro}><input style={inputFiltro} placeholder="Buscar stock"    value={filtros.stockReq} onChange={e=>setFiltro('stockReq',e.target.value)}/></th>
+                    <th style={thFiltro}><input style={inputFiltro} placeholder="Buscar exist."   value={filtros.existencia} onChange={e=>setFiltro('existencia',e.target.value)}/></th>
+                    <th style={{...thFiltro,display:'flex',alignItems:'center',gap:4}}>
+                      <input style={{...inputFiltro,flex:1}} placeholder="Buscar compra" value={filtros.comprar} onChange={e=>setFiltro('comprar',e.target.value)}/>
+                      {hayFiltros && <button onClick={()=>setFiltros(filtrosVacios)} style={{border:'none',background:'#c0392b',color:'#fff',borderRadius:3,padding:'2px 5px',cursor:'pointer',fontSize:10,flexShrink:0}} title="Limpiar filtros">x</button>}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsFiltrados.length===0 ? (
+                    <tr><td colSpan={6} style={{textAlign:'center',padding:'20px',color:'var(--gris)'}}>Sin resultados para los filtros aplicados.</td></tr>
+                  ) : itemsFiltrados.map((p,i)=>(
+                    <tr key={i}>
+                      <td style={{fontWeight:500}}>{p.nombre}</td>
+                      <td style={{color:'var(--gris)',fontSize:12}}>{p.suplidor||'—'}</td>
+                      <td><span className="pill pill-gris">{p.medida}</span></td>
+                      <td>{p.stock}</td>
+                      <td><span className={p.existencia<=0?'exist-zero':'exist-low'}>{Number(p.existencia.toFixed(2))}</span></td>
+                      <td style={{fontWeight:700,color:'var(--azul)',fontSize:14}}>{Number(p.comprar.toFixed(2))} {p.medida}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {modalEnvio && listado && (
+        <ModalEnvioCorreo
+          listado={listado}
+          titulo={titulo}
+          correos={correos}
+          setCorreos={setCorreos}
+          googleConfigured={Boolean(googleConfig.clientId)}
+          googleAuthed={googleAuthed}
+          authorizing={authorizing}
+          enviarListadoPorGmail={enviarListadoPorGmail}
+          solicitarPermisosGoogle={solicitarPermisosGoogle}
+          onClose={()=>setModalEnvio(false)}
+          onSent={()=>{ setModalEnvio(false); setListado(null); }}
+          toast={toast}
+        />
+      )}
+
+      {modalGas && (
+        <div className="modal-overlay" onClick={()=>setModalGas(false)}>
+          <div className="modal modal-lg" onClick={e=>e.stopPropagation()} style={{maxWidth:640}}>
+            <div className="modal-header">
+              <h3><i className="fas fa-cloud-upload-alt" style={{marginRight:7,color:'#1f7a3a'}}/>Configurar Google Workspace</h3>
+              <button className="btn btn-gris btn-icon btn-sm" onClick={()=>setModalGas(false)}><i className="fas fa-times"/></button>
+            </div>
+            <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:16}}>
+              <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:14}}>
+                <div style={{fontWeight:600,marginBottom:8,color:'#15803d'}}>
+                  <i className="fas fa-info-circle" style={{marginRight:6}}/>Instrucciones - solo se hace una vez
+                </div>
+                <ol style={{paddingLeft:18,fontSize:13,lineHeight:'1.9',color:'#374151'}}>
+                  <li>Abre <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{color:'#1d4ed8'}}>Google Cloud Console</a> y usa o crea un proyecto.</li>
+                  <li>Activa Google Drive API, Google Sheets API y Gmail API.</li>
+                  <li>Configura la pantalla de consentimiento OAuth.</li>
+                  <li>Crea un OAuth Client ID tipo Web application.</li>
+                  <li>En Authorized JavaScript origins agrega este origen: <strong>{window.location.origin}</strong></li>
+                  <li>Pega aqui el Client ID y, si quieres, el Folder ID de Drive.</li>
+                </ol>
+              </div>
+
+              {window.location.protocol === 'file:' && (
+                <div style={{background:'#fff7ed',border:'1px solid #fdba74',borderRadius:8,padding:12,color:'#9a3412',fontSize:12}}>
+                  <i className="fas fa-triangle-exclamation" style={{marginRight:6}}/>
+                  Esta app esta abierta como archivo local. Para autorizar Google debes ejecutarla desde <strong>http://localhost</strong> o un dominio <strong>HTTPS</strong>.
+                </div>
+              )}
+
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">OAuth Client ID</label>
+                <input
+                  className="form-control"
+                  type="text"
+                  placeholder="1234567890-abc123xyz.apps.googleusercontent.com"
+                  value={googleConfigEdit.clientId || ''}
+                  onChange={e=>setGoogleConfigEdit(p=>({...p, clientId:e.target.value}))}
+                />
+              </div>
+
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">Folder ID de Drive (opcional)</label>
+                <input
+                  className="form-control"
+                  type="text"
+                  placeholder="1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                  value={googleConfigEdit.folderId || ''}
+                  onChange={e=>setGoogleConfigEdit(p=>({...p, folderId:e.target.value}))}
+                />
+                <div style={{fontSize:11,color:'#6b7280',marginTop:4}}>
+                  Si se completa, las hojas nuevas se moveran automaticamente a esa carpeta.
+                </div>
+              </div>
+
+              <div style={{background:'#f8fafc',border:'1px solid #e5e7eb',borderRadius:8,padding:12,fontSize:12,color:'#334155'}}>
+                <div style={{fontWeight:600,marginBottom:6}}>Estado de la conexion</div>
+                <div><strong>Libreria Google:</strong> {googleReady ? 'lista' : 'cargando'}</div>
+                <div><strong>Configuracion:</strong> {googleConfig.clientId ? 'guardada' : 'pendiente'}</div>
+                <div><strong>Permisos:</strong> {googleAuthed ? 'autorizados en esta sesion' : 'pendientes'}</div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              {googleConfig.clientId && (
+                <button className="btn btn-gris" onClick={()=>{
+                  setGoogleConfigEdit(GOOGLE_DEFAULT_CONFIG);
+                  setGoogleConfig(GOOGLE_DEFAULT_CONFIG);
+                  resetGoogleSession();
+                }}>
+                  <i className="fas fa-trash"/>Eliminar
+                </button>
+              )}
+              <button className="btn btn-gris" onClick={()=>setModalGas(false)}>Cancelar</button>
+              <button
+                className="btn btn-azul"
+                onClick={async ()=>{
+                  try {
+                    const draft = {
+                      clientId: (googleConfigEdit.clientId || '').trim(),
+                      folderId: (googleConfigEdit.folderId || '').trim(),
+                    };
+                    setGoogleConfig(draft);
+                    setGoogleConfigEdit(draft);
+                    await solicitarPermisosGoogle(true, draft);
+                    toast('Permisos de Google concedidos para esta sesion.','ok');
+                  } catch (err) {
+                    toast(err && err.message ? err.message : 'No se pudo autorizar Google.','error');
+                  }
+                }}
+                disabled={!googleConfigEdit.clientId || authorizing}
+                style={{opacity:(!googleConfigEdit.clientId || authorizing)?0.7:1}}
+              >
+                {authorizing
+                  ? <><i className="fas fa-spinner fa-spin"/>Autorizando...</>
+                  : <><i className="fas fa-key"/>Solicitar permisos</>}
+              </button>
+              <button className="btn btn-verde" onClick={guardarGasUrl}><i className="fas fa-save"/>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModalEnvioCorreo({listado, titulo, correos, setCorreos, googleConfigured, googleAuthed, authorizing, enviarListadoPorGmail, solicitarPermisosGoogle, onClose, onSent, toast}) {
+  const [destinatarios, setDestinatarios] = useState([...correos]);
+  const [nuevoCorreo, setNuevoCorreo]     = useState('');
+  const [errorCorreo, setErrorCorreo]     = useState('');
+  const [enviando,    setEnviando]        = useState(false);
+
+  const emailValido = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+  function agregarCorreo() {
+    const val = nuevoCorreo.trim().toLowerCase();
+    if (!emailValido(val)) { setErrorCorreo('Correo electronico no valido.'); return; }
+    if (destinatarios.includes(val)) { setErrorCorreo('Este correo ya esta en la lista.'); return; }
+    setDestinatarios(p=>[...p, val]);
+    setNuevoCorreo('');
+    setErrorCorreo('');
+  }
+
+  function quitarCorreo(idx) { setDestinatarios(p=>p.filter((_,i)=>i!==idx)); }
+  function handleKeyDown(e)  { if (e.key==='Enter') { e.preventDefault(); agregarCorreo(); } }
+
+  async function enviar() {
+    if (destinatarios.length===0) { toast('Agregue al menos un destinatario.','error'); return; }
+    if (!googleConfigured) {
+      toast('Configure Google primero con el boton Config. Google.','error');
+      return;
+    }
+
+    setEnviando(true);
+    try {
+      await enviarListadoPorGmail(destinatarios);
+      setCorreos(destinatarios);
+      toast(`Correo enviado a ${destinatarios.length} destinatario(s) por Gmail.`,'ok');
+      onSent();
+    } catch(err) {
+      toast(err && err.message ? err.message : 'Error al enviar por Gmail.','error');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h3><i className="fas fa-envelope" style={{marginRight:7}}/>Enviar Listado de Compra</h3>
+          <button className="btn btn-gris btn-icon btn-sm" onClick={onClose}><i className="fas fa-times"/></button>
+        </div>
+
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">
+              Destinatarios
+              <span style={{marginLeft:8,fontWeight:400,color:'var(--gris)',fontSize:11}}>
+                ({destinatarios.length} {destinatarios.length===1?'destinatario':'destinatarios'})
+              </span>
+            </label>
+
+            <div style={{marginBottom:8}}>
+              {destinatarios.length===0 && (
+                <div style={{padding:'10px',background:'#fef3c7',borderRadius:6,fontSize:13,color:'#92400e',border:'1px solid #fcd34d'}}>
+                  <i className="fas fa-exclamation-triangle" style={{marginRight:6}}/>
+                  No hay destinatarios. Agrega al menos uno antes de enviar.
+                </div>
+              )}
+              {destinatarios.map((c,i)=>(
+                <div key={i} style={{
+                  display:'flex', alignItems:'center', justifyContent:'space-between',
+                  padding:'7px 10px', background:'#f0fdf4', borderRadius:6,
+                  marginBottom:5, border:'1px solid #bbf7d0', gap:8
+                }}>
+                  <div style={{display:'flex',alignItems:'center',gap:7,minWidth:0}}>
+                    <i className="fas fa-envelope" style={{color:'var(--verde)',fontSize:12,flexShrink:0}}/>
+                    <span style={{fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c}</span>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-icon"
+                    style={{background:'transparent',color:'#dc2626',flexShrink:0,padding:'3px 6px'}}
+                    onClick={()=>quitarCorreo(i)}
+                    title="Quitar destinatario"
+                  >
+                    <i className="fas fa-times"/>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:'flex',gap:7}}>
+              <div style={{flex:1,position:'relative'}}>
+                <input
+                  className={`form-control ${errorCorreo?'error':''}`}
+                  type="email"
+                  placeholder="nuevo@correo.com"
+                  value={nuevoCorreo}
+                  onChange={e=>{setNuevoCorreo(e.target.value);setErrorCorreo('');}}
+                  onKeyDown={handleKeyDown}
+                />
+              </div>
+              <button className="btn btn-verde" onClick={agregarCorreo} style={{flexShrink:0}}>
+                <i className="fas fa-plus"/>Agregar
+              </button>
+            </div>
+            {errorCorreo && (
+              <div style={{marginTop:4,fontSize:12,color:'var(--rojo)'}}>
+                <i className="fas fa-exclamation-circle" style={{marginRight:4}}/>{errorCorreo}
+              </div>
+            )}
+          </div>
+
+          <div className="form-group" style={{marginBottom:0}}>
+            <label className="form-label">
+              Contenido del correo
+              <span style={{marginLeft:8,fontWeight:400,color:'var(--gris)',fontSize:11}}>({listado.items.length} productos)</span>
+            </label>
+            <div style={{
+              maxHeight:160, overflowY:'auto',
+              background:'#f8fafc', borderRadius:6,
+              padding:'10px 12px', fontSize:12,
+              border:'1px solid var(--borde)',
+              fontFamily:'monospace', lineHeight:1.6
+            }}>
+              <div style={{fontWeight:700,marginBottom:4}}>LISTADO DE COMPRA — {titulo}</div>
+              {listado.items.map((p,i)=>(
+                <div key={i} style={{display:'flex',gap:10,justifyContent:'space-between',padding:'2px 0',borderBottom:'1px solid #e5e7eb'}}>
+                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.nombre}</span>
+                  <span style={{color:'var(--gris)',flexShrink:0}}>{p.suplidor||'—'}</span>
+                  <span style={{fontWeight:700,color:'var(--azul)',flexShrink:0}}>
+                    {Number(p.comprar.toFixed(2))} {p.medida}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+          <p style={{fontSize:11,color:googleConfigured?'#15803d':'#b45309',margin:0}}>
+            <i className={`fas ${googleConfigured?'fa-check-circle':'fa-exclamation-triangle'}`} style={{marginRight:4}}/>
+            {googleConfigured
+              ? (googleAuthed ? 'Gmail listo para enviar en esta sesion.' : 'Google configurado. El permiso se pedira al enviar.')
+              : 'Sin configuracion de Google. Activa Config. Google antes de enviar.'}
+          </p>
+          <div style={{display:'flex',gap:8}}>
+            {googleConfigured && !googleAuthed && (
+              <button
+                className="btn btn-gris"
+                onClick={async ()=>{
+                  try {
+                    await solicitarPermisosGoogle(true);
+                    toast('Permisos de Google actualizados.','ok');
+                  } catch (err) {
+                    toast(err && err.message ? err.message : 'No se pudo solicitar permisos.','error');
+                  }
+                }}
+                disabled={enviando || authorizing}
+                style={{opacity:(enviando || authorizing)?0.7:1}}
+              >
+                {authorizing
+                  ? <><i className="fas fa-spinner fa-spin"/>Autorizando...</>
+                  : <><i className="fas fa-key"/>Permitir Google</>}
+              </button>
+            )}
+            <button className="btn btn-gris" onClick={onClose} disabled={enviando}>Cancelar</button>
+            <button
+              className="btn btn-azul"
+              onClick={enviar}
+              disabled={destinatarios.length===0 || enviando || authorizing}
+              style={{opacity:(destinatarios.length===0||enviando||authorizing)?0.7:1}}
+            >
+              {enviando
+                ? <><i className="fas fa-spinner fa-spin"/>Enviando...</>
+                : <><i className="fas fa-paper-plane"/>Enviar correo</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Registros({regEntradas, regSalidas, regDecomiso}) {
+  const [tab, setTab] = useState('entradas');
+  const [busqueda, setBusqueda] = useState('');
+  const data  = {entradas:regEntradas, salidas:regSalidas, decomiso:regDecomiso}[tab];
+  const color = {entradas:'verde', salidas:'azul', decomiso:'rojo'}[tab];
+  const filtrado = busqueda ? data.filter(r=>normalizar(r.producto).includes(normalizar(busqueda))) : data;
+
+  return (
+    <div>
+      <div className="tabs">
+        <div className={`tab ${tab==='entradas'?'active':''}`} onClick={()=>setTab('entradas')}>Entradas ({regEntradas.length})</div>
+        <div className={`tab ${tab==='salidas'?'active':''}`}  onClick={()=>setTab('salidas')}>Salidas ({regSalidas.length})</div>
+        <div className={`tab ${tab==='decomiso'?'active':''}`} onClick={()=>setTab('decomiso')}>Decomiso ({regDecomiso.length})</div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <div className="search-wrap" style={{maxWidth:300}}>
+          <i className="fas fa-search search-icon"/>
+          <input className="form-control" placeholder="Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>
+        </div>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Producto</th><th>Medida</th><th>Cantidad</th></tr></thead>
+            <tbody>
+              {[...filtrado].reverse().map((r,i)=>(
+                <tr key={i}>
+                  <td style={{fontSize:11,color:'var(--gris)',whiteSpace:'nowrap'}}>{formatDatetime(r.fecha)}</td>
+                  <td style={{fontWeight:500}}>{r.producto}</td>
+                  <td><span className="pill pill-gris">{r.medida}</span></td>
+                  <td style={{fontWeight:600,color:`var(--${color})`}}>{r.cantidad}</td>
+                </tr>
+              ))}
+              {filtrado.length===0 && <tr><td colSpan="4" style={{textAlign:'center',padding:'28px',color:'var(--gris)'}}>Sin registros</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════
+   HISTORIAL DECOMISO COCINA
+════════════════════ */
+function HistorialDecomisoCocina({data}) {
+  const [busqueda, setBusqueda] = useState('');
+  const filtrado = busqueda ? data.filter(r=>normalizar(r.producto).includes(normalizar(busqueda))||normalizar(r.responsable).includes(normalizar(busqueda))) : data;
+
+  return (
+    <div>
+      <div style={{marginBottom:12}}>
+        <div className="search-wrap" style={{maxWidth:300}}>
+          <i className="fas fa-search search-icon"/>
+          <input className="form-control" placeholder="Buscar producto o responsable..." value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>
+        </div>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Producto</th><th>Fecha</th><th>Cantidad</th><th>Motivo</th><th>Área</th><th>Responsable</th></tr></thead>
+            <tbody>
+              {[...filtrado].reverse().map((h,i)=>(
+                <tr key={i}>
+                  <td style={{fontWeight:500}}>{h.producto}</td>
+                  <td style={{fontSize:11}}>{h.fecha}</td>
+                  <td style={{fontWeight:600,color:'var(--rojo)'}}>{h.cantidad}</td>
+                  <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.motivo}</td>
+                  <td><span className={`pill ${h.area==='COCINA'?'pill-rojo':h.area==='SALON'?'pill-azul':h.area==='ALMACEN'?'pill-naranja':'pill-gris'}`}>{h.area}</span></td>
+                  <td>{h.responsable}</td>
+                </tr>
+              ))}
+              {filtrado.length===0 && <tr><td colSpan="6" style={{textAlign:'center',padding:'28px',color:'var(--gris)'}}>Sin registros</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Mount ── */
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
+
