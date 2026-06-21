@@ -1,12 +1,12 @@
 window.WTF_FIREBASE_CONFIG = {
   enabled: true,
   firebaseConfig: {
-    apiKey: "AIzaSyCjjCBjjwab1pBRRStQw18BUvVQsGJRUD4",
-    authDomain: "wtf-sistema-cocina-2026.firebaseapp.com",
-    projectId: "wtf-sistema-cocina-2026",
-    storageBucket: "wtf-sistema-cocina-2026.firebasestorage.app",
-    messagingSenderId: "207830026406",
-    appId: "1:207830026406:web:25950ee7d74a0cc7140c67"
+    apiKey: "AIzaSyDTzYuq3gfgL-9mFzN-1SdebGeptKYBw1M",
+    authDomain: "gestor-de-inventario-wtf-prod.firebaseapp.com",
+    projectId: "gestor-de-inventario-wtf-prod",
+    storageBucket: "gestor-de-inventario-wtf-prod.firebasestorage.app",
+    messagingSenderId: "90971754397",
+    appId: "1:90971754397:web:bc1dcdcd0f5f8d5da6a974"
   },
   collection: "wtfSistema",
   documentId: "estadoGeneral"
