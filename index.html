@@ -2183,14 +2183,7 @@
       return () => window.removeEventListener("resize", onResize);
     }, []);
     const isMobile = () => window.innerWidth <= 768;
-    const [movementStorage, setMovementStorage] = useState("inventario");
-    const [movementSelector, setMovementSelector] = useState(null);
     function navigate(p) {
-      if (!esSharp && ["entradas", "salidas", "decomiso"].includes(p)) {
-        setMovementSelector(p);
-        if (isMobile()) setSidebarOpen(false);
-        return;
-      }
       setPage(p);
       setPageFx(Date.now());
       try {
@@ -2427,12 +2420,60 @@ Solicitado: ${cantidad}`);
     const setOtherInventario = esBar ? setInventario : setBarInventario;
     const otherCuartoFrio = esBar ? cuartoFrioInventario : barCuartoFrioInventario;
     const setOtherCuartoFrio = esBar ? setCuartoFrioInventario : setBarCuartoFrioInventario;
-    const activeMovementInv = movementStorage === "cuartoFrio" ? activeCuartoFrio : activeInv;
-    const activeMovementProductos = activeMovementInv.filter((r) => r.tipo === "producto").map((p) => ({
-      ...p,
-      existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
-    }));
-    const activeAddMovimiento = movementStorage === "cuartoFrio" ? (esBar ? addMovimientoBarCuartoFrio : addMovimientoCuartoFrio) : (esBar ? addMovimientoBar : addMovimiento);
+    const activeMovementProductosRaw = [
+      ...activeInv.filter((r) => r.tipo === "producto").map((p) => ({
+        ...p,
+        storageKey: "inventario",
+        storageLabel: "Inventario",
+        existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+      })),
+      ...activeCuartoFrio.filter((r) => r.tipo === "producto").map((p) => ({
+        ...p,
+        storageKey: "cuartoFrio",
+        storageLabel: "Cuarto Frio",
+        existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+      }))
+    ].sort(function(a, b) {
+      return String(a.nombre || "").localeCompare(String(b.nombre || "")) || String(a.storageLabel || "").localeCompare(String(b.storageLabel || ""));
+    });
+    const activeMovementProductos = Array.from(new Set(activeMovementProductosRaw.map(function(p) {
+      return normalizar(p.nombre);
+    }))).map(function(key) {
+      const locations = activeMovementProductosRaw.filter(function(p) {
+        return normalizar(p.nombre) === key;
+      });
+      const first = locations[0] || {};
+      return {
+        ...first,
+        storageKey: locations.length > 1 ? "" : first.storageKey,
+        storageLabel: locations.length > 1 ? "Inventario / Cuarto Frio" : first.storageLabel,
+        existencia: locations.reduce(function(total, item) {
+          return total + Number(item.existencia || 0);
+        }, 0),
+        locations
+      };
+    }).sort(function(a, b) {
+      return String(a.nombre || "").localeCompare(String(b.nombre || ""));
+    });
+    const activeMovementSources = activeMovementProductosRaw.reduce(function(acc, item) {
+      if (!acc.some(function(source) { return source.storageKey === item.storageKey; })) {
+        acc.push({ storageKey: item.storageKey, label: item.storageLabel });
+      }
+      return acc;
+    }, []);
+    function activeAddMovimiento(tipo, productoNombre, cantidad, storageKey) {
+      const matches = activeMovementProductosRaw.filter(function(item) {
+        return normalizar(item.nombre) === normalizar(productoNombre) && (!storageKey || item.storageKey === storageKey);
+      });
+      if (!matches.length) throw new Error(`Producto "${productoNombre}" no encontrado en Inventario ni Cuarto Frio.`);
+      const selected = matches.length === 1 ? matches[0] : matches.find(function(item) {
+        return Number(item.existencia || 0) > 0;
+      }) || matches[0];
+      if (selected.storageKey === "cuartoFrio") {
+        return (esBar ? addMovimientoBarCuartoFrio : addMovimientoCuartoFrio)(tipo, selected.nombre, cantidad);
+      }
+      return (esBar ? addMovimientoBar : addMovimiento)(tipo, selected.nombre, cantidad);
+    }
     function migrateProductsToCuartoFrio(productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
       if (!ids.length) {
@@ -2493,9 +2534,9 @@ Solicitado: ${cantidad}`);
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], onNavigateToPage: navigate }),
       cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], onNavigateToPage: navigate }),
-      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
-      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
-      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: movementStorage === "cuartoFrio" ? "Cuarto Frio" : "Inventario" }),
+      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
+      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
+      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones: activeProduccion, setProducciones: setActiveProduccion }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
@@ -2609,22 +2650,6 @@ Solicitado: ${cantidad}`);
           setConfirmNevera(null);
         },
         onCancel: () => setConfirmNevera(null)
-      }
-    ), movementSelector && /* @__PURE__ */ React.createElement(
-      MovementStorageModal,
-      {
-        actionLabel: titles[movementSelector] || "Registrar movimiento",
-        onClose: () => setMovementSelector(null),
-        onSelect: (storageKey) => {
-          setMovementStorage(storageKey);
-          setMovementSelector(null);
-          setPage(movementSelector);
-          setPageFx(Date.now());
-          try {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          } catch (err) {
-          }
-        }
       }
     ), selfAccessModal && currentUser && /* @__PURE__ */ React.createElement(
       SelfAccessModal,
@@ -4745,10 +4770,7 @@ Solicitado: ${cantidad}`);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { marginRight: 7, color: "#0ea5e9" } }), `Migrar productos a ${targetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)" } }, `Selecciona los productos que saldrán de Inventario y pasarán a ${targetLabel}. El sistema conservará el renglón actual y lo creará si no existe en el destino.`), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o renglón actual...", value: busqueda, onChange: (e) => setBusqueda(e.target.value), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Seleccionados: ", /* @__PURE__ */ React.createElement("strong", null, selectedProductIds.length)), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "50vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { width: 48 } }, "Sel."), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Renglón actual"))), /* @__PURE__ */ React.createElement("tbody", null, productRows)))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: submit, disabled: !selectedProductIds.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), "Migrar seleccionados"))));
   }
-  function MovementStorageModal({ actionLabel, onClose, onSelect }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { maxWidth: 420 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-warehouse", style: { marginRight: 7, color: "var(--azul)" } }), `Selecciona dónde ${actionLabel.toLowerCase()}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => onSelect("inventario"), style: { justifyContent: "space-between", padding: "14px 16px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, "Inventario"), /* @__PURE__ */ React.createElement("i", { className: "fas fa-boxes-stacked" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => onSelect("cuartoFrio"), style: { justifyContent: "space-between", padding: "14px 16px" } }, /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 700 } }, "Cuarto Frio"), /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" })))));
-  }
-  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario" }) {
+  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [] }) {
     const toast = useToast();
     const [producto, setProducto] = useState("");
     const [cantidad, setCantidad] = useState("");
@@ -4762,23 +4784,15 @@ Solicitado: ${cantidad}`);
     const prodInfo = useMemo(() => productos.find((p) => normalizar(p.nombre) === normalizar(producto)), [productos, producto]);
     const cant = parseFloat(String(cantidad).replace(",", "."));
     const excede = prodInfo && (tipo === "salida" || tipo === "decomiso") && !isNaN(cant) && cant > prodInfo.existencia;
+    const sourcePills = storageSources.length ? storageSources : [{ storageKey: "inventario", label: "Inventario" }, { storageKey: "cuartoFrio", label: "Cuarto Frio" }];
     function guardar() {
       setError("");
       setSuccess("");
-      if (!producto.trim()) {
-        setError("Seleccione un producto.");
-        return;
-      }
-      if (isNaN(cant) || cant <= 0) {
-        setError("Ingrese una cantidad v\xE1lida mayor a cero.");
-        return;
-      }
+      if (!producto.trim()) return setError("Seleccione un producto.");
+      if (isNaN(cant) || cant <= 0) return setError("Ingrese una cantidad válida mayor a cero.");
       try {
-        addMovimiento(tipo, producto, cant);
-        setSuccess(`${cfg.label} registrada.
-
-Producto: ${producto}
-Cantidad: ${cant}`);
+        addMovimiento(tipo, producto, cant, prodInfo && prodInfo.storageKey);
+        setSuccess(`${cfg.label} registrada.\n\nProducto: ${producto}\nCantidad: ${cant}`);
         setProducto("");
         setCantidad("");
         toast(`${cfg.label} guardada: ${producto} x${cant}`);
@@ -4786,41 +4800,40 @@ Cantidad: ${cant}`);
         setError(e.message);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label), /* @__PURE__ */ React.createElement("span", { className: `pill ${storageLabel === "Cuarto Frio" ? "pill-azul" : "pill-verde"}` }, storageLabel)), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)), success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: `form-control ${error && !producto ? "error" : ""}`,
-        list: "prod-list",
-        value: producto,
-        onChange: (e) => {
-          setProducto(e.target.value);
-          setError("");
-          setSuccess("");
-        },
-        placeholder: `Seleccione un producto de ${storageLabel}...`,
-        autoComplete: "off"
-      }
-    ), /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.nombre }, p.nombre, " \u2014 ", p.existencia.toFixed(2), " ", p.medida))), prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 20px" } }, /* @__PURE__ */ React.createElement("span", null, "Existencia: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, prodInfo.existencia.toFixed(2), " ", prodInfo.medida)), /* @__PURE__ */ React.createElement("span", null, "Suplidor: ", prodInfo.suplidor || "\u2014"))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: `form-control ${excede ? "error" : ""}`,
-        type: "number",
-        min: "0.01",
-        step: "0.01",
-        value: cantidad,
-        onChange: (e) => {
-          setCantidad(e.target.value);
-          setError("");
-          setSuccess("");
-        },
-        placeholder: "0.00"
-      }
-    ), excede && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--rojo)" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle", style: { marginRight: 4 } }), "Excede existencia actual (", prodInfo.existencia.toFixed(2), " ", prodInfo.medida, ")")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: `btn btn-${cfg.color}`, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => {
-      setProducto("");
-      setCantidad("");
-      setError("");
-      setSuccess("");
-    } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))));
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560 } },
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, sourcePills.map(function(source) {
+            return /* @__PURE__ */ React.createElement("span", { key: source.storageKey || source.label, className: `pill ${source.storageKey === "cuartoFrio" ? "pill-azul" : "pill-verde"}` }, source.label);
+          }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card-body" },
+          error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)),
+          success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
+            /* @__PURE__ */ React.createElement("input", { className: `form-control ${error && !producto ? "error" : ""}`, list: "prod-list", value: producto, onChange: (e) => { setProducto(e.target.value); setError(""); setSuccess(""); }, placeholder: `Seleccione un producto de ${storageLabel}...`, autoComplete: "off" }),
+            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " — ", p.storageLabel || "Inventario", " — ", p.existencia.toFixed(2), " ", p.medida))),
+            prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 14px" } },
+              /* @__PURE__ */ React.createElement("span", null, "Existencia total: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, prodInfo.existencia.toFixed(2), " ", prodInfo.medida)),
+              /* @__PURE__ */ React.createElement("span", null, "Ubicación: ", prodInfo.storageLabel || "Inventario"),
+              /* @__PURE__ */ React.createElement("span", null, "Suplidor: ", prodInfo.suplidor || "—"),
+              Array.isArray(prodInfo.locations) && prodInfo.locations.length > 1 && /* @__PURE__ */ React.createElement("span", { style: { flexBasis: "100%" } }, prodInfo.locations.map(function(loc) { return `${loc.storageLabel}: ${Number(loc.existencia || 0).toFixed(2)} ${loc.medida}`; }).join(" · "))
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"),
+            /* @__PURE__ */ React.createElement("input", { className: `form-control ${excede ? "error" : ""}`, type: "number", min: "0.01", step: "0.01", value: cantidad, onChange: (e) => { setCantidad(e.target.value); setError(""); setSuccess(""); }, placeholder: "0.00" }),
+            excede && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--rojo)" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle", style: { marginRight: 4 } }), "Excede existencia actual (", prodInfo.existencia.toFixed(2), " ", prodInfo.medida, ")")
+          ),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("button", { className: `btn btn-${cfg.color}`, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
+          )
+        )
+      )
+    );
   }
   function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones, setProducciones }) {
     const toast = useToast();
@@ -5948,4 +5961,3 @@ Cantidad solicitada: ${newCantidad}`);
 </script>
 </body>
 </html>
-
