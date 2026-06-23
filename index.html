@@ -958,6 +958,8 @@
     regProduccion: "wtf_reg_produccion",
     recetasProduccion: "wtf_recetas_produccion",
     histDecomisoCocina: "wtf_hist_decomiso",
+    histEntradaRapidaMise: "wtf_hist_entrada_rapida_mise",
+    histSalidaRapidaMise: "wtf_hist_salida_rapida_mise",
     googleConfig: "wtf_google_config",
     usuarios: "wtf_usuarios",
     authUser: "wtf_auth_user"
@@ -1286,6 +1288,8 @@
       recetasProduccion: state.recetasProduccion || [],
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       histDecomisoCocina: state.histDecomisoCocina || [],
+      histEntradaRapidaMise: state.histEntradaRapidaMise || [],
+      histSalidaRapidaMise: state.histSalidaRapidaMise || [],
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
@@ -1821,6 +1825,8 @@
     const [recetasProduccion, setRecetasProduccion] = useState(() => load(KEYS.recetasProduccion, []));
     const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
+    const [histEntradaRapidaMise, setHistEntradaRapidaMise] = useState(() => load(KEYS.histEntradaRapidaMise, []));
+    const [histSalidaRapidaMise, setHistSalidaRapidaMise] = useState(() => load(KEYS.histSalidaRapidaMise, []));
     const [neveras, setNeveras] = useState(() => load("wtf_neveras", [
       { nombre: "NEVERA 1", items: [] },
       { nombre: "NEVERA 2", items: [] },
@@ -1864,6 +1870,8 @@
       recetasProduccion,
       recetasProduccionBaseVersion,
       histDecomisoCocina,
+      histEntradaRapidaMise,
+      histSalidaRapidaMise,
       neveras,
       correos,
       usuarios,
@@ -1890,6 +1898,8 @@
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
+      if (Array.isArray(nextState.histEntradaRapidaMise)) setHistEntradaRapidaMise(nextState.histEntradaRapidaMise);
+      if (Array.isArray(nextState.histSalidaRapidaMise)) setHistSalidaRapidaMise(nextState.histSalidaRapidaMise);
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
@@ -1930,6 +1940,8 @@
       setRecetasProduccionBaseVersion(DEFAULT_RECETAS_PRODUCCION_VERSION);
     }, [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
+    useEffect(() => save(KEYS.histEntradaRapidaMise, histEntradaRapidaMise), [histEntradaRapidaMise]);
+    useEffect(() => save(KEYS.histSalidaRapidaMise, histSalidaRapidaMise), [histSalidaRapidaMise]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.cuartoFrioInventario, barCuartoFrioInventario), [barCuartoFrioInventario]);
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
@@ -2537,7 +2549,7 @@ Solicitado: ${cantidad}`);
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones: activeProduccion, setProducciones: setActiveProduccion }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapidaMise, setHistEntradaRapidaMise, histSalidaRapidaMise, setHistSalidaRapidaMise, neveras, setNeveras, productos, syncNeveras, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
@@ -4835,7 +4847,7 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, neveras, setNeveras, productos, syncNeveras, producciones, setProducciones }) {
+  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapidaMise = [], setHistEntradaRapidaMise, histSalidaRapidaMise = [], setHistSalidaRapidaMise, neveras, setNeveras, productos, syncNeveras, producciones, setProducciones, currentUser }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -4846,6 +4858,7 @@ Solicitado: ${cantidad}`);
     const [busqueda, setBusqueda] = useState("");
     const [newProd, setNewProd] = useState({ producto: "", existencia: 0 });
     const terminoBusqueda = normalizar(busqueda);
+    const usuarioActual = getUserDisplayLabel(currentUser);
     const miseFiltrada = terminoBusqueda ? miseAnPlace.filter((m) => {
       return normalizar(m.producto).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda);
     }) : miseAnPlace;
@@ -4885,16 +4898,54 @@ Solicitado: ${cantidad}`);
       mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Unidad de Medida"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
     } else if (tab === "neveras") {
       mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseAnPlace, productos });
+    } else if (tab === "histEntradaRapida") {
+      mainView = /* @__PURE__ */ React.createElement(HistorialRapidoMiseView, { data: histEntradaRapidaMise, title: "Historial Entrada Rapida", color: "verde", icon: "fa-arrow-up", emptyText: "Sin entradas rapidas registradas." });
+    } else if (tab === "histSalidaRapida") {
+      mainView = /* @__PURE__ */ React.createElement(HistorialRapidoMiseView, { data: histSalidaRapidaMise, title: "Historial Salida Rapida", color: "azul", icon: "fa-bolt", emptyText: "Sin salidas rapidas registradas." });
     } else if (tab === "historial") {
       mainView = /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, "Motivo"), /* @__PURE__ */ React.createElement("th", null, "\xC1rea"), /* @__PURE__ */ React.createElement("th", null, "Responsable"))), /* @__PURE__ */ React.createElement("tbody", null, [...histDecomisoCocina].reverse().map((h, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, h.producto), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11 } }, h.fecha), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600, color: "var(--rojo)" } }, h.cantidad), /* @__PURE__ */ React.createElement("td", { style: { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, h.motivo), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${h.area === "COCINA" ? "pill-rojo" : h.area === "SALON" ? "pill-azul" : h.area === "ALMACEN" ? "pill-naranja" : "pill-gris"}` }, h.area)), /* @__PURE__ */ React.createElement("td", null, h.responsable))), histDecomisoCocina.length === 0 ? /* @__PURE__ */ React.createElement("tr", { key: "empty-hist" }, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: "24px", color: "var(--gris)" } }, "Sin decomisos")) : null))));
     }
-    const tabsNode = /* @__PURE__ */ React.createElement("div", { className: "tabs" }, /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "tabla" ? "active" : ""}`, onClick: () => setTab("tabla") }, "Tabla Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "neveras" ? "active" : ""}`, onClick: () => setTab("neveras") }, "Neveras"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "historial" ? "active" : ""}`, onClick: () => setTab("historial") }, "Historial Decomiso"));
+    const tabsNode = /* @__PURE__ */ React.createElement("div", { className: "tabs" }, /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "tabla" ? "active" : ""}`, onClick: () => setTab("tabla") }, "Tabla Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "neveras" ? "active" : ""}`, onClick: () => setTab("neveras") }, "Neveras"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "histEntradaRapida" ? "active" : ""}`, onClick: () => setTab("histEntradaRapida") }, "Historial Entrada Rapida"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "histSalidaRapida" ? "active" : ""}`, onClick: () => setTab("histSalidaRapida") }, "Historial Salida Rapida"), /* @__PURE__ */ React.createElement("div", { className: `tab ${tab === "historial" ? "active" : ""}`, onClick: () => setTab("historial") }, "Historial Decomiso"));
     const addModal = modalAdd ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: () => setModalAdd(false) }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, "Agregar a Mise an Place"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAdd(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.producto, onChange: (e) => setNewProd((p) => ({ ...p, producto: e.target.value })), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Existencia inicial"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.existencia, onChange: (e) => setNewProd((p) => ({ ...p, existencia: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAdd(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addProd }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
     const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
     const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
-    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace, setMise, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
-    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeveras }) : null;
+    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace, setMise, onClose: () => setModalEntrada(false), toast, syncNeveras, usuario: usuarioActual, onHistorial: (rows) => setHistEntradaRapidaMise && setHistEntradaRapidaMise((prev) => [...prev, ...rows]) }) : null;
+    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeveras, usuario: usuarioActual, onHistorial: (rows) => setHistSalidaRapidaMise && setHistSalidaRapidaMise((prev) => [...prev, ...rows]) }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
+  }
+  function HistorialRapidoMiseView({ data = [], title, color, icon, emptyText }) {
+    const rows = [...data].reverse();
+    return /* @__PURE__ */ React.createElement("div", { className: "card" },
+      /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+        /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${icon}`, style: { marginRight: 7, color: `var(--${color})` } }), title),
+        /* @__PURE__ */ React.createElement("span", { className: `pill pill-${color}` }, data.length, " registros")
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+        /* @__PURE__ */ React.createElement("table", null,
+          /* @__PURE__ */ React.createElement("thead", null,
+            /* @__PURE__ */ React.createElement("tr", null,
+              /* @__PURE__ */ React.createElement("th", null, "Fecha"),
+              /* @__PURE__ */ React.createElement("th", null, "Producto"),
+              /* @__PURE__ */ React.createElement("th", null, "Cantidad"),
+              /* @__PURE__ */ React.createElement("th", null, "Antes"),
+              /* @__PURE__ */ React.createElement("th", null, "Despues"),
+              /* @__PURE__ */ React.createElement("th", null, "Responsable")
+            )
+          ),
+          /* @__PURE__ */ React.createElement("tbody", null,
+            rows.map((h, i) => /* @__PURE__ */ React.createElement("tr", { key: h.id || i },
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, h.fecha),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, h.producto),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: `var(--${color})` } }, Number(h.cantidad || 0).toFixed(2), " ", h.medida || "Uni"),
+              /* @__PURE__ */ React.createElement("td", null, Number(h.existenciaAntes || 0).toFixed(2)),
+              /* @__PURE__ */ React.createElement("td", null, Number(h.existenciaDespues || 0).toFixed(2)),
+              /* @__PURE__ */ React.createElement("td", null, h.usuario || "Sistema")
+            )),
+            rows.length === 0 ? /* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: "24px", color: "var(--gris)" } }, emptyText)) : null
+          )
+        )
+      )
+    );
   }
   function EditMiseItemModal({ item, onClose, onSave }) {
     const [producto, setProducto] = useState(item.producto || "");
@@ -4934,7 +4985,7 @@ Solicitado: ${cantidad}`);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can", style: { color: "var(--rojo)", marginRight: 7 } }), "Decomiso MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-dec-list", value: data.producto, onChange: (e) => setData((p) => ({ ...p, producto: e.target.value })), autoComplete: "off" }), /* @__PURE__ */ React.createElement("datalist", { id: "mise-dec-list" }, miseAnPlace.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--gris)" } }, "Disponible: ", /* @__PURE__ */ React.createElement("strong", null, prodInfo.existencia))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: data.fecha, onChange: (e) => setData((p) => ({ ...p, fecha: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: data.cantidad, onChange: (e) => setData((p) => ({ ...p, cantidad: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Raz\xF3n / Motivo"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: data.motivo, onChange: (e) => setData((p) => ({ ...p, motivo: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "\xC1rea"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: data.area, onChange: (e) => setData((p) => ({ ...p, area: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccione un \xE1rea"), /* @__PURE__ */ React.createElement("option", null, "COCINA"), /* @__PURE__ */ React.createElement("option", null, "SALON"), /* @__PURE__ */ React.createElement("option", null, "ALMACEN"), /* @__PURE__ */ React.createElement("option", null, "CUARTO FRIO"))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Responsable"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: data.responsable, onChange: (e) => setData((p) => ({ ...p, responsable: e.target.value })) })))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Guardar decomiso"))));
   }
-  function EntradaRapidaModal({ miseAnPlace, setMise, onClose, toast, syncNeveras }) {
+  function EntradaRapidaModal({ miseAnPlace, setMise, onClose, toast, syncNeveras, usuario = "Sistema", onHistorial }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
     const [error, setError] = useState("");
     function guardar() {
@@ -4962,12 +5013,31 @@ Solicitado: ${cantidad}`);
         const k = normalizar(m.producto);
         return acum[k] !== void 0 ? { ...m, existencia: m.existencia + acum[k].delta, medida: acum[k].medida } : m;
       }));
+      if (onHistorial) {
+        const fecha = (/* @__PURE__ */ new Date()).toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+        const registros = Object.entries(acum).map(([k, item]) => {
+          const info = miseAnPlace.find((m) => normalizar(m.producto) === k) || {};
+          const cantidad = Number((item.delta || 0).toFixed(4));
+          const antes = Number(info.existencia || 0);
+          return {
+            id: Date.now() + Math.random(),
+            fecha,
+            producto: info.producto || k,
+            cantidad,
+            medida: item.medida || info.medida || "Uni",
+            existenciaAntes: antes,
+            existenciaDespues: Number((antes + cantidad).toFixed(4)),
+            usuario
+          };
+        });
+        onHistorial(registros);
+      }
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, miseAnPlace.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, p: e.target.value } : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
-  function SalidaRapidaModal({ miseAnPlace, setMise, producciones, setProducciones, onClose, toast, syncNeveras }) {
+  function SalidaRapidaModal({ miseAnPlace, setMise, producciones, setProducciones, onClose, toast, syncNeveras, usuario = "Sistema", onHistorial }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
     function guardar() {
@@ -4992,6 +5062,25 @@ Solicitado: ${cantidad}`);
         const k = normalizar(m.producto);
         return acum[k] !== void 0 ? { ...m, existencia: m.existencia - acum[k] } : m;
       }));
+      if (onHistorial) {
+        const fecha = (/* @__PURE__ */ new Date()).toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+        const registros = Object.entries(acum).map(([k, cantidadRaw]) => {
+          const info = miseAnPlace.find((m) => normalizar(m.producto) === k) || {};
+          const cantidad = Number((cantidadRaw || 0).toFixed(4));
+          const antes = Number(info.existencia || 0);
+          return {
+            id: Date.now() + Math.random(),
+            fecha,
+            producto: info.producto || k,
+            cantidad,
+            medida: info.medida || "Uni",
+            existenciaAntes: antes,
+            existenciaDespues: Number((antes - cantidad).toFixed(4)),
+            usuario
+          };
+        });
+        onHistorial(registros);
+      }
       if (setProducciones) {
         setProducciones(function(prev) {
           const current = Array.isArray(prev) ? prev : [];
