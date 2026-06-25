@@ -3071,7 +3071,7 @@
             }
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
-            const hasPendingLocalWrite = pendingLocalSignatureRef.current && pendingLocalSignatureRef.current === currentSignature && Date.now() - pendingLocalAtRef.current < 15e3;
+            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 30e3;
             lastRemoteSignatureRef.current = remoteSignature;
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
@@ -3080,7 +3080,7 @@
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
               setLastSyncedAt(formatDatetime(date));
             }
-            if (remoteSignature === pendingLocalSignatureRef.current) {
+            if (remoteSignature === currentSignature) {
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
