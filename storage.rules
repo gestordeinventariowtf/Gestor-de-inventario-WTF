@@ -1,0 +1,14 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /sharp-limpieza/{moduleId}/{dateKey}/{fileName} {
+      allow read: if moduleId in ['cocina', 'servicio'];
+      allow create, update: if moduleId in ['cocina', 'servicio']
+        && request.resource != null
+        && request.resource.size < 6 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if moduleId in ['cocina', 'servicio'];
+    }
+  }
+}

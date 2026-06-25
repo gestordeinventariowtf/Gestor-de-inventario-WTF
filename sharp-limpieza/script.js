@@ -5,6 +5,7 @@ const SYNC_DEBOUNCE_MS = 250;
 const PHOTO_STORAGE_ROOT = "sharp-limpieza";
 const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
 const PHOTO_RETENTION_DAYS = 15;
+const PHOTO_UPLOAD_TIMEOUT_MS = 20000;
 
 const DEFAULT_BRANCHES = [
   { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
@@ -26,6 +27,15 @@ const FIREBASE_CONFIG = {
   storageBucket: "sharplimpieza.firebasestorage.app",
   messagingSenderId: "1066646996136",
   appId: "1:1066646996136:web:3f61f9101486b6d1a9ee9d"
+};
+
+const PHOTO_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAOAl2Bel3X8NsQMmzBsmc0XqvyzUkr4kM",
+  authDomain: "gestor-de-inventario-wtf.firebaseapp.com",
+  projectId: "gestor-de-inventario-wtf",
+  storageBucket: "gestor-de-inventario-wtf.firebasestorage.app",
+  messagingSenderId: "55387236634",
+  appId: "1:55387236634:web:65879d9bf377c0ace1a4a3"
 };
 
 const LEGEND = {
@@ -255,6 +265,7 @@ let isApplyingRemoteState = false;
 let hasRemoteSnapshot = false;
 
 let firebaseStorage   = null;
+let firebaseStorageBucket = "";
 let photoStream       = null;
 let photoBlob         = null;
 let photoModalResolve = null;
@@ -1449,6 +1460,7 @@ photoConfirmBtn.addEventListener("click", async () => {
     photoEvidence = await uploadPhotoEvidenceToFirebase(photoBlob, imageBase64);
   } catch (err) {
     console.warn("Firebase Storage upload failed:", err && err.message ? err.message : err);
+    photoStatusText.textContent = "Storage no respondió a tiempo. Guardando respaldo...";
   }
 
   if (!photoEvidence && APPS_SCRIPT_URL && selectedCell) {
@@ -1520,7 +1532,7 @@ async function uploadPhotoEvidenceToFirebase(blob, imageBase64) {
   ].map(slugifyBranchName).filter(Boolean).join("-");
   const storagePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${fileBase || createId()}.jpg`;
   const storageRef = firebaseStorage.ref(storagePath);
-  await storageRef.put(blob, {
+  const uploadTask = storageRef.put(blob, {
     contentType: "image/jpeg",
     customMetadata: {
       moduleId,
@@ -1534,10 +1546,12 @@ async function uploadPhotoEvidenceToFirebase(blob, imageBase64) {
       taskName: meta.taskName || ""
     }
   });
-  const url = await storageRef.getDownloadURL();
+  await withTimeout(uploadTask, PHOTO_UPLOAD_TIMEOUT_MS, "La subida a Firebase Storage tardó demasiado.");
+  const url = await withTimeout(storageRef.getDownloadURL(), 10000, "No se pudo obtener el enlace de la foto.");
   const record = {
     url,
     storagePath,
+    storageBucket: firebaseStorageBucket,
     moduleId,
     moduleName: getCleaningModuleName(),
     dateKey,
@@ -1567,6 +1581,17 @@ function getLocalDateKey(date = new Date()) {
   if (Number.isNaN(d.getTime())) return getLocalDateKey(new Date());
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message || "Tiempo de espera agotado.")), ms))
+  ]);
+}
+
+function getPhotoStorageConfig() {
+  return PHOTO_FIREBASE_CONFIG;
 }
 
 function getPhotoRetentionCutoffKey() {
@@ -1949,7 +1974,19 @@ function initFirebaseConnection() {
     firebaseDB = database;
 
     if (typeof firebase.storage === "function") {
-      try { firebaseStorage = firebase.storage(app); } catch (_) {}
+      try {
+        const photoConfig = getPhotoStorageConfig();
+        const photoAppName = "wtf-photo-storage";
+        const photoApp = photoConfig.projectId === FIREBASE_CONFIG.projectId
+          ? app
+          : (firebase.apps.find((item) => item.name === photoAppName) || firebase.initializeApp(photoConfig, photoAppName));
+        firebaseStorage = firebase.storage(photoApp);
+        firebaseStorageBucket = photoConfig.storageBucket || "";
+      } catch (err) {
+        firebaseStorage = null;
+        firebaseStorageBucket = "";
+        console.warn("No se pudo inicializar Firebase Storage para fotos:", err && err.message ? err.message : err);
+      }
     }
     runPhotoRetentionCleanup();
 
