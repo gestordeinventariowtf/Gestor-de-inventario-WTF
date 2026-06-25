@@ -339,6 +339,8 @@ button.secondary { background: #7d8678; }
   right: 0;
   bottom: 0;
   width: min(380px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
   background: #fff;
   display: flex;
   flex-direction: column;
@@ -392,12 +394,15 @@ button.secondary { background: #7d8678; }
 
 .realizadas-body {
   flex: 1;
+  min-height: 0;
+  max-height: calc(100dvh - 70px);
   overflow-y: auto;
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .realizadas-empty {
@@ -412,6 +417,7 @@ button.secondary { background: #7d8678; }
   border: 1px solid #d4e0cf;
   border-radius: 10px;
   overflow: hidden;
+  flex: 0 0 auto;
 }
 
 .realizadas-collab-name {
@@ -432,6 +438,11 @@ button.secondary { background: #7d8678; }
 }
 
 .realizadas-row:last-child { border-bottom: 0; }
+
+.realizadas-row > a {
+  flex-shrink: 0;
+  display: block;
+}
 
 .realizadas-row-info {
   flex: 1;

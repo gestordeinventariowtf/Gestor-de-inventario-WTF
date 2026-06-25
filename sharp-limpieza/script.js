@@ -2,6 +2,9 @@ const DAYS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Do
 const STORAGE_KEY = "sharp_limpieza_board_v3";
 const BRANCH_CONFIG_STORAGE_KEY = "sharp_limpieza_branch_config_v1";
 const SYNC_DEBOUNCE_MS = 250;
+const PHOTO_STORAGE_ROOT = "sharp-limpieza";
+const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
+const PHOTO_RETENTION_DAYS = 15;
 
 const DEFAULT_BRANCHES = [
   { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
@@ -256,6 +259,7 @@ let photoStream       = null;
 let photoBlob         = null;
 let photoModalResolve = null;
 let pendingPhotoMeta  = null;
+let photoCleanupLastRun = 0;
 let invoiceFiles      = [];
 let invoiceItems      = [];
 
@@ -1439,9 +1443,15 @@ photoConfirmBtn.addEventListener("click", async () => {
   tmp.getContext("2d").drawImage(photoCanvas, 0, 0, w, h);
   const imageBase64 = tmp.toDataURL("image/jpeg", 0.70);
 
-  let photoUrl = null;
+  let photoEvidence = null;
 
-  if (APPS_SCRIPT_URL && selectedCell) {
+  try {
+    photoEvidence = await uploadPhotoEvidenceToFirebase(photoBlob, imageBase64);
+  } catch (err) {
+    console.warn("Firebase Storage upload failed:", err && err.message ? err.message : err);
+  }
+
+  if (!photoEvidence && APPS_SCRIPT_URL && selectedCell) {
     try {
       const collaborator = state.collaborators.find((c) => c.id === selectedCell.collaboratorId);
       const collabName   = collaborator ? collaborator.name : "Desconocido";
@@ -1458,19 +1468,19 @@ photoConfirmBtn.addEventListener("click", async () => {
         new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 15000))
       ]);
       const result = await resp.json();
-      if (result.ok) photoUrl = result.url;
+      if (result.ok) photoEvidence = { url: result.url, source: "drive" };
     } catch (err) {
       console.warn("Drive upload failed, using base64 fallback:", err.message);
     }
   }
 
-  // Fallback: store base64 directly in Firebase Database
-  if (!photoUrl) photoUrl = imageBase64;
+  // Fallback: store base64 directly in Firebase Database if cloud upload fails.
+  if (!photoEvidence) photoEvidence = { url: imageBase64, source: "database-fallback" };
 
   photoOverlayMsg.textContent = "✓ Foto guardada";
   photoOverlayMsg.className   = "photo-overlay-msg success";
   photoStatusText.textContent = "Evidencia guardada. Tarea marcada como realizada.";
-  setTimeout(() => closePhotoModal(photoUrl), 800);
+  setTimeout(() => closePhotoModal(photoEvidence), 800);
 });
 
 photoModalCloseBtn.addEventListener("click", () => closePhotoModal(null));
@@ -1489,6 +1499,134 @@ function closePhotoModal(photoUrl) {
     photoModalResolve(photoUrl);
     photoModalResolve = null;
   }
+}
+
+async function uploadPhotoEvidenceToFirebase(blob, imageBase64) {
+  if (!firebaseStorage || !selectedCell || !currentBranch) return null;
+  const completedAt = new Date();
+  const dateKey = getLocalDateKey(completedAt);
+  const moduleId = getCleaningModuleId();
+  const collaborator = state.collaborators.find((c) => c.id === selectedCell.collaboratorId);
+  const collabName = collaborator ? collaborator.name : "Desconocido";
+  const meta = pendingPhotoMeta || {};
+  const dayName = DAYS[selectedCell.dayIndex] || "";
+  const fileBase = [
+    currentBranch.id,
+    dayName,
+    collabName,
+    meta.team || "tarea",
+    meta.taskName || photoModalLabel.textContent,
+    Date.now()
+  ].map(slugifyBranchName).filter(Boolean).join("-");
+  const storagePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${fileBase || createId()}.jpg`;
+  const storageRef = firebaseStorage.ref(storagePath);
+  await storageRef.put(blob, {
+    contentType: "image/jpeg",
+    customMetadata: {
+      moduleId,
+      moduleName: getCleaningModuleName(),
+      branchId: currentBranch.id || "",
+      branchName: currentBranch.name || "",
+      weekStart: currentWeekStart,
+      dayName,
+      collaborator: collabName,
+      team: meta.team || "",
+      taskName: meta.taskName || ""
+    }
+  });
+  const url = await storageRef.getDownloadURL();
+  const record = {
+    url,
+    storagePath,
+    moduleId,
+    moduleName: getCleaningModuleName(),
+    dateKey,
+    branchId: currentBranch.id || "",
+    branchName: currentBranch.name || "",
+    weekStart: currentWeekStart,
+    dayIndex: selectedCell.dayIndex,
+    dayName,
+    collaboratorId: selectedCell.collaboratorId,
+    collaboratorName: collabName,
+    team: meta.team || "",
+    taskName: meta.taskName || photoModalLabel.textContent || "",
+    completedAt: completedAt.toISOString()
+  };
+  if (firebaseDB) {
+    await firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}/${dateKey}`).push({
+      ...record,
+      createdAt: firebase.database.ServerValue.TIMESTAMP
+    }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
+  }
+  runPhotoRetentionCleanup();
+  return { ...record, source: "firebase-storage" };
+}
+
+function getLocalDateKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return getLocalDateKey(new Date());
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function getPhotoRetentionCutoffKey() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - PHOTO_RETENTION_DAYS);
+  return getLocalDateKey(cutoff);
+}
+
+async function runPhotoRetentionCleanup(options = {}) {
+  if (!firebaseDB) return;
+  const now = Date.now();
+  if (!options.force && now - photoCleanupLastRun < 6 * 60 * 60 * 1000) return;
+  photoCleanupLastRun = now;
+  const cutoffKey = getPhotoRetentionCutoffKey();
+  try {
+    for (const moduleInfo of CLEANING_MODULES) {
+      const moduleId = moduleInfo.id;
+      const moduleRef = firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}`);
+      const snap = await moduleRef.once("value");
+      const byDate = snap.val() || {};
+      for (const dateKey of Object.keys(byDate)) {
+        if (dateKey >= cutoffKey) continue;
+        const records = byDate[dateKey] || {};
+        if (firebaseStorage) {
+          await Promise.all(Object.values(records).map((record) => {
+            if (!record || !record.storagePath) return Promise.resolve();
+            return firebaseStorage.ref(record.storagePath).delete().catch((err) => {
+              if (err && err.code !== "storage/object-not-found") {
+                console.warn("No se pudo borrar foto antigua:", err.message || err);
+              }
+            });
+          }));
+        }
+        await moduleRef.child(dateKey).remove().catch((err) => console.warn("No se pudo limpiar índice antiguo:", err.message || err));
+      }
+    }
+  } catch (err) {
+    console.warn("Limpieza de fotos antiguas falló:", err && err.message ? err.message : err);
+  }
+}
+
+function pruneExpiredPhotoEvidenceInState() {
+  const cutoff = Date.now() - PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  let changed = false;
+  for (const cellData of Object.values(state.tasks || {})) {
+    if (!cellData || !Array.isArray(cellData.items)) continue;
+    for (const item of cellData.items) {
+      if (!item || !item.evidencePhotoUrl || !item.completedAt) continue;
+      const completed = new Date(item.completedAt).getTime();
+      if (!Number.isNaN(completed) && completed < cutoff) {
+        delete item.evidencePhotoUrl;
+        delete item.evidenceStoragePath;
+        delete item.evidenceStorageModule;
+        delete item.evidenceDate;
+        delete item.evidenceSource;
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 function renderModalTaskList() {
@@ -1546,6 +1684,10 @@ async function toggleTaskDone(index, done) {
     cellData.items[index].done = false;
     delete cellData.items[index].completedAt;
     delete cellData.items[index].evidencePhotoUrl;
+    delete cellData.items[index].evidenceStoragePath;
+    delete cellData.items[index].evidenceStorageModule;
+    delete cellData.items[index].evidenceDate;
+    delete cellData.items[index].evidenceSource;
     saveState();
     renderTable();
     renderModalTaskList();
@@ -1558,10 +1700,10 @@ async function toggleTaskDone(index, done) {
   const capturedWeekStart = currentWeekStart; // capture before async photo modal
   const meta  = resolveTaskMeta(cellData.items[index]);
   const label = `${meta.taskName} · ${DAYS[capturedDayIndex]}`;
-  const photoUrl = await openPhotoModal(label, meta.team, meta.taskName);
+  const photoEvidence = await openPhotoModal(label, meta.team, meta.taskName);
 
   // If user closed without photo (✕), leave task undone
-  if (!photoUrl) {
+  if (!photoEvidence) {
     const cb = modalTaskList.querySelector(`[data-toggle-done="${index}"]`);
     if (cb) cb.checked = false;
     return;
@@ -1570,9 +1712,16 @@ async function toggleTaskDone(index, done) {
   const k  = `${capturedWeekStart}__${capturedCollabId}__${capturedDayIndex}`;
   const cd = state.tasks[k];
   if (!cd?.items?.[index]) return;
+  const photoUrl = typeof photoEvidence === "string" ? photoEvidence : photoEvidence.url;
   cd.items[index].done             = true;
   cd.items[index].completedAt      = new Date().toISOString();
   cd.items[index].evidencePhotoUrl = photoUrl;
+  if (photoEvidence && typeof photoEvidence === "object") {
+    cd.items[index].evidenceSource = photoEvidence.source || "";
+    cd.items[index].evidenceStoragePath = photoEvidence.storagePath || "";
+    cd.items[index].evidenceStorageModule = photoEvidence.moduleId || getCleaningModuleId();
+    cd.items[index].evidenceDate = photoEvidence.dateKey || getLocalDateKey(new Date());
+  }
   saveState();
   renderTable();
   if (selectedCell?.collaboratorId === capturedCollabId &&
@@ -1764,7 +1913,18 @@ function normalizeTaskItem(value) {
 
   const completedAt      = typeof value.completedAt === "string" ? value.completedAt : undefined;
   const evidencePhotoUrl = typeof value.evidencePhotoUrl === "string" ? value.evidencePhotoUrl : undefined;
-  const extra = { ...(completedAt ? { completedAt } : {}), ...(evidencePhotoUrl ? { evidencePhotoUrl } : {}) };
+  const evidenceStoragePath = typeof value.evidenceStoragePath === "string" ? value.evidenceStoragePath : undefined;
+  const evidenceStorageModule = typeof value.evidenceStorageModule === "string" ? value.evidenceStorageModule : undefined;
+  const evidenceDate = typeof value.evidenceDate === "string" ? value.evidenceDate : undefined;
+  const evidenceSource = typeof value.evidenceSource === "string" ? value.evidenceSource : undefined;
+  const extra = {
+    ...(completedAt ? { completedAt } : {}),
+    ...(evidencePhotoUrl ? { evidencePhotoUrl } : {}),
+    ...(evidenceStoragePath ? { evidenceStoragePath } : {}),
+    ...(evidenceStorageModule ? { evidenceStorageModule } : {}),
+    ...(evidenceDate ? { evidenceDate } : {}),
+    ...(evidenceSource ? { evidenceSource } : {})
+  };
 
   // Keep item if it has a taskId, even if not yet found in TASK_LIBRARY
   // (library may load after board state; resolveTaskMeta handles missing tasks gracefully)
@@ -1791,6 +1951,7 @@ function initFirebaseConnection() {
     if (typeof firebase.storage === "function") {
       try { firebaseStorage = firebase.storage(app); } catch (_) {}
     }
+    runPhotoRetentionCleanup();
 
     setSyncStatus("Conectando...", "busy");
 
@@ -1889,6 +2050,7 @@ function selectCleaningModule(moduleId) {
   hideModuleSelector();
   initLibrarySync();
   state = currentBranch ? loadState() || createInitialState() : createInitialState();
+  if (pruneExpiredPhotoEvidenceInState()) saveState({ localOnly: true });
   selectedCell = null;
   updateTeamSelectors();
   renderTable();
@@ -2015,6 +2177,7 @@ function enterBranch(branch, options = {}) {
   document.getElementById("header-branch-name").textContent = branch.name;
   hideBranchSelector();
   state = loadState() || createInitialState();
+  if (pruneExpiredPhotoEvidenceInState()) saveState({ localOnly: true });
   syncBranchSelect();
   renderBranchList();
   updateTeamSelectors();
@@ -2047,8 +2210,10 @@ function connectBoardSync(branchId) {
     }
     isApplyingRemoteState = true;
     state = remoteState;
+    const prunedEvidence = pruneExpiredPhotoEvidenceInState();
     saveState({ localOnly: true });
     isApplyingRemoteState = false;
+    if (prunedEvidence) queueRemoteSave({ immediate: true });
     updateTeamSelectors();
     renderTable();
     setSyncStatus("Sincronizado", "online");
@@ -2703,7 +2868,7 @@ function renderRealizadasPanel() {
         ? new Date(item.completedAt).toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit" })
         : "";
       const thumbHtml = isSafeUrl(item.evidencePhotoUrl)
-        ? `<a href="${escapeHtml(item.evidencePhotoUrl)}" target="_blank" rel="noopener">
+        ? `<a href="${escapeHtml(item.evidencePhotoUrl)}" target="_blank" rel="noopener" title="Click para ver foto">
              <img src="${escapeHtml(item.evidencePhotoUrl)}" class="realizadas-thumb" alt="Evidencia" loading="lazy">
            </a>`
         : `<span class="realizadas-no-photo">Sin foto</span>`;
