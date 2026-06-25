@@ -1012,7 +1012,11 @@
     }
   }
   function save(key, val) {
-    localStorage.setItem(key, JSON.stringify(val));
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+    } catch (error) {
+      console.error("No se pudo guardar en localStorage:", key, error);
+    }
   }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
@@ -1783,6 +1787,8 @@
       return Object.assign({ medida: "Uni", stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 }, item || {}, {
         id: item && item.id ? item.id : index + 1,
         codArticulo: getMiseCodArticulo(item, index),
+        existencia: getMiseSafeNumber(item && item.existencia, 0),
+        medida: normalizarMedidaMise(item && item.medida || "Uni"),
         stockMinimoLunesJueves: getMiseStockMinLJ(item),
         stockMinimoViernesDomingo: getMiseStockMinVD(item)
       });
@@ -6876,6 +6882,7 @@ Solicitado: ${cantidad}`);
   function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
     const [error, setError] = useState("");
+    const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
     function guardar() {
       setError("");
       const items = filas.filter((f) => f.p.trim() || f.c);
@@ -6889,19 +6896,19 @@ Solicitado: ${cantidad}`);
         const info = miseAnPlace.find((m) => normalizar(m.producto) === key);
         if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
         const unidadFila = normalizarMedidaMise(f.u);
-        const unidadObjetivo = (acum[key] == null ? void 0 : acum[key].medida) || info.medida || unidadFila;
+        const unidadObjetivo = (acum[key] == null ? void 0 : acum[key].medida) || normalizarMedidaMise(info.medida || unidadFila);
         const cantidadConvertida = convertirCantidadMise(c, unidadFila, unidadObjetivo);
         if (cantidadConvertida == null) return setError(`No se puede mezclar ${unidadFila} con ${unidadObjetivo} en "${info.producto}".`);
         acum[key] = {
-          delta: ((acum[key] == null ? void 0 : acum[key].delta) || 0) + cantidadConvertida,
+          delta: roundMiseQty(((acum[key] == null ? void 0 : acum[key].delta) || 0) + cantidadConvertida),
           medida: unidadObjetivo
         };
       }
       const fecha = (/* @__PURE__ */ new Date()).toISOString();
       const registros = Object.entries(acum).map(([k, info]) => {
         const prod = miseAnPlace.find((m) => normalizar(m.producto) === k) || {};
-        const cantidad = Number(((info == null ? void 0 : info.delta) || 0).toFixed(4));
-        const existenciaAnterior = Number(prod.existencia || 0);
+        const cantidad = roundMiseQty((info == null ? void 0 : info.delta) || 0);
+        const existenciaAnterior = roundMiseQty(prod.existencia);
         return {
           id: `ent-rap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           fecha,
@@ -6909,13 +6916,13 @@ Solicitado: ${cantidad}`);
           medida: (info == null ? void 0 : info.medida) || prod.medida || "Uni",
           cantidad,
           existenciaAnterior,
-          existenciaNueva: Number((existenciaAnterior + cantidad).toFixed(4)),
+          existenciaNueva: roundMiseQty(existenciaAnterior + cantidad),
           usuario: getUserDisplayLabel(currentUser)
         };
       });
       setMise((p) => p.map((m) => {
         const k = normalizar(m.producto);
-        return acum[k] !== void 0 ? { ...m, existencia: m.existencia + acum[k].delta, medida: acum[k].medida } : m;
+        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) + acum[k].delta), medida: acum[k].medida } : m;
       }));
       if (setHistEntradaRapida) setHistEntradaRapida((p) => [...p, ...registros]);
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
@@ -6926,6 +6933,7 @@ Solicitado: ${cantidad}`);
   function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
+    const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
     function guardar() {
       setError("");
       const items = filas.filter((f) => f.p.trim() || f.c);
@@ -6938,17 +6946,17 @@ Solicitado: ${cantidad}`);
         const key = normalizar(f.p);
         const info = miseAnPlace.find((m) => normalizar(m.producto) === key);
         if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
-        acum[key] = (acum[key] || 0) + c;
+        acum[key] = roundMiseQty((acum[key] || 0) + c);
       }
       for (const [k, total] of Object.entries(acum)) {
         const info = miseAnPlace.find((m) => normalizar(m.producto) === k);
-        if (total > info.existencia) return setError(`Salida excede existencia de "${info.producto}" (${info.existencia}).`);
+        if (total > Number(info.existencia || 0)) return setError(`Salida excede existencia de "${info.producto}" (${info.existencia}).`);
       }
       const fecha = (/* @__PURE__ */ new Date()).toISOString();
       const registros = Object.entries(acum).map(([k, total]) => {
         const prod = miseAnPlace.find((m) => normalizar(m.producto) === k) || {};
-        const cantidad = Number((Number(total) || 0).toFixed(4));
-        const existenciaAnterior = Number(prod.existencia || 0);
+        const cantidad = roundMiseQty(total);
+        const existenciaAnterior = roundMiseQty(prod.existencia);
         return {
           id: `sal-rap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           fecha,
@@ -6956,13 +6964,13 @@ Solicitado: ${cantidad}`);
           medida: prod.medida || "Uni",
           cantidad,
           existenciaAnterior,
-          existenciaNueva: Number((existenciaAnterior - cantidad).toFixed(4)),
+          existenciaNueva: roundMiseQty(existenciaAnterior - cantidad),
           usuario: getUserDisplayLabel(currentUser)
         };
       });
       setMise((p) => p.map((m) => {
         const k = normalizar(m.producto);
-        return acum[k] !== void 0 ? { ...m, existencia: m.existencia - acum[k] } : m;
+        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - acum[k]) } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
       if (setProducciones) {
@@ -7158,6 +7166,7 @@ Solicitado: ${cantidad}`);
     const [form, setForm] = useState({ producto: "", cantidad: "" });
     const [error, setError] = useState("");
     const [modalSelector, setModalSelector] = useState(null);
+    const [busquedaTabla, setBusquedaTabla] = useState("");
     const icons = ["fa-snowflake", "fa-temperature-low", "fa-box-open"];
     const colors = ["var(--azul)", "var(--verde)", "#f59e0b"];
     function guardar() {
@@ -7183,6 +7192,7 @@ Solicitado: ${cantidad}`);
     const dlId = `nevera-dl-${neveraIdx}`;
     const selectorItems = modalSelector === "inventario" ? inventarioItems || [] : miseItems || [];
     const controlForm = form.producto.trim() && getControlInfo ? getControlInfo(form.producto.trim()) : null;
+    const itemsFiltrados = busquedaTabla ? (nevera.items || []).filter((it) => normalizar(it.producto).includes(normalizar(busquedaTabla))) : nevera.items || [];
     return /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${icons[neveraIdx]}`, style: { marginRight: 7, color: colors[neveraIdx] } }), nevera.nombre), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, nevera.items.length, " productos")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error", style: { marginBottom: 8, padding: "7px 10px" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 6, alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -7218,7 +7228,7 @@ Solicitado: ${cantidad}`);
         onConfirm: onConfirmSelector,
         onClose: () => setModalSelector(null)
       }
-    ), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Exist."), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, nevera.items.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: it.id }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, it.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: it.existencia <= 0 ? "exist-zero" : it.existencia < 2 ? "exist-low" : "exist-ok" }, it.existencia)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => onTransfer(it) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => onRemove(it.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))))), nevera.items.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: "20px 12px", color: "var(--gris)", fontSize: 12 } }, "Sin productos en ", nevera.nombre)))))));
+    ), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { marginBottom: 10 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar en " + nevera.nombre + "...", value: busquedaTabla, onChange: (e) => setBusquedaTabla(e.target.value), autoComplete: "off" })), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Exist."), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, itemsFiltrados.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: it.id }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11 } }, i + 1), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, it.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: it.existencia <= 0 ? "exist-zero" : it.existencia < 2 ? "exist-low" : "exist-ok" }, it.existencia)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => onTransfer(it) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Transferir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => onRemove(it.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))))), itemsFiltrados.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: "20px 12px", color: "var(--gris)", fontSize: 12 } }, nevera.items.length ? "Sin resultados" : "Sin productos en " + nevera.nombre)))))));
   }
   function SelectorProductosModal({ miseItems, neveraNombre, titulo, onConfirm, onClose, getControlInfo }) {
     const [buscar, setBuscar] = useState("");
