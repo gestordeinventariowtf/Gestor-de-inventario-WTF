@@ -2781,6 +2781,8 @@
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
+    const pendingLocalSignatureRef = useRef("");
+    const pendingLocalAtRef = useRef(0);
     const stateSnapshotRef = useRef(null);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
@@ -3069,15 +3071,21 @@
             }
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
+            const hasPendingLocalWrite = pendingLocalSignatureRef.current && pendingLocalSignatureRef.current === currentSignature && Date.now() - pendingLocalAtRef.current < 15e3;
             lastRemoteSignatureRef.current = remoteSignature;
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
-            setFirebaseMessage("Sincronizado en tiempo real");
+            setFirebaseMessage(hasPendingLocalWrite ? "Guardando cambios locales..." : "Sincronizado en tiempo real");
             if (data.updatedAt) {
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
               setLastSyncedAt(formatDatetime(date));
             }
-            if (remoteSignature !== currentSignature) applyRemoteState(remoteState);
+            if (remoteSignature === pendingLocalSignatureRef.current) {
+              pendingLocalSignatureRef.current = "";
+              pendingLocalAtRef.current = 0;
+            } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
+              applyRemoteState(remoteState);
+            }
             return;
           }
           firebaseBootstrappedRef.current = true;
@@ -3111,7 +3119,15 @@
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       const appState = getCurrentAppState();
       const signature = serializeAppState(appState);
-      if (signature === lastRemoteSignatureRef.current) return;
+      if (signature === lastRemoteSignatureRef.current) {
+        if (pendingLocalSignatureRef.current === signature) {
+          pendingLocalSignatureRef.current = "";
+          pendingLocalAtRef.current = 0;
+        }
+        return;
+      }
+      pendingLocalSignatureRef.current = signature;
+      pendingLocalAtRef.current = Date.now();
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
         try {
