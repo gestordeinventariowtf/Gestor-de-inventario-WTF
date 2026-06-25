@@ -6,8 +6,8 @@ service firebase.storage {
       allow read: if moduleId in ['cocina', 'servicio'];
       allow create, update: if moduleId in ['cocina', 'servicio']
         && request.resource != null
-        && request.resource.size < 6 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
       allow delete: if moduleId in ['cocina', 'servicio'];
     }
   }

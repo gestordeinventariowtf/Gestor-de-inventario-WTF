@@ -5,7 +5,10 @@ const SYNC_DEBOUNCE_MS = 250;
 const PHOTO_STORAGE_ROOT = "sharp-limpieza";
 const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
 const PHOTO_RETENTION_DAYS = 15;
-const PHOTO_UPLOAD_TIMEOUT_MS = 20000;
+const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const PHOTO_MAX_WIDTH = 1600;
+const PHOTO_MIN_QUALITY = 0.55;
 
 const DEFAULT_BRANCHES = [
   { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
@@ -246,6 +249,10 @@ const photoVideo         = document.getElementById("photo-video");
 const photoCanvas        = document.getElementById("photo-canvas");
 const photoOverlayMsg    = document.getElementById("photo-overlay-msg");
 const photoStatusText    = document.getElementById("photo-status-text");
+const photoViewerOverlay = document.getElementById("photo-viewer-overlay");
+const photoViewerClose   = document.getElementById("photo-viewer-close");
+const photoViewerImg     = document.getElementById("photo-viewer-img");
+const photoViewerLink    = document.getElementById("photo-viewer-link");
 
 const libraryModalOverlay  = document.getElementById("library-modal-overlay");
 const libraryPinView       = document.getElementById("library-pin-view");
@@ -1407,11 +1414,13 @@ async function openPhotoModal(taskLabel, team, taskName) {
 }
 
 photoCaptureBtn.addEventListener("click", () => {
-  const w = 600;
-  const h = Math.round(w * (photoVideo.videoHeight / photoVideo.videoWidth)) || 450;
+  const sourceWidth = photoVideo.videoWidth || 1280;
+  const sourceHeight = photoVideo.videoHeight || 960;
+  const w = Math.min(PHOTO_MAX_WIDTH, sourceWidth);
+  const h = Math.round(w * (sourceHeight / sourceWidth)) || 450;
   photoCanvas.width  = w;
   photoCanvas.height = h;
-  photoCanvas.getContext("2d").drawImage(photoVideo, 0, 0, w, h);
+  photoCanvas.getContext("2d").drawImage(photoVideo, 0, 0, sourceWidth, sourceHeight, 0, 0, w, h);
 
   photoCanvas.toBlob((blob) => {
     photoBlob = blob;
@@ -1425,7 +1434,7 @@ photoCaptureBtn.addEventListener("click", () => {
     photoRetakeBtn.style.display  = "";
     photoConfirmBtn.disabled      = false;
     photoRetakeBtn.disabled       = false;
-  }, "image/jpeg", 0.70);
+  }, "image/jpeg", 0.82);
 });
 
 photoRetakeBtn.addEventListener("click", () => {
@@ -1443,60 +1452,44 @@ photoConfirmBtn.addEventListener("click", async () => {
   if (!photoBlob) return;
   photoConfirmBtn.disabled    = true;
   photoRetakeBtn.disabled     = true;
-  photoStatusText.textContent = "Subiendo foto...";
-
-  // Build compressed base64 (600px, q=0.70) — used both for Drive and fallback
-  const tmp = document.createElement("canvas");
-  const w   = Math.min(600, photoCanvas.width);
-  const h   = Math.round(w * photoCanvas.height / (photoCanvas.width || 1));
-  tmp.width  = w;
-  tmp.height = h;
-  tmp.getContext("2d").drawImage(photoCanvas, 0, 0, w, h);
-  const imageBase64 = tmp.toDataURL("image/jpeg", 0.70);
-
-  let photoEvidence = null;
+  photoStatusText.textContent = "Comprimiendo foto...";
 
   try {
-    photoEvidence = await uploadPhotoEvidenceToFirebase(photoBlob, imageBase64);
+    const compressedBlob = await compressPhotoCanvasToJpeg(photoCanvas);
+    photoStatusText.textContent = `Subiendo foto (${formatBytes(compressedBlob.size)})...`;
+    const photoEvidence = await uploadPhotoEvidenceToFirebase(compressedBlob);
+    photoOverlayMsg.textContent = "Foto guardada";
+    photoOverlayMsg.className   = "photo-overlay-msg success";
+    photoStatusText.textContent = "Evidencia guardada. Tarea marcada como realizada.";
+    setTimeout(() => closePhotoModal(photoEvidence), 800);
   } catch (err) {
     console.warn("Firebase Storage upload failed:", err && err.message ? err.message : err);
-    photoStatusText.textContent = "Storage no respondió a tiempo. Guardando respaldo...";
+    photoOverlayMsg.textContent = "No se pudo subir";
+    photoOverlayMsg.className   = "photo-overlay-msg error";
+    photoStatusText.textContent = err && err.message ? err.message : "Firebase Storage no pudo guardar la foto.";
+    photoConfirmBtn.disabled    = false;
+    photoRetakeBtn.disabled     = false;
   }
-
-  if (!photoEvidence && APPS_SCRIPT_URL && selectedCell) {
-    try {
-      const collaborator = state.collaborators.find((c) => c.id === selectedCell.collaboratorId);
-      const collabName   = collaborator ? collaborator.name : "Desconocido";
-      const fileName     = pendingPhotoMeta
-        ? `${pendingPhotoMeta.team}-${pendingPhotoMeta.taskName}-${collabName}`
-        : photoModalLabel.textContent;
-      const body = JSON.stringify({
-        imageBase64,
-        weekLabel:  getWeekFolderLabel(),
-        fileName
-      });
-      const resp = await Promise.race([
-        fetch(APPS_SCRIPT_URL, { method: "POST", body }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 15000))
-      ]);
-      const result = await resp.json();
-      if (result.ok) photoEvidence = { url: result.url, source: "drive" };
-    } catch (err) {
-      console.warn("Drive upload failed, using base64 fallback:", err.message);
-    }
-  }
-
-  // Fallback: store base64 directly in Firebase Database if cloud upload fails.
-  if (!photoEvidence) photoEvidence = { url: imageBase64, source: "database-fallback" };
-
-  photoOverlayMsg.textContent = "✓ Foto guardada";
-  photoOverlayMsg.className   = "photo-overlay-msg success";
-  photoStatusText.textContent = "Evidencia guardada. Tarea marcada como realizada.";
-  setTimeout(() => closePhotoModal(photoEvidence), 800);
 });
-
 photoModalCloseBtn.addEventListener("click", () => closePhotoModal(null));
 photoCancelBtn.addEventListener("click", () => closePhotoModal(null));
+if (photoViewerClose) photoViewerClose.addEventListener("click", closePhotoViewer);
+if (photoViewerOverlay) {
+  photoViewerOverlay.addEventListener("click", (event) => {
+    if (event.target === photoViewerOverlay) closePhotoViewer();
+  });
+}
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest("[data-photo-viewer-src]");
+  if (!trigger) return;
+  event.preventDefault();
+  openPhotoViewer(trigger.getAttribute("data-photo-viewer-src"));
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && photoViewerOverlay && !photoViewerOverlay.classList.contains("hidden")) {
+    closePhotoViewer();
+  }
+});
 
 function closePhotoModal(photoUrl) {
   if (photoStream) {
@@ -1513,8 +1506,64 @@ function closePhotoModal(photoUrl) {
   }
 }
 
-async function uploadPhotoEvidenceToFirebase(blob, imageBase64) {
-  if (!firebaseStorage || !selectedCell || !currentBranch) return null;
+function openPhotoViewer(url) {
+  if (!photoViewerOverlay || !photoViewerImg || !photoViewerLink || !isSafeUrl(url)) return;
+  photoViewerImg.src = url;
+  photoViewerLink.href = url;
+  photoViewerOverlay.classList.remove("hidden");
+}
+
+function closePhotoViewer() {
+  if (!photoViewerOverlay || !photoViewerImg || !photoViewerLink) return;
+  photoViewerOverlay.classList.add("hidden");
+  photoViewerImg.removeAttribute("src");
+  photoViewerLink.href = "#";
+}
+
+function canvasToJpegBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("No se pudo preparar la foto en JPG."));
+    }, "image/jpeg", quality);
+  });
+}
+
+async function compressPhotoCanvasToJpeg(sourceCanvas) {
+  const work = document.createElement("canvas");
+  const sourceWidth = sourceCanvas.width || PHOTO_MAX_WIDTH;
+  const sourceHeight = sourceCanvas.height || Math.round(PHOTO_MAX_WIDTH * 0.75);
+  const ratio = Math.min(1, PHOTO_MAX_WIDTH / sourceWidth);
+  work.width = Math.max(1, Math.round(sourceWidth * ratio));
+  work.height = Math.max(1, Math.round(sourceHeight * ratio));
+  work.getContext("2d").drawImage(sourceCanvas, 0, 0, work.width, work.height);
+
+  let quality = 0.82;
+  let blob = await canvasToJpegBlob(work, quality);
+  while (blob.size > PHOTO_MAX_BYTES && quality > PHOTO_MIN_QUALITY) {
+    quality = Math.max(PHOTO_MIN_QUALITY, Number((quality - 0.08).toFixed(2)));
+    blob = await canvasToJpegBlob(work, quality);
+  }
+  if (blob.size > PHOTO_MAX_BYTES && work.width > 900) {
+    const ratio2 = Math.sqrt(PHOTO_MAX_BYTES / blob.size) * 0.95;
+    const resized = document.createElement("canvas");
+    resized.width = Math.max(900, Math.round(work.width * ratio2));
+    resized.height = Math.max(1, Math.round(work.height * (resized.width / work.width)));
+    resized.getContext("2d").drawImage(work, 0, 0, resized.width, resized.height);
+    blob = await canvasToJpegBlob(resized, PHOTO_MIN_QUALITY);
+  }
+  return new Blob([blob], { type: "image/jpeg" });
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function uploadPhotoEvidenceToFirebase(blob) {
+  if (!firebaseStorage) throw new Error("Firebase Storage no esta disponible.");
+  if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
   const completedAt = new Date();
   const dateKey = getLocalDateKey(completedAt);
   const moduleId = getCleaningModuleId();
@@ -1670,9 +1719,9 @@ function renderModalTaskList() {
     const meta = resolveTaskMeta(item);
     const doneClass = item.done ? "done" : "";
     const thumbHtml = item.done && isSafeUrl(item.evidencePhotoUrl)
-      ? `<a href="${escapeHtml(item.evidencePhotoUrl)}" target="_blank" rel="noopener" title="Ver evidencia fotográfica">
+      ? `<button type="button" class="photo-thumb-link" data-photo-viewer-src="${escapeHtml(item.evidencePhotoUrl)}" title="Ver evidencia fotografica">
            <img src="${escapeHtml(item.evidencePhotoUrl)}" class="task-evidence-thumb" alt="Evidencia" loading="lazy">
-         </a>`
+         </button>`
       : "";
     const lockBadge = item.done
       ? `<span class="task-done-badge" title="Tarea realizada — no puede desmarcarse">🔒 Realizada</span>`
@@ -2891,8 +2940,10 @@ function renderRealizadasPanel() {
         doneTasks.push({ item, dayIndex, meta: resolveTaskMeta(item) });
       }
     }
-    if (doneTasks.length > 0) groups.push({ collab, doneTasks });
+    doneTasks.sort((a, b) => getCompletedTime(b.item) - getCompletedTime(a.item));
+    if (doneTasks.length > 0) groups.push({ collab, doneTasks, lastDoneAt: getCompletedTime(doneTasks[0].item) });
   }
+  groups.sort((a, b) => b.lastDoneAt - a.lastDoneAt);
 
   if (groups.length === 0) {
     realizadasBody.innerHTML = '<p class="realizadas-empty">No hay tareas realizadas esta semana.</p>';
@@ -2905,9 +2956,9 @@ function renderRealizadasPanel() {
         ? new Date(item.completedAt).toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit" })
         : "";
       const thumbHtml = isSafeUrl(item.evidencePhotoUrl)
-        ? `<a href="${escapeHtml(item.evidencePhotoUrl)}" target="_blank" rel="noopener" title="Click para ver foto">
+        ? `<button type="button" class="photo-thumb-link" data-photo-viewer-src="${escapeHtml(item.evidencePhotoUrl)}" title="Ver foto">
              <img src="${escapeHtml(item.evidencePhotoUrl)}" class="realizadas-thumb" alt="Evidencia" loading="lazy">
-           </a>`
+           </button>`
         : `<span class="realizadas-no-photo">Sin foto</span>`;
       return `
         <div class="realizadas-row">
@@ -2925,6 +2976,11 @@ function renderRealizadasPanel() {
         ${rows}
       </div>`;
   }).join("");
+}
+
+function getCompletedTime(item) {
+  const value = item && item.completedAt ? new Date(item.completedAt).getTime() : 0;
+  return Number.isFinite(value) ? value : 0;
 }
 
 function escapeHtml(value) {
