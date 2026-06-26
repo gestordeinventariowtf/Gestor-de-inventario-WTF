@@ -252,7 +252,6 @@ const photoStatusText    = document.getElementById("photo-status-text");
 const photoViewerOverlay = document.getElementById("photo-viewer-overlay");
 const photoViewerClose   = document.getElementById("photo-viewer-close");
 const photoViewerImg     = document.getElementById("photo-viewer-img");
-const photoViewerLink    = document.getElementById("photo-viewer-link");
 
 const libraryModalOverlay  = document.getElementById("library-modal-overlay");
 const libraryPinView       = document.getElementById("library-pin-view");
@@ -1514,17 +1513,15 @@ function closePhotoModal(photoUrl) {
 }
 
 function openPhotoViewer(url) {
-  if (!photoViewerOverlay || !photoViewerImg || !photoViewerLink || !isSafeUrl(url)) return;
+  if (!photoViewerOverlay || !photoViewerImg || !isSafeUrl(url)) return;
   photoViewerImg.src = url;
-  photoViewerLink.href = url;
   photoViewerOverlay.classList.remove("hidden");
 }
 
 function closePhotoViewer() {
-  if (!photoViewerOverlay || !photoViewerImg || !photoViewerLink) return;
+  if (!photoViewerOverlay || !photoViewerImg) return;
   photoViewerOverlay.classList.add("hidden");
   photoViewerImg.removeAttribute("src");
-  photoViewerLink.href = "#";
 }
 
 function canvasToJpegBlob(canvas, quality) {
