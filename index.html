@@ -4961,6 +4961,25 @@ Solicitado: ${cantidad}`);
       setPendingModalOpen(false);
       toast(`Producto seleccionado para producción: ${item.nombre}`, "ok");
     }
+    function editarProduccionProgramada(item) {
+      if (!item) return;
+      if (item.recetaMatch) {
+        solicitarEditarReceta(item.recetaMatch);
+        setPendingModalOpen(false);
+        return;
+      }
+      resetProductionForm();
+      setResultado({
+        nombre: item.nombre || "",
+        cantidad: "",
+        medida: item.inventarioMatch ? item.inventarioMatch.medida : "Uni"
+      });
+      setMiseProductTarget(item.miseMatch ? item.miseMatch.producto : item.nombre || "");
+      setEditingRecipeId(null);
+      setRecipeModalOpen(true);
+      setPendingModalOpen(false);
+      toast(`Nueva receta para editar: ${item.nombre}`, "ok");
+    }
     function eliminarReceta(recetaId) {
       if (!confirm("¿Eliminar esta receta?")) return;
       setRecetas(function(prev) {
@@ -5225,7 +5244,10 @@ Solicitado: ${cantidad}`);
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" } },
                     /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: alertActive ? "#991b1b" : "var(--gris)", fontWeight: alertActive ? 700 : 400 } }, alertActive ? `Necesita producción para completar el mínimo ${stockAlert.label}.` : item.miseMatch ? "Este producto aún tiene existencia suficiente para el mínimo configurado." : "Selecciona una receta y vincúlala con Mise para activar el control exacto."),
-                    /* @__PURE__ */ React.createElement("button", { className: `btn btn-sm ${item.recetaMatch ? "btn-verde" : "btn-naranja"}`, onClick: function() { seleccionarProduccionProgramada(item); } }, /* @__PURE__ */ React.createElement("i", { className: item.recetaMatch ? "fas fa-flask" : "fas fa-arrow-right" }), item.recetaMatch ? "Usar receta" : "Seleccionar producto")
+                    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                      /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { editarProduccionProgramada(item); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"),
+                      /* @__PURE__ */ React.createElement("button", { className: `btn btn-sm ${item.recetaMatch ? "btn-verde" : "btn-naranja"}`, onClick: function() { seleccionarProduccionProgramada(item); } }, /* @__PURE__ */ React.createElement("i", { className: item.recetaMatch ? "fas fa-flask" : "fas fa-arrow-right" }), item.recetaMatch ? "Usar receta" : "Seleccionar producto")
+                    )
                   )
                 );
               }),
