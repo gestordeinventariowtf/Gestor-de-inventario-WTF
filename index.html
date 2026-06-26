@@ -3763,6 +3763,7 @@ Solicitado: ${cantidad}`);
     const [historySearch, setHistorySearch] = useState("");
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
+    const [productionRuns, setProductionRuns] = useState("1");
     const [miseProductTarget, setMiseProductTarget] = useState("");
     const [hiddenRecipeMatchName, setHiddenRecipeMatchName] = useState("");
     const [hiddenProductionMatchName, setHiddenProductionMatchName] = useState("");
@@ -4439,10 +4440,16 @@ Solicitado: ${cantidad}`);
       setBusqueda("");
       setInsumos([]);
       setResultado({ nombre: "", cantidad: "", medida: "Uni" });
+      setProductionRuns("1");
       setMiseProductTarget("");
       setHiddenRecipeMatchName("");
       setHiddenProductionMatchName("");
       setError("");
+    }
+    function formatProductionRecipeQty(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "";
+      return String(Number(number.toFixed(4)));
     }
     function resetDirectLoadForm() {
       setDirectLoad({ nombre: "", cantidad: "", medida: "Uni" });
@@ -4509,6 +4516,7 @@ Solicitado: ${cantidad}`);
           almacenLabel: item.almacenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
+          cantidadBaseReceta: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -4520,6 +4528,7 @@ Solicitado: ${cantidad}`);
         medida: targetRecipe.medidaObjetivo || "Uni"
       });
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
+      setProductionRuns("1");
       setBusqueda("");
       setError("");
       setEditingRecipeId(targetRecipe.id);
@@ -4542,7 +4551,28 @@ Solicitado: ${cantidad}`);
     function updateInsumo(rowId, field, value) {
       setInsumos(function(prev) {
         return prev.map(function(item) {
-          return item.rowId === rowId ? Object.assign({}, item, { [field]: value }) : item;
+          if (item.rowId !== rowId) return item;
+          const next = Object.assign({}, item, { [field]: value });
+          if (field === "cantidad" && item.fromRecipe) {
+            const times = Number(String(productionRuns || "").replace(",", "."));
+            const typedQty = Number(String(value || "").replace(",", "."));
+            next.cantidadBaseReceta = Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
+          }
+          return next;
+        });
+      });
+      setError("");
+    }
+    function updateProductionRuns(value) {
+      setProductionRuns(value);
+      const times = Number(String(value || "").replace(",", "."));
+      if (!Number.isFinite(times) || times <= 0) return;
+      setInsumos(function(prev) {
+        return prev.map(function(item) {
+          if (!item.fromRecipe) return item;
+          const base = Number(String(item.cantidadBaseReceta || item.cantidad || "").replace(",", "."));
+          if (!Number.isFinite(base) || base <= 0) return item;
+          return Object.assign({}, item, { cantidad: formatProductionRecipeQty(base * times) });
         });
       });
       setError("");
@@ -4981,6 +5011,7 @@ Solicitado: ${cantidad}`);
           almacenLabel: item.almacenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
+          cantidadBaseReceta: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -4992,6 +5023,7 @@ Solicitado: ${cantidad}`);
         medida: receta.medidaObjetivo || "Uni"
       });
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
+      setProductionRuns("1");
       setHiddenRecipeMatchName(receta.nombre || "");
       setHiddenProductionMatchName(receta.nombre || "");
       setBusqueda("");
@@ -5386,6 +5418,10 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, insumos.length, " insumos")
                 ),
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
+                  /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                    /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "¿Por cuántas veces realizarás la producción?"),
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", value: productionRuns, onChange: function(e) { updateProductionRuns(e.target.value); }, placeholder: "1" })
+                  ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
                       const product = productosMap[item.productKey || `inventario-${item.productId}`];
