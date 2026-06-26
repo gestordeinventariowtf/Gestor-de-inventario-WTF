@@ -1477,6 +1477,7 @@
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
       inventario: state.inventario || [],
+      cuartoFrioInventario: state.cuartoFrioInventario || [],
       miseAnPlace: state.miseAnPlace || [],
       regEntradas: state.regEntradas || [],
       regSalidas: state.regSalidas || [],
@@ -1487,10 +1488,13 @@
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
+      icgFrontRestData: state.icgFrontRestData || [],
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
       barInventario: state.barInventario || [],
+      barCuartoFrioInventario: state.barCuartoFrioInventario || [],
+      barMiseAnPlace: state.barMiseAnPlace || [],
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
       barRegDecomiso: state.barRegDecomiso || [],
@@ -2783,6 +2787,7 @@
     const lastRemoteSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
+    const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
@@ -2815,6 +2820,39 @@
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
+    }
+    useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
+    function getSyncMeta(signature, reason) {
+      return {
+        clientId: syncClientIdRef.current,
+        clientTime: pendingLocalAtRef.current || Date.now(),
+        signature,
+        reason: reason || "web-client"
+      };
+    }
+    function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      pendingLocalSignatureRef.current = signature;
+      pendingLocalAtRef.current = Date.now();
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = window.setTimeout(async function() {
+        try {
+          await firebaseDocRef.current.set({
+            appState,
+            syncMeta: getSyncMeta(signature, reason),
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: reason
+          }, { merge: true });
+          lastRemoteSignatureRef.current = signature;
+          setFirebaseStatus("connected");
+          setFirebaseMessage("Cambios sincronizados");
+          setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+        } catch (error) {
+          console.error("Firebase write error:", error);
+          setFirebaseStatus("error");
+          setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
+        }
+      }, delay);
     }
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
@@ -3061,6 +3099,7 @@
               firebaseBootstrappedRef.current = true;
               await docRef.set({
                 appState: initialState2,
+                syncMeta: getSyncMeta(initialSignature2, "web-migration"),
                 updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
                 updatedBy: "web-migration"
               }, { merge: true });
@@ -3072,19 +3111,29 @@
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 30e3;
-            lastRemoteSignatureRef.current = remoteSignature;
+            const remoteSyncMeta = data.syncMeta || {};
+            const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
+            const remoteIsStalePendingEcho = hasPendingLocalWrite && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current;
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
-            setFirebaseMessage(hasPendingLocalWrite ? "Guardando cambios locales..." : "Sincronizado en tiempo real");
             if (data.updatedAt) {
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
               setLastSyncedAt(formatDatetime(date));
             }
             if (remoteSignature === currentSignature) {
+              lastRemoteSignatureRef.current = remoteSignature;
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
+              setFirebaseMessage("Sincronizado en tiempo real");
+            } else if (remoteIsStalePendingEcho) {
+              setFirebaseMessage("Protegiendo cambios locales...");
+              scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
+              lastRemoteSignatureRef.current = remoteSignature;
               applyRemoteState(remoteState);
+              setFirebaseMessage("Sincronizado en tiempo real");
+            } else {
+              setFirebaseMessage("Guardando cambios locales...");
             }
             return;
           }
@@ -3094,6 +3143,7 @@
           lastRemoteSignatureRef.current = initialSignature;
           await docRef.set({
             appState: initialState,
+            syncMeta: getSyncMeta(initialSignature, "web-bootstrap"),
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: "web-bootstrap"
           }, { merge: true });
@@ -3126,26 +3176,7 @@
         }
         return;
       }
-      pendingLocalSignatureRef.current = signature;
-      pendingLocalAtRef.current = Date.now();
-      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-      syncTimerRef.current = window.setTimeout(async function() {
-        try {
-          await firebaseDocRef.current.set({
-            appState,
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedBy: "web-client"
-          }, { merge: true });
-          lastRemoteSignatureRef.current = signature;
-          setFirebaseStatus("connected");
-          setFirebaseMessage("Cambios sincronizados");
-          setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
-        } catch (error) {
-          console.error("Firebase write error:", error);
-          setFirebaseStatus("error");
-          setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
-        }
-      }, 500);
+      scheduleFirebaseWrite(appState, signature, 500, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
