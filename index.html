@@ -1469,25 +1469,26 @@
     toast && toast("Se abrio la vista para guardar como PDF.", "info");
   }
   async function generateInventoryCountPdf(inventario, pageLabel, toast) {
-    let currentSection = "SIN RENGLÓN";
-    const pdfRows = [];
+    let currentSection = null;
+    const sections = [];
+    function ensureSection(name) {
+      const sectionName = String(name || "SIN RENGLÓN").trim() || "SIN RENGLÓN";
+      if (!currentSection || currentSection.name !== sectionName) {
+        currentSection = { name: sectionName, items: [] };
+        sections.push(currentSection);
+      }
+      return currentSection;
+    }
     (Array.isArray(inventario) ? inventario : []).forEach(function(item) {
       if (!item) return;
       if (item.tipo === "separador") {
-        currentSection = String(item.nombre || "SIN RENGLÓN").trim() || "SIN RENGLÓN";
+        ensureSection(item.nombre);
         return;
       }
       if (item.tipo !== "producto") return;
-      if (!pdfRows.length || pdfRows[pdfRows.length - 1].type !== "section" || pdfRows[pdfRows.length - 1].name !== currentSection) {
-        pdfRows.push({ type: "section", name: currentSection });
-      }
-      pdfRows.push({ type: "product", item: Object.assign({}, item, { existencia: getInventoryExistence(item), sectionName: currentSection }) });
+      ensureSection(currentSection ? currentSection.name : "SIN RENGLÓN").items.push(Object.assign({}, item, { existencia: getInventoryExistence(item) }));
     });
-    const items = pdfRows.filter(function(row) {
-      return row.type === "product";
-    }).map(function(row) {
-      return row.item;
-    });
+    const items = sections.flatMap(function(section) { return section.items; });
     if (!items.length) {
       toast && toast(`No hay productos en ${pageLabel} para generar PDF.`, "error");
       return;
@@ -1504,26 +1505,24 @@
     const margin = 9;
     const gap = 3;
     const topStart = 25;
-    const rowGap = 1.4;
+    const rowGap = 0.7;
     const availableHeight = pageHeight - topStart - 11;
     const maxPages = 2;
     let columnCount = 3;
-    let rowsPerColumnPage = 1;
-    let cardHeight = 20;
-    for (let cols = 3; cols <= 12; cols++) {
-      const neededRows = Math.ceil(pdfRows.length / (cols * maxPages));
+    let productRowHeight = 6.5;
+    const layoutUnits = items.length + sections.filter(function(section) { return section.items.length; }).length * 1.15;
+    for (let cols = 3; cols <= 8; cols++) {
+      const neededRows = Math.ceil(layoutUnits / (cols * maxPages));
       const candidateHeight = availableHeight / Math.max(1, neededRows) - rowGap;
       columnCount = cols;
-      rowsPerColumnPage = Math.max(1, neededRows);
-      cardHeight = Math.min(20, candidateHeight);
-      if (candidateHeight >= 7.5) break;
+      productRowHeight = Math.min(7.2, candidateHeight);
+      if (candidateHeight >= 5.4) break;
     }
-    cardHeight = Math.max(5.2, cardHeight);
-    const cardWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
-    const nameFontSize = Math.max(3.8, Math.min(7.5, cardHeight * 0.34));
-    const detailFontSize = Math.max(3.4, Math.min(6.8, cardHeight * 0.3));
-    const nameLineLimit = cardHeight < 11 ? 1 : 2;
-    const sectionHeight = Math.max(4.2, Math.min(7, cardHeight * 0.72));
+    productRowHeight = Math.max(4.2, productRowHeight);
+    const groupWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
+    const sectionHeaderHeight = Math.max(4.6, Math.min(6.2, productRowHeight * 1.05));
+    const nameFontSize = Math.max(3.4, Math.min(6.4, productRowHeight * 0.68));
+    const detailFontSize = Math.max(3.1, Math.min(5.6, productRowHeight * 0.58));
     let col = 0;
     let y = topStart;
     let pageCount = 1;
@@ -1541,7 +1540,7 @@
       doc.line(margin, 21, pageWidth - margin, 21);
     }
     function addPageIfNeeded(nextHeight) {
-      const height = Number(nextHeight || cardHeight);
+      const height = Number(nextHeight || productRowHeight);
       if (y + height <= pageHeight - 11) return;
       col++;
       y = topStart;
@@ -1554,49 +1553,70 @@
       col = 0;
       y = topStart;
     }
-    drawHeader();
-    pdfRows.forEach(function(row) {
-      const rowHeight = row.type === "section" ? sectionHeight : cardHeight;
-      addPageIfNeeded(rowHeight);
-      const x = margin + col * (cardWidth + gap);
-      const rowTop = y;
-      if (row.type === "section") {
-        doc.setFillColor(240, 253, 244);
-        doc.setDrawColor(31, 122, 58);
-        doc.roundedRect(x, rowTop, cardWidth, sectionHeight, 1.2, 1.2, "FD");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(Math.max(5, Math.min(7.2, sectionHeight * 0.72)));
-        doc.setTextColor(22, 101, 52);
-        const sectionText = doc.splitTextToSize(String(row.name || "SIN RENGLÓN"), cardWidth - 4).slice(0, 1);
-        doc.text(sectionText, x + 1.8, rowTop + sectionHeight - 1.8);
-        y += sectionHeight + rowGap;
-        return;
-      }
-      const item = row.item;
-      doc.setDrawColor(209, 213, 219);
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(x, rowTop, cardWidth, cardHeight, 1.5, 1.5, "FD");
+    function drawGroupBorder(x, top, bottom) {
+      const height = Math.max(sectionHeaderHeight, bottom - top);
+      doc.setDrawColor(31, 122, 58);
+      doc.roundedRect(x, top, groupWidth, height, 1.5, 1.5, "S");
+    }
+    function drawSectionHeader(sectionName, x, rowTop, continued) {
+      doc.setFillColor(240, 253, 244);
+      doc.setDrawColor(31, 122, 58);
+      doc.roundedRect(x, rowTop, groupWidth, sectionHeaderHeight, 1.5, 1.5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(Math.max(4.2, Math.min(6.2, sectionHeaderHeight * 0.68)));
+      doc.setTextColor(22, 101, 52);
+      const sectionText = doc.splitTextToSize(String(sectionName || "SIN RENGLÓN") + (continued ? " (CONT.)" : ""), groupWidth - 4).slice(0, 1);
+      doc.text(sectionText, x + 1.8, rowTop + sectionHeaderHeight - 1.8);
+    }
+    function drawProductLine(item, x, rowTop) {
+      doc.setDrawColor(229, 231, 235);
+      doc.line(x + 1.5, rowTop + productRowHeight, x + groupWidth - 1.5, rowTop + productRowHeight);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(nameFontSize);
       doc.setTextColor(17, 24, 39);
-      const nameLines = doc.splitTextToSize(String(item.nombre || ""), cardWidth - 4).slice(0, nameLineLimit);
-      doc.text(nameLines, x + 1.6, rowTop + Math.max(3.2, cardHeight * 0.22));
-      const detailY = rowTop + Math.max(4.4, cardHeight * 0.45);
+      const nameText = doc.splitTextToSize(String(item.nombre || ""), groupWidth * 0.42).slice(0, 1);
+      doc.text(nameText, x + 1.7, rowTop + productRowHeight * 0.62);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(detailFontSize);
       doc.setTextColor(75, 85, 99);
-      if (cardHeight >= 7) {
-        const supplier = doc.splitTextToSize("Suplidor: " + String(item.suplidor || "-"), cardWidth - 4).slice(0, 1);
-        doc.text(supplier, x + 1.6, detailY);
-      }
+      const supplierText = doc.splitTextToSize(String(item.suplidor || "-"), groupWidth * 0.22).slice(0, 1);
+      doc.text(supplierText, x + groupWidth * 0.44, rowTop + productRowHeight * 0.62);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
-      const bottomY = rowTop + cardHeight - 3.2;
-      doc.text("Exist.: " + misePdfNumber(item.existencia) + " " + (item.medida || ""), x + 1.6, bottomY);
+      doc.text(misePdfNumber(item.existencia) + " " + (item.medida || ""), x + groupWidth * 0.68, rowTop + productRowHeight * 0.62, { maxWidth: groupWidth * 0.14 });
       doc.setFont("helvetica", "normal");
-      doc.text("Manual:", x + cardWidth - 28, bottomY);
-      doc.line(x + cardWidth - 16, bottomY + 0.5, x + cardWidth - 1.6, bottomY + 0.5);
-      y += cardHeight + rowGap;
+      doc.text("Manual:", x + groupWidth - 24, rowTop + productRowHeight * 0.62);
+      doc.line(x + groupWidth - 11, rowTop + productRowHeight * 0.66, x + groupWidth - 2, rowTop + productRowHeight * 0.66);
+    }
+    drawHeader();
+    sections.filter(function(section) { return section.items.length; }).forEach(function(section) {
+      let groupOpen = false;
+      let groupX = margin + col * (groupWidth + gap);
+      let groupTop = y;
+      function startGroup(continued) {
+        addPageIfNeeded(sectionHeaderHeight + productRowHeight);
+        groupX = margin + col * (groupWidth + gap);
+        groupTop = y;
+        drawSectionHeader(section.name, groupX, y, continued);
+        y += sectionHeaderHeight;
+        groupOpen = true;
+      }
+      startGroup(false);
+      section.items.forEach(function(item, index) {
+        if (y + productRowHeight > pageHeight - 11) {
+          drawGroupBorder(groupX, groupTop, y);
+          addPageIfNeeded(productRowHeight + sectionHeaderHeight);
+          startGroup(true);
+        } else if (!groupOpen) {
+          startGroup(index > 0);
+        }
+        drawProductLine(item, groupX, y);
+        y += productRowHeight;
+      });
+      if (groupOpen) {
+        drawGroupBorder(groupX, groupTop, y);
+        y += rowGap + 0.8;
+      }
     });
     const pages = doc.getNumberOfPages();
     for (let page = 1; page <= pages; page++) {
