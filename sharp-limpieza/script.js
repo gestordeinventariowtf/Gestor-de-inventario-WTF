@@ -271,8 +271,6 @@ let remoteSaveTimer = null;
 let isApplyingRemoteState = false;
 let hasRemoteSnapshot = false;
 
-let firebaseStorage   = null;
-let firebaseStorageBucket = "";
 let photoStream       = null;
 let photoBlob         = null;
 let photoModalResolve = null;
@@ -1456,18 +1454,18 @@ photoConfirmBtn.addEventListener("click", async () => {
 
   try {
     const compressedBlob = await compressPhotoCanvasToJpeg(photoCanvas);
-    photoStatusText.textContent = `Subiendo foto (${formatBytes(compressedBlob.size)})...`;
+    photoStatusText.textContent = `Guardando foto en Firebase Database (${formatBytes(compressedBlob.size)})...`;
     let photoEvidence;
     try {
-      photoEvidence = await uploadPhotoEvidenceToFirebase(compressedBlob);
+      photoEvidence = await uploadPhotoEvidenceToFirebaseDatabase(compressedBlob);
     } catch (uploadError) {
-      console.warn("Firebase Storage upload failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
-      photoStatusText.textContent = "Storage no esta activo. Guardando respaldo local...";
+      console.warn("Firebase Database photo save failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
+      photoStatusText.textContent = "Firebase Database no respondio. Guardando respaldo local...";
       photoEvidence = await createLocalPhotoEvidenceBackup(compressedBlob);
     }
-    photoOverlayMsg.textContent = photoEvidence.source === "firebase-storage" ? "Foto guardada" : "Respaldo guardado";
+    photoOverlayMsg.textContent = photoEvidence.source === "firebase-database" ? "Foto guardada" : "Respaldo guardado";
     photoOverlayMsg.className   = "photo-overlay-msg success";
-    photoStatusText.textContent = photoEvidence.source === "firebase-storage"
+    photoStatusText.textContent = photoEvidence.source === "firebase-database"
       ? "Evidencia guardada. Tarea marcada como realizada."
       : "Evidencia guardada en respaldo local. Tarea marcada como realizada.";
     setTimeout(() => closePhotoModal(photoEvidence), 800);
@@ -1609,8 +1607,8 @@ async function createLocalPhotoEvidenceBackup(blob) {
   };
 }
 
-async function uploadPhotoEvidenceToFirebase(blob) {
-  if (!firebaseStorage) throw new Error("Firebase Storage no esta disponible.");
+async function uploadPhotoEvidenceToFirebaseDatabase(blob) {
+  if (!firebaseDB) throw new Error("Firebase Database no esta disponible.");
   if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
   const completedAt = new Date();
   const dateKey = getLocalDateKey(completedAt);
@@ -1627,28 +1625,13 @@ async function uploadPhotoEvidenceToFirebase(blob) {
     meta.taskName || photoModalLabel.textContent,
     Date.now()
   ].map(slugifyBranchName).filter(Boolean).join("-");
-  const storagePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${fileBase || createId()}.jpg`;
-  const storageRef = firebaseStorage.ref(storagePath);
-  const uploadTask = storageRef.put(blob, {
-    contentType: "image/jpeg",
-    customMetadata: {
-      moduleId,
-      moduleName: getCleaningModuleName(),
-      branchId: currentBranch.id || "",
-      branchName: currentBranch.name || "",
-      weekStart: currentWeekStart,
-      dayName,
-      collaborator: collabName,
-      team: meta.team || "",
-      taskName: meta.taskName || ""
-    }
-  });
-  await withTimeout(uploadTask, PHOTO_UPLOAD_TIMEOUT_MS, "La subida a Firebase Storage tardó demasiado.");
-  const url = await withTimeout(storageRef.getDownloadURL(), 10000, "No se pudo obtener el enlace de la foto.");
+  const photoId = fileBase || createId();
+  const dataUrl = await blobToDataUrl(blob);
+  const databasePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${photoId}`;
   const record = {
-    url,
-    storagePath,
-    storageBucket: firebaseStorageBucket,
+    url: dataUrl,
+    storagePath: databasePath,
+    storageBucket: "firebase-realtime-database",
     moduleId,
     moduleName: getCleaningModuleName(),
     dateKey,
@@ -1661,16 +1644,32 @@ async function uploadPhotoEvidenceToFirebase(blob) {
     collaboratorName: collabName,
     team: meta.team || "",
     taskName: meta.taskName || photoModalLabel.textContent || "",
-    completedAt: completedAt.toISOString()
+    completedAt: completedAt.toISOString(),
+    source: "firebase-database"
   };
-  if (firebaseDB) {
-    await firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}/${dateKey}`).push({
-      ...record,
-      createdAt: firebase.database.ServerValue.TIMESTAMP
-    }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
-  }
+  await withTimeout(firebaseDB.ref(databasePath).set({
+    dataUrl,
+    contentType: "image/jpeg",
+    size: blob.size,
+    createdAt: firebase.database.ServerValue.TIMESTAMP,
+    meta: {
+      moduleId,
+      moduleName: getCleaningModuleName(),
+      branchId: currentBranch.id || "",
+      branchName: currentBranch.name || "",
+      weekStart: currentWeekStart,
+      dayName,
+      collaborator: collabName,
+      team: meta.team || "",
+      taskName: meta.taskName || ""
+    }
+  }), PHOTO_UPLOAD_TIMEOUT_MS, "Firebase Database no respondio a tiempo.");
+  await firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}/${dateKey}`).push({
+    ...record,
+    createdAt: firebase.database.ServerValue.TIMESTAMP
+  }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
   runPhotoRetentionCleanup();
-  return { ...record, source: "firebase-storage" };
+  return record;
 }
 
 function getLocalDateKey(date = new Date()) {
@@ -1711,17 +1710,8 @@ async function runPhotoRetentionCleanup(options = {}) {
       const byDate = snap.val() || {};
       for (const dateKey of Object.keys(byDate)) {
         if (dateKey >= cutoffKey) continue;
-        const records = byDate[dateKey] || {};
-        if (firebaseStorage) {
-          await Promise.all(Object.values(records).map((record) => {
-            if (!record || !record.storagePath) return Promise.resolve();
-            return firebaseStorage.ref(record.storagePath).delete().catch((err) => {
-              if (err && err.code !== "storage/object-not-found") {
-                console.warn("No se pudo borrar foto antigua:", err.message || err);
-              }
-            });
-          }));
-        }
+        await firebaseDB.ref(`${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}`).remove()
+          .catch((err) => console.warn("No se pudo limpiar foto antigua:", err.message || err));
         await moduleRef.child(dateKey).remove().catch((err) => console.warn("No se pudo limpiar índice antiguo:", err.message || err));
       }
     }
@@ -2069,22 +2059,6 @@ function initFirebaseConnection() {
     const app = firebase.apps && firebase.apps.length > 0 ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
     const database = firebase.database(app);
     firebaseDB = database;
-
-    if (typeof firebase.storage === "function") {
-      try {
-        const photoConfig = getPhotoStorageConfig();
-        const photoAppName = "wtf-photo-storage";
-        const photoApp = photoConfig.projectId === FIREBASE_CONFIG.projectId
-          ? app
-          : (firebase.apps.find((item) => item.name === photoAppName) || firebase.initializeApp(photoConfig, photoAppName));
-        firebaseStorage = firebase.storage(photoApp);
-        firebaseStorageBucket = photoConfig.storageBucket || "";
-      } catch (err) {
-        firebaseStorage = null;
-        firebaseStorageBucket = "";
-        console.warn("No se pudo inicializar Firebase Storage para fotos:", err && err.message ? err.message : err);
-      }
-    }
     runPhotoRetentionCleanup();
 
     setSyncStatus("Conectando...", "busy");
