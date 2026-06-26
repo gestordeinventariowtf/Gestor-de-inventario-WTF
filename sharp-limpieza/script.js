@@ -1457,16 +1457,25 @@ photoConfirmBtn.addEventListener("click", async () => {
   try {
     const compressedBlob = await compressPhotoCanvasToJpeg(photoCanvas);
     photoStatusText.textContent = `Subiendo foto (${formatBytes(compressedBlob.size)})...`;
-    const photoEvidence = await uploadPhotoEvidenceToFirebase(compressedBlob);
-    photoOverlayMsg.textContent = "Foto guardada";
+    let photoEvidence;
+    try {
+      photoEvidence = await uploadPhotoEvidenceToFirebase(compressedBlob);
+    } catch (uploadError) {
+      console.warn("Firebase Storage upload failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
+      photoStatusText.textContent = "Storage no esta activo. Guardando respaldo local...";
+      photoEvidence = await createLocalPhotoEvidenceBackup(compressedBlob);
+    }
+    photoOverlayMsg.textContent = photoEvidence.source === "firebase-storage" ? "Foto guardada" : "Respaldo guardado";
     photoOverlayMsg.className   = "photo-overlay-msg success";
-    photoStatusText.textContent = "Evidencia guardada. Tarea marcada como realizada.";
+    photoStatusText.textContent = photoEvidence.source === "firebase-storage"
+      ? "Evidencia guardada. Tarea marcada como realizada."
+      : "Evidencia guardada en respaldo local. Tarea marcada como realizada.";
     setTimeout(() => closePhotoModal(photoEvidence), 800);
   } catch (err) {
-    console.warn("Firebase Storage upload failed:", err && err.message ? err.message : err);
+    console.warn("Photo evidence failed:", err && err.message ? err.message : err);
     photoOverlayMsg.textContent = "No se pudo subir";
     photoOverlayMsg.className   = "photo-overlay-msg error";
-    photoStatusText.textContent = err && err.message ? err.message : "Firebase Storage no pudo guardar la foto.";
+    photoStatusText.textContent = err && err.message ? err.message : "No se pudo guardar la foto.";
     photoConfirmBtn.disabled    = false;
     photoRetakeBtn.disabled     = false;
   }
@@ -1559,6 +1568,45 @@ function formatBytes(bytes) {
   const value = Number(bytes) || 0;
   if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("No se pudo preparar el respaldo local de la foto."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function createLocalPhotoEvidenceBackup(blob) {
+  if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
+  const completedAt = new Date();
+  const dateKey = getLocalDateKey(completedAt);
+  const moduleId = getCleaningModuleId();
+  const collaborator = state.collaborators.find((c) => c.id === selectedCell.collaboratorId);
+  const collabName = collaborator ? collaborator.name : "Desconocido";
+  const meta = pendingPhotoMeta || {};
+  const dayName = DAYS[selectedCell.dayIndex] || "";
+  return {
+    url: await blobToDataUrl(blob),
+    storagePath: "",
+    storageBucket: "",
+    moduleId,
+    moduleName: getCleaningModuleName(),
+    dateKey,
+    branchId: currentBranch.id || "",
+    branchName: currentBranch.name || "",
+    weekStart: currentWeekStart,
+    dayIndex: selectedCell.dayIndex,
+    dayName,
+    collaboratorId: selectedCell.collaboratorId,
+    collaboratorName: collabName,
+    team: meta.team || "",
+    taskName: meta.taskName || photoModalLabel.textContent || "",
+    completedAt: completedAt.toISOString(),
+    source: "local-browser-backup"
+  };
 }
 
 async function uploadPhotoEvidenceToFirebase(blob) {

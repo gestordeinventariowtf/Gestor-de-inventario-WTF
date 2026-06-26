@@ -2,6 +2,9 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "database": {
+    "rules": "database.rules.json"
+  },
   "storage": {
     "rules": "storage.rules"
   },
@@ -17,6 +20,9 @@
       "**/node_modules/**",
       "*.log",
       "firebase-debug.log",
+      "firestore.rules",
+      "storage.rules",
+      "database.rules.json",
       "tmp/**",
       "tools/**",
       "cms_audit/**",
@@ -37,6 +43,15 @@
       },
       {
         "source": "/firebase-config.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/sharp-limpieza/**",
         "headers": [
           {
             "key": "Cache-Control",
