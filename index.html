@@ -1455,9 +1455,9 @@
   }
   function openInventoryCountPdfPrintFallback(items, pageLabel, generatedAt, toast) {
     const cards = items.map(function(item) {
-      return '<div class="item"><div class="name">' + escapeHtml(item.nombre || "") + '</div><div class="supplier">Suplidor: ' + escapeHtml(item.suplidor || "-") + '</div><div class="row"><span>Existencia: <strong>' + escapeHtml(misePdfNumber(item.existencia)) + " " + escapeHtml(item.medida || "") + '</strong></span></div><div class="manual">Manual: __________________</div></div>';
+      return '<div class="item"><div class="name">' + escapeHtml(item.nombre || "") + '</div><div class="row"><span>Existencia: <strong>' + escapeHtml(misePdfNumber(item.existencia)) + " " + escapeHtml(item.medida || "") + '</strong></span></div><div class="manual">Manual: __________________</div></div>';
     }).join("");
-    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter landscape;margin:9mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:2px solid #1f7a3a;padding:0 0 8px;margin-bottom:8px}h1{font-size:18px;margin:0}.meta{font-size:11px;color:#6b7280;margin-top:3px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.item{border:1px solid #d1d5db;border-radius:5px;padding:5px;break-inside:avoid;font-size:10px;min-height:44px}.name{font-weight:800;font-size:10.5px;line-height:1.15}.supplier{color:#6b7280;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row{margin-top:3px}.manual{margin-top:4px;font-weight:700}@media print{button{display:none}}</style></head><body><header><h1>Conteo manual - ' + escapeHtml(pageLabel) + '</h1><div class="meta">Generado: ' + escapeHtml(formatDatetime(generatedAt)) + " · Total: " + escapeHtml(items.length) + ' productos</div></header><main class="grid">' + cards + "</main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter landscape;margin:9mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:2px solid #1f7a3a;padding:0 0 8px;margin-bottom:8px}h1{font-size:18px;margin:0}.meta{font-size:11px;color:#6b7280;margin-top:3px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.item{border:1px solid #d1d5db;border-radius:5px;padding:5px;break-inside:avoid;font-size:11px;min-height:44px}.name{font-weight:800;font-size:12px;line-height:1.15}.row{margin-top:4px}.manual{margin-top:5px;font-weight:700}@media print{button{display:none}}</style></head><body><header><h1>Conteo manual - ' + escapeHtml(pageLabel) + '</h1><div class="meta">Generado: ' + escapeHtml(formatDatetime(generatedAt)) + " · Total: " + escapeHtml(items.length) + ' productos</div></header><main class="grid">' + cards + "</main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast && toast("Permite ventanas emergentes para generar el PDF.", "error");
@@ -1521,8 +1521,8 @@
     productRowHeight = Math.max(4.2, productRowHeight);
     const groupWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
     const sectionHeaderHeight = Math.max(4.6, Math.min(6.2, productRowHeight * 1.05));
-    const nameFontSize = Math.max(3.4, Math.min(6.4, productRowHeight * 0.68));
-    const detailFontSize = Math.max(3.1, Math.min(5.6, productRowHeight * 0.58));
+    const nameFontSize = Math.max(4.1, Math.min(7.4, productRowHeight * 0.82));
+    const detailFontSize = Math.max(3.6, Math.min(6.2, productRowHeight * 0.64));
     let col = 0;
     let y = topStart;
     let pageCount = 1;
@@ -1574,16 +1574,12 @@
       doc.setFont("helvetica", "bold");
       doc.setFontSize(nameFontSize);
       doc.setTextColor(17, 24, 39);
-      const nameText = doc.splitTextToSize(String(item.nombre || ""), groupWidth * 0.42).slice(0, 1);
+      const nameText = doc.splitTextToSize(String(item.nombre || ""), groupWidth * 0.58).slice(0, 1);
       doc.text(nameText, x + 1.7, rowTop + productRowHeight * 0.62);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(detailFontSize);
-      doc.setTextColor(75, 85, 99);
-      const supplierText = doc.splitTextToSize(String(item.suplidor || "-"), groupWidth * 0.22).slice(0, 1);
-      doc.text(supplierText, x + groupWidth * 0.44, rowTop + productRowHeight * 0.62);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
-      doc.text(misePdfNumber(item.existencia) + " " + (item.medida || ""), x + groupWidth * 0.68, rowTop + productRowHeight * 0.62, { maxWidth: groupWidth * 0.14 });
+      doc.setFontSize(detailFontSize);
+      doc.text(misePdfNumber(item.existencia) + " " + (item.medida || ""), x + groupWidth * 0.61, rowTop + productRowHeight * 0.62, { maxWidth: groupWidth * 0.16 });
       doc.setFont("helvetica", "normal");
       doc.text("Manual:", x + groupWidth - 24, rowTop + productRowHeight * 0.62);
       doc.line(x + groupWidth - 11, rowTop + productRowHeight * 0.66, x + groupWidth - 2, rowTop + productRowHeight * 0.66);
