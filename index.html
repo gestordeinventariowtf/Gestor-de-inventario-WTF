@@ -1469,10 +1469,24 @@
     toast && toast("Se abrio la vista para guardar como PDF.", "info");
   }
   async function generateInventoryCountPdf(inventario, pageLabel, toast) {
-    const items = (Array.isArray(inventario) ? inventario : []).filter((item) => item && item.tipo === "producto").map(function(item) {
-      return Object.assign({}, item, { existencia: getInventoryExistence(item) });
-    }).sort(function(a, b) {
-      return String(a.nombre || "").localeCompare(String(b.nombre || ""));
+    let currentSection = "SIN RENGLÓN";
+    const pdfRows = [];
+    (Array.isArray(inventario) ? inventario : []).forEach(function(item) {
+      if (!item) return;
+      if (item.tipo === "separador") {
+        currentSection = String(item.nombre || "SIN RENGLÓN").trim() || "SIN RENGLÓN";
+        return;
+      }
+      if (item.tipo !== "producto") return;
+      if (!pdfRows.length || pdfRows[pdfRows.length - 1].type !== "section" || pdfRows[pdfRows.length - 1].name !== currentSection) {
+        pdfRows.push({ type: "section", name: currentSection });
+      }
+      pdfRows.push({ type: "product", item: Object.assign({}, item, { existencia: getInventoryExistence(item), sectionName: currentSection }) });
+    });
+    const items = pdfRows.filter(function(row) {
+      return row.type === "product";
+    }).map(function(row) {
+      return row.item;
     });
     if (!items.length) {
       toast && toast(`No hay productos en ${pageLabel} para generar PDF.`, "error");
@@ -1496,19 +1510,20 @@
     let columnCount = 3;
     let rowsPerColumnPage = 1;
     let cardHeight = 20;
-    for (let cols = 3; cols <= 10; cols++) {
-      const neededRows = Math.ceil(items.length / (cols * maxPages));
+    for (let cols = 3; cols <= 12; cols++) {
+      const neededRows = Math.ceil(pdfRows.length / (cols * maxPages));
       const candidateHeight = availableHeight / Math.max(1, neededRows) - rowGap;
       columnCount = cols;
       rowsPerColumnPage = Math.max(1, neededRows);
       cardHeight = Math.min(20, candidateHeight);
-      if (candidateHeight >= 9.5) break;
+      if (candidateHeight >= 7.5) break;
     }
-    cardHeight = Math.max(7.8, cardHeight);
+    cardHeight = Math.max(5.2, cardHeight);
     const cardWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
-    const nameFontSize = Math.max(4.8, Math.min(7.5, cardHeight * 0.34));
-    const detailFontSize = Math.max(4.5, Math.min(6.8, cardHeight * 0.3));
+    const nameFontSize = Math.max(3.8, Math.min(7.5, cardHeight * 0.34));
+    const detailFontSize = Math.max(3.4, Math.min(6.8, cardHeight * 0.3));
     const nameLineLimit = cardHeight < 11 ? 1 : 2;
+    const sectionHeight = Math.max(4.2, Math.min(7, cardHeight * 0.72));
     let col = 0;
     let y = topStart;
     let pageCount = 1;
@@ -1525,8 +1540,9 @@
       doc.setLineWidth(0.5);
       doc.line(margin, 21, pageWidth - margin, 21);
     }
-    function addPageIfNeeded() {
-      if (y + cardHeight <= pageHeight - 11) return;
+    function addPageIfNeeded(nextHeight) {
+      const height = Number(nextHeight || cardHeight);
+      if (y + height <= pageHeight - 11) return;
       col++;
       y = topStart;
       if (col < columnCount) return;
@@ -1539,10 +1555,24 @@
       y = topStart;
     }
     drawHeader();
-    items.forEach(function(item) {
-      addPageIfNeeded();
+    pdfRows.forEach(function(row) {
+      const rowHeight = row.type === "section" ? sectionHeight : cardHeight;
+      addPageIfNeeded(rowHeight);
       const x = margin + col * (cardWidth + gap);
       const rowTop = y;
+      if (row.type === "section") {
+        doc.setFillColor(240, 253, 244);
+        doc.setDrawColor(31, 122, 58);
+        doc.roundedRect(x, rowTop, cardWidth, sectionHeight, 1.2, 1.2, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(Math.max(5, Math.min(7.2, sectionHeight * 0.72)));
+        doc.setTextColor(22, 101, 52);
+        const sectionText = doc.splitTextToSize(String(row.name || "SIN RENGLÓN"), cardWidth - 4).slice(0, 1);
+        doc.text(sectionText, x + 1.8, rowTop + sectionHeight - 1.8);
+        y += sectionHeight + rowGap;
+        return;
+      }
+      const item = row.item;
       doc.setDrawColor(209, 213, 219);
       doc.setFillColor(255, 255, 255);
       doc.roundedRect(x, rowTop, cardWidth, cardHeight, 1.5, 1.5, "FD");
@@ -1551,12 +1581,14 @@
       doc.setTextColor(17, 24, 39);
       const nameLines = doc.splitTextToSize(String(item.nombre || ""), cardWidth - 4).slice(0, nameLineLimit);
       doc.text(nameLines, x + 1.6, rowTop + Math.max(3.2, cardHeight * 0.22));
-      const detailY = rowTop + Math.max(6.5, cardHeight * 0.45);
+      const detailY = rowTop + Math.max(4.4, cardHeight * 0.45);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(detailFontSize);
       doc.setTextColor(75, 85, 99);
-      const supplier = doc.splitTextToSize("Suplidor: " + String(item.suplidor || "-"), cardWidth - 4).slice(0, 1);
-      doc.text(supplier, x + 1.6, detailY);
+      if (cardHeight >= 7) {
+        const supplier = doc.splitTextToSize("Suplidor: " + String(item.suplidor || "-"), cardWidth - 4).slice(0, 1);
+        doc.text(supplier, x + 1.6, detailY);
+      }
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
       const bottomY = rowTop + cardHeight - 3.2;
