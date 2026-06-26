@@ -2576,6 +2576,15 @@
     }
     return "fnv32-" + (hash >>> 0).toString(16).padStart(8, "0");
   }
+  function quickHashText(text) {
+    const raw = String(text || "");
+    let hash = 2166136261;
+    for (let i = 0; i < raw.length; i++) {
+      hash ^= raw.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return "fnv32-" + (hash >>> 0).toString(16).padStart(8, "0");
+  }
   async function sha256Bytes(bytes) {
     const raw = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
     if (window.crypto && window.crypto.subtle && window.isSecureContext !== false) {
@@ -2826,7 +2835,7 @@
       return {
         clientId: syncClientIdRef.current,
         clientTime: pendingLocalAtRef.current || Date.now(),
-        signature,
+        signature: quickHashText(signature),
         reason: reason || "web-client"
       };
     }

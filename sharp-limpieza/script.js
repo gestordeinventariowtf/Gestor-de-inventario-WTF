@@ -33,12 +33,12 @@ const FIREBASE_CONFIG = {
 };
 
 const PHOTO_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAOAl2Bel3X8NsQMmzBsmc0XqvyzUkr4kM",
-  authDomain: "gestor-de-inventario-wtf.firebaseapp.com",
-  projectId: "gestor-de-inventario-wtf",
-  storageBucket: "gestor-de-inventario-wtf.firebasestorage.app",
-  messagingSenderId: "55387236634",
-  appId: "1:55387236634:web:65879d9bf377c0ace1a4a3"
+  apiKey: "AIzaSyDTzYuq3gfgL-9mFzN-1SdebGeptKYBw1M",
+  authDomain: "gestor-de-inventario-wtf-prod.firebaseapp.com",
+  projectId: "gestor-de-inventario-wtf-prod",
+  storageBucket: "gestor-de-inventario-wtf-prod.firebasestorage.app",
+  messagingSenderId: "90971754397",
+  appId: "1:90971754397:web:bc1dcdcd0f5f8d5da6a974"
 };
 
 const LEGEND = {
