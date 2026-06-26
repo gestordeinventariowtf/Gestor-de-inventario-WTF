@@ -3765,6 +3765,7 @@ Solicitado: ${cantidad}`);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [miseProductTarget, setMiseProductTarget] = useState("");
     const [hiddenRecipeMatchName, setHiddenRecipeMatchName] = useState("");
+    const [hiddenProductionMatchName, setHiddenProductionMatchName] = useState("");
     const [error, setError] = useState("");
     const [directLoad, setDirectLoad] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [directLoadError, setDirectLoadError] = useState("");
@@ -4104,6 +4105,7 @@ Solicitado: ${cantidad}`);
     const productionNameMatches = useMemo(function() {
       const q = String(resultado.nombre || "").trim();
       if (normalizar(q).length < 3) return [];
+      if (hiddenProductionMatchName && normalizar(q) === normalizar(hiddenProductionMatchName)) return [];
       return produccionProgramadaCatalogo.map(buildProduccionProgramadaItem).map(function(item) {
         return Object.assign({}, item, { searchScore: getPendingProductionSearchScore(q, item) });
       }).filter(function(item) {
@@ -4111,7 +4113,7 @@ Solicitado: ${cantidad}`);
       }).sort(function(a, b) {
         return b.searchScore - a.searchScore || a.nombre.localeCompare(b.nombre);
       }).slice(0, 5);
-    }, [resultado.nombre, produccionProgramadaCatalogo, productosSoloInventario, miseAnPlace, recetasOrdenadas]);
+    }, [resultado.nombre, hiddenProductionMatchName, produccionProgramadaCatalogo, productosSoloInventario, miseAnPlace, recetasOrdenadas]);
     const recipeNameMatches = useMemo(function() {
       const q = String(resultado.nombre || "").trim();
       if (normalizar(q).length < 3) return [];
@@ -4439,6 +4441,7 @@ Solicitado: ${cantidad}`);
       setResultado({ nombre: "", cantidad: "", medida: "Uni" });
       setMiseProductTarget("");
       setHiddenRecipeMatchName("");
+      setHiddenProductionMatchName("");
       setError("");
     }
     function resetDirectLoadForm() {
@@ -4507,7 +4510,8 @@ Solicitado: ${cantidad}`);
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
-          salidaCompleta: Boolean(item.salidaCompleta)
+          salidaCompleta: Boolean(item.salidaCompleta),
+          fromRecipe: true
         };
       }));
       setResultado({
@@ -4576,6 +4580,21 @@ Solicitado: ${cantidad}`);
         };
       }
       if (converted == null) {
+        if (item.fromRecipe) {
+          return {
+            product,
+            productKey: product.productKey,
+            origen: product.origen || "inventario",
+            storageKey: product.storageKey || product.origen || "inventario",
+            sourceModuleLabel: product.sourceModuleLabel || moduleLabel,
+            almacenLabel: product.almacenLabel || "Inventario",
+            origenLabel: product.origenLabel || "Inventario",
+            qtyInput: qty,
+            inputUnit: item.unidad,
+            convertedQty: 0,
+            savedRecipeReference: true
+          };
+        }
         return { error: `No se puede convertir ${item.unidad} hacia ${product.medida} en ${product.nombre}.` };
       }
       if (converted - product.existencia > 1e-9) {
@@ -4869,7 +4888,8 @@ Solicitado: ${cantidad}`);
               unidadUsada: entry.inputUnit,
               cantidadDescontada: Number(entry.convertedQty.toFixed(4)),
               unidadInventario: entry.product.medida,
-              salidaCompleta: Boolean(entry.salidaCompleta)
+              salidaCompleta: Boolean(entry.salidaCompleta),
+              referenciaRecetaSinDescuento: Boolean(entry.savedRecipeReference)
             };
           })
         }];
@@ -4962,7 +4982,8 @@ Solicitado: ${cantidad}`);
           origenLabel: item.origenLabel || (origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
           cantidad: String(item.cantidad || ""),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
-          salidaCompleta: Boolean(item.salidaCompleta)
+          salidaCompleta: Boolean(item.salidaCompleta),
+          fromRecipe: true
         };
       }));
       setResultado({
@@ -4972,6 +4993,7 @@ Solicitado: ${cantidad}`);
       });
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setHiddenRecipeMatchName(receta.nombre || "");
+      setHiddenProductionMatchName(receta.nombre || "");
       setBusqueda("");
       setError("");
       setModalOpen(true);
@@ -4990,6 +5012,7 @@ Solicitado: ${cantidad}`);
         cantidad: "",
         medida: item.inventarioMatch ? item.inventarioMatch.medida : "Uni"
       });
+      setHiddenProductionMatchName(item.nombre || "");
       setModalOpen(true);
       setPendingModalOpen(false);
       toast(`Producto seleccionado para producción: ${item.nombre}`, "ok");
@@ -5391,7 +5414,7 @@ Solicitado: ${cantidad}`);
                         ),
                         product && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
                           /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.salidaCompleta), onChange: function(e) { updateInsumo(item.rowId, "salidaCompleta", e.target.checked); }, style: { marginTop: 2 } }),
-                          /* @__PURE__ */ React.createElement("span", null, "Dar salida a 1 ", product.medida || "unidad", " completo", cannotConvertUnit ? ` porque ${item.unidad} no convierte directo a ${product.medida}.` : ".")
+                          /* @__PURE__ */ React.createElement("span", null, "Dar salida a 1 ", product.nombre || "producto", " COMPLETO")
                         )
                       );
                     }),
@@ -5400,7 +5423,7 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid #e5e7eb", paddingTop: 14, display: "grid", gap: 12 } },
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto producido"),
-                      /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setHiddenRecipeMatchName(""); setError(""); }, placeholder: "Ej: Salsa base, pollo marinado, mezcla preparada..." }),
+                      /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setHiddenRecipeMatchName(""); setHiddenProductionMatchName(""); setError(""); }, placeholder: "Ej: Salsa base, pollo marinado, mezcla preparada..." }),
                       recipeNameMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, border: "1px solid #bbf7d0", background: "#f0fdf4", borderRadius: 10, padding: 10, display: "grid", gap: 8 } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: "#15803d" } }, "Coincidencias en recetas de producción"),
@@ -5554,7 +5577,7 @@ Solicitado: ${cantidad}`);
                         ),
                         product && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
                           /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.salidaCompleta), onChange: function(e) { updateInsumo(item.rowId, "salidaCompleta", e.target.checked); }, style: { marginTop: 2 } }),
-                          /* @__PURE__ */ React.createElement("span", null, "Dar salida a 1 ", product.medida || "unidad", " completo", cannotConvertUnit ? ` porque ${item.unidad} no convierte directo a ${product.medida}.` : ".")
+                          /* @__PURE__ */ React.createElement("span", null, "Dar salida a 1 ", product.nombre || "producto", " COMPLETO")
                         )
                       );
                     }),
