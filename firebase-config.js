@@ -1,12 +1,12 @@
 window.WTF_FIREBASE_CONFIG = {
   enabled: true,
   firebaseConfig: {
-    apiKey: "AIzaSyDTzYuq3gfgL-9mFzN-1SdebGeptKYBw1M",
-    authDomain: "gestor-de-inventario-wtf-prod.firebaseapp.com",
-    projectId: "gestor-de-inventario-wtf-prod",
-    storageBucket: "gestor-de-inventario-wtf-prod.firebasestorage.app",
-    messagingSenderId: "90971754397",
-    appId: "1:90971754397:web:bc1dcdcd0f5f8d5da6a974"
+    apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
+    authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
+    projectId: "gestor-de-inventario-wtf-29056",
+    storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
+    messagingSenderId: "863301490729",
+    appId: "1:863301490729:web:f5018bd6e6489f69686438"
   },
   collection: "wtfSistema",
   documentId: "estadoGeneral"

@@ -23,22 +23,22 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyUvGPTSyPC_jzl
 const TESSERACT_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
 
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDvx6sjsvCEOiKQT6fbyx1SF7wuogZfOHI",
-  authDomain: "sharplimpieza.firebaseapp.com",
-  databaseURL: "https://sharplimpieza-default-rtdb.firebaseio.com",
-  projectId: "sharplimpieza",
-  storageBucket: "sharplimpieza.firebasestorage.app",
-  messagingSenderId: "1066646996136",
-  appId: "1:1066646996136:web:3f61f9101486b6d1a9ee9d"
+  apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
+  authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
+  databaseURL: "https://gestor-de-inventario-wtf-29056-default-rtdb.firebaseio.com",
+  projectId: "gestor-de-inventario-wtf-29056",
+  storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
+  messagingSenderId: "863301490729",
+  appId: "1:863301490729:web:f5018bd6e6489f69686438"
 };
 
 const PHOTO_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDTzYuq3gfgL-9mFzN-1SdebGeptKYBw1M",
-  authDomain: "gestor-de-inventario-wtf-prod.firebaseapp.com",
-  projectId: "gestor-de-inventario-wtf-prod",
-  storageBucket: "gestor-de-inventario-wtf-prod.firebasestorage.app",
-  messagingSenderId: "90971754397",
-  appId: "1:90971754397:web:bc1dcdcd0f5f8d5da6a974"
+  apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
+  authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
+  projectId: "gestor-de-inventario-wtf-29056",
+  storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
+  messagingSenderId: "863301490729",
+  appId: "1:863301490729:web:f5018bd6e6489f69686438"
 };
 
 const LEGEND = {
