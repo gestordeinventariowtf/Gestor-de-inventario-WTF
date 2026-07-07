@@ -173,6 +173,7 @@ const TASK_INDEX = buildTaskIndex();
 const ADMIN_PIN = "852347";
 let libraryRef       = null;
 let firebaseDB       = null;
+let firebaseAuthReady = false;
 let pinGateSuccess   = null;
 let pinGateCancel    = null;
 
@@ -1847,6 +1848,9 @@ async function toggleTaskDone(index, done) {
   }
   saveState();
   renderTable();
+  if (realizadasPanel && !realizadasPanel.classList.contains("hidden")) {
+    renderRealizadasPanel();
+  }
   if (selectedCell?.collaboratorId === capturedCollabId &&
       selectedCell?.dayIndex === capturedDayIndex) {
     renderModalTaskList();
@@ -2058,7 +2062,21 @@ function normalizeTaskItem(value) {
 
 // ── Firebase sync & branch system ────────────────────────────────────
 
-function initFirebaseConnection() {
+async function ensureFirebaseAuth(app) {
+  if (!firebase.auth) {
+    throw new Error("Firebase Auth no esta disponible.");
+  }
+  const auth = firebase.auth(app);
+  if (auth.currentUser) {
+    firebaseAuthReady = true;
+    return auth.currentUser;
+  }
+  const credential = await auth.signInAnonymously();
+  firebaseAuthReady = true;
+  return credential.user;
+}
+
+async function initFirebaseConnection() {
   if (!window.firebase || typeof firebase.initializeApp !== "function" || typeof firebase.database !== "function") {
     setSyncStatus("Modo local", "offline");
     branches = loadBranchConfigFromLocal();
@@ -2068,6 +2086,14 @@ function initFirebaseConnection() {
   }
   try {
     const app = firebase.apps && firebase.apps.length > 0 ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+    setSyncStatus("Autenticando...", "busy");
+    try {
+      await ensureFirebaseAuth(app);
+    } catch (authErr) {
+      firebaseAuthReady = false;
+      console.warn("Firebase Auth anonimo no esta activo:", authErr && authErr.message ? authErr.message : authErr);
+      setSyncStatus("Configurar seguridad", "busy");
+    }
     const database = firebase.database(app);
     firebaseDB = database;
     runPhotoRetentionCleanup();
@@ -2100,7 +2126,10 @@ function initFirebaseConnection() {
     }, FIREBASE_CONNECT_TIMEOUT_MS);
   } catch (err) {
     console.error("Firebase init error", err);
-    setSyncStatus("Modo local", "offline");
+    const message = err && (err.code === "auth/operation-not-allowed" || err.code === "auth/admin-restricted-operation")
+      ? "Activa Auth anonimo"
+      : "Modo local";
+    setSyncStatus(message, "offline");
     branches = loadBranchConfigFromLocal();
     showBranchSelector();
     renderBranchList();
