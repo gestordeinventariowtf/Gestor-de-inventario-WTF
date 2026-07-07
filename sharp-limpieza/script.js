@@ -9,11 +9,12 @@ const FIREBASE_RETRY_BASE_MS = 3000;
 const FIREBASE_RETRY_MAX_MS = 30000;
 const PHOTO_STORAGE_ROOT = "sharp-limpieza";
 const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
-const PHOTO_RETENTION_DAYS = 15;
+const PHOTO_RETENTION_DAYS = 3;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
-const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
-const PHOTO_MAX_WIDTH = 1600;
-const PHOTO_MIN_QUALITY = 0.55;
+const PHOTO_MAX_BYTES = 25 * 1024;
+const PHOTO_MAX_WIDTH = 640;
+const PHOTO_MIN_QUALITY = 0.18;
+const PHOTO_MIN_WIDTH = 220;
 
 const DEFAULT_BRANCHES = [
   { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
@@ -173,6 +174,7 @@ const TASK_INDEX = buildTaskIndex();
 const ADMIN_PIN = "852347";
 let libraryRef       = null;
 let firebaseDB       = null;
+let firebaseStorage  = null;
 let firebaseAuthReady = false;
 let pinGateSuccess   = null;
 let pinGateCancel    = null;
@@ -1468,18 +1470,18 @@ photoConfirmBtn.addEventListener("click", async () => {
 
   try {
     const compressedBlob = await compressPhotoCanvasToJpeg(photoCanvas);
-    photoStatusText.textContent = `Guardando foto en Firebase Database (${formatBytes(compressedBlob.size)})...`;
+    photoStatusText.textContent = `Guardando foto en Firebase Storage (${formatBytes(compressedBlob.size)})...`;
     let photoEvidence;
     try {
-      photoEvidence = await uploadPhotoEvidenceToFirebaseDatabase(compressedBlob);
+      photoEvidence = await uploadPhotoEvidenceToFirebaseStorage(compressedBlob);
     } catch (uploadError) {
-      console.warn("Firebase Database photo save failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
-      photoStatusText.textContent = "Firebase Database no respondio. Guardando respaldo local...";
+      console.warn("Firebase Storage photo save failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
+      photoStatusText.textContent = "Firebase Storage no respondio. Guardando respaldo local...";
       photoEvidence = await createLocalPhotoEvidenceBackup(compressedBlob);
     }
-    photoOverlayMsg.textContent = photoEvidence.source === "firebase-database" ? "Foto guardada" : "Respaldo guardado";
+    photoOverlayMsg.textContent = photoEvidence.source === "firebase-storage" ? "Foto guardada" : "Respaldo guardado";
     photoOverlayMsg.className   = "photo-overlay-msg success";
-    photoStatusText.textContent = photoEvidence.source === "firebase-database"
+    photoStatusText.textContent = photoEvidence.source === "firebase-storage"
       ? "Evidencia guardada. Tarea marcada como realizada."
       : "Evidencia guardada en respaldo local. Tarea marcada como realizada.";
     setTimeout(() => closePhotoModal(photoEvidence), 800);
@@ -1557,19 +1559,26 @@ async function compressPhotoCanvasToJpeg(sourceCanvas) {
   work.height = Math.max(1, Math.round(sourceHeight * ratio));
   work.getContext("2d").drawImage(sourceCanvas, 0, 0, work.width, work.height);
 
-  let quality = 0.82;
-  let blob = await canvasToJpegBlob(work, quality);
+  let current = work;
+  let quality = 0.72;
+  let blob = await canvasToJpegBlob(current, quality);
   while (blob.size > PHOTO_MAX_BYTES && quality > PHOTO_MIN_QUALITY) {
-    quality = Math.max(PHOTO_MIN_QUALITY, Number((quality - 0.08).toFixed(2)));
-    blob = await canvasToJpegBlob(work, quality);
+    quality = Math.max(PHOTO_MIN_QUALITY, Number((quality - 0.07).toFixed(2)));
+    blob = await canvasToJpegBlob(current, quality);
   }
-  if (blob.size > PHOTO_MAX_BYTES && work.width > 900) {
-    const ratio2 = Math.sqrt(PHOTO_MAX_BYTES / blob.size) * 0.95;
+  while (blob.size > PHOTO_MAX_BYTES && current.width > PHOTO_MIN_WIDTH) {
+    const ratio2 = Math.max(0.55, Math.sqrt(PHOTO_MAX_BYTES / blob.size) * 0.92);
     const resized = document.createElement("canvas");
-    resized.width = Math.max(900, Math.round(work.width * ratio2));
-    resized.height = Math.max(1, Math.round(work.height * (resized.width / work.width)));
-    resized.getContext("2d").drawImage(work, 0, 0, resized.width, resized.height);
-    blob = await canvasToJpegBlob(resized, PHOTO_MIN_QUALITY);
+    resized.width = Math.max(PHOTO_MIN_WIDTH, Math.round(current.width * ratio2));
+    resized.height = Math.max(1, Math.round(current.height * (resized.width / current.width)));
+    resized.getContext("2d").drawImage(current, 0, 0, resized.width, resized.height);
+    current = resized;
+    quality = Math.min(0.62, Math.max(PHOTO_MIN_QUALITY, quality));
+    blob = await canvasToJpegBlob(current, quality);
+    while (blob.size > PHOTO_MAX_BYTES && quality > PHOTO_MIN_QUALITY) {
+      quality = Math.max(PHOTO_MIN_QUALITY, Number((quality - 0.06).toFixed(2)));
+      blob = await canvasToJpegBlob(current, quality);
+    }
   }
   return new Blob([blob], { type: "image/jpeg" });
 }
@@ -1619,9 +1628,13 @@ async function createLocalPhotoEvidenceBackup(blob) {
   };
 }
 
-async function uploadPhotoEvidenceToFirebaseDatabase(blob) {
+async function uploadPhotoEvidenceToFirebaseStorage(blob) {
+  if (!firebaseStorage) throw new Error("Firebase Storage no esta disponible.");
   if (!firebaseDB) throw new Error("Firebase Database no esta disponible.");
   if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
+  if (blob.size > PHOTO_MAX_BYTES) {
+    throw new Error(`La foto comprimida supera ${formatBytes(PHOTO_MAX_BYTES)}. Toma la foto con mas luz o mas cerca.`);
+  }
   const completedAt = new Date();
   const dateKey = getLocalDateKey(completedAt);
   const moduleId = getCleaningModuleId();
@@ -1637,13 +1650,26 @@ async function uploadPhotoEvidenceToFirebaseDatabase(blob) {
     meta.taskName || photoModalLabel.textContent,
     Date.now()
   ].map(slugifyBranchName).filter(Boolean).join("-");
-  const photoId = fileBase || createId();
-  const dataUrl = await blobToDataUrl(blob);
-  const databasePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${photoId}`;
+  const photoId = `${fileBase || createId()}.jpg`;
+  const storagePath = `${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}/${photoId}`;
+  const photoRef = firebaseStorage.ref(storagePath);
+  const snapshot = await withTimeout(photoRef.put(blob, {
+    contentType: "image/jpeg",
+    customMetadata: {
+      moduleId,
+      branchId: currentBranch.id || "",
+      weekStart: currentWeekStart,
+      collaboratorId: selectedCell.collaboratorId || "",
+      taskName: meta.taskName || ""
+    }
+  }), PHOTO_UPLOAD_TIMEOUT_MS, "Firebase Storage no respondio a tiempo.");
+  const url = await withTimeout(snapshot.ref.getDownloadURL(), PHOTO_UPLOAD_TIMEOUT_MS, "No se pudo obtener el enlace de la foto.");
   const record = {
-    url: dataUrl,
-    storagePath: databasePath,
-    storageBucket: "firebase-realtime-database",
+    url,
+    storagePath,
+    storageBucket: FIREBASE_CONFIG.storageBucket || "",
+    size: blob.size,
+    contentType: "image/jpeg",
     moduleId,
     moduleName: getCleaningModuleName(),
     dateKey,
@@ -1657,25 +1683,8 @@ async function uploadPhotoEvidenceToFirebaseDatabase(blob) {
     team: meta.team || "",
     taskName: meta.taskName || photoModalLabel.textContent || "",
     completedAt: completedAt.toISOString(),
-    source: "firebase-database"
+    source: "firebase-storage"
   };
-  await withTimeout(firebaseDB.ref(databasePath).set({
-    dataUrl,
-    contentType: "image/jpeg",
-    size: blob.size,
-    createdAt: firebase.database.ServerValue.TIMESTAMP,
-    meta: {
-      moduleId,
-      moduleName: getCleaningModuleName(),
-      branchId: currentBranch.id || "",
-      branchName: currentBranch.name || "",
-      weekStart: currentWeekStart,
-      dayName,
-      collaborator: collabName,
-      team: meta.team || "",
-      taskName: meta.taskName || ""
-    }
-  }), PHOTO_UPLOAD_TIMEOUT_MS, "Firebase Database no respondio a tiempo.");
   await firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}/${dateKey}`).push({
     ...record,
     createdAt: firebase.database.ServerValue.TIMESTAMP
@@ -1722,6 +1731,16 @@ async function runPhotoRetentionCleanup(options = {}) {
       const byDate = snap.val() || {};
       for (const dateKey of Object.keys(byDate)) {
         if (dateKey >= cutoffKey) continue;
+        const entries = byDate[dateKey] || {};
+        if (firebaseStorage) {
+          for (const entry of Object.values(entries)) {
+            const storagePath = entry && typeof entry.storagePath === "string" ? entry.storagePath : "";
+            if (storagePath && entry.source === "firebase-storage") {
+              await firebaseStorage.ref(storagePath).delete()
+                .catch((err) => console.warn("No se pudo limpiar foto antigua de Storage:", err.message || err));
+            }
+          }
+        }
         await firebaseDB.ref(`${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}`).remove()
           .catch((err) => console.warn("No se pudo limpiar foto antigua:", err.message || err));
         await moduleRef.child(dateKey).remove().catch((err) => console.warn("No se pudo limpiar índice antiguo:", err.message || err));
@@ -2096,6 +2115,9 @@ async function initFirebaseConnection() {
     }
     const database = firebase.database(app);
     firebaseDB = database;
+    if (typeof firebase.storage === "function") {
+      firebaseStorage = firebase.storage(app);
+    }
     runPhotoRetentionCleanup();
 
     setSyncStatus("Conectando...", "busy");
