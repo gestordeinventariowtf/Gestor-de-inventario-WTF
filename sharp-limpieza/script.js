@@ -2,6 +2,11 @@ const DAYS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Do
 const STORAGE_KEY = "sharp_limpieza_board_v3";
 const BRANCH_CONFIG_STORAGE_KEY = "sharp_limpieza_branch_config_v1";
 const SYNC_DEBOUNCE_MS = 250;
+const FIREBASE_CONNECT_TIMEOUT_MS = 8000;
+const FIREBASE_BOARD_TIMEOUT_MS = 10000;
+const FIREBASE_SAVE_TIMEOUT_MS = 12000;
+const FIREBASE_RETRY_BASE_MS = 3000;
+const FIREBASE_RETRY_MAX_MS = 30000;
 const PHOTO_STORAGE_ROOT = "sharp-limpieza";
 const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
 const PHOTO_RETENTION_DAYS = 15;
@@ -269,6 +274,13 @@ let remoteBoardRef = null;
 let remoteSaveTimer = null;
 let isApplyingRemoteState = false;
 let hasRemoteSnapshot = false;
+let firebaseConnected = false;
+let firebaseConnectFallbackTimer = null;
+let boardConnectTimer = null;
+let boardRetryTimer = null;
+let remoteSaveInFlight = false;
+let remoteSaveRetryCount = 0;
+let pendingRemoteSave = false;
 
 let photoStream       = null;
 let photoBlob         = null;
@@ -1342,6 +1354,8 @@ function initLibrarySync() {
         renderLibraryMgmt();
       }
     } catch (_) {}
+  }, (err) => {
+    console.error("Firebase library sync error", err);
   });
 }
 
@@ -2061,23 +2075,29 @@ function initFirebaseConnection() {
     setSyncStatus("Conectando...", "busy");
 
     database.ref(".info/connected").on("value", (snap) => {
+      firebaseConnected = snap.val() === true;
       if (currentBranch) {
         setSyncStatus(
-          snap.val() === true ? (hasRemoteSnapshot ? "Sincronizado" : "Conectado") : "Sin conexion",
-          snap.val() === true ? "online" : "offline"
+          firebaseConnected ? (hasRemoteSnapshot ? "Sincronizado" : "Conectado") : "Sin conexion",
+          firebaseConnected ? "online" : "offline"
         );
+      } else if (!branchConfigReady) {
+        setSyncStatus(firebaseConnected ? "Conectado" : "Sin conexion", firebaseConnected ? "online" : "offline");
+      }
+      if (firebaseConnected && currentBranch && !remoteBoardRef && !usingBranchConfigFallback) {
+        connectBoardSync(currentBranch.id);
+      }
+      if (firebaseConnected && pendingRemoteSave && remoteBoardRef && !remoteSaveInFlight) {
+        queueRemoteSave({ immediate: true });
       }
     });
 
     initBranchConfigSync();
-    window.setTimeout(() => {
+    window.clearTimeout(firebaseConnectFallbackTimer);
+    firebaseConnectFallbackTimer = window.setTimeout(() => {
       if (branchConfigReady || branches.length > 0) return;
-      usingBranchConfigFallback = true;
-      branches = loadBranchConfigFromLocal();
-      setSyncStatus("Modo local", "offline");
-      renderBranchList();
-      showBranchSelector();
-    }, 5000);
+      activateLocalBranchFallback("Firebase no respondio. Modo local temporal.");
+    }, FIREBASE_CONNECT_TIMEOUT_MS);
   } catch (err) {
     console.error("Firebase init error", err);
     setSyncStatus("Modo local", "offline");
@@ -2087,10 +2107,22 @@ function initFirebaseConnection() {
   }
 }
 
+function activateLocalBranchFallback(message = "Modo local") {
+  usingBranchConfigFallback = true;
+  branches = loadBranchConfigFromLocal();
+  if (!branches.length) branches = normalizeBranchConfig(DEFAULT_BRANCHES);
+  persistBranchConfigLocal();
+  setSyncStatus(message, "offline");
+  renderBranchList();
+  syncBranchSelect();
+  if (!currentBranch) showBranchSelector();
+}
+
 function initBranchConfigSync() {
   if (!firebaseDB) return;
   branchesConfigRef = firebaseDB.ref("branchConfig");
   branchesConfigRef.on("value", (snap) => {
+    window.clearTimeout(firebaseConnectFallbackTimer);
     branchConfigReady = true;
     usingBranchConfigFallback = false;
     const json = snap.val();
@@ -2115,6 +2147,8 @@ function initBranchConfigSync() {
         currentBranch = null;
         currentBranchIsAdmin = false;
         if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
+        window.clearTimeout(boardConnectTimer);
+        window.clearTimeout(boardRetryTimer);
         document.getElementById("header-branch-name").textContent = "—";
         state = createInitialState();
         selectedCell = null;
@@ -2123,6 +2157,10 @@ function initBranchConfigSync() {
         showBranchSelector();
       }
     }
+  }, (err) => {
+    console.error("Firebase branch config error", err);
+    branchConfigReady = true;
+    activateLocalBranchFallback("Modo local: error de sucursales");
   });
   if (!currentBranch) showBranchSelector();
 }
@@ -2296,10 +2334,20 @@ function enterBranch(branch, options = {}) {
 
 function connectBoardSync(branchId) {
   if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
+  window.clearTimeout(boardConnectTimer);
+  window.clearTimeout(boardRetryTimer);
   hasRemoteSnapshot = false;
   remoteBoardRef = firebaseDB.ref(`boards/${branchId}_${getCleaningModuleId()}`);
   setSyncStatus("Conectando...", "busy");
+  boardConnectTimer = window.setTimeout(() => {
+    if (hasRemoteSnapshot) return;
+    console.warn("Firebase board snapshot timeout");
+    setSyncStatus("Modo local: esperando Firebase", "offline");
+    scheduleBoardReconnect(branchId);
+  }, FIREBASE_BOARD_TIMEOUT_MS);
   remoteBoardRef.on("value", (snap) => {
+    window.clearTimeout(boardConnectTimer);
+    window.clearTimeout(boardRetryTimer);
     hasRemoteSnapshot = true;
     const raw = snap.val();
     if (raw === null) {
@@ -2325,7 +2373,17 @@ function connectBoardSync(branchId) {
   }, (err) => {
     console.error("Firebase sync error", err);
     setSyncStatus("Error de sincronizacion", "error");
+    scheduleBoardReconnect(branchId);
   });
+}
+
+function scheduleBoardReconnect(branchId) {
+  if (!firebaseDB || !currentBranch || currentBranch.id !== branchId || usingBranchConfigFallback) return;
+  window.clearTimeout(boardRetryTimer);
+  boardRetryTimer = window.setTimeout(() => {
+    if (!currentBranch || currentBranch.id !== branchId) return;
+    connectBoardSync(branchId);
+  }, Math.min(FIREBASE_RETRY_BASE_MS * Math.max(1, remoteSaveRetryCount + 1), FIREBASE_RETRY_MAX_MS));
 }
 
 async function openBranchSettings() {
@@ -2472,16 +2530,48 @@ function parseRemoteState(value) {
 }
 
 function queueRemoteSave(options = {}) {
-  if (!remoteBoardRef) return;
+  if (!remoteBoardRef) {
+    pendingRemoteSave = true;
+    return;
+  }
+  if (remoteSaveInFlight) {
+    pendingRemoteSave = true;
+    return;
+  }
   window.clearTimeout(remoteSaveTimer);
   remoteSaveTimer = window.setTimeout(() => {
-    setSyncStatus("Guardando...", "busy");
-    remoteBoardRef.set({
-      stateJson: JSON.stringify(state),
-      updatedAt: firebase.database.ServerValue.TIMESTAMP
-    }).then(() => setSyncStatus("Sincronizado", "online"))
-      .catch((err) => { console.error("Firebase save error", err); setSyncStatus("Error al guardar", "error"); });
+    flushRemoteSave();
   }, options.immediate ? 0 : SYNC_DEBOUNCE_MS);
+}
+
+function flushRemoteSave() {
+  if (!remoteBoardRef || remoteSaveInFlight) {
+    pendingRemoteSave = true;
+    return;
+  }
+  remoteSaveInFlight = true;
+  pendingRemoteSave = false;
+  const payload = {
+    stateJson: JSON.stringify(state),
+    updatedAt: firebase.database.ServerValue.TIMESTAMP
+  };
+  withTimeout(remoteBoardRef.set(payload), FIREBASE_SAVE_TIMEOUT_MS, "Firebase Database no respondio al guardar.").then(() => {
+    remoteSaveInFlight = false;
+    remoteSaveRetryCount = 0;
+    setSyncStatus("Sincronizado", "online");
+    if (pendingRemoteSave) queueRemoteSave({ immediate: true });
+  }).catch((err) => {
+    remoteSaveInFlight = false;
+    pendingRemoteSave = true;
+    remoteSaveRetryCount += 1;
+    console.error("Firebase save error", err);
+    setSyncStatus("Pendiente de sincronizar", "offline");
+    window.clearTimeout(remoteSaveTimer);
+    remoteSaveTimer = window.setTimeout(() => {
+      if (firebaseConnected || hasRemoteSnapshot) flushRemoteSave();
+      else if (currentBranch) scheduleBoardReconnect(currentBranch.id);
+    }, Math.min(FIREBASE_RETRY_BASE_MS * remoteSaveRetryCount, FIREBASE_RETRY_MAX_MS));
+  });
 }
 
 function setSyncStatus(message, stateName) {

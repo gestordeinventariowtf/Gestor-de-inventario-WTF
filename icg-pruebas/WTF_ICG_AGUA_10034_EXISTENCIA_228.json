@@ -1,0 +1,318 @@
+{
+  "version": "WTF_ICG_FRONTREST_BRIDGE_V1",
+  "sourceName": "WTF_PRUEBA_AGUA_10034",
+  "updatedAt": "2026-06-27T04:33:21.715Z",
+  "audit": {
+    "status": "Prueba local AGUA 10034",
+    "originalSize": 0,
+    "decompressedSize": 0,
+    "foundTables": [
+      "Articulos",
+      "Moviments"
+    ],
+    "foundFields": [
+      "CodArticulo",
+      "Descripcion",
+      "Unidades"
+    ],
+    "notes": [
+      "Archivo local de prueba para validar aceptacion en ICG FrontRest PC."
+    ]
+  },
+  "appliedImports": [],
+  "datasets": {
+    "TiquetsCab": {
+      "key": "TiquetsCab",
+      "label": "Ventas / Facturas",
+      "columns": [
+        "Serie",
+        "Numero",
+        "NumFactura",
+        "Fecha",
+        "TotalNeto"
+      ],
+      "rows": []
+    },
+    "TiquetsLin": {
+      "key": "TiquetsLin",
+      "label": "Lineas vendidas",
+      "columns": [
+        "Serie",
+        "Numero",
+        "NumLinea",
+        "CodArticulo",
+        "Descripcion",
+        "Unidades",
+        "Referencia"
+      ],
+      "rows": []
+    },
+    "TiquetsPag": {
+      "key": "TiquetsPag",
+      "label": "Pagos",
+      "columns": [
+        "Serie",
+        "Numero",
+        "Importe"
+      ],
+      "rows": []
+    },
+    "CierresDiarios": {
+      "key": "CierresDiarios",
+      "label": "Cierres diarios",
+      "columns": [
+        "Archivo",
+        "FechaCierre",
+        "Tickets",
+        "Lineas",
+        "VentaNeta",
+        "Estado"
+      ],
+      "rows": []
+    },
+    "ConsumoMiseVentas": {
+      "key": "ConsumoMiseVentas",
+      "label": "Consumo Mise ventas",
+      "columns": [
+        "Fecha",
+        "ModuloWTF",
+        "ProductoWTF",
+        "ProductoMise",
+        "CodArticulo",
+        "Referencia",
+        "ProductoICG",
+        "UnidadesVendidas",
+        "CantidadDescontar",
+        "Unidad",
+        "Archivo",
+        "ImportKey",
+        "Estado"
+      ],
+      "rows": []
+    },
+    "VinculosMiseICG": {
+      "key": "VinculosMiseICG",
+      "label": "Vinculos Mise ICG",
+      "columns": [
+        "ModuloWTF",
+        "ProductoWTF",
+        "ProductoMise",
+        "CodArticulo",
+        "Referencia",
+        "ProductoICG",
+        "Metodo",
+        "CantidadPorVenta",
+        "Unidad",
+        "Activo",
+        "Notas"
+      ],
+      "rows": [
+        {
+          "_id": "test-agua-10034",
+          "ModuloWTF": "Inventario Bar",
+          "ProductoWTF": "AGUA",
+          "ProductoMise": "AGUA",
+          "CodArticulo": "10034",
+          "Referencia": "10034",
+          "ProductoICG": "AGUA",
+          "Metodo": "Prueba local",
+          "CantidadPorVenta": 1,
+          "Unidad": "Uni",
+          "Activo": "Si",
+          "Notas": "Prueba de vinculacion AGUA 10034"
+        }
+      ]
+    },
+    "Articulos": {
+      "key": "Articulos",
+      "label": "Articulos ICG",
+      "columns": [
+        "CodArticulo",
+        "Referencia",
+        "Descripcion",
+        "Dpto",
+        "Seccion",
+        "Unidades",
+        "PCoste",
+        "UnidadMedida",
+        "SeCompra",
+        "SeVende",
+        "UsaStocks",
+        "StockMinimo",
+        "CosteMedio",
+        "UltimoCoste",
+        "Suspendido",
+        "Descatalogado",
+        "FechaModificado"
+      ],
+      "rows": [
+        {
+          "_id": "agua-10034",
+          "CodArticulo": "10034",
+          "Referencia": "10034",
+          "Descripcion": "AGUA",
+          "Dpto": "",
+          "Seccion": "",
+          "Unidades": 228,
+          "PCoste": 0,
+          "UnidadMedida": "Uni",
+          "SeCompra": "Si",
+          "SeVende": "Si",
+          "UsaStocks": "Si",
+          "StockMinimo": 0,
+          "CosteMedio": 0,
+          "UltimoCoste": 0,
+          "Suspendido": "No",
+          "Descatalogado": "No",
+          "FechaModificado": "2026-06-27"
+        }
+      ]
+    },
+    "Referencias": {
+      "key": "Referencias",
+      "label": "Codigos / referencias",
+      "columns": [
+        "Referencia",
+        "Codigo",
+        "TipoRef",
+        "CodProveedor"
+      ],
+      "rows": [
+        {
+          "_id": "ref-agua-10034",
+          "Referencia": "10034",
+          "Codigo": "10034",
+          "TipoRef": "CodArticulo",
+          "CodProveedor": ""
+        }
+      ]
+    },
+    "ComprasCab": {
+      "key": "ComprasCab",
+      "label": "Compras / Entradas",
+      "columns": [
+        "Serie",
+        "Numero",
+        "N",
+        "Fecha",
+        "CodProveedor",
+        "CodAlmacen",
+        "SuFactura",
+        "TotalBruto",
+        "TotalNeto"
+      ],
+      "rows": []
+    },
+    "ComprasLin": {
+      "key": "ComprasLin",
+      "label": "Lineas de compra",
+      "columns": [
+        "Serie",
+        "Numero",
+        "N",
+        "NumLinea",
+        "CodArticulo",
+        "Referencia",
+        "Descripcion",
+        "Unidades",
+        "Precio",
+        "Total",
+        "CodAlmacen"
+      ],
+      "rows": []
+    },
+    "ComprasDiarias": {
+      "key": "ComprasDiarias",
+      "label": "Compras diarias",
+      "columns": [
+        "Archivo",
+        "Fecha",
+        "Compras",
+        "Lineas",
+        "TotalBruto",
+        "TotalNeto",
+        "Estado"
+      ],
+      "rows": []
+    },
+    "Moviments": {
+      "key": "Moviments",
+      "label": "Movimientos almacen",
+      "columns": [
+        "ID",
+        "CodAlmacenOrigen",
+        "CodAlmacenDestino",
+        "NumSerie",
+        "CodArticulo",
+        "Fecha",
+        "Hora",
+        "Tipo",
+        "Unidades",
+        "Precio",
+        "SerieDoc",
+        "NumDoc"
+      ],
+      "rows": [
+        {
+          "_id": "mov-agua-10034",
+          "ID": "WTF-TEST-10034",
+          "CodAlmacenOrigen": "",
+          "CodAlmacenDestino": "1",
+          "NumSerie": "WTF",
+          "CodArticulo": "10034",
+          "Fecha": "2026-06-27",
+          "Hora": "04:33:21",
+          "Tipo": "AJUSTE",
+          "Unidades": 228,
+          "Precio": 0,
+          "SerieDoc": "WTF",
+          "NumDoc": "TEST10034"
+        }
+      ]
+    },
+    "PreciosVenta": {
+      "key": "PreciosVenta",
+      "label": "Precios de venta",
+      "columns": [
+        "CodArticulo",
+        "CodFormato",
+        "IDTarifaV",
+        "Valor",
+        "Precio",
+        "PrecioIva",
+        "PrecioDefecto"
+      ],
+      "rows": []
+    },
+    "Clientes": {
+      "key": "Clientes",
+      "label": "Clientes ICG",
+      "columns": [
+        "CodCliente",
+        "NombreComercial",
+        "Nombrecliente"
+      ],
+      "rows": []
+    },
+    "Proveedores": {
+      "key": "Proveedores",
+      "label": "Suplidores",
+      "columns": [
+        "CodProveedor",
+        "NomProveedor",
+        "NomComercial"
+      ],
+      "rows": []
+    },
+    "PERSONAS": {
+      "key": "PERSONAS",
+      "label": "Clientes",
+      "columns": [
+        "CodCliente",
+        "NombreComercial",
+        "Nombrecliente"
+      ],
+      "rows": []
+    }
+  }
+}
