@@ -11,7 +11,7 @@
       "$boardId": {
         ".read": "auth != null",
         ".write": "auth != null && $boardId.matches(/^[A-Za-z0-9_-]{1,120}$/)",
-        ".validate": "newData.hasChildren(['stateJson','updatedAt']) && newData.child('stateJson').isString() && newData.child('stateJson').val().length <= 2500000"
+        ".validate": "newData.hasChildren(['stateJson','updatedAt']) && newData.child('stateJson').isString() && newData.child('stateJson').val().length <= 9000000"
       }
     },
     "sharp-limpieza": {

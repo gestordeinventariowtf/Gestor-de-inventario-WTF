@@ -3,7 +3,7 @@ const STORAGE_KEY = "sharp_limpieza_board_v3";
 const BRANCH_CONFIG_STORAGE_KEY = "sharp_limpieza_branch_config_v1";
 const SYNC_DEBOUNCE_MS = 250;
 const FIREBASE_CONNECT_TIMEOUT_MS = 8000;
-const FIREBASE_BOARD_TIMEOUT_MS = 10000;
+const FIREBASE_BOARD_TIMEOUT_MS = 120000;
 const FIREBASE_SAVE_TIMEOUT_MS = 12000;
 const FIREBASE_RETRY_BASE_MS = 3000;
 const FIREBASE_RETRY_MAX_MS = 30000;
@@ -2367,7 +2367,7 @@ function connectBoardSync(branchId) {
   window.clearTimeout(boardRetryTimer);
   hasRemoteSnapshot = false;
   remoteBoardRef = firebaseDB.ref(`boards/${branchId}_${getCleaningModuleId()}`);
-  setSyncStatus("Conectando...", "busy");
+  setSyncStatus("Cargando tablero...", "busy");
   boardConnectTimer = window.setTimeout(() => {
     if (hasRemoteSnapshot) return;
     console.warn("Firebase board snapshot timeout");
