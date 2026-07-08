@@ -175,6 +175,8 @@ select {
   font: inherit;
   font-size: 1rem;
   background: #fff;
+  min-height: 44px;
+  min-width: 0;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -198,6 +200,7 @@ button {
   background: var(--green-dark);
   cursor: pointer;
   min-height: 44px;
+  max-width: 100%;
   white-space: nowrap;
   touch-action: manipulation;
 }
@@ -1436,6 +1439,7 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
 
   .layout { padding: 0.4rem; }
   .board-section { padding: 0.5rem; border-radius: 7px; }
+  .app-header { padding-inline: 0.75rem; }
   .header-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1478,7 +1482,7 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
     max-width: 100%;
     width: 100%;
     border-radius: 18px 18px 0 0;
-    max-height: 92vh;
+    max-height: 92dvh;
     box-shadow: 0 -6px 30px rgba(0,0,0,0.22);
   }
 
@@ -1523,6 +1527,16 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
 
   /* Add task button full width */
   #add-task-btn { align-self: stretch; }
+
+  .branch-selector-box {
+    width: min(100%, 440px);
+    border-radius: 18px;
+    padding: 1rem;
+  }
+
+  .branch-card {
+    min-height: 56px;
+  }
 }
 
 /* ── Muy pequeño (≤360px) ────────────────────────────────── */
