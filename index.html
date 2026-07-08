@@ -4065,13 +4065,16 @@ Solicitado: ${cantidad}`);
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
     }
+    const onlyAssignedSharp = currentAssignedModulo() === "sharp";
     if (!modulo) {
       return /* @__PURE__ */ React.createElement(
         "div",
         { style: { position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "linear-gradient(160deg,#0f2027 0%,#1a3a2e 50%,#0f2027 100%)", overflowY: "auto", overflowX: "hidden" } },
         /* @__PURE__ */ React.createElement("style", null, `
-          .modulo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 280px)); justify-content: center; gap: 20px; width: 100%; max-width: 1240px; padding: 0 20px; }
+          .modulo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 280px)); justify-content: center; justify-items: center; gap: 20px; width: 100%; max-width: 1240px; padding: 0 20px; }
+          .modulo-grid-single { grid-template-columns: minmax(220px, 280px); max-width: 360px; margin: 0 auto; }
           @media (max-width: 900px) { .modulo-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 280px)); max-width: 640px; } }
+          @media (max-width: 900px) { .modulo-grid-single { grid-template-columns: minmax(220px, 280px); max-width: 360px; } }
           @media (max-width: 600px) { .modulo-grid { grid-template-columns: 1fr; max-width: 400px; gap: 14px; } }
           .modulo-card { background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; transition: transform .18s, border-color .18s, background .18s; aspect-ratio: 1 / 0.85; min-height: 200px; }
           @media (max-width: 600px) { .modulo-card { aspect-ratio: unset; padding: 32px 20px; min-height: 160px; } }
@@ -4091,8 +4094,8 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("h1", { style: { color: "#fff", fontSize: "clamp(22px,5vw,34px)", fontWeight: 800, marginBottom: 8, lineHeight: 1.2 } }, "WTF Modulos"),
             /* @__PURE__ */ React.createElement("p", { style: { color: "rgba(255,255,255,0.5)", fontSize: "clamp(12px,2vw,15px)" } }, `Bienvenido, ${getUserDisplayLabel(currentUser)}`)
           ),
-          /* @__PURE__ */ React.createElement("div", { className: "modulo-grid" },
-            canUseModulo("cocina") && /* @__PURE__ */ React.createElement("button", {
+          /* @__PURE__ */ React.createElement("div", { className: `modulo-grid ${onlyAssignedSharp ? "modulo-grid-single" : ""}` },
+            !onlyAssignedSharp && canUseModulo("cocina") && /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-cocina",
               onClick: () => { sessionStorage.setItem("wtf_modulo", "cocina"); setModulo("cocina"); setPage("dashboard"); }
             },
@@ -4106,7 +4109,7 @@ Solicitado: ${cantidad}`);
                 )
               )
             ),
-            canUseModulo("bar") && /* @__PURE__ */ React.createElement("button", {
+            !onlyAssignedSharp && canUseModulo("bar") && /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-bar",
               onClick: () => { sessionStorage.setItem("wtf_modulo", "bar"); setModulo("bar"); setPage("dashboard"); }
             },
@@ -4134,7 +4137,7 @@ Solicitado: ${cantidad}`);
                 )
               )
             ),
-            canUseModulo("icg") && /* @__PURE__ */ React.createElement("button", {
+            !onlyAssignedSharp && canUseModulo("icg") && /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-icg",
               onClick: () => { sessionStorage.setItem("wtf_modulo", "icg"); setModulo("icg"); setPage("icg"); }
             },
@@ -4148,7 +4151,7 @@ Solicitado: ${cantidad}`);
                 )
               )
             ),
-            canUseModulo("icgHost") && /* @__PURE__ */ React.createElement("button", {
+            !onlyAssignedSharp && canUseModulo("icgHost") && /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-icg-host",
               onClick: () => { sessionStorage.setItem("wtf_modulo", "icgHost"); setModulo("icgHost"); setPage("icgHost"); }
             },
