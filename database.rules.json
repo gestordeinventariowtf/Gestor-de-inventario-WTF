@@ -21,7 +21,7 @@
         "$dateKey": {
           ".validate": "$dateKey.matches(/^\\d{4}-\\d{2}-\\d{2}$/)",
           "$photoId": {
-            ".validate": "newData.hasChildren(['dataUrl','contentType','size','createdAt','meta']) && newData.child('dataUrl').isString() && newData.child('dataUrl').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('dataUrl').val().length <= 38000 && newData.child('contentType').val() == 'image/jpeg' && newData.child('size').isNumber() && newData.child('size').val() > 0 && newData.child('size').val() <= 25600"
+            ".validate": "newData.hasChildren(['dataUrl','contentType','size','createdAt','meta']) && newData.child('dataUrl').isString() && newData.child('dataUrl').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('dataUrl').val().length <= 2800000 && newData.child('contentType').val() == 'image/jpeg' && newData.child('size').isNumber() && newData.child('size').val() > 0 && newData.child('size').val() <= 2097152"
           }
         }
       }
@@ -33,7 +33,7 @@
         "$dateKey": {
           ".validate": "$dateKey.matches(/^\\d{4}-\\d{2}-\\d{2}$/)",
           "$entryId": {
-            ".validate": "newData.hasChildren(['url','completedAt','source','createdAt']) && newData.child('url').isString() && (newData.child('url').val().matches(/^https:\\/\\/firebasestorage\\.googleapis\\.com\\//) || (newData.child('url').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('url').val().length <= 38000)) && newData.child('completedAt').isString()"
+            ".validate": "newData.hasChildren(['url','completedAt','source','createdAt']) && newData.child('url').isString() && (newData.child('url').val().matches(/^https:\\/\\/firebasestorage\\.googleapis\\.com\\//) || (newData.child('url').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('url').val().length <= 2800000)) && newData.child('completedAt').isString()"
           }
         }
       }

@@ -11,10 +11,10 @@ const PHOTO_STORAGE_ROOT = "sharp-limpieza";
 const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
 const PHOTO_RETENTION_DAYS = 3;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
-const PHOTO_MAX_BYTES = 25 * 1024;
-const PHOTO_MAX_WIDTH = 640;
-const PHOTO_MIN_QUALITY = 0.18;
-const PHOTO_MIN_WIDTH = 220;
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const PHOTO_MAX_WIDTH = 1600;
+const PHOTO_MIN_QUALITY = 0.55;
+const PHOTO_MIN_WIDTH = 900;
 
 const DEFAULT_BRANCHES = [
   { id: "venezuela", name: "Av. Venezuela", pin: "0001", masterPin: "852347" },
