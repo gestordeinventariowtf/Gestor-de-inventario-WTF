@@ -5283,21 +5283,11 @@ Solicitado: ${cantidad}`);
       const resolvedOtherCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
         return entry.storageKey === "otherCuartoFrio";
       });
-      const existingProduced = productosSoloInventario.find(function(product) {
-        return normalizar(product.nombre) === normalizar(nombreProducido);
-      });
-      const cantidadProducidaInventario = existingProduced ? convertMeasureQuantity(cantidadProducidaInput, resultado.medida, existingProduced.medida) : cantidadProducidaInput;
-      if (existingProduced && cantidadProducidaInventario == null) {
-        setError(`No se puede convertir ${resultado.medida} hacia ${existingProduced.medida} para el producto producido.`);
-        return;
-      }
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const productionMiseTarget = findMiseTarget(miseProductTarget) || findRecipeMiseMatch(findBestRecipeMatch(nombreProducido));
       setInventario(function(prev) {
-        let nextId = nextInventoryRowId(prev);
-        let producedExists = false;
-        const updated = prev.map(function(row) {
+        return prev.map(function(row) {
           if (row.tipo !== "producto") return row;
           const consumo = resolvedInventarioInsumos.find(function(entry) {
             return entry.product.id === row.id;
@@ -5305,27 +5295,8 @@ Solicitado: ${cantidad}`);
           if (consumo) {
             return Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) });
           }
-          if (normalizar(row.nombre) === normalizar(nombreProducido)) {
-            producedExists = true;
-            return Object.assign({}, row, { entrada: Number((row.entrada || 0) + cantidadProducidaInventario) });
-          }
           return row;
         });
-        if (!producedExists) {
-          updated.push({
-            id: nextId,
-            tipo: "producto",
-            nombre: nombreProducido,
-            medida: resultado.medida,
-            suplidor: "Produccion",
-            stockLunesJueves: 0,
-            stockViernesDomingo: 0,
-            entrada: cantidadProducidaInput,
-            salida: 0,
-            decomiso: 0
-          });
-        }
-        return updated;
       });
       if (typeof setCuartoFrioInventario === "function" && resolvedCuartoFrioInsumos.length) {
         setCuartoFrioInventario(function(prev) {
