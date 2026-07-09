@@ -4,6 +4,9 @@ import { buildIdempotencyKey, movementId } from "../core/idempotency.js";
 import type { ProductMapping, SyncMovement } from "../core/types.js";
 
 interface WtfHostPackage {
+  name?: string;
+  generatedAt?: string;
+  webAppUrl?: string;
   queues?: {
     icgToWeb?: Array<Record<string, unknown>>;
     webToIcg?: Array<Record<string, unknown>>;
@@ -22,7 +25,15 @@ function asText(value: unknown): string {
 
 export async function readHostPackage(filePath: string): Promise<{ movements: SyncMovement[]; mappings: ProductMapping[] }> {
   const raw = await fs.readFile(filePath, "utf8");
+  return parseHostPackageText(raw);
+}
+
+export function parseHostPackageText(raw: string): { movements: SyncMovement[]; mappings: ProductMapping[] } {
   const parsed = JSON.parse(raw) as WtfHostPackage;
+  return parseHostPackage(parsed);
+}
+
+function parseHostPackage(parsed: WtfHostPackage): { movements: SyncMovement[]; mappings: ProductMapping[] } {
   const movements: SyncMovement[] = [];
 
   for (const row of parsed.queues?.icgToWeb || []) {

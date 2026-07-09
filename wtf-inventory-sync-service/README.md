@@ -19,6 +19,9 @@ Esta primera version es segura por diseno:
 4. Muestra un dashboard local en `http://127.0.0.1:8787`.
 5. Permite aprobar o rechazar movimientos.
 6. Exporta entradas web aprobadas a CSV para probar importacion en ICG.
+7. Expone una API local protegida con `WTF_API_KEY`.
+8. Mueve paquetes procesados a `data/processed` y fallidos a `data/quarantine`.
+9. Genera manifiesto de auditoria por cada exportacion hacia ICG.
 
 ## Instalacion local
 
@@ -26,6 +29,7 @@ Desde esta carpeta:
 
 ```powershell
 npm.cmd install
+Copy-Item .env.example .env
 npm.cmd run build
 npm.cmd start
 ```
@@ -53,12 +57,39 @@ http://127.0.0.1:8787
 7. Aprueba o rechaza movimientos.
 8. Pulsa `Exportar entradas para ICG` para generar CSV local.
 
+El servicio tambien revisa la carpeta de entrada cada `WTF_POLL_SECONDS` segundos.
+
 ## Carpetas
 
 - `data/inbox`: paquetes entrantes desde ICG Host.
 - `data/outbox`: archivos preparados para ICG.
 - `data/processed`: paquetes ya procesados.
+- `data/quarantine`: paquetes que no pudieron procesarse.
 - `logs`: logs de operacion.
+
+## API local
+
+Ver contrato completo en:
+
+```text
+API_LOCAL.md
+```
+
+Endpoints principales:
+
+- `GET /api/health`
+- `GET /api/state`
+- `POST /api/ingest-package`
+- `POST /api/sync-now`
+- `POST /api/movement-state`
+- `POST /api/movement-state-batch`
+- `POST /api/export-icg`
+
+Si `WTF_API_KEY` tiene valor, las llamadas API deben enviar:
+
+```http
+X-WTF-API-Key: tu-clave
+```
 
 ## Instalacion como servicio Windows
 
@@ -80,3 +111,13 @@ Antes de escritura real hacia ICG:
 3. Probar solo con articulo `10034 AGUA`.
 4. Validar backup de ICG.
 5. Activar escritura solo con aprobacion administrativa.
+
+## Arquitectura recomendada para produccion
+
+1. Mantener `WTF_MODE=manual` hasta completar pruebas.
+2. Procesar ventas de ICG como cola `ICG -> Web`.
+3. Procesar entradas WTF como cola `Web -> ICG`.
+4. Aprobar movimientos desde el panel local.
+5. Exportar CSV/manifiesto para pruebas de ICG.
+6. Activar SQL Server solo lectura cuando se confirme la base real.
+7. Activar escritura real solamente con backup, usuario restringido y bitacora.

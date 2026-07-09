@@ -2,7 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import type { LocalStore } from "../core/local-store.js";
 import { exportMovementsForIcg } from "../adapters/icg-export-adapter.js";
-import type { MovementState, ServiceConfig } from "../core/types.js";
+import type { ImportResult, MovementState, ServiceConfig } from "../core/types.js";
 
 const ALLOWED_STATES = new Set<MovementState>([
   "pendiente",
@@ -15,28 +15,57 @@ const ALLOWED_STATES = new Set<MovementState>([
   "esperando_conexion"
 ]);
 
-export function startDashboard(store: LocalStore, config: ServiceConfig, onSyncNow: () => Promise<void>): http.Server {
+export function startDashboard(
+  store: LocalStore,
+  config: ServiceConfig,
+  onSyncNow: () => Promise<ImportResult[]>,
+  onIngestPackage: (raw: string) => Promise<ImportResult>
+): http.Server {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+      if (url.pathname === "/api/health") {
+        return json(res, { ok: true, service: "WTF Inventory Sync Service", mode: config.mode, branch: config.branch, sqlEnabled: config.sqlEnabled });
+      }
       if (url.pathname === "/api/state") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const data = await store.read();
-        return json(res, data);
+        return json(res, { ...data, stats: await store.stats(), config: publicConfig(config) });
       }
       if (url.pathname === "/api/sync-now" && req.method === "POST") {
-        await onSyncNow();
-        return json(res, { ok: true });
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        const results = await onSyncNow();
+        return json(res, { ok: true, results });
+      }
+      if (url.pathname === "/api/ingest-package" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        const raw = await readText(req);
+        const result = await onIngestPackage(raw);
+        return json(res, { ok: true, result });
       }
       if (url.pathname === "/api/movement-state" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const body = await readJson(req);
         const estado = String(body.estado || "") as MovementState;
         if (!ALLOWED_STATES.has(estado)) return json(res, { ok: false, error: "Estado no permitido" }, 400);
-        await store.updateMovementState(String(body.id), estado, body.mensaje);
+        await store.updateMovementState(String(body.id), estado, String(body.mensaje || ""));
         return json(res, { ok: true });
       }
+      if (url.pathname === "/api/movement-state-batch" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        const body = await readJson(req);
+        const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+        const estado = String(body.estado || "") as MovementState;
+        if (!ids.length) return json(res, { ok: false, error: "No hay movimientos seleccionados" }, 400);
+        if (!ALLOWED_STATES.has(estado)) return json(res, { ok: false, error: "Estado no permitido" }, 400);
+        const updated = await store.updateMovementStates(ids, estado, String(body.mensaje || ""));
+        return json(res, { ok: true, updated });
+      }
       if (url.pathname === "/api/export-icg" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const data = await store.read();
         const filePath = await exportMovementsForIcg(config.icgImportDir, data.movements.filter((row) => row.estado === "aprobado"));
+        await store.updateMovementStates(data.movements.filter((row) => row.estado === "aprobado" && row.destino === "ICG FrontRest").map((row) => row.id), "procesando", "Exportado para revision/importacion en ICG");
         return json(res, { ok: true, filePath });
       }
       html(res, renderDashboard());
@@ -46,6 +75,29 @@ export function startDashboard(store: LocalStore, config: ServiceConfig, onSyncN
   });
   server.listen(config.port, "127.0.0.1");
   return server;
+}
+
+function authorize(req: http.IncomingMessage, config: ServiceConfig): boolean {
+  if (!config.apiKey) return true;
+  const provided = String(req.headers["x-wtf-api-key"] || "");
+  return provided === config.apiKey;
+}
+
+function publicConfig(config: ServiceConfig): Record<string, unknown> {
+  return {
+    port: config.port,
+    webAppUrl: config.webAppUrl,
+    branch: config.branch,
+    defaultWarehouse: config.defaultWarehouse,
+    mode: config.mode,
+    pollSeconds: config.pollSeconds,
+    icgExportDir: config.icgExportDir,
+    icgImportDir: config.icgImportDir,
+    processedDir: config.processedDir,
+    quarantineDir: config.quarantineDir,
+    sqlEnabled: config.sqlEnabled,
+    apiKeyConfigured: Boolean(config.apiKey)
+  };
 }
 
 function renderDashboard(): string {
@@ -91,8 +143,10 @@ function renderDashboard(): string {
     </section>
   </main>
   <script>
+    const apiHeaders={};
     async function load(){
-      const res=await fetch('/api/state'); const data=await res.json();
+      const res=await fetch('/api/state',{headers:apiHeaders}); const data=await res.json();
+      if(!data.movements){msg.textContent=' '+(data.error||'No autorizado'); return;}
       const rows=data.movements||[];
       total.textContent=rows.length;
       pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
@@ -102,9 +156,9 @@ function renderDashboard(): string {
     }
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
-    async function syncNow(){await fetch('/api/sync-now',{method:'POST'}); msg.textContent=' Sincronizado'; load();}
-    async function exportIcg(){const r=await fetch('/api/export-icg',{method:'POST'}); const j=await r.json(); msg.textContent=' Archivo: '+(j.filePath||'');}
-    async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
+    async function syncNow(){await fetch('/api/sync-now',{method:'POST',headers:apiHeaders}); msg.textContent=' Sincronizado'; load();}
+    async function exportIcg(){const r=await fetch('/api/export-icg',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' Archivo: '+(j.filePath||j.error||''); load();}
+    async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
     load(); setInterval(load,5000);
   </script>
 </body></html>`;
@@ -120,8 +174,13 @@ function json(res: http.ServerResponse, body: unknown, status = 200): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: http.IncomingMessage): Promise<Record<string, string>> {
+async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const text = await readText(req);
+  return JSON.parse(text || "{}");
+}
+
+async function readText(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  return Buffer.concat(chunks).toString("utf8");
 }

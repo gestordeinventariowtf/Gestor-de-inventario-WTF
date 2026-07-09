@@ -51,7 +51,26 @@ export interface ServiceConfig {
   branch: string;
   defaultWarehouse: string;
   mode: "manual" | "automatico";
+  pollSeconds: number;
+  dataDir: string;
   icgExportDir: string;
   icgImportDir: string;
+  processedDir: string;
+  quarantineDir: string;
   sqlEnabled: boolean;
+  sqlConnectionString: string;
+}
+
+export interface StoreData {
+  movements: SyncMovement[];
+  mappings: ProductMapping[];
+  audit: Array<Record<string, unknown>>;
+}
+
+export interface ImportResult {
+  filePath?: string;
+  inserted: number;
+  duplicated: number;
+  mappings: number;
+  errors: string[];
 }

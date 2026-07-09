@@ -1,12 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ProductMapping, SyncMovement } from "./types.js";
-
-interface StoreData {
-  movements: SyncMovement[];
-  mappings: ProductMapping[];
-  audit: Array<Record<string, unknown>>;
-}
+import type { ProductMapping, StoreData, SyncMovement } from "./types.js";
 
 export class LocalStore {
   private filePath: string;
@@ -69,10 +63,49 @@ export class LocalStore {
     await this.write(data);
   }
 
+  async updateMovementStates(ids: string[], estado: SyncMovement["estado"], mensaje?: string): Promise<number> {
+    const idSet = new Set(ids);
+    const data = await this.read();
+    let count = 0;
+    for (const movement of data.movements) {
+      if (!idSet.has(movement.id)) continue;
+      movement.estado = estado;
+      movement.mensaje = mensaje || movement.mensaje;
+      movement.ultimoIntento = new Date().toISOString();
+      movement.intentos += 1;
+      count++;
+    }
+    if (count > 0) {
+      data.audit.unshift({ fecha: new Date().toISOString(), accion: "movement_states", total: count, estado, mensaje });
+      await this.write(data);
+    }
+    return count;
+  }
+
   async replaceMappings(mappings: ProductMapping[]): Promise<void> {
     const data = await this.read();
     data.mappings = mappings;
     data.audit.unshift({ fecha: new Date().toISOString(), accion: "mappings_replaced", total: mappings.length });
     await this.write(data);
+  }
+
+  async appendAudit(entry: Record<string, unknown>): Promise<void> {
+    const data = await this.read();
+    data.audit.unshift({ fecha: new Date().toISOString(), ...entry });
+    data.audit = data.audit.slice(0, 1000);
+    await this.write(data);
+  }
+
+  async stats(): Promise<Record<string, number>> {
+    const data = await this.read();
+    return {
+      movements: data.movements.length,
+      pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
+      approved: data.movements.filter((row) => row.estado === "aprobado").length,
+      synced: data.movements.filter((row) => row.estado === "sincronizado").length,
+      errors: data.movements.filter((row) => row.estado === "error").length,
+      mappings: data.mappings.length,
+      audit: data.audit.length
+    };
   }
 }
