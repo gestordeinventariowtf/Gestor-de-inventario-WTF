@@ -1213,35 +1213,20 @@
   }
   function repairInventoryCodArticuloCollections(collections) {
     const entries = Array.isArray(collections) ? collections : [];
-    let maxCode = Number(load("wtf_last_inventory_cod_articulo", 0)) || 0;
-    entries.forEach(function(entry) {
-      (Array.isArray(entry.rows) ? entry.rows : []).forEach(function(row) {
-        if (!row || row.tipo !== "producto") return;
-        const code = getInventoryCodArticulo(row, "");
-        if (/^\d+$/.test(code)) maxCode = Math.max(maxCode, Number(code));
-      });
-    });
-    const seen = new Set();
+    let nextCode = 1;
     let changed = false;
     const data = {};
     entries.forEach(function(entry) {
       const key = entry.key;
       data[key] = (Array.isArray(entry.rows) ? entry.rows : []).map(function(row) {
         if (!row || row.tipo !== "producto") return row;
-        const currentCode = getInventoryCodArticulo(row, "");
-        const normalized = normalizeCodArticuloValue(currentCode);
-        if (currentCode && normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          return row;
-        }
-        maxCode += 1;
-        const nextCode = String(maxCode);
-        seen.add(normalizeCodArticuloValue(nextCode));
+        const expectedCode = String(nextCode++);
+        if (String(getInventoryCodArticulo(row, "")).trim() === expectedCode) return row;
         changed = true;
-        return Object.assign({}, row, { codArticulo: nextCode });
+        return Object.assign({}, row, { codArticulo: expectedCode });
       });
     });
-    if (changed) rememberInventoryCodArticulo(String(maxCode));
+    rememberInventoryCodArticulo(String(Math.max(0, nextCode - 1)));
     return { changed, data };
   }
   function findInventoryCodArticuloUsage(sources, codArticulo, currentSourceKey, currentRowId) {
