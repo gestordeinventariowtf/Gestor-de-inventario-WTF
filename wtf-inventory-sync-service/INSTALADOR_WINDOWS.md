@@ -10,6 +10,7 @@ Este paquete convierte el sincronizador local en una aplicacion instalable para 
 - Tarea automatica de Windows llamada `WTF ICG Host`.
 - Acceso en el escritorio para abrir el panel local.
 - Carpetas auditables:
+  - `C:\ICG EXPORTACION`: carpeta donde ICG FrontRest deja los CMS de cierre.
   - `data\inbox`: paquetes entrantes.
   - `data\outbox`: archivos preparados para ICG.
   - `data\processed`: paquetes procesados.
@@ -44,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1 -
 
 ## Instalar en la PC de ICG
 
-1. Extrae el `.zip` o ejecuta el `.exe` generado.
+1. Extrae el `.zip`.
 2. Ejecuta `INSTALAR-WTF-ICG-HOST.cmd`. Windows pedira permiso de Administrador si hace falta.
 3. Abre el panel:
 
@@ -54,4 +55,4 @@ http://127.0.0.1:8787
 
 ## Operacion segura
 
-El sistema queda automatico para leer paquetes, crear cola y preparar archivos. La escritura directa contra ICG/SQL Server sigue bloqueada hasta confirmar el esquema real de ICG y hacer prueba controlada con backup.
+El sistema queda automatico para leer el ultimo `.cms` de `C:\ICG EXPORTACION`, aplicar consumos vinculados por `CodArticulo` contra Mise an Place y registrar el Historial de Salida Rapida en la web. La escritura directa contra ICG/SQL Server sigue bloqueada hasta confirmar el esquema real de ICG y hacer prueba controlada con backup.

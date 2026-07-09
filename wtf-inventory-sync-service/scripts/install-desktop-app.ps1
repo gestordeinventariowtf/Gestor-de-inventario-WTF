@@ -78,12 +78,17 @@ if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
 WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
+WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
+WTF_FIREBASE_COLLECTION=wtfSistema
+WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
+WTF_AUTO_APPLY_ICG_CMS=true
 WTF_API_KEY=
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=manual
 WTF_POLL_SECONDS=30
 WTF_DATA_DIR=$DataDir\data
+ICG_CMS_DIR=C:\ICG EXPORTACION
 ICG_EXPORT_DIR=$DataDir\data\inbox
 ICG_IMPORT_DIR=$DataDir\data\outbox
 WTF_PROCESSED_DIR=$DataDir\data\processed
@@ -98,6 +103,7 @@ $RunScript = Join-Path $InstallDir "run-host.ps1"
 `$ErrorActionPreference = "Stop"
 Set-Location "$InstallDir"
 `$env:WTF_DATA_DIR = "$DataDir\data"
+`$env:ICG_CMS_DIR = "C:\ICG EXPORTACION"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"
 `$env:ICG_IMPORT_DIR = "$DataDir\data\outbox"
 `$env:WTF_PROCESSED_DIR = "$DataDir\data\processed"

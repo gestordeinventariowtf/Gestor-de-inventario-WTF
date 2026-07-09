@@ -25,6 +25,7 @@ export class LocalStore {
     return {
       movements: Array.isArray(parsed.movements) ? parsed.movements : [],
       mappings: Array.isArray(parsed.mappings) ? parsed.mappings : [],
+      processedCmsFiles: Array.isArray(parsed.processedCmsFiles) ? parsed.processedCmsFiles : [],
       audit: Array.isArray(parsed.audit) ? parsed.audit : []
     };
   }
@@ -96,6 +97,21 @@ export class LocalStore {
     await this.write(data);
   }
 
+  async hasProcessedCms(fingerprint: string): Promise<boolean> {
+    const data = await this.read();
+    return (data.processedCmsFiles || []).some((row) => row.fingerprint === fingerprint && row.status === "applied");
+  }
+
+  async markProcessedCms(entry: NonNullable<import("./types.js").StoreData["processedCmsFiles"]>[number]): Promise<void> {
+    const data = await this.read();
+    const rows = (data.processedCmsFiles || []).filter((row) => row.fingerprint !== entry.fingerprint);
+    rows.unshift(entry);
+    data.processedCmsFiles = rows.slice(0, 500);
+    data.audit.unshift({ fecha: new Date().toISOString(), accion: "cms_file_processed", ...entry });
+    data.audit = data.audit.slice(0, 1000);
+    await this.write(data);
+  }
+
   async stats(): Promise<Record<string, number>> {
     const data = await this.read();
     return {
@@ -105,6 +121,7 @@ export class LocalStore {
       synced: data.movements.filter((row) => row.estado === "sincronizado").length,
       errors: data.movements.filter((row) => row.estado === "error").length,
       mappings: data.mappings.length,
+      processedCmsFiles: (data.processedCmsFiles || []).length,
       audit: data.audit.length
     };
   }

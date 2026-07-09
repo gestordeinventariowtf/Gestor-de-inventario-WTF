@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getConfig } from "./config.js";
+import { applyCmsLinesToFirestore } from "./adapters/firestore-sync-adapter.js";
+import { findLatestCmsFile, getCmsFingerprint, readCmsTicketLines } from "./adapters/icg-cms-adapter.js";
 import { listJsonPackages, parseHostPackageText, readHostPackage } from "./adapters/icg-file-adapter.js";
 import { LocalStore } from "./core/local-store.js";
 import { Logger } from "./core/logger.js";
 import { startDashboard } from "./dashboard/server.js";
-import type { ImportResult } from "./core/types.js";
+import type { CmsImportResult, ImportResult } from "./core/types.js";
 
 const config = getConfig();
 const store = new LocalStore(config.dataDir);
@@ -79,10 +81,70 @@ async function syncNow(): Promise<ImportResult[]> {
   }
 }
 
+async function syncLatestIcgCms(): Promise<CmsImportResult> {
+  const empty: CmsImportResult = { ok: true, totalLines: 0, matched: 0, applied: 0, skipped: 0, errors: [], message: "Sin CMS nuevo para procesar." };
+  if (!config.autoApplyIcgCms) {
+    return { ...empty, message: "Importacion automatica CMS desactivada." };
+  }
+  const filePath = await findLatestCmsFile(config.icgCmsDir);
+  if (!filePath) {
+    return { ...empty, message: `No hay archivos .cms en ${config.icgCmsDir}.` };
+  }
+  const fingerprint = await getCmsFingerprint(filePath);
+  if (await store.hasProcessedCms(fingerprint.fingerprint)) {
+    return {
+      ...empty,
+      filePath,
+      fileName: fingerprint.fileName,
+      fingerprint: fingerprint.fingerprint,
+      message: "El ultimo CMS ya fue procesado anteriormente."
+    };
+  }
+  try {
+    const parsed = await readCmsTicketLines(filePath);
+    const result = await applyCmsLinesToFirestore(config, parsed.lines, parsed.fingerprint, parsed.fileName, filePath);
+    await store.markProcessedCms({
+      fingerprint: parsed.fingerprint,
+      fileName: parsed.fileName,
+      filePath,
+      processedAt: new Date().toISOString(),
+      status: result.ok ? "applied" : "error",
+      message: result.message
+    });
+    await logger.write("icg.log", "CMS ICG procesado", result);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const result: CmsImportResult = {
+      ok: false,
+      filePath,
+      fileName: fingerprint.fileName,
+      fingerprint: fingerprint.fingerprint,
+      totalLines: 0,
+      matched: 0,
+      applied: 0,
+      skipped: 0,
+      errors: [message],
+      message
+    };
+    await store.markProcessedCms({
+      fingerprint: fingerprint.fingerprint,
+      fileName: fingerprint.fileName,
+      filePath,
+      processedAt: new Date().toISOString(),
+      status: "error",
+      message
+    });
+    await logger.error("No se pudo procesar CMS ICG", result);
+    return result;
+  }
+}
+
 async function main(): Promise<void> {
   await store.init();
   await syncNow();
-  startDashboard(store, config, syncNow, ingestHostPackageJson);
+  await syncLatestIcgCms();
+  startDashboard(store, config, syncNow, ingestHostPackageJson, syncLatestIcgCms);
   windowlessPoll();
   await logger.app("Servicio iniciado", { port: config.port, mode: config.mode });
   console.log(`WTF Inventory Sync Service listo en http://127.0.0.1:${config.port}`);
@@ -91,6 +153,7 @@ async function main(): Promise<void> {
 function windowlessPoll(): void {
   setInterval(() => {
     syncNow().catch((error) => logger.error("Fallo en sincronizacion programada", error instanceof Error ? error.message : error));
+    syncLatestIcgCms().catch((error) => logger.error("Fallo en importacion CMS ICG", error instanceof Error ? error.message : error));
   }, config.pollSeconds * 1000);
 }
 

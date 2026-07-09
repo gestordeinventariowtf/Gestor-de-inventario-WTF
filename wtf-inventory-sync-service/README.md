@@ -22,6 +22,9 @@ Esta primera version es segura por diseno:
 7. Expone una API local protegida con `WTF_API_KEY`.
 8. Mueve paquetes procesados a `data/processed` y fallidos a `data/quarantine`.
 9. Genera manifiesto de auditoria por cada exportacion hacia ICG.
+10. Lee automaticamente el ultimo `.cms` de `C:\ICG EXPORTACION`.
+11. Descuenta Mise an Place en la web por `CodArticulo` usando vinculos activos.
+12. Registra cada descuento como Historial de Salida Rapida Mise y evita duplicados por archivo CMS.
 
 ## Instalacion local
 
@@ -66,6 +69,20 @@ El servicio tambien revisa la carpeta de entrada cada `WTF_POLL_SECONDS` segundo
 - `data/processed`: paquetes ya procesados.
 - `data/quarantine`: paquetes que no pudieron procesarse.
 - `logs`: logs de operacion.
+- `C:\ICG EXPORTACION`: carpeta observada para tomar el ultimo CMS generado por ICG FrontRest despues del cierre Z.
+
+## Importacion automatica CMS ICG -> Mise
+
+El servicio revisa `ICG_CMS_DIR` cada `WTF_POLL_SECONDS` segundos. Cuando detecta el ultimo `.cms` no procesado:
+
+1. Abre la tabla `TiquetsLin`.
+2. Busca cada `CodArticulo` en `VinculosMiseICG`.
+3. Calcula `UnidadesVendidas * CantidadPorVenta`.
+4. Descuenta solo productos encontrados en Mise an Place.
+5. Agrega un registro al Historial de Salida Rapida.
+6. Guarda la huella del CMS para que no se repita.
+
+Los productos sin vinculo o sin existencia quedan en auditoria y no se descuentan.
 
 ## API local
 
@@ -81,6 +98,7 @@ Endpoints principales:
 - `GET /api/state`
 - `POST /api/ingest-package`
 - `POST /api/sync-now`
+- `POST /api/sync-latest-cms`
 - `POST /api/movement-state`
 - `POST /api/movement-state-batch`
 - `POST /api/export-icg`

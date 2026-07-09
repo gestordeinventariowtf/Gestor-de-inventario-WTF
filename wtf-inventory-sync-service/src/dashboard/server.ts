@@ -2,7 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import type { LocalStore } from "../core/local-store.js";
 import { exportMovementsForIcg } from "../adapters/icg-export-adapter.js";
-import type { ImportResult, MovementState, ServiceConfig } from "../core/types.js";
+import type { CmsImportResult, ImportResult, MovementState, ServiceConfig } from "../core/types.js";
 
 const ALLOWED_STATES = new Set<MovementState>([
   "pendiente",
@@ -19,7 +19,8 @@ export function startDashboard(
   store: LocalStore,
   config: ServiceConfig,
   onSyncNow: () => Promise<ImportResult[]>,
-  onIngestPackage: (raw: string) => Promise<ImportResult>
+  onIngestPackage: (raw: string) => Promise<ImportResult>,
+  onSyncLatestCms?: () => Promise<CmsImportResult>
 ): http.Server {
   const server = http.createServer(async (req, res) => {
     try {
@@ -36,6 +37,12 @@ export function startDashboard(
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const results = await onSyncNow();
         return json(res, { ok: true, results });
+      }
+      if (url.pathname === "/api/sync-latest-cms" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        if (!onSyncLatestCms) return json(res, { ok: false, error: "Importacion CMS no disponible" }, 400);
+        const result = await onSyncLatestCms();
+        return json(res, { ok: true, result });
       }
       if (url.pathname === "/api/ingest-package" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
@@ -95,6 +102,11 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     icgImportDir: config.icgImportDir,
     processedDir: config.processedDir,
     quarantineDir: config.quarantineDir,
+    icgCmsDir: config.icgCmsDir,
+    autoApplyIcgCms: config.autoApplyIcgCms,
+    firebaseProjectId: config.firebaseProjectId,
+    firebaseCollection: config.firebaseCollection,
+    firebaseDocumentId: config.firebaseDocumentId,
     sqlEnabled: config.sqlEnabled,
     apiKeyConfigured: Boolean(config.apiKey)
   };
@@ -131,9 +143,11 @@ function renderDashboard(): string {
       <div class="card"><div>Pendientes</div><div id="pending" class="metric">0</div></div>
       <div class="card"><div>Errores</div><div id="errors" class="metric">0</div></div>
       <div class="card"><div>Mapeos</div><div id="mappings" class="metric">0</div></div>
+      <div class="card"><div>CMS procesados</div><div id="cmsProcessed" class="metric">0</div></div>
     </section>
     <section class="card">
       <button class="primary" onclick="syncNow()">Sincronizar ahora</button>
+      <button onclick="syncCms()">Leer ultimo CMS ICG</button>
       <button onclick="exportIcg()">Exportar entradas para ICG</button>
       <span id="msg"></span>
     </section>
@@ -152,11 +166,13 @@ function renderDashboard(): string {
       pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
       errors.textContent=rows.filter(r=>r.estado==='error').length;
       mappings.textContent=(data.mappings||[]).length;
+      cmsProcessed.textContent=((data.processedCmsFiles||[]).length);
       document.getElementById('rows').innerHTML=rows.map(r=>'<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'</td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td><button onclick="state(\\''+r.id+'\\',\\'aprobado\\')">Aprobar</button> <button onclick="state(\\''+r.id+'\\',\\'rechazado\\')">Rechazar</button></td></tr>').join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
     }
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function syncNow(){await fetch('/api/sync-now',{method:'POST',headers:apiHeaders}); msg.textContent=' Sincronizado'; load();}
+    async function syncCms(){const r=await fetch('/api/sync-latest-cms',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'CMS procesado'); load();}
     async function exportIcg(){const r=await fetch('/api/export-icg',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' Archivo: '+(j.filePath||j.error||''); load();}
     async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
     load(); setInterval(load,5000);

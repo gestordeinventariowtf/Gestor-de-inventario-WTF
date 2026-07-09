@@ -49,6 +49,14 @@ POST /api/sync-now
 
 Lee archivos `.json` en `data/inbox`, los procesa, mueve exitosos a `data/processed` y fallidos a `data/quarantine`.
 
+### Leer ultimo CMS ICG
+
+```http
+POST /api/sync-latest-cms
+```
+
+Lee el `.cms` mas reciente de `ICG_CMS_DIR`, valida que la huella del archivo no haya sido usada, busca `CodArticulo` en `VinculosMiseICG`, descuenta Mise an Place en la web y registra Historial de Salida Rapida.
+
 ### Cambiar estado de un movimiento
 
 ```http
