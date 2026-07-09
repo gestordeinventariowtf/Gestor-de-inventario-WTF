@@ -1,5 +1,5 @@
 param(
-  [string]$InstallDir = "$env:ProgramFiles\WTF ICG Host",
+  [string]$InstallDir = "",
   [string]$TaskName = "WTF ICG Host",
   [int]$Port = 8787,
   [switch]$StartNow
@@ -11,20 +11,47 @@ function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = New-Object Security.Principal.WindowsPrincipal($identity)
   if (!$principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-    throw "Ejecuta este instalador como Administrador."
+    $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
+    if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
+    $argsList += @("-TaskName", "`"$TaskName`"", "-Port", "$Port")
+    if ($StartNow) { $argsList += "-StartNow" }
+    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs
+    exit 0
   }
 }
 
-function Resolve-Node {
-  $node = Get-Command node.exe -ErrorAction SilentlyContinue
-  if (!$node) {
-    throw "Node.js no esta instalado. Instala Node.js LTS y vuelve a ejecutar el instalador."
+function Resolve-InstallDir {
+  param([string]$Requested)
+  if ($Requested) {
+    return $Requested
   }
-  return $node.Source
+  $spanishProgramFiles = "C:\Archivos de programa"
+  if (Test-Path $spanishProgramFiles) {
+    return (Join-Path $spanishProgramFiles "WTF ICG Host")
+  }
+  $programFiles = $env:ProgramW6432
+  if (!$programFiles) {
+    $programFiles = $env:ProgramFiles
+  }
+  return (Join-Path $programFiles "WTF ICG Host")
+}
+
+function Resolve-HostExecutable {
+  param([string]$InstalledRoot)
+  $app = Join-Path $InstalledRoot "app\wtf-icg-host.exe"
+  if (Test-Path $app) {
+    return $app
+  }
+  $main = Join-Path $InstalledRoot "dist\main.js"
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($node -and (Test-Path $main)) {
+    return "$($node.Source)|$main"
+  }
+  throw "No se encontro el ejecutable local de WTF ICG Host."
 }
 
 Assert-Admin
-$NodePath = Resolve-Node
+$InstallDir = Resolve-InstallDir $InstallDir
 $SourceRoot = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $env:ProgramData "WTF ICG Host"
 $LogDir = Join-Path $DataDir "logs"
@@ -45,6 +72,7 @@ Get-ChildItem -Path $SourceRoot -Force | Where-Object {
   }
 }
 
+$HostExecutable = Resolve-HostExecutable $InstallDir
 $EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
@@ -74,7 +102,13 @@ Set-Location "$InstallDir"
 `$env:ICG_IMPORT_DIR = "$DataDir\data\outbox"
 `$env:WTF_PROCESSED_DIR = "$DataDir\data\processed"
 `$env:WTF_QUARANTINE_DIR = "$DataDir\data\quarantine"
-& "$NodePath" "$InstallDir\dist\main.js" *> "$LogDir\host-runtime.log"
+`$hostExecutable = "$HostExecutable"
+if (`$hostExecutable.Contains("|")) {
+  `$parts = `$hostExecutable.Split("|", 2)
+  & `$parts[0] `$parts[1] *> "$LogDir\host-runtime.log"
+} else {
+  & `$hostExecutable *> "$LogDir\host-runtime.log"
+}
 "@ | Set-Content -LiteralPath $RunScript -Encoding UTF8
 
 $OpenDashboard = Join-Path $InstallDir "Abrir Panel WTF ICG Host.cmd"
@@ -97,10 +131,9 @@ pause
 "@ | Set-Content -LiteralPath $Uninstall -Encoding ASCII
 
 $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunScript`""
-$Triggers = @(
-  New-ScheduledTaskTrigger -AtStartup,
-  New-ScheduledTaskTrigger -AtLogOn
-)
+$StartupTrigger = New-ScheduledTaskTrigger -AtStartup
+$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
+$Triggers = @($StartupTrigger, $LogonTrigger)
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 365) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 $Task = New-ScheduledTask -Action $Action -Trigger $Triggers -Settings $Settings -Principal $Principal -Description "Sincronizador local WTF Web con ICG FrontRest"

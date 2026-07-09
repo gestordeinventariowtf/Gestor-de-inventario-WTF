@@ -4,7 +4,8 @@ Este paquete convierte el sincronizador local en una aplicacion instalable para 
 
 ## Que instala
 
-- Aplicacion local en `C:\Program Files\WTF ICG Host`.
+- Aplicacion local en `C:\Archivos de programa\WTF ICG Host` cuando esa ruta exista, o en `C:\Program Files\WTF ICG Host`.
+- Ejecutable local `wtf-icg-host.exe`, sin depender de Node.js instalado.
 - Datos operativos en `C:\ProgramData\WTF ICG Host`.
 - Tarea automatica de Windows llamada `WTF ICG Host`.
 - Acceso en el escritorio para abrir el panel local.
@@ -22,22 +23,29 @@ Desde esta carpeta:
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1
 ```
 
-El instalador queda en:
+El instalador oficial queda en:
 
 ```text
 release\WTF-ICG-Host-Setup.zip
 ```
 
-Si Windows permite usar IExpress, tambien se intentara crear:
+El `.zip` es el recomendado porque evita fallos de IExpress y funciona en Windows en espanol. Para instalar:
+
+1. Clic derecho sobre el `.zip`.
+2. Selecciona `Extraer todo`.
+3. Abre la carpeta extraida.
+4. Ejecuta `INSTALAR-WTF-ICG-HOST.cmd`.
+
+Si se necesita intentar crear un `.exe` autoextraible, usa:
 
 ```text
-release\WTF-ICG-Host-Setup.exe
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1 -BuildSelfExtractingExe
 ```
 
 ## Instalar en la PC de ICG
 
 1. Extrae el `.zip` o ejecuta el `.exe` generado.
-2. Ejecuta `INSTALAR-WTF-ICG-HOST.cmd` como Administrador.
+2. Ejecuta `INSTALAR-WTF-ICG-HOST.cmd`. Windows pedira permiso de Administrador si hace falta.
 3. Abre el panel:
 
 ```text

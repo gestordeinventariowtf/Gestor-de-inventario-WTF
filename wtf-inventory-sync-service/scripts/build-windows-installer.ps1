@@ -1,6 +1,7 @@
 param(
   [string]$OutputDir = ".\release",
-  [string]$PackageName = "WTF-ICG-Host-Setup"
+  [string]$PackageName = "WTF-ICG-Host-Setup",
+  [switch]$BuildSelfExtractingExe
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,9 +13,31 @@ $ZipPath = Join-Path $Release "$PackageName.zip"
 $ExePath = Join-Path $Release "$PackageName.exe"
 $InnerZipPath = Join-Path $Release "$PackageName-payload.zip"
 
+function Compress-WithRetry {
+  param(
+    [string]$SourceGlob,
+    [string]$Destination
+  )
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+      if (Test-Path $Destination) {
+        Remove-Item -LiteralPath $Destination -Force
+      }
+      Compress-Archive -Path $SourceGlob -DestinationPath $Destination -Force
+      return
+    } catch {
+      if ($attempt -eq 5) {
+        throw
+      }
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 Set-Location $Root
 npm.cmd install
 npm.cmd run build
+npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
 
 if (Test-Path $Payload) {
   Remove-Item -LiteralPath $Payload -Recurse -Force
@@ -39,6 +62,11 @@ foreach ($item in $items) {
   }
 }
 
+$appSource = Join-Path $Release "app"
+if (Test-Path $appSource) {
+  Copy-Item -LiteralPath $appSource -Destination (Join-Path $Payload "app") -Recurse -Force
+}
+
 $dotenvSource = Join-Path $Root "node_modules\dotenv"
 $dotenvTarget = Join-Path $Payload "node_modules\dotenv"
 if (Test-Path $dotenvSource) {
@@ -52,7 +80,7 @@ $SetupCmd = Join-Path $Payload "INSTALAR-WTF-ICG-HOST.cmd"
 title Instalador WTF ICG Host
 echo.
 echo Instalando WTF ICG Host...
-echo Este instalador debe ejecutarse como Administrador.
+echo Windows solicitara permiso de Administrador si hace falta.
 echo.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-desktop-app.ps1" -StartNow
 echo.
@@ -83,14 +111,14 @@ New-Item -ItemType Directory -Force -Path $Release | Out-Null
 if (Test-Path $ZipPath) {
   Remove-Item -LiteralPath $ZipPath -Force
 }
-Compress-Archive -Path (Join-Path $Payload "*") -DestinationPath $ZipPath -Force
+Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $ZipPath
 if (Test-Path $InnerZipPath) {
   Remove-Item -LiteralPath $InnerZipPath -Force
 }
-Compress-Archive -Path (Join-Path $Payload "*") -DestinationPath $InnerZipPath -Force
+Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $InnerZipPath
 
 $IExpress = Join-Path $env:WINDIR "System32\iexpress.exe"
-if (Test-Path $IExpress) {
+if ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
   $IExpressWork = Join-Path $env:TEMP "wtf-icg-host-iexpress"
   $ShortPayload = Join-Path $IExpressWork "payload"
   $ShortExe = Join-Path $IExpressWork "$PackageName.exe"

@@ -6,6 +6,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "package:win": "npm.cmd run build && npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe",
     "start": "node dist/main.js",
     "dev": "tsx src/main.ts",
     "check": "tsc -p tsconfig.json --noEmit"
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@yao-pkg/pkg": "^6.21.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
