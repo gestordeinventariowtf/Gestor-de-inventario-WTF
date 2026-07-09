@@ -1211,6 +1211,39 @@
     const next = Math.max(current, Number(code));
     save("wtf_last_inventory_cod_articulo", next);
   }
+  function repairInventoryCodArticuloCollections(collections) {
+    const entries = Array.isArray(collections) ? collections : [];
+    let maxCode = Number(load("wtf_last_inventory_cod_articulo", 0)) || 0;
+    entries.forEach(function(entry) {
+      (Array.isArray(entry.rows) ? entry.rows : []).forEach(function(row) {
+        if (!row || row.tipo !== "producto") return;
+        const code = getInventoryCodArticulo(row, "");
+        if (/^\d+$/.test(code)) maxCode = Math.max(maxCode, Number(code));
+      });
+    });
+    const seen = new Set();
+    let changed = false;
+    const data = {};
+    entries.forEach(function(entry) {
+      const key = entry.key;
+      data[key] = (Array.isArray(entry.rows) ? entry.rows : []).map(function(row) {
+        if (!row || row.tipo !== "producto") return row;
+        const currentCode = getInventoryCodArticulo(row, "");
+        const normalized = normalizeCodArticuloValue(currentCode);
+        if (currentCode && normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          return row;
+        }
+        maxCode += 1;
+        const nextCode = String(maxCode);
+        seen.add(normalizeCodArticuloValue(nextCode));
+        changed = true;
+        return Object.assign({}, row, { codArticulo: nextCode });
+      });
+    });
+    if (changed) rememberInventoryCodArticulo(String(maxCode));
+    return { changed, data };
+  }
   function findInventoryCodArticuloUsage(sources, codArticulo, currentSourceKey, currentRowId) {
     const normalized = normalizeCodArticuloValue(codArticulo);
     if (!normalized) return null;
@@ -3374,6 +3407,19 @@
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
     useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion), [barRecetasProduccion]);
+    useEffect(() => {
+      const result = repairInventoryCodArticuloCollections([
+        { key: "inventario", rows: inventario },
+        { key: "cuartoFrioInventario", rows: cuartoFrioInventario },
+        { key: "barInventario", rows: barInventario },
+        { key: "barCuartoFrioInventario", rows: barCuartoFrioInventario }
+      ]);
+      if (!result.changed) return;
+      setInventario(result.data.inventario || []);
+      setCuartoFrioInventario(result.data.cuartoFrioInventario || []);
+      setBarInventario(result.data.barInventario || []);
+      setBarCuartoFrioInventario(result.data.barCuartoFrioInventario || []);
+    }, [inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario]);
     useEffect(() => {
       function checkGoogleReady() {
         const ready = Boolean(window.google && window.google.accounts && window.google.accounts.oauth2);
@@ -7613,7 +7659,7 @@ Solicitado: ${cantidad}`);
       }
       const rowClass = stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const existenceClass = stockStatus.coveredByMise ? "exist-low" : stockStatus.urgent ? (exist <= 0 ? "exist-zero" : "exist-low") : "exist-ok";
-      return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getInventoryCodArticulo(r, conteoMap[r.id])), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500, whiteSpace: "nowrap" } }, r.nombre, stockStatus.coveredByMise && linkedMise && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3, fontWeight: 700 } }, "Cubierto por Mise: ", linkedMise.producto, " (", formatMiseQty(linkedMise.existencia), " ", linkedMise.medida || "Uni", ")"), !stockStatus.coveredByMise && linkedMise && stockStatus.urgent && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 700 } }, "Mise relacionado bajo mínimo: ", linkedMise.producto)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, r.medida)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 12, whiteSpace: "nowrap" } }, r.suplidor), /* @__PURE__ */ React.createElement("td", null, r.stockLunesJueves), /* @__PURE__ */ React.createElement("td", null, r.stockViernesDomingo), /* @__PURE__ */ React.createElement("td", { className: "col-div-left", style: { color: "var(--verde)", fontWeight: 600 } }, r.entrada || 0), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--azul)", fontWeight: 600 } }, r.salida || 0), /* @__PURE__ */ React.createElement("td", { style: { color: "#f59e0b", fontWeight: 600 } }, r.decomiso || 0), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenceClass }, Number(exist.toFixed(2)), " ", r.medida), stockStatus.coveredByMise && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3 } }, "No urgente")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar", onClick: () => startEdit(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Reiniciar", onClick: () => setConfirmReset(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-left" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Eliminar", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+      return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getInventoryCodArticulo(r, "") || "Sin codigo"), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500, whiteSpace: "nowrap" } }, r.nombre, stockStatus.coveredByMise && linkedMise && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3, fontWeight: 700 } }, "Cubierto por Mise: ", linkedMise.producto, " (", formatMiseQty(linkedMise.existencia), " ", linkedMise.medida || "Uni", ")"), !stockStatus.coveredByMise && linkedMise && stockStatus.urgent && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 700 } }, "Mise relacionado bajo mínimo: ", linkedMise.producto)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, r.medida)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 12, whiteSpace: "nowrap" } }, r.suplidor), /* @__PURE__ */ React.createElement("td", null, r.stockLunesJueves), /* @__PURE__ */ React.createElement("td", null, r.stockViernesDomingo), /* @__PURE__ */ React.createElement("td", { className: "col-div-left", style: { color: "var(--verde)", fontWeight: 600 } }, r.entrada || 0), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--azul)", fontWeight: 600 } }, r.salida || 0), /* @__PURE__ */ React.createElement("td", { style: { color: "#f59e0b", fontWeight: 600 } }, r.decomiso || 0), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenceClass }, Number(exist.toFixed(2)), " ", r.medida), stockStatus.coveredByMise && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3 } }, "No urgente")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar", onClick: () => startEdit(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Reiniciar", onClick: () => setConfirmReset(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-left" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Eliminar", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
     const miseLinkDatalist = /* @__PURE__ */ React.createElement("datalist", { id: "inventory-mise-link-list" }, (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
       return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, getMiseCodArticulo(item, 0), " · ", formatMiseQty(item.existencia), " ", item.medida || "Uni");
