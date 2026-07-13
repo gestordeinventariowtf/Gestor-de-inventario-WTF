@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -472,6 +472,7 @@
     .form-control.error { border-color: var(--rojo); }
     select.form-control { cursor: pointer; }
     textarea.form-control { resize: vertical; min-height: 68px; }
+    .icg-link-row { min-width: 0; }
 
     /* ── Search ── */
     .search-wrap { position: relative; }
@@ -940,6 +941,9 @@
       .modal-footer { padding: 10px 14px; }
       .modal-footer .btn {
         flex-basis: 100%;
+      }
+      .icg-link-row {
+        grid-template-columns: 1fr !important;
       }
       .date-badge { display: none; }
     }
@@ -2519,6 +2523,111 @@
     return (Array.isArray(rows) ? rows : []).find(function(row) {
       return normalizar(getIcgArticleOptionValue(row)) === target || normalizar(getIcgArticleCode(row)) === target || normalizar(getIcgArticleReference(row)) === target || normalizar(getIcgArticleDescription(row)) === target;
     }) || null;
+  }
+  function createBlankIcgLink(unit) {
+    return { value: "", CantidadPorVenta: 1, Unidad: unit || "Uni", Activo: "Si", Notas: "" };
+  }
+  function getIcgArticleRowsForLinks(icgData) {
+    const normalized = ensureIcgFrontRestData(icgData);
+    const articleRows = icgRows(normalized, "Articulos");
+    const refRows = icgRows(normalized, "Referencias");
+    return (articleRows.length ? articleRows : refRows).filter(function(row) {
+      return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
+    });
+  }
+  function cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit) {
+    return (Array.isArray(rawLinks) ? rawLinks : []).map(function(link) {
+      const article = resolveIcgArticleSelection(link.value || link.ProductoICG || link.CodArticulo || link.Referencia, icgArticles);
+      return {
+        value: article ? getIcgArticleOptionValue(article) : link.value || "",
+        CodArticulo: article ? getIcgArticleCode(article) : String(link.CodArticulo || "").trim(),
+        Referencia: article ? getIcgArticleReference(article) : String(link.Referencia || "").trim(),
+        ProductoICG: article ? getIcgArticleDescription(article) : String(link.ProductoICG || "").trim(),
+        CantidadPorVenta: parseIcgNumber(link.CantidadPorVenta) || 1,
+        Unidad: link.Unidad || defaultUnit || "Uni",
+        Activo: link.Activo === "No" ? "No" : "Si",
+        Notas: link.Notas || ""
+      };
+    }).filter(function(link) {
+      return link.CodArticulo || link.Referencia || link.ProductoICG || String(link.value || "").trim();
+    });
+  }
+  function saveIcgLinksForWtfProduct(setIcgFrontRestData, moduleLabel, productName, rawLinks, icgArticles, defaultUnit, method) {
+    if (!setIcgFrontRestData || !String(productName || "").trim()) return;
+    const cleanLinks = cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit);
+    setIcgFrontRestData(function(prev) {
+      const normalized = ensureIcgFrontRestData(prev);
+      const datasets = Object.assign({}, normalized.datasets);
+      const current = datasets.VinculosMiseICG || { key: "VinculosMiseICG", label: ICG_TABLE_DEFS.VinculosMiseICG.label, columns: ICG_TABLE_DEFS.VinculosMiseICG.columns, rows: [] };
+      const existingRows = Array.isArray(current.rows) ? current.rows : [];
+      const targetModule = normalizeIcgWtfTarget(moduleLabel);
+      const productKey = normalizar(productName);
+      const keptRows = existingRows.filter(function(row) {
+        const sameModule = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === targetModule;
+        const sameProduct = normalizar(row.ProductoMise || row.ProductoWTF) === productKey;
+        return !(sameModule && sameProduct);
+      });
+      const nextRows = cleanLinks.map(function(link) {
+        return {
+          _id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          ModuloWTF: moduleLabel,
+          ProductoWTF: productName,
+          ProductoMise: productName,
+          CodArticulo: link.CodArticulo,
+          Referencia: link.Referencia,
+          ProductoICG: link.ProductoICG,
+          Metodo: method || "Seleccion manual",
+          CantidadPorVenta: link.CantidadPorVenta,
+          Unidad: link.Unidad,
+          Activo: link.Activo,
+          Notas: link.Notas
+        };
+      });
+      datasets.VinculosMiseICG = Object.assign({}, current, {
+        columns: Array.from(new Set([...(current.columns || []), ...ICG_TABLE_DEFS.VinculosMiseICG.columns])),
+        rows: nextRows.concat(keptRows)
+      });
+      return ensureIcgFrontRestData(Object.assign({}, normalized, { datasets, updatedAt: new Date().toISOString() }));
+    });
+  }
+  function renderIcgLinksEditor({ idPrefix, links, setLinks, icgArticles, defaultUnit }) {
+    const safeLinks = Array.isArray(links) && links.length ? links : [createBlankIcgLink(defaultUnit)];
+    const updateLink = function(index, patch) {
+      setLinks(function(prev) {
+        const current = Array.isArray(prev) && prev.length ? prev : [createBlankIcgLink(defaultUnit)];
+        return current.map(function(row, i) {
+          return i === index ? Object.assign({}, row, patch) : row;
+        });
+      });
+    };
+    const addLink = function() {
+      setLinks(function(prev) {
+        return (Array.isArray(prev) && prev.length ? prev : [createBlankIcgLink(defaultUnit)]).concat([createBlankIcgLink(defaultUnit)]);
+      });
+    };
+    const removeLink = function(index) {
+      setLinks(function(prev) {
+        const next = (Array.isArray(prev) ? prev : []).filter(function(_, i) { return i !== index; });
+        return next.length ? next : [createBlankIcgLink(defaultUnit)];
+      });
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { gridColumn: "1 / -1" } },
+      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Articulo ICG relacionado"),
+      /* @__PURE__ */ React.createElement("datalist", { id: `${idPrefix}-icg-article-list` }, (Array.isArray(icgArticles) ? icgArticles : []).map(function(row, index) {
+        const value = getIcgArticleOptionValue(row);
+        return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${index}`, value }, value) : null;
+      })),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, safeLinks.map(function(link, index) {
+        return /* @__PURE__ */ React.createElement("div", { key: index, className: "icg-link-row", style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", list: `${idPrefix}-icg-article-list`, value: link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | "), onChange: (e) => updateLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: link.CantidadPorVenta, onChange: (e) => updateLink(index, { CantidadPorVenta: e.target.value }), title: "Cantidad a descontar por cada venta ICG" }),
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", value: link.Unidad || defaultUnit || "Uni", onChange: (e) => updateLink(index, { Unidad: e.target.value }), title: "Unidad del descuento" }),
+          /* @__PURE__ */ React.createElement("select", { className: "form-control", value: link.Activo || "Si", onChange: (e) => updateLink(index, { Activo: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "Si" }, "Activo"), /* @__PURE__ */ React.createElement("option", { value: "No" }, "No")),
+          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: () => removeLink(index), title: "Quitar vinculo ICG" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        );
+      })),
+      /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", style: { marginTop: 8 }, onClick: addLink }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar otro Articulo ICG")
+    );
   }
   function parseIcgNumber(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -4142,8 +4251,8 @@ Solicitado: ${cantidad}`);
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       icg: /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
@@ -7448,7 +7557,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", sourceKey = "inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, miseAnPlace = [] }) {
+  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", sourceKey = "inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -7462,7 +7571,7 @@ Solicitado: ${cantidad}`);
     const [modalReubicar, setModalReubicar] = useState(false);
     const [showMigrateKey, setShowMigrateKey] = useState(false);
     const [modalMigrar, setModalMigrar] = useState(false);
-    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "" });
+    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
@@ -7528,6 +7637,15 @@ Solicitado: ${cantidad}`);
       return productosAlerta.filter((r) => normalizar(r.nombre).includes(q) || normalizar(r.suplidor || "").includes(q) || normalizar(r.medida || "").includes(q));
     }, [productosAlerta, busquedaAlerta]);
     const hasMiseLinkOptions = Array.isArray(miseAnPlace) && miseAnPlace.length > 0;
+    const icgArticleRows = getIcgArticleRowsForLinks(icgFrontRestData);
+    const inventoryIcgModuleLabel = ICG_WTF_TARGET_LABELS[normalizeIcgWtfTarget(sourceKey)] || pageLabel;
+    function setNewProdIcgLinks(updater) {
+      setNewProd(function(prev) {
+        const current = Array.isArray(prev.icgLinks) && prev.icgLinks.length ? prev.icgLinks : [createBlankIcgLink(prev.medida || "kg")];
+        const nextLinks = typeof updater === "function" ? updater(current) : updater;
+        return Object.assign({}, prev, { icgLinks: nextLinks });
+      });
+    }
     function deleteRow(id) {
       if (!confirm("\xBFEliminar esta fila?")) return;
       setInventario((p) => p.filter((r) => r.id !== id));
@@ -7587,11 +7705,12 @@ Solicitado: ${cantidad}`);
         return;
       }
       rememberInventoryCodArticulo(codArticulo);
+      const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, newProd.medida || "kg");
       setInventario((prev) => {
         const next = [...prev];
         const separatorIndex = next.findIndex((row) => row.id === targetSeparatorId && row.tipo === "separador");
         const linkedMise = hasMiseLinkOptions ? findMiseForInventoryProduct(newProd, miseAnPlace) : null;
-        const newRow = { ...newProd, separadorId: void 0, codArticulo, id: nextId(), tipo: "producto", entrada: 0, salida: 0, decomiso: 0, miseProducto: hasMiseLinkOptions ? linkedMise ? linkedMise.producto : String(newProd.miseProducto || "").trim() : "", miseProductoId: hasMiseLinkOptions && linkedMise ? linkedMise.id : null, miseCodArticulo: hasMiseLinkOptions && linkedMise ? getMiseCodArticulo(linkedMise, 0) : "" };
+        const newRow = { ...newProd, separadorId: void 0, codArticulo, id: nextId(), tipo: "producto", entrada: 0, salida: 0, decomiso: 0, miseProducto: hasMiseLinkOptions ? linkedMise ? linkedMise.producto : String(newProd.miseProducto || "").trim() : "", miseProductoId: hasMiseLinkOptions && linkedMise ? linkedMise.id : null, miseCodArticulo: hasMiseLinkOptions && linkedMise ? getMiseCodArticulo(linkedMise, 0) : "", icgLinks: cleanIcgLinks };
         if (separatorIndex === -1) {
           next.push(newRow);
           return next;
@@ -7601,7 +7720,8 @@ Solicitado: ${cantidad}`);
         next.splice(insertIndex, 0, newRow);
         return next;
       });
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "" });
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, newProd.medida || "kg", `Seleccion manual desde ${pageLabel}`);
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -7690,7 +7810,62 @@ Solicitado: ${cantidad}`);
     const miseLinkDatalist = /* @__PURE__ */ React.createElement("datalist", { id: "inventory-mise-link-list" }, (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
       return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, getMiseCodArticulo(item, 0), " · ", formatMiseQty(item.existencia), " ", item.medida || "Uni");
     }));
-    const addModal = modalAdd ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus", style: { marginRight: 7 } }), "Agregar Producto"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAdd(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Renglón destino *"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: newProd.separadorId, onChange: (e) => setNewProd((p) => ({ ...p, separadorId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccione un renglón"), separadores.map((sep) => /* @__PURE__ */ React.createElement("option", { key: sep.id, value: sep.id }, sep.nombre)))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "CodArticulo"), /* @__PURE__ */ React.createElement("input", { className: `form-control ${newCodUsage ? "error" : ""}`, value: newProd.codArticulo || "", onChange: (e) => setNewProd((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, autoComplete: "off", autoFocus: true }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: newCodUsage ? "var(--rojo)" : "var(--gris)", fontWeight: newCodUsage ? 700 : 400 } }, newCodUsage ? formatCodArticuloUsage(newCodUsage) : `Siguiente automático: ${suggestedCodArticulo}`)), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre *"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.nombre, onChange: (e) => setNewProd((p) => ({ ...p, nombre: e.target.value })), placeholder: "Ej: Pollo entero" })), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto Mise relacionado"), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: newProd.miseProducto || "", onChange: (e) => setNewProd((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Selecciona el producto de Mise an Place", autoComplete: "off" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente.")), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Medida"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.medida, onChange: (e) => setNewProd((p) => ({ ...p, medida: e.target.value })), placeholder: "kg, lb, lt..." })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Suplidor"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.suplidor, onChange: (e) => setNewProd((p) => ({ ...p, suplidor: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock L,M,M,J"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.stockLunesJueves, onChange: (e) => setNewProd((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock V,S,D"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.stockViernesDomingo, onChange: (e) => setNewProd((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })) })))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAdd(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addProducto, disabled: Boolean(newCodUsage), title: newCodUsage ? formatCodArticuloUsage(newCodUsage) : "Agregar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
+    const addModal = modalAdd ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
+      /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() },
+        /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus", style: { marginRight: 7 } }), "Agregar Producto"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAdd(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-body" },
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Renglón destino *"),
+            /* @__PURE__ */ React.createElement("select", { className: "form-control", value: newProd.separadorId, onChange: (e) => setNewProd((p) => ({ ...p, separadorId: e.target.value })) },
+              /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccione un renglón"),
+              separadores.map((sep) => /* @__PURE__ */ React.createElement("option", { key: sep.id, value: sep.id }, sep.nombre))
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "CodArticulo"),
+            /* @__PURE__ */ React.createElement("input", { className: `form-control ${newCodUsage ? "error" : ""}`, value: newProd.codArticulo || "", onChange: (e) => setNewProd((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, autoComplete: "off", autoFocus: true }),
+            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: newCodUsage ? "var(--rojo)" : "var(--gris)", fontWeight: newCodUsage ? 700 : 400 } }, newCodUsage ? formatCodArticuloUsage(newCodUsage) : `Siguiente automático: ${suggestedCodArticulo}`)
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre *"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.nombre, onChange: (e) => setNewProd((p) => ({ ...p, nombre: e.target.value })), placeholder: "Ej: Pollo entero" })
+          ),
+          hasMiseLinkOptions && /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto Mise relacionado"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: newProd.miseProducto || "", onChange: (e) => setNewProd((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Selecciona el producto de Mise an Place", autoComplete: "off" }),
+            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente.")
+          ),
+          renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: newProd.medida || "kg" }),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Medida"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.medida, onChange: (e) => setNewProd((p) => ({ ...p, medida: e.target.value })), placeholder: "kg, lb, lt..." })
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Suplidor"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.suplidor, onChange: (e) => setNewProd((p) => ({ ...p, suplidor: e.target.value })) })
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock L,M,M,J"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.stockLunesJueves, onChange: (e) => setNewProd((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })) })
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock V,S,D"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.stockViernesDomingo, onChange: (e) => setNewProd((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })) })
+            )
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAdd(false) }, "Cancelar"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addProducto, disabled: Boolean(newCodUsage), title: newCodUsage ? formatCodArticuloUsage(newCodUsage) : "Agregar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")
+        )
+      )
+    ) : null;
     const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalSep(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newSep, onChange: (e) => setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalSep(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
     const alertasModal = modalAlertas ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { color: "#f59e0b", marginRight: 7 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAlertas(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busquedaAlerta, onChange: (e) => setBusquedaAlerta(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "55vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Stock Mín."))), /* @__PURE__ */ React.createElement("tbody", null, alertasFiltradas.map(function(r) {
       const stockStatus = r.stockStatus || getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
@@ -7893,13 +8068,20 @@ Solicitado: ${cantidad}`);
     const [modalAdd, setModalAdd] = useState(false);
     const [editItem, setEditItem] = useState(null);
     const [busqueda, setBusqueda] = useState("");
-    const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 });
+    const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, icgLinks: [createBlankIcgLink("Uni")] });
     const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
     const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
     const icgArticleRows = (icgRows(normalizedIcgData, "Articulos").length ? icgRows(normalizedIcgData, "Articulos") : icgRows(normalizedIcgData, "Referencias")).filter(function(row) {
       return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
     });
     const icgBridgeRows = icgRows(normalizedIcgData, "VinculosMiseICG");
+    function setNewMiseIcgLinks(updater) {
+      setNewProd(function(prev) {
+        const current = Array.isArray(prev.icgLinks) && prev.icgLinks.length ? prev.icgLinks : [createBlankIcgLink("Uni")];
+        const nextLinks = typeof updater === "function" ? updater(current) : updater;
+        return Object.assign({}, prev, { icgLinks: nextLinks });
+      });
+    }
     const terminoBusqueda = normalizar(busqueda);
     const miseFiltrada = terminoBusqueda ? miseAnPlace.filter((m) => {
       return normalizar(m.producto).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
@@ -7910,8 +8092,10 @@ Solicitado: ${cantidad}`);
         return;
       }
       const id = Math.max(0, ...miseAnPlace.map((m) => m.id)) + 1;
-      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0) }]);
-      setNewProd({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 });
+      const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, "Uni");
+      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), icgLinks: cleanIcgLinks }]);
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise");
+      setNewProd({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, icgLinks: [createBlankIcgLink("Uni")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -8057,7 +8241,8 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock Minimo V-D"),
               /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.stockMinimoViernesDomingo, onChange: (e) => setNewProd((p) => ({ ...p, stockMinimoViernesDomingo: e.target.value })) })
             )
-          )
+          ),
+          renderIcgLinksEditor({ idPrefix: "mise-add", links: newProd.icgLinks, setLinks: setNewMiseIcgLinks, icgArticles: icgArticleRows, defaultUnit: "Uni" })
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAdd(false) }, "Cancelar"),
@@ -8208,7 +8393,57 @@ Solicitado: ${cantidad}`);
       toast(`Decomiso: ${data.producto} x${cant}`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can", style: { color: "var(--rojo)", marginRight: 7 } }), "Decomiso MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-dec-list", value: data.producto, onChange: (e) => setData((p) => ({ ...p, producto: e.target.value })), autoComplete: "off" }), /* @__PURE__ */ React.createElement("datalist", { id: "mise-dec-list" }, miseAnPlace.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--gris)" } }, "Disponible: ", /* @__PURE__ */ React.createElement("strong", null, prodInfo.existencia))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: data.fecha, onChange: (e) => setData((p) => ({ ...p, fecha: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: data.cantidad, onChange: (e) => setData((p) => ({ ...p, cantidad: e.target.value })) }))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Raz\xF3n / Motivo"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: data.motivo, onChange: (e) => setData((p) => ({ ...p, motivo: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "\xC1rea"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: data.area, onChange: (e) => setData((p) => ({ ...p, area: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccione un \xE1rea"), /* @__PURE__ */ React.createElement("option", null, "COCINA"), /* @__PURE__ */ React.createElement("option", null, "SALON"), /* @__PURE__ */ React.createElement("option", null, "ALMACEN"), /* @__PURE__ */ React.createElement("option", null, "CUARTO FRIO"))), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Responsable"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: data.responsable, onChange: (e) => setData((p) => ({ ...p, responsable: e.target.value })) })))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Guardar decomiso"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
+      /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() },
+        /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can", style: { color: "var(--rojo)", marginRight: 7 } }), "Decomiso MISE AN PLACE"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-body" },
+          error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-dec-list", value: data.producto, onChange: (e) => setData((p) => ({ ...p, producto: e.target.value })), autoComplete: "off" }),
+            /* @__PURE__ */ React.createElement("datalist", { id: "mise-dec-list" }, miseAnPlace.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " - ", m.existencia))),
+            prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--gris)" } }, "Disponible: ", /* @__PURE__ */ React.createElement("strong", null, prodInfo.existencia))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: data.fecha, onChange: (e) => setData((p) => ({ ...p, fecha: e.target.value })) })
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: data.cantidad, onChange: (e) => setData((p) => ({ ...p, cantidad: e.target.value })) })
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Razon / Motivo"),
+            /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: data.motivo, onChange: (e) => setData((p) => ({ ...p, motivo: e.target.value })) })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Area"),
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: data.area, onChange: (e) => setData((p) => ({ ...p, area: e.target.value })) },
+                /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccione un area"),
+                /* @__PURE__ */ React.createElement("option", null, "COCINA"),
+                /* @__PURE__ */ React.createElement("option", null, "SALON"),
+                /* @__PURE__ */ React.createElement("option", null, "ALMACEN"),
+                /* @__PURE__ */ React.createElement("option", null, "CUARTO FRIO")
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Responsable"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", value: data.responsable, onChange: (e) => setData((p) => ({ ...p, responsable: e.target.value })) })
+            )
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Guardar decomiso")
+        )
+      )
+    );
   }
   function HistorialRapidoMise({ data, tipo }) {
     const [busqueda, setBusqueda] = useState("");
