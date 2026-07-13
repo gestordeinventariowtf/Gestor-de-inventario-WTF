@@ -34,10 +34,38 @@ function Compress-WithRetry {
   }
 }
 
+function Get-CSharpCompiler {
+  $candidates = @(
+    (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
+    (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) { return $candidate }
+  }
+  $cmd = Get-Command csc.exe -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  throw "No se encontro csc.exe para compilar la aplicacion de bandeja."
+}
+
+function Build-TrayApp {
+  param([string]$OutputPath)
+  $source = Join-Path $Root "scripts\tray\WtfIcgHostTray.cs"
+  if (!(Test-Path $source)) {
+    throw "No se encontro el codigo fuente de la aplicacion de bandeja."
+  }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputPath) | Out-Null
+  $csc = Get-CSharpCompiler
+  & $csc /nologo /target:winexe /platform:x64 /out:$OutputPath /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll $source
+  if ($LASTEXITCODE -ne 0 -or !(Test-Path $OutputPath)) {
+    throw "No se pudo compilar WTF ICG Host Tray."
+  }
+}
+
 Set-Location $Root
 npm.cmd install
 npm.cmd run build
 npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
+Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
 
 if (Test-Path $Payload) {
   Remove-Item -LiteralPath $Payload -Recurse -Force
@@ -95,7 +123,8 @@ WTF ICG Host - Instalador local
 2. Clic derecho sobre INSTALAR-WTF-ICG-HOST.cmd.
 3. Selecciona Ejecutar como administrador.
 4. El sistema quedara activo automaticamente al iniciar Windows.
-5. Abre el panel desde el acceso del escritorio: Abrir Panel WTF ICG Host.
+5. El icono de bandeja permite abrir opciones, reiniciar servicio o ver el panel.
+6. El panel no se abre solo; puedes abrirlo manualmente en:
 
 Panel local:
 http://127.0.0.1:8787

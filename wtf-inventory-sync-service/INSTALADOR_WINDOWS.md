@@ -6,9 +6,10 @@ Este paquete convierte el sincronizador local en una aplicacion instalable para 
 
 - Aplicacion local en `C:\Archivos de programa\WTF ICG Host` cuando esa ruta exista, o en `C:\Program Files\WTF ICG Host`.
 - Ejecutable local `wtf-icg-host.exe`, sin depender de Node.js instalado.
+- Ejecutable de bandeja `wtf-icg-host-tray.exe` para operar oculto.
 - Datos operativos en `C:\ProgramData\WTF ICG Host`.
-- Tarea automatica de Windows llamada `WTF ICG Host`.
-- Acceso en el escritorio para abrir el panel local.
+- Inicio automatico de Windows llamado `WTF ICG Host`, visible en MSConfig/Administrador de tareas.
+- Panel local oculto hasta abrir `http://127.0.0.1:8787` o usar el icono de bandeja.
 - Carpetas auditables:
   - `C:\ICG EXPORTACION`: carpeta donde ICG FrontRest deja los CMS de cierre.
   - `data\inbox`: paquetes entrantes.
@@ -47,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1 -
 
 1. Extrae el `.zip`.
 2. Ejecuta `INSTALAR-WTF-ICG-HOST.cmd`. Windows pedira permiso de Administrador si hace falta.
-3. Abre el panel:
+3. El sistema queda activo en la bandeja de Windows. Si deseas auditar movimientos, abre:
 
 ```text
 http://127.0.0.1:8787
@@ -55,4 +56,4 @@ http://127.0.0.1:8787
 
 ## Operacion segura
 
-El sistema queda automatico para leer el ultimo `.cms` de `C:\ICG EXPORTACION`, aplicar consumos vinculados por `CodArticulo` contra Mise an Place y registrar el Historial de Salida Rapida en la web. La escritura directa contra ICG/SQL Server sigue bloqueada hasta confirmar el esquema real de ICG y hacer prueba controlada con backup.
+El sistema queda automatico para leer el ultimo `.cms` de `C:\ICG EXPORTACION`, aplicar consumos vinculados por `CodArticulo` contra Mise an Place y registrar el Historial de Salida Rapida en la web. Tambien exporta entradas aprobadas hacia la carpeta local configurada para ICG. Todo queda oculto salvo el icono de bandeja y el panel local bajo demanda.

@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>WTF Sistema Cocina</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a9f28'/%3E%3Ctext x='32' y='41' text-anchor='middle' font-size='24' font-family='Arial' font-weight='700' fill='white'%3EW%3C/text%3E%3C/svg%3E" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -22,11 +21,6 @@
       height: 100%;
       min-height: 100%;
       min-height: 100dvh;
-      max-width: 100%;
-    }
-    html {
-      -webkit-text-size-adjust: 100%;
-      text-size-adjust: 100%;
     }
 
     body {
@@ -34,13 +28,6 @@
       background: #f0f2f5;
       color: #222;
       overflow-x: hidden;
-    }
-    button, input, select, textarea {
-      font: inherit;
-      max-width: 100%;
-    }
-    img, video, canvas, svg {
-      max-width: 100%;
     }
 
     :root {
@@ -110,16 +97,10 @@
       border: 0;
       color: #9ca3af;
       cursor: pointer;
-      padding: 0;
-      width: 40px;
-      height: 40px;
-      align-items: center;
-      justify-content: center;
-      border-radius: 9px;
+      padding: 4px;
       font-size: 16px;
       flex-shrink: 0;
     }
-    .sidebar-close-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
 
     .sidebar-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
     .nav-section {
@@ -140,7 +121,6 @@
       color: #9ca3af;
       white-space: nowrap;
       user-select: none;
-      min-height: 40px;
     }
     .nav-item:hover { background: #2d3448; color: #fff; }
     .nav-item.active { background: var(--verde); color: #fff; }
@@ -384,8 +364,7 @@
       gap: 8px;
       flex-wrap: wrap;
     }
-    .card-header > * { min-width: 0; }
-    .card-header h2 { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+    .card-header h2 { font-size: 14px; font-weight: 600; }
     .card-body { padding: 16px; }
 
     /* ── Stat Cards ── */
@@ -427,8 +406,6 @@
       transition: opacity .14s, background .14s;
       white-space: nowrap;
       flex-shrink: 0;
-      min-height: 36px;
-      max-width: 100%;
     }
     .btn:hover { opacity: .87; }
     .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -439,8 +416,7 @@
     .btn-gris   { background: #e5e7eb; color: #374151; }
     .btn-outline { background: transparent; border: 1.5px solid var(--borde); color: #374151; }
     .btn-sm  { padding: 5px 9px; font-size: 12px; }
-    .btn-icon { padding: 7px 8px; min-width: 40px; justify-content: center; }
-    .btn-sm.btn-icon { min-width: 38px; min-height: 38px; padding: 6px; }
+    .btn-icon { padding: 7px 8px; }
 
     /* ── Action bar ── */
     .action-bar {
@@ -496,12 +472,6 @@
     .form-control.error { border-color: var(--rojo); }
     select.form-control { cursor: pointer; }
     textarea.form-control { resize: vertical; min-height: 68px; }
-    input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: var(--verde);
-      flex-shrink: 0;
-    }
 
     /* ── Search ── */
     .search-wrap { position: relative; }
@@ -511,14 +481,7 @@
     .search-wrap input { min-width: 0; }
 
     /* ── Table ── */
-    .table-wrap {
-      overflow-x: auto;
-      overflow-y: hidden;
-      -webkit-overflow-scrolling: touch;
-      width: 100%;
-      max-width: 100%;
-      overscroll-behavior-inline: contain;
-    }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
       background: #f9fafb;
@@ -531,12 +494,7 @@
       border-bottom: 2px solid var(--borde);
       white-space: nowrap;
     }
-    tbody td {
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--borde);
-      vertical-align: middle;
-      overflow-wrap: anywhere;
-    }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid var(--borde); vertical-align: middle; }
     tbody tr:hover td { background: #f9fafb; }
     tbody tr:last-child td { border-bottom: 0; }
     .tr-separator td { background: #fce8e8 !important; font-weight: 700; color: #7f1d1d; text-align: center; font-size: 12px; letter-spacing: .06em; }
@@ -586,7 +544,6 @@
       box-shadow: 0 20px 60px rgba(0,0,0,.22);
       display: flex; flex-direction: column;
       max-height: calc(100dvh - 24px);
-      overflow: hidden;
     }
     .modal-lg { max-width: 660px; }
     .modal-header {
@@ -596,7 +553,7 @@
       gap: 10px;
       flex-shrink: 0;
     }
-    .modal-header h3 { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+    .modal-header h3 { font-size: 15px; font-weight: 600; }
     .modal-body { padding: 18px; overflow-y: auto; flex: 1; }
     .modal-footer {
       padding: 12px 18px;
@@ -782,15 +739,6 @@
     /* Tablet landscape / small desktop ≤ 1024px */
     @media (max-width: 1024px) {
       :root { --sidebar-w: 220px; }
-      .content {
-        padding: clamp(12px, 2.4vw, 20px);
-      }
-      .modal-lg {
-        max-width: min(94vw, 760px);
-      }
-      .grid-dash {
-        grid-template-columns: 1fr;
-      }
     }
 
     /* Tablet portrait ≤ 768px: sidebar becomes overlay */
@@ -802,7 +750,6 @@
       .sidebar { transform: translateX(-100%); }
       .sidebar:not(.collapsed) { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.25); }
       .sidebar-close-btn { display: flex; align-items: center; }
-      .nav-item { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
       .hamburger { display: flex; align-items: center; justify-content: center; }
       .main { margin-left: 0 !important; }
       .topbar {
@@ -832,10 +779,6 @@
         justify-content: flex-start;
         gap: 6px;
         padding-left: 0;
-        max-width: 100%;
-        min-width: 0;
-        overflow-x: auto;
-        scrollbar-width: thin;
       }
       .topbar-right > * {
         margin: 0;
@@ -852,9 +795,6 @@
       .action-bar {
         align-items: stretch;
         gap: 10px;
-      }
-      .action-bar > div {
-        min-width: 0;
       }
       .action-bar .search-wrap,
       .action-bar > .btn,
@@ -884,11 +824,9 @@
       }
       .table-wrap {
         border-radius: 10px;
-        border: 1px solid var(--borde);
-        background: var(--blanco);
       }
       table {
-        min-width: 720px;
+        min-width: 640px;
       }
       .tabs {
         gap: 6px;
@@ -907,15 +845,9 @@
       }
       .grid-dash { grid-template-columns: 1fr; }
       .grid-2 { grid-template-columns: 1fr; }
-      .modal { max-width: min(100%, 680px); border-radius: 14px; }
-      .modal-overlay { padding: 10px; align-items: center; }
-      .modal { max-height: min(92dvh, 760px); }
-      .form-control,
-      select.form-control,
-      textarea.form-control {
-        min-height: 44px;
-        font-size: 16px;
-      }
+      .modal { max-width: 100%; border-radius: 14px; }
+      .modal-overlay { padding: 8px; align-items: flex-end; }
+      .modal { border-bottom-left-radius: 0; border-bottom-right-radius: 0; max-height: 92dvh; }
     }
 
     /* Mobile ≤ 480px */
@@ -929,9 +861,6 @@
       .card-header { padding: 10px 12px; }
       .card-body { padding: 12px; }
       .action-bar { gap: 6px; }
-      .action-bar > div {
-        width: 100%;
-      }
       .action-bar .search-wrap,
       .action-bar > .btn,
       .action-bar > .btn-outline,
@@ -944,16 +873,8 @@
         flex-basis: 100%;
         max-width: 100%;
       }
-      .btn {
-        font-size: 12px;
-        padding: 8px 11px;
-        min-height: 40px;
-        justify-content: center;
-      }
-      .btn-sm { padding: 6px 8px; font-size: 11px; min-height: 34px; }
-      .btn-icon {
-        min-width: 38px;
-      }
+      .btn { font-size: 12px; padding: 7px 11px; }
+      .btn-sm { padding: 4px 8px; font-size: 11px; }
       .hamburger {
         width: 42px;
         height: 42px;
@@ -1012,9 +933,6 @@
       }
       thead th { font-size: 10px; padding: 8px 9px; }
       tbody td { padding: 8px 9px; font-size: 12px; }
-      table {
-        min-width: 680px;
-      }
       .mise-row { grid-template-columns: 1fr 76px 26px; gap: 5px; }
       .mise-row-header { grid-template-columns: 1fr 76px 26px; gap: 5px; }
       .modal-body { padding: 14px; }
@@ -1022,25 +940,6 @@
       .modal-footer { padding: 10px 14px; }
       .modal-footer .btn {
         flex-basis: 100%;
-      }
-      .modal-overlay { padding: 8px; align-items: flex-end; }
-      .modal {
-        border-bottom-left-radius: 0;
-        border-bottom-right-radius: 0;
-        max-height: 92dvh;
-      }
-      .modal-body .mise-row {
-        grid-template-columns: 1fr !important;
-        align-items: stretch;
-        gap: 8px;
-        padding: 10px 0;
-        border-bottom: 1px dashed #e5e7eb;
-      }
-      .modal-body .mise-row-header {
-        display: none;
-      }
-      .modal-body .mise-row .btn-icon {
-        width: 100%;
       }
       .date-badge { display: none; }
     }
@@ -2505,6 +2404,11 @@
       icon: "fa-barcode",
       columns: ["Referencia", "Codigo", "TipoRef", "CodProveedor"]
     },
+    Kits: {
+      label: "Kits / composicion",
+      icon: "fa-puzzle-piece",
+      columns: ["CodArticulo", "Talla", "Color", "LineaKit", "CodArtKit", "TallaKit", "ColorKit", "Referencia", "DescripcioKit", "ReferenciaKit", "Unidades", "PrecioUnidad", "TotalLinea", "ImprimirLinea"]
+    },
     ComprasCab: {
       label: "Compras / Entradas",
       icon: "fa-file-invoice",
@@ -2593,6 +2497,28 @@
   function icgRows(data, key) {
     const ds = data && data.datasets ? data.datasets[key] : null;
     return ds && Array.isArray(ds.rows) ? ds.rows : [];
+  }
+  function getIcgArticleCode(row) {
+    return String(row && (row.CodArticulo || row.CODARTICULO || row.Codigo || row.CODIGO || "") || "").trim();
+  }
+  function getIcgArticleReference(row) {
+    return String(row && (row.Referencia || row.REFERENCIA || row.CodigoBarras || row.Barcode || "") || "").trim();
+  }
+  function getIcgArticleDescription(row) {
+    return String(row && (row.Descripcion || row.DESCRIPCION || row.ProductoICG || row.Nombre || row.Articulo || "") || "").trim();
+  }
+  function getIcgArticleOptionValue(row) {
+    const code = getIcgArticleCode(row);
+    const ref = getIcgArticleReference(row);
+    const desc = getIcgArticleDescription(row);
+    return [code, ref, desc].filter(Boolean).join(" | ");
+  }
+  function resolveIcgArticleSelection(value, rows) {
+    const target = normalizar(value);
+    if (!target) return null;
+    return (Array.isArray(rows) ? rows : []).find(function(row) {
+      return normalizar(getIcgArticleOptionValue(row)) === target || normalizar(getIcgArticleCode(row)) === target || normalizar(getIcgArticleReference(row)) === target || normalizar(getIcgArticleDescription(row)) === target;
+    }) || null;
   }
   function parseIcgNumber(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -3160,6 +3086,88 @@
       if (parsed && parsed.version === "WTF_ICG_FRONTREST_BRIDGE_V1") return parsed;
     } catch (err) {}
     return null;
+  }
+  function arrayBufferToBase64(buffer) {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || []);
+    const chunkSize = 32768;
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
+  async function importCmsThroughLocalHost(fileName, buffer) {
+    const controller = new AbortController();
+    const timeout = setTimeout(function() { controller.abort(); }, 45000);
+    try {
+      const res = await fetch("http://127.0.0.1:8787/api/import-cms-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName, base64: arrayBufferToBase64(buffer) }),
+        signal: controller.signal
+      });
+      const payload = await res.json().catch(function() { return {}; });
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || payload.message || "El host local no pudo importar el CMS.");
+      }
+      return payload.result || payload;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  function buildIcgCmsImportClosureRow(fileName, audit, result) {
+    const counts = result && result.tableCounts || {};
+    const totalLines = Number(counts.TiquetsLin || result && result.totalLines || 0);
+    const tickets = Number(counts.TiquetsCab || 0);
+    return {
+      _id: `cms-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      Archivo: fileName,
+      FechaCierre: new Date().toISOString().slice(0, 10),
+      Tickets: tickets,
+      Lineas: totalLines,
+      VentaBruta: 0,
+      VentaNeta: 0,
+      Pagos: 0,
+      Propina: 0,
+      Estado: totalLines > 0 ? "Ventas importadas" : "Sin lineas vendidas",
+      Observacion: result && result.message ? result.message : audit && audit.status ? audit.status : "CMS procesado"
+    };
+  }
+  function mergeIcgHostDatasets(currentDatasets, hostDatasets) {
+    const next = Object.assign({}, currentDatasets || {});
+    Object.entries(hostDatasets || {}).forEach(function(entry) {
+      const tableKey = entry[0];
+      const incoming = entry[1] || {};
+      const incomingRows = Array.isArray(incoming.rows) ? incoming.rows : [];
+      const current = next[tableKey] || {};
+      const currentRows = Array.isArray(current.rows) ? current.rows : [];
+      const seen = new Set();
+      const mergedRows = [];
+      incomingRows.concat(currentRows).forEach(function(row, index) {
+        const key = String(row && (row._id || [
+          tableKey,
+          row.CodArticulo,
+          row.Codigo,
+          row.Referencia,
+          row.Serie,
+          row.Numero,
+          row.N,
+          row.NumLinea,
+          row.Descripcion,
+          index
+        ].join("|")));
+        if (seen.has(key)) return;
+        seen.add(key);
+        mergedRows.push(row);
+      });
+      next[tableKey] = Object.assign({}, current, incoming, {
+        key: tableKey,
+        label: current.label || incoming.label || (ICG_TABLE_DEFS[tableKey] && ICG_TABLE_DEFS[tableKey].label) || tableKey,
+        columns: Array.from(new Set([...(current.columns || []), ...(incoming.columns || []), ...((ICG_TABLE_DEFS[tableKey] && ICG_TABLE_DEFS[tableKey].columns) || [])])),
+        rows: mergedRows.slice(0, 8000)
+      });
+    });
+    return next;
   }
   function buildIcgCmsBytes(data) {
     if (!window.pako) throw new Error("La libreria de compresion todavia no cargo.");
@@ -4139,7 +4147,7 @@ Solicitado: ${cantidad}`);
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
@@ -4159,9 +4167,19 @@ Solicitado: ${cantidad}`);
           .modulo-grid-single { grid-template-columns: minmax(220px, 280px); max-width: 360px; margin: 0 auto; }
           @media (max-width: 900px) { .modulo-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 280px)); max-width: 640px; } }
           @media (max-width: 900px) { .modulo-grid-single { grid-template-columns: minmax(220px, 280px); max-width: 360px; } }
-          @media (max-width: 600px) { .modulo-grid { grid-template-columns: 1fr; max-width: 400px; gap: 14px; } }
-          .modulo-card { background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; transition: transform .18s, border-color .18s, background .18s; aspect-ratio: 1 / 0.85; min-height: 200px; }
-          @media (max-width: 600px) { .modulo-card { aspect-ratio: unset; padding: 32px 20px; min-height: 160px; } }
+          @media (max-width: 600px) { .modulo-grid { grid-template-columns: minmax(220px, 280px); max-width: 320px; gap: 14px; padding: 0; } }
+          .modulo-card { background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; transition: transform .18s, border-color .18s, background .18s; width: 100%; max-width: 280px; min-height: 238px; aspect-ratio: 1 / 0.85; }
+          .modulo-card > div { width: 100%; min-height: 100%; justify-content: center !important; box-sizing: border-box; }
+          .modulo-card > div > div:first-child { width: 72px !important; height: 72px !important; min-width: 72px !important; min-height: 72px !important; flex: 0 0 72px !important; }
+          .modulo-card > div > div:first-child > i { width: 34px !important; height: 34px !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 30px !important; line-height: 1 !important; text-align: center !important; }
+          .modulo-card-cocina > div > div:first-child > i,
+          .modulo-card-sharp > div > div:first-child > i,
+          .modulo-card-icg > div > div:first-child > i,
+          .modulo-card-icg-host > div > div:first-child > i { transform: scale(1.08); }
+          .modulo-card > div > div:last-child { min-height: 78px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+          .modulo-card > div > div:last-child > div:first-child { min-height: 32px; display: flex; align-items: center; justify-content: center; text-align: center; }
+          .modulo-card > div > div:last-child > div:last-child { min-height: 39px; text-align: center; }
+          @media (max-width: 600px) { .modulo-card { aspect-ratio: unset; min-height: 238px; } }
           .modulo-card:hover { transform: translateY(-4px) scale(1.02); border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); }
           .modulo-card:active { transform: scale(0.98); }
           .modulo-card-cocina:hover { border-color: #22c55e; }
@@ -6633,9 +6651,32 @@ Solicitado: ${cantidad}`);
             return;
           }
           const audit = analyzeIcgCmsBytes(rawBytes);
-          updateData({ sourceName: file.name, audit });
-          setTab("resumen");
-          toast("CMS nativo analizado. Para afectar inventario necesitas importar tablas exportadas o un CMS WTF.", "info");
+          try {
+            const result = await importCmsThroughLocalHost(file.name, buffer);
+            const datasets = mergeIcgHostDatasets(normalized.datasets, result && result.datasets);
+            const closureRows = Array.isArray(datasets.CierresDiarios && datasets.CierresDiarios.rows) ? datasets.CierresDiarios.rows : [];
+            datasets.CierresDiarios = Object.assign({}, datasets.CierresDiarios, {
+              columns: Array.from(new Set([...(datasets.CierresDiarios && datasets.CierresDiarios.columns || ICG_TABLE_DEFS.CierresDiarios.columns), "Observacion"])),
+              rows: [buildIcgCmsImportClosureRow(file.name, audit, result)].concat(closureRows)
+            });
+            updateData({
+              sourceName: file.name,
+              audit: Object.assign({}, audit, {
+                status: result.message || "CMS importado por ICG Host",
+                importHostResult: result
+              }),
+              datasets
+            });
+            const importedLines = Number(result && (result.tableCounts && result.tableCounts.TiquetsLin || result.totalLines) || 0);
+            const importedArticles = Number(result && result.tableCounts && result.tableCounts.Articulos || 0);
+            setActiveTable(importedLines > 0 ? "TiquetsLin" : importedArticles > 0 ? "Articulos" : "CierresDiarios");
+            setTab(importedLines > 0 ? "ventas" : "tablas");
+            toast(importedLines > 0 ? `${importedLines} lineas vendidas importadas para vincular/descontar.` : `CMS importado sin lineas vendidas. Articulos ICG: ${importedArticles}.`, importedLines > 0 ? "ok" : "info", 6500);
+          } catch (hostError) {
+            updateData({ sourceName: file.name, audit });
+            setTab("resumen");
+            toast((hostError && hostError.message ? hostError.message : "No se pudo conectar con ICG Host local.") + " Abre el programa local y vuelve a importar.", "error", 7000);
+          }
           return;
         }
         if (lower.endsWith(".json")) {
@@ -7288,8 +7329,8 @@ Solicitado: ${cantidad}`);
         style: {
           display: "block",
           width: "100%",
-          height: "calc(100dvh - 112px)",
-          minHeight: "780px",
+          height: "max(520px, calc(100dvh - 112px))",
+          minHeight: 0,
           border: 0,
           background: "#f3f4f6"
         }
@@ -7843,7 +7884,7 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser }) {
+  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -7853,6 +7894,12 @@ Solicitado: ${cantidad}`);
     const [editItem, setEditItem] = useState(null);
     const [busqueda, setBusqueda] = useState("");
     const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 });
+    const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
+    const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
+    const icgArticleRows = (icgRows(normalizedIcgData, "Articulos").length ? icgRows(normalizedIcgData, "Articulos") : icgRows(normalizedIcgData, "Referencias")).filter(function(row) {
+      return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
+    });
+    const icgBridgeRows = icgRows(normalizedIcgData, "VinculosMiseICG");
     const terminoBusqueda = normalizar(busqueda);
     const miseFiltrada = terminoBusqueda ? miseAnPlace.filter((m) => {
       return normalizar(m.producto).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
@@ -7874,9 +7921,85 @@ Solicitado: ${cantidad}`);
       toast("Eliminado", "info");
     }
     function saveEditProd(nextItem) {
-      setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: nextItem.existencia, medida: nextItem.medida, stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem) } : m));
+      saveMiseIcgLinks(nextItem);
+      setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: nextItem.medida, stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem) } : m));
       setEditItem(null);
       toast("Producto actualizado");
+    }
+    function getExistingIcgLinksForMise(item) {
+      const productName = normalizar(item && item.producto);
+      const rows = icgBridgeRows.filter(function(row) {
+        const moduleOk = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === normalizeIcgWtfTarget(miseIcgModuleLabel);
+        const productOk = normalizar(row.ProductoMise || row.ProductoWTF) === productName;
+        return moduleOk && productOk;
+      }).map(function(row) {
+        return {
+          value: [row.CodArticulo || "", row.Referencia || "", row.ProductoICG || ""].filter(Boolean).join(" | "),
+          CodArticulo: row.CodArticulo || "",
+          Referencia: row.Referencia || "",
+          ProductoICG: row.ProductoICG || "",
+          CantidadPorVenta: row.CantidadPorVenta || 1,
+          Unidad: row.Unidad || item.medida || "Uni",
+          Activo: row.Activo == null ? "Si" : row.Activo,
+          Notas: row.Notas || ""
+        };
+      });
+      const localRows = Array.isArray(item && item.icgLinks) ? item.icgLinks : [];
+      return (rows.length ? rows : localRows).length ? (rows.length ? rows : localRows) : [{ value: "", CantidadPorVenta: 1, Unidad: item && item.medida || "Uni", Activo: "Si", Notas: "" }];
+    }
+    function saveMiseIcgLinks(item) {
+      if (!setIcgFrontRestData || !Array.isArray(item.icgLinks)) return;
+      const cleanLinks = item.icgLinks.map(function(link) {
+        const article = resolveIcgArticleSelection(link.value || link.ProductoICG || link.CodArticulo || link.Referencia, icgArticleRows);
+        const cod = article ? getIcgArticleCode(article) : String(link.CodArticulo || "").trim();
+        const ref = article ? getIcgArticleReference(article) : String(link.Referencia || "").trim();
+        const desc = article ? getIcgArticleDescription(article) : String(link.ProductoICG || "").trim();
+        return {
+          CodArticulo: cod,
+          Referencia: ref,
+          ProductoICG: desc,
+          CantidadPorVenta: parseIcgNumber(link.CantidadPorVenta) || 1,
+          Unidad: link.Unidad || item.medida || "Uni",
+          Activo: link.Activo === "No" ? "No" : "Si",
+          Notas: link.Notas || ""
+        };
+      }).filter(function(link) {
+        return link.CodArticulo || link.Referencia || link.ProductoICG;
+      });
+      setIcgFrontRestData(function(prev) {
+        const normalized = ensureIcgFrontRestData(prev);
+        const datasets = Object.assign({}, normalized.datasets);
+        const current = datasets.VinculosMiseICG || { key: "VinculosMiseICG", label: ICG_TABLE_DEFS.VinculosMiseICG.label, columns: ICG_TABLE_DEFS.VinculosMiseICG.columns, rows: [] };
+        const existingRows = Array.isArray(current.rows) ? current.rows : [];
+        const targetModule = normalizeIcgWtfTarget(miseIcgModuleLabel);
+        const productName = normalizar(item.producto);
+        const keptRows = existingRows.filter(function(row) {
+          const sameModule = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === targetModule;
+          const sameProduct = normalizar(row.ProductoMise || row.ProductoWTF) === productName;
+          return !(sameModule && sameProduct);
+        });
+        const nextRows = cleanLinks.map(function(link) {
+          return {
+            _id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            ModuloWTF: miseIcgModuleLabel,
+            ProductoWTF: item.producto,
+            ProductoMise: item.producto,
+            CodArticulo: link.CodArticulo,
+            Referencia: link.Referencia,
+            ProductoICG: link.ProductoICG,
+            Metodo: "Seleccion manual desde Mise",
+            CantidadPorVenta: link.CantidadPorVenta,
+            Unidad: link.Unidad,
+            Activo: link.Activo,
+            Notas: link.Notas
+          };
+        });
+        datasets.VinculosMiseICG = Object.assign({}, current, {
+          columns: Array.from(new Set([...(current.columns || []), ...ICG_TABLE_DEFS.VinculosMiseICG.columns])),
+          rows: nextRows.concat(keptRows)
+        });
+        return ensureIcgFrontRestData(Object.assign({}, normalized, { datasets, updatedAt: new Date().toISOString() }));
+      });
     }
     const tableRows = miseFiltrada.map((m, i) => {
       const stockAlert = getMiseStockAlert(m);
@@ -7884,7 +8007,7 @@ Solicitado: ${cantidad}`);
       const rowClass = stockAlert.active ? "tr-mise-prod-alert" : m.existencia <= 0 ? "tr-mise-zero" : m.existencia <= 5 ? "tr-mise-low" : "";
       const stockLjClass = stockAlert.active && stockAlert.periodo === "L-J" ? "pill pill-rojo" : "pill pill-gris";
       const stockVdClass = stockAlert.active && stockAlert.periodo === "V-D" ? "pill pill-rojo" : "pill pill-gris";
-      return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getMiseCodArticulo(m, i)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto, stockAlert.active && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 800 } }, "Producir: faltan ", formatMiseQty(stockAlert.faltante), " ", m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockLjClass }, formatMiseQty(getMiseStockMinLJ(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockVdClass }, formatMiseQty(getMiseStockMinVD(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, formatMiseQty(m.existencia))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar existencia", onClick: () => setEditItem(m) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+      return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getMiseCodArticulo(m, i)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto, stockAlert.active && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 800 } }, "Producir: faltan ", formatMiseQty(stockAlert.faltante), " ", m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockLjClass }, formatMiseQty(getMiseStockMinLJ(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockVdClass }, formatMiseQty(getMiseStockMinVD(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, formatMiseQty(m.existencia))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar producto y vinculos ICG", onClick: () => setEditItem(Object.assign({}, m, { icgLinks: getExistingIcgLinksForMise(m) })) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
     if (miseAnPlace.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
@@ -7942,28 +8065,63 @@ Solicitado: ${cantidad}`);
         )
       )
     ) : null;
-    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
+    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, icgArticles: icgArticleRows, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
     const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
     const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
     const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
-  function EditMiseItemModal({ item, onClose, onSave }) {
+  function EditMiseItemModal({ item, icgArticles = [], onClose, onSave }) {
     const [codArticulo, setCodArticulo] = useState(getMiseCodArticulo(item, 0));
     const [producto, setProducto] = useState(item.producto || "");
-    const [existencia, setExistencia] = useState(String(item.existencia ?? 0));
     const [medida, setMedida] = useState(item.medida || "Uni");
     const [stockMinimoLunesJueves, setStockMinimoLunesJueves] = useState(String(getMiseStockMinLJ(item)));
     const [stockMinimoViernesDomingo, setStockMinimoViernesDomingo] = useState(String(getMiseStockMinVD(item)));
+    const [icgLinks, setIcgLinks] = useState(function() {
+      const rows = Array.isArray(item.icgLinks) && item.icgLinks.length ? item.icgLinks : [{ value: "", CantidadPorVenta: 1, Unidad: item.medida || "Uni", Activo: "Si", Notas: "" }];
+      return rows.map(function(row) {
+        return Object.assign({ value: "", CantidadPorVenta: 1, Unidad: item.medida || "Uni", Activo: "Si", Notas: "" }, row);
+      });
+    });
     const [error, setError] = useState("");
+    function updateIcgLink(index, patch) {
+      setIcgLinks(function(prev) {
+        return prev.map(function(row, i) {
+          return i === index ? Object.assign({}, row, patch) : row;
+        });
+      });
+    }
+    function addIcgLink() {
+      setIcgLinks(function(prev) {
+        return prev.concat([{ value: "", CantidadPorVenta: 1, Unidad: medida || "Uni", Activo: "Si", Notas: "" }]);
+      });
+    }
+    function removeIcgLink(index) {
+      setIcgLinks(function(prev) {
+        const next = prev.filter(function(_, i) { return i !== index; });
+        return next.length ? next : [{ value: "", CantidadPorVenta: 1, Unidad: medida || "Uni", Activo: "Si", Notas: "" }];
+      });
+    }
     function guardar() {
       const nombre = String(producto || "").trim();
       if (!nombre) return setError("Ingrese el nombre del producto.");
-      const cantidad = parseFloat(String(existencia).replace(",", "."));
-      if (isNaN(cantidad) || cantidad < 0) return setError("Ingrese una existencia valida.");
       const minLj = getMiseSafeNumber(stockMinimoLunesJueves, 0);
       const minVd = getMiseSafeNumber(stockMinimoViernesDomingo, 0);
-      onSave({ ...item, codArticulo: String(codArticulo || "").trim() || getMiseCodArticulo(item, 0), producto: nombre, existencia: cantidad, medida: normalizarMedidaMise(medida), stockMinimoLunesJueves: minLj, stockMinimoViernesDomingo: minVd });
+      const cleanLinks = icgLinks.map(function(link) {
+        const article = resolveIcgArticleSelection(link.value || link.ProductoICG || link.CodArticulo || link.Referencia, icgArticles);
+        return Object.assign({}, link, {
+          value: article ? getIcgArticleOptionValue(article) : link.value,
+          CodArticulo: article ? getIcgArticleCode(article) : link.CodArticulo || "",
+          Referencia: article ? getIcgArticleReference(article) : link.Referencia || "",
+          ProductoICG: article ? getIcgArticleDescription(article) : link.ProductoICG || "",
+          CantidadPorVenta: parseIcgNumber(link.CantidadPorVenta) || 1,
+          Unidad: link.Unidad || normalizarMedidaMise(medida),
+          Activo: link.Activo === "No" ? "No" : "Si"
+        });
+      }).filter(function(link) {
+        return String(link.value || link.CodArticulo || link.Referencia || link.ProductoICG || "").trim();
+      });
+      onSave({ ...item, codArticulo: String(codArticulo || "").trim() || getMiseCodArticulo(item, 0), producto: nombre, existencia: item.existencia, medida: normalizarMedidaMise(medida), stockMinimoLunesJueves: minLj, stockMinimoViernesDomingo: minVd, icgLinks: cleanLinks });
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
       /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() },
@@ -7993,15 +8151,32 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
-              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Existencia"),
-              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: existencia, onChange: (e) => setExistencia(e.target.value) })
-            ),
-            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
               /* @__PURE__ */ React.createElement("select", { className: "form-control", value: medida, onChange: (e) => setMedida(e.target.value) },
                 MISE_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))
               )
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Existencia actual"),
+              /* @__PURE__ */ React.createElement("div", { className: "pill pill-gris", title: "La existencia solo cambia por entradas, salidas, produccion o decomisos.", style: { display: "inline-flex", alignItems: "center", minHeight: 36, fontSize: 13 } }, formatMiseQty(item.existencia), " ", item.medida || "Uni")
             )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Articulo ICG relacionado"),
+            /* @__PURE__ */ React.createElement("datalist", { id: `mise-icg-article-list-${item.id}` }, icgArticles.map(function(row, index) {
+              const value = getIcgArticleOptionValue(row);
+              return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${index}`, value }, value) : null;
+            })),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, icgLinks.map(function(link, index) {
+              return /* @__PURE__ */ React.createElement("div", { key: index, style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", list: `mise-icg-article-list-${item.id}`, value: link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | "), onChange: (e) => updateIcgLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: link.CantidadPorVenta, onChange: (e) => updateIcgLink(index, { CantidadPorVenta: e.target.value }), title: "Cantidad a descontar por cada venta ICG" }),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", value: link.Unidad || medida || "Uni", onChange: (e) => updateIcgLink(index, { Unidad: e.target.value }), title: "Unidad del descuento" }),
+                /* @__PURE__ */ React.createElement("select", { className: "form-control", value: link.Activo || "Si", onChange: (e) => updateIcgLink(index, { Activo: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "Si" }, "Activo"), /* @__PURE__ */ React.createElement("option", { value: "No" }, "No")),
+                /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: () => removeIcgLink(index), title: "Quitar vinculo ICG" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+              );
+            })),
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", style: { marginTop: 8 }, onClick: addIcgLink }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar otro Articulo ICG")
           )
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },

@@ -17,6 +17,8 @@ export function getConfig(): ServiceConfig {
     firebaseCollection: process.env.WTF_FIREBASE_COLLECTION || "wtfSistema",
     firebaseDocumentId: process.env.WTF_FIREBASE_DOCUMENT_ID || "estadoGeneral",
     autoApplyIcgCms: process.env.WTF_AUTO_APPLY_ICG_CMS !== "false",
+    autoExportIcg: process.env.WTF_AUTO_EXPORT_ICG !== "false",
+    autoApplyIcgBackup: process.env.WTF_AUTO_APPLY_ICG_BACKUP !== "false",
     apiKey: process.env.WTF_API_KEY || "",
     branch: process.env.WTF_BRANCH || "principal",
     defaultWarehouse: process.env.WTF_DEFAULT_WAREHOUSE || "1",
@@ -29,6 +31,11 @@ export function getConfig(): ServiceConfig {
     processedDir: path.resolve(process.env.WTF_PROCESSED_DIR || path.join(dataDir, "processed")),
     quarantineDir: path.resolve(process.env.WTF_QUARANTINE_DIR || path.join(dataDir, "quarantine")),
     sqlEnabled: bool(process.env.ICG_SQL_ENABLED),
-    sqlConnectionString: process.env.ICG_SQL_CONNECTION_STRING || ""
+    sqlConnectionString: process.env.ICG_SQL_CONNECTION_STRING || "",
+    sqlServer: process.env.ICG_SQL_SERVER || "localhost",
+    icgBackupPath: path.resolve(process.env.ICG_BACKUP_PATH || "C:\\ICG\\BACKUP\\FRS_WTFOODVZL.BAK_1"),
+    icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "WTF_AUDIT_FRS_WTFOODVZL",
+    icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\BACKUP\\WTF_AUDIT_SQL"),
+    icgBackupPollSeconds: Math.max(300, Number(process.env.ICG_BACKUP_POLL_SECONDS || 1800))
   };
 }

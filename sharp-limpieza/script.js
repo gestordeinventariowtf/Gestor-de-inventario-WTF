@@ -8,7 +8,6 @@ const FIREBASE_SAVE_TIMEOUT_MS = 12000;
 const FIREBASE_RETRY_BASE_MS = 3000;
 const FIREBASE_RETRY_MAX_MS = 30000;
 const PHOTO_STORAGE_ROOT = "sharp-limpieza";
-const PHOTO_INDEX_ROOT = "sharpPhotoIndex";
 const PHOTO_RETENTION_DAYS = 3;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60000;
 const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -31,7 +30,6 @@ const TESSERACT_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/t
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
   authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
-  databaseURL: "https://gestor-de-inventario-wtf-29056-default-rtdb.firebaseio.com",
   projectId: "gestor-de-inventario-wtf-29056",
   storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
   messagingSenderId: "863301490729",
@@ -173,6 +171,7 @@ const TASK_INDEX = buildTaskIndex();
 
 const ADMIN_PIN = "852347";
 let libraryRef       = null;
+let libraryUnsubscribe = null;
 let firebaseDB       = null;
 let firebaseStorage  = null;
 let firebaseAuthReady = false;
@@ -185,6 +184,7 @@ let currentBranch    = null;
 let currentBranchIsAdmin = false;
 let currentCleaningModule = null;
 let branchesConfigRef = null;
+let branchesConfigUnsubscribe = null;
 let pendingBranchLogin = null;
 let branchConfigReady = false;
 let usingBranchConfigFallback = false;
@@ -274,6 +274,7 @@ let isOnAutoWeek      = true;
 let state = createInitialState(); // populated after branch is selected
 let selectedCell = null;
 let remoteBoardRef = null;
+let remoteBoardUnsubscribe = null;
 let remoteSaveTimer = null;
 let isApplyingRemoteState = false;
 let hasRemoteSnapshot = false;
@@ -1307,40 +1308,75 @@ function getLibraryPathForModule() {
   return getCleaningModuleId() === "servicio" ? "library_servicio" : "library_cocina";
 }
 
+function getSharpRoot() {
+  if (!firebaseDB) return null;
+  return firebaseDB.collection("sharpLimpieza");
+}
+
+function getServerTimestamp() {
+  return firebase.firestore.FieldValue.serverTimestamp();
+}
+
+function getBranchConfigDocRef() {
+  const root = getSharpRoot();
+  return root ? root.doc("config").collection("settings").doc("branchConfig") : null;
+}
+
+function getLibraryDocRefForModule() {
+  const root = getSharpRoot();
+  return root ? root.doc("libraries").collection("modules").doc(getCleaningModuleId()) : null;
+}
+
+function getBoardDocRef(branchId) {
+  const root = getSharpRoot();
+  const boardId = `${branchId}_${getCleaningModuleId()}`;
+  return root ? root.doc("boards").collection("items").doc(boardId) : null;
+}
+
+function getPhotoDateDocRef(moduleId, dateKey) {
+  const root = getSharpRoot();
+  return root ? root.doc("photoIndex").collection(moduleId).doc(dateKey) : null;
+}
+
+function detachLibrarySync() {
+  if (typeof libraryUnsubscribe === "function") libraryUnsubscribe();
+  libraryUnsubscribe = null;
+  libraryRef = null;
+}
+
+function detachBranchConfigSync() {
+  if (typeof branchesConfigUnsubscribe === "function") branchesConfigUnsubscribe();
+  branchesConfigUnsubscribe = null;
+  branchesConfigRef = null;
+}
+
+function detachRemoteBoardSync() {
+  if (typeof remoteBoardUnsubscribe === "function") remoteBoardUnsubscribe();
+  remoteBoardUnsubscribe = null;
+  remoteBoardRef = null;
+}
+
 function saveLibraryToFirebase() {
   if (!libraryRef) return;
-  libraryRef.set(JSON.stringify(TASK_LIBRARY))
+  libraryRef.set({
+    libraryJson: JSON.stringify(TASK_LIBRARY),
+    updatedAt: getServerTimestamp()
+  }, { merge: true })
     .catch((err) => console.error("Error guardando biblioteca:", err));
 }
 
 function initLibrarySync() {
-  if (libraryRef) {
-    libraryRef.off();
-    libraryRef = null;
-  }
+  detachLibrarySync();
   TASK_LIBRARY = cloneDefaultTaskLibrary(getCleaningModuleId());
   rebuildLibraryDerived();
   renderTable();
   if (!firebaseDB || !currentCleaningModule) return;
-  libraryRef = firebaseDB.ref(getLibraryPathForModule());
-  libraryRef.on("value", async (snap) => {
-    const json = snap.val();
+  libraryRef = getLibraryDocRefForModule();
+  if (!libraryRef) return;
+  libraryUnsubscribe = libraryRef.onSnapshot(async (snap) => {
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const json = typeof data.libraryJson === "string" ? data.libraryJson : "";
     if (!json) {
-      if (getCleaningModuleId() === "cocina") {
-        try {
-          const legacySnap = await firebaseDB.ref("library").get();
-          const legacyJson = legacySnap.val();
-          if (legacyJson) {
-            TASK_LIBRARY = JSON.parse(legacyJson);
-            saveLibraryToFirebase();
-            rebuildLibraryDerived();
-            renderTable();
-            if (!modalOverlay.classList.contains("hidden")) renderTaskChecklist(taskTeam.value);
-            if (!libraryMgmtView.classList.contains("hidden")) renderLibraryMgmt();
-            return;
-          }
-        } catch (_) {}
-      }
       saveLibraryToFirebase();
       return;
     }
@@ -1471,19 +1507,10 @@ photoConfirmBtn.addEventListener("click", async () => {
   try {
     const compressedBlob = await compressPhotoCanvasToJpeg(photoCanvas);
     photoStatusText.textContent = `Guardando foto en Firebase Storage (${formatBytes(compressedBlob.size)})...`;
-    let photoEvidence;
-    try {
-      photoEvidence = await uploadPhotoEvidenceToFirebaseStorage(compressedBlob);
-    } catch (uploadError) {
-      console.warn("Firebase Storage photo save failed:", uploadError && uploadError.message ? uploadError.message : uploadError);
-      photoStatusText.textContent = "Firebase Storage no respondio. Guardando respaldo local...";
-      photoEvidence = await createLocalPhotoEvidenceBackup(compressedBlob);
-    }
-    photoOverlayMsg.textContent = photoEvidence.source === "firebase-storage" ? "Foto guardada" : "Respaldo guardado";
+    const photoEvidence = await uploadPhotoEvidenceToFirebaseStorage(compressedBlob);
+    photoOverlayMsg.textContent = "Foto guardada";
     photoOverlayMsg.className   = "photo-overlay-msg success";
-    photoStatusText.textContent = photoEvidence.source === "firebase-storage"
-      ? "Evidencia guardada. Tarea marcada como realizada."
-      : "Evidencia guardada en respaldo local. Tarea marcada como realizada.";
+    photoStatusText.textContent = "Evidencia guardada. Tarea marcada como realizada.";
     setTimeout(() => closePhotoModal(photoEvidence), 800);
   } catch (err) {
     console.warn("Photo evidence failed:", err && err.message ? err.message : err);
@@ -1599,38 +1626,12 @@ function blobToDataUrl(blob) {
 }
 
 async function createLocalPhotoEvidenceBackup(blob) {
-  if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
-  const completedAt = new Date();
-  const dateKey = getLocalDateKey(completedAt);
-  const moduleId = getCleaningModuleId();
-  const collaborator = state.collaborators.find((c) => c.id === selectedCell.collaboratorId);
-  const collabName = collaborator ? collaborator.name : "Desconocido";
-  const meta = pendingPhotoMeta || {};
-  const dayName = DAYS[selectedCell.dayIndex] || "";
-  return {
-    url: await blobToDataUrl(blob),
-    storagePath: "",
-    storageBucket: "",
-    moduleId,
-    moduleName: getCleaningModuleName(),
-    dateKey,
-    branchId: currentBranch.id || "",
-    branchName: currentBranch.name || "",
-    weekStart: currentWeekStart,
-    dayIndex: selectedCell.dayIndex,
-    dayName,
-    collaboratorId: selectedCell.collaboratorId,
-    collaboratorName: collabName,
-    team: meta.team || "",
-    taskName: meta.taskName || photoModalLabel.textContent || "",
-    completedAt: completedAt.toISOString(),
-    source: "local-browser-backup"
-  };
+  throw new Error("La foto debe guardarse en Firebase Storage para sincronizarse en todos los dispositivos.");
 }
 
 async function uploadPhotoEvidenceToFirebaseStorage(blob) {
   if (!firebaseStorage) throw new Error("Firebase Storage no esta disponible.");
-  if (!firebaseDB) throw new Error("Firebase Database no esta disponible.");
+  if (!firebaseDB) throw new Error("Firestore no esta disponible para registrar la foto.");
   if (!selectedCell || !currentBranch) throw new Error("No se encontro la tarea activa para guardar la foto.");
   if (blob.size > PHOTO_MAX_BYTES) {
     throw new Error(`La foto comprimida supera ${formatBytes(PHOTO_MAX_BYTES)}. Toma la foto con mas luz o mas cerca.`);
@@ -1685,10 +1686,18 @@ async function uploadPhotoEvidenceToFirebaseStorage(blob) {
     completedAt: completedAt.toISOString(),
     source: "firebase-storage"
   };
-  await firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}/${dateKey}`).push({
-    ...record,
-    createdAt: firebase.database.ServerValue.TIMESTAMP
-  }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
+  const dateDoc = getPhotoDateDocRef(moduleId, dateKey);
+  if (dateDoc) {
+    await dateDoc.set({
+      dateKey,
+      moduleId,
+      updatedAt: getServerTimestamp()
+    }, { merge: true });
+    await dateDoc.collection("photos").doc(photoId.replace(/\.jpg$/i, "")).set({
+      ...record,
+      createdAt: getServerTimestamp()
+    }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
+  }
   runPhotoRetentionCleanup();
   return record;
 }
@@ -1726,14 +1735,16 @@ async function runPhotoRetentionCleanup(options = {}) {
   try {
     for (const moduleInfo of CLEANING_MODULES) {
       const moduleId = moduleInfo.id;
-      const moduleRef = firebaseDB.ref(`${PHOTO_INDEX_ROOT}/${moduleId}`);
-      const snap = await moduleRef.once("value");
-      const byDate = snap.val() || {};
-      for (const dateKey of Object.keys(byDate)) {
+      const root = getSharpRoot();
+      if (!root) continue;
+      const datesSnap = await root.doc("photoIndex").collection(moduleId).get();
+      for (const dateDoc of datesSnap.docs) {
+        const dateKey = dateDoc.id;
         if (dateKey >= cutoffKey) continue;
-        const entries = byDate[dateKey] || {};
+        const photosSnap = await dateDoc.ref.collection("photos").get();
         if (firebaseStorage) {
-          for (const entry of Object.values(entries)) {
+          for (const photoDoc of photosSnap.docs) {
+            const entry = photoDoc.data() || {};
             const storagePath = entry && typeof entry.storagePath === "string" ? entry.storagePath : "";
             if (storagePath && entry.source === "firebase-storage") {
               await firebaseStorage.ref(storagePath).delete()
@@ -1741,9 +1752,10 @@ async function runPhotoRetentionCleanup(options = {}) {
             }
           }
         }
-        await firebaseDB.ref(`${PHOTO_STORAGE_ROOT}/${moduleId}/${dateKey}`).remove()
-          .catch((err) => console.warn("No se pudo limpiar foto antigua:", err.message || err));
-        await moduleRef.child(dateKey).remove().catch((err) => console.warn("No se pudo limpiar índice antiguo:", err.message || err));
+        for (const photoDoc of photosSnap.docs) {
+          await photoDoc.ref.delete().catch((err) => console.warn("No se pudo limpiar indice antiguo:", err.message || err));
+        }
+        await dateDoc.ref.delete().catch((err) => console.warn("No se pudo limpiar indice antiguo:", err.message || err));
       }
     }
   } catch (err) {
@@ -2096,7 +2108,7 @@ async function ensureFirebaseAuth(app) {
 }
 
 async function initFirebaseConnection() {
-  if (!window.firebase || typeof firebase.initializeApp !== "function" || typeof firebase.database !== "function") {
+  if (!window.firebase || typeof firebase.initializeApp !== "function" || typeof firebase.firestore !== "function") {
     setSyncStatus("Modo local", "offline");
     branches = loadBranchConfigFromLocal();
     showBranchSelector();
@@ -2113,32 +2125,14 @@ async function initFirebaseConnection() {
       console.warn("Firebase Auth anonimo no esta activo:", authErr && authErr.message ? authErr.message : authErr);
       setSyncStatus("Configurar seguridad", "busy");
     }
-    const database = firebase.database(app);
-    firebaseDB = database;
+    firebaseDB = firebase.firestore(app);
     if (typeof firebase.storage === "function") {
       firebaseStorage = firebase.storage(app);
     }
     runPhotoRetentionCleanup();
 
     setSyncStatus("Conectando...", "busy");
-
-    database.ref(".info/connected").on("value", (snap) => {
-      firebaseConnected = snap.val() === true;
-      if (currentBranch) {
-        setSyncStatus(
-          firebaseConnected ? (hasRemoteSnapshot ? "Sincronizado" : "Conectado") : "Sin conexion",
-          firebaseConnected ? "online" : "offline"
-        );
-      } else if (!branchConfigReady) {
-        setSyncStatus(firebaseConnected ? "Conectado" : "Sin conexion", firebaseConnected ? "online" : "offline");
-      }
-      if (firebaseConnected && currentBranch && !remoteBoardRef && !usingBranchConfigFallback) {
-        connectBoardSync(currentBranch.id);
-      }
-      if (firebaseConnected && pendingRemoteSave && remoteBoardRef && !remoteSaveInFlight) {
-        queueRemoteSave({ immediate: true });
-      }
-    });
+    firebaseConnected = true;
 
     initBranchConfigSync();
     window.clearTimeout(firebaseConnectFallbackTimer);
@@ -2171,17 +2165,23 @@ function activateLocalBranchFallback(message = "Modo local") {
 
 function initBranchConfigSync() {
   if (!firebaseDB) return;
-  branchesConfigRef = firebaseDB.ref("branchConfig");
-  branchesConfigRef.on("value", (snap) => {
+  detachBranchConfigSync();
+  branchesConfigRef = getBranchConfigDocRef();
+  if (!branchesConfigRef) return;
+  branchesConfigUnsubscribe = branchesConfigRef.onSnapshot((snap) => {
     window.clearTimeout(firebaseConnectFallbackTimer);
     branchConfigReady = true;
     usingBranchConfigFallback = false;
-    const json = snap.val();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const json = typeof data.branchesJson === "string" ? data.branchesJson : "";
     if (json) {
       try { branches = normalizeBranchConfig(JSON.parse(json)); } catch (_) { branches = loadBranchConfigFromLocal(); }
     } else {
       branches = loadBranchConfigFromLocal();
-      branchesConfigRef.set(JSON.stringify(branches)).catch(console.error);
+      branchesConfigRef.set({
+        branchesJson: JSON.stringify(branches),
+        updatedAt: getServerTimestamp()
+      }, { merge: true }).catch(console.error);
     }
     persistBranchConfigLocal();
     renderBranchList();
@@ -2197,7 +2197,7 @@ function initBranchConfigSync() {
       } else {
         currentBranch = null;
         currentBranchIsAdmin = false;
-        if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
+        detachRemoteBoardSync();
         window.clearTimeout(boardConnectTimer);
         window.clearTimeout(boardRetryTimer);
         document.getElementById("header-branch-name").textContent = "—";
@@ -2337,10 +2337,8 @@ function confirmBranchPin() {
 
 function logoutBranch() {
   // Desconectar sincronización Firebase
-  if (remoteBoardRef) {
-    remoteBoardRef.off();
-    remoteBoardRef = null;
-  }
+  detachRemoteBoardSync();
+  detachLibrarySync();
   
   // Limpiar estado local
   currentBranch = null;
@@ -2384,11 +2382,15 @@ function enterBranch(branch, options = {}) {
 }
 
 function connectBoardSync(branchId) {
-  if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
+  detachRemoteBoardSync();
   window.clearTimeout(boardConnectTimer);
   window.clearTimeout(boardRetryTimer);
   hasRemoteSnapshot = false;
-  remoteBoardRef = firebaseDB.ref(`boards/${branchId}_${getCleaningModuleId()}`);
+  remoteBoardRef = getBoardDocRef(branchId);
+  if (!remoteBoardRef) {
+    setSyncStatus("Modo local", "offline");
+    return;
+  }
   setSyncStatus("Cargando tablero...", "busy");
   boardConnectTimer = window.setTimeout(() => {
     if (hasRemoteSnapshot) return;
@@ -2396,11 +2398,11 @@ function connectBoardSync(branchId) {
     setSyncStatus("Modo local: esperando Firebase", "offline");
     scheduleBoardReconnect(branchId);
   }, FIREBASE_BOARD_TIMEOUT_MS);
-  remoteBoardRef.on("value", (snap) => {
+  remoteBoardUnsubscribe = remoteBoardRef.onSnapshot((snap) => {
     window.clearTimeout(boardConnectTimer);
     window.clearTimeout(boardRetryTimer);
     hasRemoteSnapshot = true;
-    const raw = snap.val();
+    const raw = snap.exists ? (snap.data() || {}) : null;
     if (raw === null) {
       setSyncStatus("Subiendo datos iniciales...", "busy");
       queueRemoteSave({ immediate: true });
@@ -2515,7 +2517,7 @@ function saveBranchConfig() {
     } else {
       currentBranch = null;
       currentBranchIsAdmin = false;
-      if (remoteBoardRef) { remoteBoardRef.off(); remoteBoardRef = null; }
+      detachRemoteBoardSync();
       document.getElementById("header-branch-name").textContent = "—";
       state = createInitialState();
       selectedCell = null;
@@ -2526,7 +2528,12 @@ function saveBranchConfig() {
   persistBranchConfigLocal();
   syncBranchSelect();
   updateBranchSelectorClose();
-  if (branchesConfigRef) branchesConfigRef.set(JSON.stringify(branches)).catch(console.error);
+  if (branchesConfigRef) {
+    branchesConfigRef.set({
+      branchesJson: JSON.stringify(branches),
+      updatedAt: getServerTimestamp()
+    }, { merge: true }).catch(console.error);
+  }
 }
 
 function loadBranchConfigFromLocal() {
@@ -2604,9 +2611,9 @@ function flushRemoteSave() {
   pendingRemoteSave = false;
   const payload = {
     stateJson: JSON.stringify(state),
-    updatedAt: firebase.database.ServerValue.TIMESTAMP
+    updatedAt: getServerTimestamp()
   };
-  withTimeout(remoteBoardRef.set(payload), FIREBASE_SAVE_TIMEOUT_MS, "Firebase Database no respondio al guardar.").then(() => {
+  withTimeout(remoteBoardRef.set(payload, { merge: true }), FIREBASE_SAVE_TIMEOUT_MS, "Firestore no respondio al guardar.").then(() => {
     remoteSaveInFlight = false;
     remoteSaveRetryCount = 0;
     setSyncStatus("Sincronizado", "online");

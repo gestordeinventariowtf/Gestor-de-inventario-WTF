@@ -500,28 +500,30 @@ button.secondary { background: #7d8678; }
 .photo-viewer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2600;
+  z-index: 10000;
   background: rgba(10, 18, 8, 0.82);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  overscroll-behavior: contain;
 }
 
 .photo-viewer-overlay.hidden { display: none; }
 
 .photo-viewer-card {
   width: min(96vw, 980px);
-  max-height: 92vh;
+  max-height: calc(100dvh - 84px);
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: center;
+  justify-content: center;
 }
 
 .photo-viewer-card img {
   max-width: 100%;
-  max-height: 82vh;
+  max-height: calc(100dvh - 104px);
   object-fit: contain;
   border-radius: 10px;
   background: #101510;
@@ -530,17 +532,19 @@ button.secondary { background: #7d8678; }
 
 .photo-viewer-close {
   position: fixed;
-  top: 14px;
-  right: 16px;
-  width: 42px;
-  height: 42px;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 10001;
+  width: 48px;
+  height: 48px;
   border: 0;
   border-radius: 999px;
   background: rgba(255,255,255,0.94);
   color: #162114;
-  font-size: 1.8rem;
+  font-size: 1.9rem;
   line-height: 1;
   cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.28);
 }
 
 .realizadas-no-photo {
@@ -939,9 +943,10 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: 9000;
   padding: 1rem;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-overlay.hidden { display: none; }
@@ -952,7 +957,7 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
   box-shadow: 0 10px 48px rgba(0,0,0,0.24);
   width: 100%;
   max-width: 500px;
-  max-height: 88vh;
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -968,6 +973,9 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
   color: #fff;
   gap: 0.75rem;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .modal-kicker {
@@ -998,6 +1006,9 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  z-index: 3;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.16);
 }
 
 /* Modal body con scroll */
@@ -1175,10 +1186,10 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
 
 /* ── Evidencia fotográfica ───────────────────────────────── */
 
-.photo-modal-overlay { z-index: 210; }
+.photo-modal-overlay { z-index: 9200; }
 #branch-pin-overlay,
-#branch-settings-overlay { z-index: 2100; }
-#pin-gate-overlay       { z-index: 2300; }
+#branch-settings-overlay,
+#pin-gate-overlay       { z-index: 9400; }
 
 /* PIN gate — dot indicator + shake animation */
 .pin-dots {
@@ -1339,6 +1350,10 @@ td.task-cell.weekend .cell-btn.done    { background: #b3dfb3; }
   flex-shrink: 0;
   align-items: center;
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fff;
 }
 
 .btn-danger { background: #c0392b; margin-right: auto; }

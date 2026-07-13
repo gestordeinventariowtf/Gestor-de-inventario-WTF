@@ -5,6 +5,24 @@ import { inflateSync } from "node:zlib";
 import MDBReader from "mdb-reader";
 import type { CmsTicketLine } from "../core/types.js";
 
+type CmsDataset = { key: string; columns: string[]; rows: Array<Record<string, unknown>> };
+
+const CMS_IMPORT_TABLE_COLUMNS: Record<string, string[]> = {
+  TiquetsCab: ["Serie", "Numero", "N", "NumFactura", "Fecha", "HoraIni", "HoraFin", "Mesa", "Sala", "Caja", "CodCliente", "CodVendedor", "TotalBruto", "TotalNeto", "Subtotal", "IVAINC", "Propina", "FechaAnulacion"],
+  TiquetsLin: ["Serie", "Numero", "N", "NumLinea", "CodArticulo", "Descripcion", "Coste", "Unidades", "Precio", "PrecioIva", "PrecioDefecto", "CodVendedor", "CodFormato", "Tipo", "TipoIva", "Dto", "Referencia", "HORA"],
+  TiquetsPag: ["Serie", "Numero", "N", "NumLinea", "CodFormapago", "CodMoneda", "Importe", "Importe2", "Entregado", "Cambio", "Propina", "Pendiente", "Estado", "AutCode", "NumTransaccion"],
+  Articulos: ["CodArticulo", "Referencia", "RefTeclado", "Descripcion", "Dpto", "Seccion", "Unidades", "PCoste", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
+  Referencias: ["Referencia", "Codigo", "TipoRef", "CodProveedor"],
+  Kits: ["CodArticulo", "Talla", "Color", "LineaKit", "CodArtKit", "TallaKit", "ColorKit", "Referencia", "DescripcioKit", "ReferenciaKit", "Unidades", "PrecioUnidad", "TotalLinea", "ImprimirLinea"],
+  ComprasCab: ["Serie", "Numero", "N", "Fecha", "CodProveedor", "CodAlmacen", "SuFactura", "TotalBruto", "TotalNeto"],
+  ComprasLin: ["Serie", "Numero", "N", "NumLinea", "CodArticulo", "Referencia", "Descripcion", "Unidades", "UdsTotal", "Precio", "Total", "CodAlmacen"],
+  Moviments: ["ID", "CodAlmacenOrigen", "CodAlmacenDestino", "NumSerie", "CodArticulo", "Fecha", "Hora", "Tipo", "Unidades", "Precio", "SerieDoc", "NumDoc"],
+  PreciosVenta: ["CodArticulo", "CodFormato", "IDTarifaV", "Valor", "Precio", "PrecioIva", "PrecioDefecto"],
+  Proveedores: ["CodProveedor", "NomProveedor", "NomComercial", "Alias", "PersonaContacto", "Telefono1", "Telefono2"],
+  Clientes: ["CodCliente", "NombreComercial", "Nombrecliente", "Alias", "Telefono1", "Telefono2", "E_Mail", "CodVendedor", "CodFormaPago", "Estado", "NumTarjeta"],
+  PERSONAS: ["CodCliente", "NombreComercial", "Nombrecliente", "Alias", "Telefono1", "Telefono2", "E_Mail", "CodVendedor", "CodFormaPago", "Estado", "NumTarjeta"]
+};
+
 function asText(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   return String(value ?? "").trim();
@@ -26,6 +44,21 @@ function dateKey(value: unknown, fallback: string): string {
   if (latam) return `${latam[3]}-${latam[2].padStart(2, "0")}-${latam[1].padStart(2, "0")}`;
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? fallback.slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function sanitizeCmsValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return "";
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") return value;
+  return String(value);
+}
+
+function readCmsReader(compressed: Buffer): MDBReader | null {
+  const inflated = inflateSync(compressed);
+  const jetSignature = inflated.indexOf(Buffer.from("Standard Jet DB", "ascii"));
+  if (jetSignature < 4) return null;
+  return new MDBReader(inflated.subarray(jetSignature - 4));
 }
 
 export async function findLatestCmsFile(cmsDir: string): Promise<string | null> {
@@ -58,16 +91,15 @@ export async function readCmsTicketLines(filePath: string): Promise<{ fingerprin
   const sourceFile = path.basename(filePath);
   const sourceMtime = stat.mtime.toISOString();
   const sourceHash = crypto.createHash("sha256").update(compressed).digest("hex");
-  const inflated = inflateSync(compressed);
-  const jetSignature = inflated.indexOf(Buffer.from("Standard Jet DB", "ascii"));
-  if (jetSignature < 4) {
+  const reader = readCmsReader(compressed);
+  if (!reader) {
+    const inflated = inflateSync(compressed);
     return {
       fingerprint: sourceHash,
       fileName: sourceFile,
       lines: readWtfCmsTicketLines(inflated, sourceFile, filePath, sourceMtime, sourceHash)
     };
   }
-  const reader = new MDBReader(inflated.subarray(jetSignature - 4));
   let table;
   try {
     table = reader.getTable("TiquetsLin");
@@ -93,6 +125,56 @@ export async function readCmsTicketLines(filePath: string): Promise<{ fingerprin
     unidades: asNumber(row.Unidades)
   })).filter((line) => line.unidades > 0 && (line.codArticulo || line.referencia || line.descripcion));
   return { fingerprint: sourceHash, fileName: sourceFile, lines };
+}
+
+export async function readCmsImportData(filePath: string): Promise<{
+  fingerprint: string;
+  fileName: string;
+  datasets: Record<string, CmsDataset>;
+  tableCounts: Record<string, number>;
+}> {
+  const compressed = await fs.readFile(filePath);
+  const sourceFile = path.basename(filePath);
+  const sourceHash = crypto.createHash("sha256").update(compressed).digest("hex");
+  const reader = readCmsReader(compressed);
+  if (!reader) {
+    const inflated = inflateSync(compressed);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(inflated.toString("utf8"));
+    } catch {
+      return { fingerprint: sourceHash, fileName: sourceFile, datasets: {}, tableCounts: {} };
+    }
+    const data = parsed && parsed.data ? parsed.data : parsed;
+    return {
+      fingerprint: sourceHash,
+      fileName: sourceFile,
+      datasets: data && data.datasets ? data.datasets : {},
+      tableCounts: Object.fromEntries(Object.entries(data?.datasets || {}).map(([key, ds]: [string, any]) => [key, Array.isArray(ds?.rows) ? ds.rows.length : 0]))
+    };
+  }
+
+  const datasets: Record<string, CmsDataset> = {};
+  const tableCounts: Record<string, number> = {};
+  const tableNames = new Set(reader.getTableNames());
+  for (const [tableKey, wantedColumns] of Object.entries(CMS_IMPORT_TABLE_COLUMNS)) {
+    if (!tableNames.has(tableKey)) continue;
+    const table = reader.getTable(tableKey);
+    const availableColumns = table.getColumnNames();
+    const columns = wantedColumns.filter((column) => availableColumns.includes(column));
+    if (!columns.length) continue;
+    const rows = table.getData({ columns }).map((row: Record<string, unknown>, index: number) => {
+      const clean: Record<string, unknown> = { _id: `${sourceHash.slice(0, 12)}-${tableKey}-${index}` };
+      columns.forEach((column) => {
+        clean[column] = sanitizeCmsValue(row[column]);
+      });
+      clean._sourceFile = sourceFile;
+      return clean;
+    });
+    tableCounts[tableKey] = rows.length;
+    datasets[tableKey] = { key: tableKey, columns, rows };
+  }
+  return { fingerprint: sourceHash, fileName: sourceFile, datasets, tableCounts };
 }
 
 function readWtfCmsTicketLines(inflated: Buffer, sourceFile: string, filePath: string, sourceMtime: string, sourceHash: string): CmsTicketLine[] {

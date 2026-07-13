@@ -6,7 +6,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "package:win": "npm.cmd run build && npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe",
+    "package:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -BuildSelfExtractingExe",
     "start": "node dist/main.js",
     "dev": "tsx src/main.ts",
     "check": "tsc -p tsconfig.json --noEmit"

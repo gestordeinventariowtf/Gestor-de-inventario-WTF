@@ -1,9 +1,29 @@
 param(
-  [string]$InstallDir = "$env:ProgramFiles\WTF ICG Host",
+  [string]$InstallDir = "",
   [string]$TaskName = "WTF ICG Host"
 )
 
 $ErrorActionPreference = "Stop"
+
+function Resolve-InstallDir {
+  param([string]$Requested)
+  if ($Requested) { return $Requested }
+  $spanishProgramFiles = "C:\Archivos de programa"
+  if (Test-Path (Join-Path $spanishProgramFiles "WTF ICG Host")) {
+    return (Join-Path $spanishProgramFiles "WTF ICG Host")
+  }
+  return (Join-Path $env:ProgramFiles "WTF ICG Host")
+}
+
+$InstallDir = Resolve-InstallDir $InstallDir
+
+Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+$RunKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+if (Test-Path $RunKey) {
+  Remove-ItemProperty -Path $RunKey -Name $TaskName -ErrorAction SilentlyContinue
+}
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($task) {

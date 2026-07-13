@@ -1,42 +1,6 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": false,
-    "branchConfig": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      ".validate": "newData.isString() && newData.val().length <= 50000"
-    },
-    "boards": {
-      "$boardId": {
-        ".read": "auth != null",
-        ".write": "auth != null && $boardId.matches(/^[A-Za-z0-9_-]{1,120}$/)",
-        ".validate": "newData.hasChildren(['stateJson','updatedAt']) && newData.child('stateJson').isString() && newData.child('stateJson').val().length <= 9000000"
-      }
-    },
-    "sharp-limpieza": {
-      "$moduleId": {
-        ".read": "auth != null",
-        ".write": "auth != null && $moduleId.matches(/^[A-Za-z0-9_-]{1,60}$/)",
-        "$dateKey": {
-          ".validate": "$dateKey.matches(/^\\d{4}-\\d{2}-\\d{2}$/)",
-          "$photoId": {
-            ".validate": "newData.hasChildren(['dataUrl','contentType','size','createdAt','meta']) && newData.child('dataUrl').isString() && newData.child('dataUrl').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('dataUrl').val().length <= 2800000 && newData.child('contentType').val() == 'image/jpeg' && newData.child('size').isNumber() && newData.child('size').val() > 0 && newData.child('size').val() <= 2097152"
-          }
-        }
-      }
-    },
-    "sharpPhotoIndex": {
-      "$moduleId": {
-        ".read": "auth != null",
-        ".write": "auth != null && $moduleId.matches(/^[A-Za-z0-9_-]{1,60}$/)",
-        "$dateKey": {
-          ".validate": "$dateKey.matches(/^\\d{4}-\\d{2}-\\d{2}$/)",
-          "$entryId": {
-            ".validate": "newData.hasChildren(['url','completedAt','source','createdAt']) && newData.child('url').isString() && (newData.child('url').val().matches(/^https:\\/\\/firebasestorage\\.googleapis\\.com\\//) || (newData.child('url').val().matches(/^data:image\\/jpeg;base64,/) && newData.child('url').val().length <= 2800000)) && newData.child('completedAt').isString()"
-          }
-        }
-      }
-    }
+    ".read": false,
+    ".write": false
   }
 }

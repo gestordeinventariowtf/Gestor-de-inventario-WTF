@@ -2,7 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import type { LocalStore } from "../core/local-store.js";
 import { exportMovementsForIcg } from "../adapters/icg-export-adapter.js";
-import type { CmsImportResult, ImportResult, MovementState, ServiceConfig } from "../core/types.js";
+import type { CmsImportResult, IcgBackupSyncResult, ImportResult, MovementState, ServiceConfig } from "../core/types.js";
 
 const ALLOWED_STATES = new Set<MovementState>([
   "pendiente",
@@ -20,10 +20,18 @@ export function startDashboard(
   config: ServiceConfig,
   onSyncNow: () => Promise<ImportResult[]>,
   onIngestPackage: (raw: string) => Promise<ImportResult>,
-  onSyncLatestCms?: () => Promise<CmsImportResult>
+  onSyncLatestCms?: () => Promise<CmsImportResult>,
+  onImportCmsFile?: (fileName: string, base64: string) => Promise<CmsImportResult>,
+  onSyncIcgBackup?: () => Promise<IcgBackupSyncResult>
 ): http.Server {
   const server = http.createServer(async (req, res) => {
     try {
+      applyCors(res);
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
       if (url.pathname === "/api/health") {
         return json(res, { ok: true, service: "WTF Inventory Sync Service", mode: config.mode, branch: config.branch, sqlEnabled: config.sqlEnabled });
@@ -42,6 +50,23 @@ export function startDashboard(
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         if (!onSyncLatestCms) return json(res, { ok: false, error: "Importacion CMS no disponible" }, 400);
         const result = await onSyncLatestCms();
+        return json(res, { ok: true, result });
+      }
+      if (url.pathname === "/api/import-cms-file" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        if (!onImportCmsFile) return json(res, { ok: false, error: "Importacion manual CMS no disponible" }, 400);
+        const body = await readJson(req);
+        const fileName = String(body.fileName || "").trim();
+        const base64 = String(body.base64 || "");
+        if (!fileName.toLowerCase().endsWith(".cms")) return json(res, { ok: false, error: "Selecciona un documento .cms valido" }, 400);
+        if (!base64) return json(res, { ok: false, error: "El documento .cms esta vacio" }, 400);
+        const result = await onImportCmsFile(fileName, base64);
+        return json(res, { ok: true, result });
+      }
+      if (url.pathname === "/api/sync-icg-backup" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        if (!onSyncIcgBackup) return json(res, { ok: false, error: "Sincronizacion de backup ICG no disponible" }, 400);
+        const result = await onSyncIcgBackup();
         return json(res, { ok: true, result });
       }
       if (url.pathname === "/api/ingest-package" && req.method === "POST") {
@@ -104,6 +129,12 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     quarantineDir: config.quarantineDir,
     icgCmsDir: config.icgCmsDir,
     autoApplyIcgCms: config.autoApplyIcgCms,
+    autoApplyIcgBackup: config.autoApplyIcgBackup,
+    icgBackupPath: config.icgBackupPath,
+    icgBackupPollSeconds: config.icgBackupPollSeconds,
+    sqlServer: config.sqlServer,
+    icgAuditDbName: config.icgAuditDbName,
+    autoExportIcg: config.autoExportIcg,
     firebaseProjectId: config.firebaseProjectId,
     firebaseCollection: config.firebaseCollection,
     firebaseDocumentId: config.firebaseDocumentId,
@@ -128,6 +159,9 @@ function renderDashboard(): string {
     .metric{font-size:26px;font-weight:800}
     button{border:1px solid #d1d5db;background:white;border-radius:7px;padding:8px 11px;cursor:pointer;font-weight:700}
     button.primary{background:#15803d;color:white;border-color:#15803d}
+    input[type=file]{border:1px solid #d1d5db;border-radius:7px;padding:7px;background:white;max-width:100%}
+    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .manual-import{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}
     table{width:100%;border-collapse:collapse;background:white}
     th,td{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left;font-size:13px}
     th{background:#f9fafb}
@@ -146,9 +180,16 @@ function renderDashboard(): string {
       <div class="card"><div>CMS procesados</div><div id="cmsProcessed" class="metric">0</div></div>
     </section>
     <section class="card">
-      <button class="primary" onclick="syncNow()">Sincronizar ahora</button>
-      <button onclick="syncCms()">Leer ultimo CMS ICG</button>
-      <button onclick="exportIcg()">Exportar entradas para ICG</button>
+      <div class="actions">
+        <button class="primary" onclick="syncNow()">Sincronizar ahora</button>
+        <button onclick="syncCms()">Leer ultimo CMS ICG</button>
+        <button onclick="syncBackup()">Procesar Backup ICG</button>
+        <button onclick="exportIcg()">Exportar entradas para ICG</button>
+      </div>
+      <div class="manual-import">
+        <input id="manualCmsFile" type="file" accept=".cms" />
+        <button onclick="importCmsFile()">Importar CMS manual</button>
+      </div>
       <span id="msg"></span>
     </section>
     <section class="card">
@@ -173,7 +214,24 @@ function renderDashboard(): string {
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function syncNow(){await fetch('/api/sync-now',{method:'POST',headers:apiHeaders}); msg.textContent=' Sincronizado'; load();}
     async function syncCms(){const r=await fetch('/api/sync-latest-cms',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'CMS procesado'); load();}
+    async function syncBackup(){const r=await fetch('/api/sync-icg-backup',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'Backup ICG procesado'); load();}
     async function exportIcg(){const r=await fetch('/api/export-icg',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' Archivo: '+(j.filePath||j.error||''); load();}
+    function fileToBase64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const value=String(reader.result||'');resolve(value.includes(',')?value.split(',')[1]:value)};reader.onerror=()=>reject(reader.error||new Error('No se pudo leer el archivo'));reader.readAsDataURL(file);})}
+    async function importCmsFile(){
+      const input=document.getElementById('manualCmsFile');
+      const file=input.files&&input.files[0];
+      if(!file){msg.textContent=' Selecciona un documento .cms';return;}
+      if(!file.name.toLowerCase().endsWith('.cms')){msg.textContent=' Solo se permite importar documentos .cms';return;}
+      msg.textContent=' Importando CMS manual...';
+      try{
+        const base64=await fileToBase64(file);
+        const r=await fetch('/api/import-cms-file',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({fileName:file.name,base64})});
+        const j=await r.json();
+        msg.textContent=' '+((j.result&&j.result.message)||j.error||'CMS importado');
+        if(j.ok) input.value='';
+      }catch(error){msg.textContent=' '+(error&&error.message?error.message:'No se pudo importar el CMS');}
+      load();
+    }
     async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
     load(); setInterval(load,5000);
   </script>
@@ -181,13 +239,22 @@ function renderDashboard(): string {
 }
 
 function html(res: http.ServerResponse, body: string): void {
+  applyCors(res);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(body);
 }
 
 function json(res: http.ServerResponse, body: unknown, status = 200): void {
+  applyCors(res);
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
+}
+
+function applyCors(res: http.ServerResponse): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-WTF-API-Key");
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
 }
 
 async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

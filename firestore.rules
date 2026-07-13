@@ -4,5 +4,55 @@ service cloud.firestore {
     match /wtfSistema/estadoGeneral {
       allow read, write: if true;
     }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSharpModule(moduleId) {
+      return moduleId in ['cocina', 'servicio'];
+    }
+
+    match /sharpLimpieza/config/settings/branchConfig {
+      allow read, write: if isSignedIn();
+    }
+
+    match /sharpLimpieza/libraries/modules/{moduleId} {
+      allow read, write: if isSignedIn()
+        && isSharpModule(moduleId)
+        && (!('libraryJson' in request.resource.data)
+          || request.resource.data.libraryJson is string
+          && request.resource.data.libraryJson.size() <= 9000000);
+    }
+
+    match /sharpLimpieza/boards/items/{boardId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && boardId.matches('^[A-Za-z0-9_-]{1,120}$')
+        && request.resource.data.stateJson is string
+        && request.resource.data.stateJson.size() <= 9000000;
+    }
+
+    match /sharpLimpieza/photoIndex/{moduleId}/{dateKey}/photos/{photoId} {
+      allow read: if isSignedIn() && isSharpModule(moduleId);
+      allow create, update: if isSignedIn()
+        && isSharpModule(moduleId)
+        && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.url is string
+        && request.resource.data.url.matches('^https://firebasestorage\\.googleapis\\.com/')
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches('^sharp-limpieza/' + moduleId + '/' + dateKey + '/')
+        && request.resource.data.contentType == 'image/jpeg'
+        && request.resource.data.size is number
+        && request.resource.data.size > 0
+        && request.resource.data.size <= 2 * 1024 * 1024;
+      allow delete: if isSignedIn() && isSharpModule(moduleId);
+    }
+
+    match /sharpLimpieza/photoIndex/{moduleId}/{dateKey} {
+      allow read, write, delete: if isSignedIn()
+        && isSharpModule(moduleId)
+        && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
   }
 }

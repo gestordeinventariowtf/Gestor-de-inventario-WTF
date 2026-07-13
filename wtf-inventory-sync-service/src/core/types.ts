@@ -51,6 +51,8 @@ export interface ServiceConfig {
   firebaseCollection: string;
   firebaseDocumentId: string;
   autoApplyIcgCms: boolean;
+  autoExportIcg: boolean;
+  autoApplyIcgBackup: boolean;
   apiKey: string;
   branch: string;
   defaultWarehouse: string;
@@ -64,6 +66,11 @@ export interface ServiceConfig {
   quarantineDir: string;
   sqlEnabled: boolean;
   sqlConnectionString: string;
+  sqlServer: string;
+  icgBackupPath: string;
+  icgAuditDbName: string;
+  icgSqlDataDir: string;
+  icgBackupPollSeconds: number;
 }
 
 export interface StoreData {
@@ -109,10 +116,41 @@ export interface CmsImportResult {
   filePath?: string;
   fileName?: string;
   fingerprint?: string;
+  datasets?: Record<string, {
+    key: string;
+    columns: string[];
+    rows: Array<Record<string, unknown>>;
+  }>;
+  tableCounts?: Record<string, number>;
   totalLines: number;
   matched: number;
   applied: number;
   skipped: number;
   errors: string[];
   message: string;
+}
+
+export interface IcgBackupConsumptionRow {
+  fecha: string;
+  codArticulo: string;
+  referencia: string;
+  descripcion: string;
+  codAlmacen: string;
+  consumo: number;
+  lineas: number;
+}
+
+export interface IcgBackupSyncResult {
+  ok: boolean;
+  backupPath: string;
+  databaseName: string;
+  fecha?: string;
+  totalLines: number;
+  matched: number;
+  applied: number;
+  skipped: number;
+  pending: number;
+  errors: string[];
+  message: string;
+  tableCounts?: Record<string, number>;
 }
