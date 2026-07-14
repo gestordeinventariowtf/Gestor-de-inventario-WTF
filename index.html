@@ -1700,6 +1700,57 @@
   function cloneData(value) {
     return JSON.parse(JSON.stringify(value));
   }
+  function createMovementId(prefix) {
+    return `${prefix || "mov"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  function getMovementKey(row) {
+    if (!row || typeof row !== "object") return "";
+    if (row._id) return `id:${row._id}`;
+    return [
+      row.fecha || "",
+      row.numero || "",
+      normalizar(row.producto || ""),
+      row.cantidad == null ? "" : String(row.cantidad),
+      row.medida || "",
+      row.usuario || "",
+      row.storageLabel || "",
+      row.storageKey || ""
+    ].join("|");
+  }
+  function mergeMovementRows(localRows, remoteRows) {
+    const result = [];
+    const seen = new Set();
+    function addRows(rows) {
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        const key = getMovementKey(row);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        result.push(row);
+      });
+    }
+    addRows(remoteRows);
+    addRows(localRows);
+    return result.sort(function(a, b) {
+      return String(a && a.fecha || "").localeCompare(String(b && b.fecha || ""));
+    });
+  }
+  function mergeRemoteAppStateWithLocal(remoteState, localState) {
+    const next = Object.assign({}, remoteState || {});
+    [
+      "regEntradas",
+      "regSalidas",
+      "regDecomiso",
+      "histEntradaRapida",
+      "histSalidaRapida",
+      "histDecomisoCocina",
+      "barRegEntradas",
+      "barRegSalidas",
+      "barRegDecomiso"
+    ].forEach(function(key) {
+      next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
+    });
+    return next;
+  }
   function normalizeGoogleConfig(input) {
     const config = Object.assign({}, GOOGLE_DEFAULT_CONFIG, input || {});
     const currentClientId = String(config.clientId || "").trim();
@@ -3363,6 +3414,8 @@
     const lastRemoteSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
+    const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
+    const applyingRemoteRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const accessTokenRef = useRef("");
@@ -3401,15 +3454,21 @@
     function getSyncMeta(signature, reason) {
       return {
         clientId: syncClientIdRef.current,
-        clientTime: pendingLocalAtRef.current || Date.now(),
+        clientTime: localChangeAtRef.current || pendingLocalAtRef.current || Date.now(),
         signature: quickHashText(signature),
         reason: reason || "web-client"
       };
     }
+    function markLocalSyncChange() {
+      const now = Date.now();
+      localChangeAtRef.current = now;
+      save("wtf_sync_local_change_at", now);
+      return now;
+    }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       pendingLocalSignatureRef.current = signature;
-      pendingLocalAtRef.current = Date.now();
+      pendingLocalAtRef.current = reason === "web-client" ? markLocalSyncChange() : Date.now();
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
         try {
@@ -3432,6 +3491,7 @@
     }
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
+      applyingRemoteRef.current = true;
       if (Array.isArray(nextState.inventario)) setInventario(nextState.inventario);
       if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(nextState.cuartoFrioInventario);
       if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace));
@@ -3456,6 +3516,9 @@
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
       if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion);
+      window.setTimeout(function() {
+        applyingRemoteRef.current = false;
+      }, 0);
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
@@ -3710,6 +3773,8 @@
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 30e3;
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
+            const localChangeAt = Number(localChangeAtRef.current || 0);
+            const remoteIsOlderThanLocal = localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
             const remoteIsStalePendingEcho = hasPendingLocalWrite && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current;
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
@@ -3722,12 +3787,17 @@
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
               setFirebaseMessage("Sincronizado en tiempo real");
-            } else if (remoteIsStalePendingEcho) {
+            } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
               setFirebaseMessage("Protegiendo cambios locales...");
               scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
+              const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState());
+              const mergedSignature = serializeAppState(mergedState);
               lastRemoteSignatureRef.current = remoteSignature;
-              applyRemoteState(remoteState);
+              applyRemoteState(mergedState);
+              if (mergedSignature !== remoteSignature) {
+                scheduleFirebaseWrite(mergedState, mergedSignature, 500, "web-client-merge");
+              }
               setFirebaseMessage("Sincronizado en tiempo real");
             } else {
               setFirebaseMessage("Guardando cambios locales...");
@@ -3764,6 +3834,7 @@
     }, [firebaseCfg]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (applyingRemoteRef.current) return;
       const appState = getCurrentAppState();
       const signature = serializeAppState(appState);
       if (signature === lastRemoteSignatureRef.current) {
@@ -3933,7 +4004,7 @@
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-inv"), fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: (r.entrada || 0) + cantidad } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: (r.salida || 0) + cantidad } : r)); setBarRegSalidas((p) => [...p, reg]); }
       if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: (r.decomiso || 0) + cantidad } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -3950,6 +4021,7 @@ Producto: ${prod.nombre}
 Existencia: ${exist}
 Solicitado: ${cantidad}`);
       const reg = {
+        _id: createMovementId("cocina-inv"),
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
@@ -3978,7 +4050,7 @@ Solicitado: ${cantidad}`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-frio"), fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: (r.entrada || 0) + cantidad } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: (r.salida || 0) + cantidad } : r)); setBarRegSalidas((p) => [...p, reg]); }
       if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: (r.decomiso || 0) + cantidad } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -3991,6 +4063,7 @@ Solicitado: ${cantidad}`);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = {
+        _id: createMovementId("cocina-frio"),
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
