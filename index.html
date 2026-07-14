@@ -4542,6 +4542,10 @@ Solicitado: ${cantidad}`);
     const [hiddenPendingProductionKeys, setHiddenPendingProductionKeys] = useState(() => load("wtf_hidden_pending_production_keys", []));
     const [recipesUnlocked, setRecipesUnlocked] = useState(false);
     const [recipeAccessModal, setRecipeAccessModal] = useState(false);
+    const [pendingRecipeAccessAction, setPendingRecipeAccessAction] = useState("");
+    const [recetarioOpen, setRecetarioOpen] = useState(false);
+    const [recipeSheet, setRecipeSheet] = useState(null);
+    const [secureRecipeHidden, setSecureRecipeHidden] = useState(false);
     const [editingRecipeId, setEditingRecipeId] = useState(null);
     const [recipeEditRequest, setRecipeEditRequest] = useState(null);
     const [deleteRequest, setDeleteRequest] = useState(null);
@@ -4551,6 +4555,7 @@ Solicitado: ${cantidad}`);
     const [historySearch, setHistorySearch] = useState("");
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
+    const [recipeInstructions, setRecipeInstructions] = useState("");
     const [productionRuns, setProductionRuns] = useState("1");
     const [miseProductTarget, setMiseProductTarget] = useState("");
     const [hiddenRecipeMatchName, setHiddenRecipeMatchName] = useState("");
@@ -4670,6 +4675,20 @@ Solicitado: ${cantidad}`);
     }, [moduleLabel, recetas, producciones, miseAnPlace]);
     const recipesAuthorizedByPermission = Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas");
     const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
+    useEffect(function() {
+      function handleBlur() {
+        if (recetarioOpen || recipeSheet) setSecureRecipeHidden(true);
+      }
+      function handleFocus() {
+        setSecureRecipeHidden(false);
+      }
+      window.addEventListener("blur", handleBlur);
+      window.addEventListener("focus", handleFocus);
+      return function() {
+        window.removeEventListener("blur", handleBlur);
+        window.removeEventListener("focus", handleFocus);
+      };
+    }, [recetarioOpen, recipeSheet]);
     const produccionProgramadaBase = useMemo(function() {
       return moduleLabel === "Cocina" ? PRODUCCION_PROGRAMADA_COCINA : [];
     }, [moduleLabel]);
@@ -5228,6 +5247,7 @@ Solicitado: ${cantidad}`);
       setBusqueda("");
       setInsumos([]);
       setResultado({ nombre: "", cantidad: "", medida: "Uni" });
+      setRecipeInstructions("");
       setProductionRuns("1");
       setMiseProductTarget("");
       setHiddenRecipeMatchName("");
@@ -5269,6 +5289,36 @@ Solicitado: ${cantidad}`);
       setEditingRecipeId(null);
       setError("");
     }
+    function requestRecipeAccess(action) {
+      setPendingRecipeAccessAction(action || "");
+      setRecipeAccessModal(true);
+    }
+    function openRecetarioCompleto() {
+      if (!recipesAuthorized) {
+        requestRecipeAccess("recetario");
+        return;
+      }
+      setRecipeSearch("");
+      setSecureRecipeHidden(false);
+      setRecetarioOpen(true);
+    }
+    function closeRecetarioCompleto() {
+      setRecetarioOpen(false);
+      setSecureRecipeHidden(false);
+    }
+    function openRecipeSheet(receta, mode) {
+      if (!receta) return;
+      if (!recipesAuthorized) {
+        requestRecipeAccess(mode === "production" ? `sheet-production:${receta.id}` : `sheet:${receta.id}`);
+        return;
+      }
+      setRecipeSheet({ receta, mode: mode || "view" });
+      setSecureRecipeHidden(false);
+    }
+    function closeRecipeSheet() {
+      setRecipeSheet(null);
+      setSecureRecipeHidden(false);
+    }
     function openDirectLoadModal() {
       resetDirectLoadForm();
       setDirectLoadModalOpen(true);
@@ -5278,11 +5328,23 @@ Solicitado: ${cantidad}`);
       setDirectLoadError("");
     }
     function solicitarAccesoRecetas() {
-      setRecipeAccessModal(true);
+      requestRecipeAccess("");
     }
     function confirmarAccesoRecetas() {
       setRecipesUnlocked(true);
       setRecipeAccessModal(false);
+      if (pendingRecipeAccessAction === "recetario") {
+        setRecetarioOpen(true);
+      } else if (pendingRecipeAccessAction.startsWith("sheet")) {
+        const parts = pendingRecipeAccessAction.split(":");
+        const mode = parts[0] === "sheet-production" ? "production" : "view";
+        const id = parts.slice(1).join(":");
+        const target = (Array.isArray(recetas) ? recetas : []).find(function(item) {
+          return String(item.id) === String(id);
+        });
+        if (target) setRecipeSheet({ receta: target, mode });
+      }
+      setPendingRecipeAccessAction("");
       toast("Acceso a recetas autorizado.", "ok");
     }
     function solicitarEditarReceta(receta) {
@@ -5315,6 +5377,7 @@ Solicitado: ${cantidad}`);
         cantidad: targetRecipe.cantidadObjetivo ? String(targetRecipe.cantidadObjetivo) : "",
         medida: targetRecipe.medidaObjetivo || "Uni"
       });
+      setRecipeInstructions(String(targetRecipe.instruccionesPreparacion || targetRecipe.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
       setBusqueda("");
@@ -5761,6 +5824,7 @@ Solicitado: ${cantidad}`);
         nombre: nombreReceta,
         cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
         medidaObjetivo: resultado.medida,
+        instruccionesPreparacion: String(recipeInstructions || "").trim(),
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
@@ -5810,6 +5874,7 @@ Solicitado: ${cantidad}`);
         cantidad: receta.cantidadObjetivo ? String(receta.cantidadObjetivo) : "",
         medida: receta.medidaObjetivo || "Uni"
       });
+      setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
       setHiddenRecipeMatchName(receta.nombre || "");
@@ -5879,6 +5944,133 @@ Solicitado: ${cantidad}`);
       });
       toast(`Pendiente eliminado: ${item.nombre}`, "info");
     }
+    function getRecipeInstructions(receta) {
+      return String(receta && (receta.instruccionesPreparacion || receta.instrucciones || "") || "").trim();
+    }
+    function renderSecureRecipeShell(title, subtitle, body, footer) {
+      const watermark = `${getUserDisplayLabel(currentUser)} · ${formatDatetime(new Date().toISOString())}`;
+      return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onContextMenu: function(e) { e.preventDefault(); } },
+        /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 1080, maxHeight: "94dvh" }, onClick: function(e) { e.stopPropagation(); } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("div", null,
+              /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-shield", style: { marginRight: 7, color: "var(--verde)" } }), title),
+              subtitle && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, subtitle)
+            ),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: function() { closeRecipeSheet(); closeRecetarioCompleto(); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { position: "relative", background: "#eef2f7", padding: 14, overflow: "auto" } },
+            /* @__PURE__ */ React.createElement("style", null, "@media print{.modal-overlay{display:none!important}}"),
+            secureRecipeHidden ? /* @__PURE__ */ React.createElement("div", { style: { minHeight: 420, display: "grid", placeItems: "center", textAlign: "center", color: "var(--gris)", background: "#111827", borderRadius: 10, padding: 24 } },
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye-slash", style: { fontSize: 34, marginBottom: 10, color: "#f9fafb" } }),
+                /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", fontWeight: 800, marginBottom: 6 } }, "Contenido protegido"),
+                /* @__PURE__ */ React.createElement("div", { style: { color: "#cbd5e1", fontSize: 13 } }, "Vuelve a esta ventana para visualizar el recetario.")
+              )
+            ) : /* @__PURE__ */ React.createElement("div", { style: { position: "relative" } },
+              /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 24, pointerEvents: "none", opacity: .08, transform: "rotate(-18deg)", alignItems: "center", justifyItems: "center", fontSize: 14, fontWeight: 900, color: "#111827", zIndex: 1 } },
+                Array.from({ length: 12 }).map(function(_, idx) {
+                  return /* @__PURE__ */ React.createElement("div", { key: idx }, watermark);
+                })
+              ),
+              /* @__PURE__ */ React.createElement("div", { style: { position: "relative", zIndex: 2 } }, body)
+            )
+          ),
+          footer && /* @__PURE__ */ React.createElement("div", { className: "modal-footer", style: { justifyContent: "space-between", gap: 10, flexWrap: "wrap" } }, footer)
+        )
+      );
+    }
+    function renderRecipeSheetModal() {
+      if (!recipeSheet || !recipeSheet.receta) return null;
+      const receta = recipeSheet.receta;
+      const instrucciones = getRecipeInstructions(receta);
+      const body = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 820, margin: "0 auto", background: "#fff", color: "#111827", minHeight: 760, padding: "34px 38px", border: "1px solid #d1d5db", boxShadow: "0 12px 36px rgba(15,23,42,.16)", display: "grid", gap: 22 } },
+        /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #111827", paddingBottom: 16 } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 900, letterSpacing: ".12em", color: "var(--verde)", textTransform: "uppercase" } }, "WTF Recetario de Produccion"),
+          /* @__PURE__ */ React.createElement("h1", { style: { margin: "7px 0 8px", fontSize: 30, lineHeight: 1.1, color: "#111827" } }, receta.nombre),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Rinde ", receta.cantidadObjetivo || 0, " ", receta.medidaObjetivo || "Uni"),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, receta.modulo || moduleLabel),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Actualizada ", formatDatetime(receta.fechaActualizacion || receta.fecha))
+          )
+        ),
+        /* @__PURE__ */ React.createElement("section", null,
+          /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 16, margin: "0 0 10px", color: "#111827" } }, "Ingredientes"),
+          /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
+              /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", borderBottom: "1px solid #111827", padding: "8px 6px" } }, "Producto"),
+              /* @__PURE__ */ React.createElement("th", { style: { textAlign: "right", borderBottom: "1px solid #111827", padding: "8px 6px" } }, "Cantidad"),
+              /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", borderBottom: "1px solid #111827", padding: "8px 6px" } }, "Unidad"),
+              /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left", borderBottom: "1px solid #111827", padding: "8px 6px" } }, "Origen")
+            )),
+            /* @__PURE__ */ React.createElement("tbody", null, (receta.insumos || []).map(function(item, idx) {
+              return /* @__PURE__ */ React.createElement("tr", { key: `${receta.id}-sheet-${idx}` },
+                /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", fontWeight: 700 } }, item.producto),
+                /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.cantidad),
+                /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px" } }, item.unidad || item.medidaInventario || ""),
+                /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#6b7280" } }, item.origenLabel || item.almacenLabel || "-")
+              );
+            }))
+          )
+        ),
+        /* @__PURE__ */ React.createElement("section", null,
+          /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 16, margin: "0 0 10px", color: "#111827" } }, "Instrucciones de preparacion"),
+          instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", lineHeight: 1.65, fontSize: 14, border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, background: "#f9fafb" } }, instrucciones) : /* @__PURE__ */ React.createElement("div", { style: { color: "#9a3412", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: 14, fontSize: 13, fontWeight: 700 } }, "Esta receta aun no tiene instrucciones de preparacion guardadas.")
+        )
+      );
+      const footer = /* @__PURE__ */ React.createElement(React.Fragment, null,
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Vista protegida con acceso administrativo, marca de agua y ocultamiento al perder foco."),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeRecipeSheet }, "Cerrar"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: function() { solicitarEditarReceta(receta); closeRecipeSheet(); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: function() { cargarReceta(receta); closeRecipeSheet(); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar receta")
+        )
+      );
+      return renderSecureRecipeShell("Hoja de receta", "Documento interno de cocina protegido", body, footer);
+    }
+    function renderRecetarioCompletoModal() {
+      if (!recetarioOpen) return null;
+      const body = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 900, margin: "0 auto", display: "grid", gap: 16 } },
+        recetasFiltradas.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid #d1d5db", padding: 28, textAlign: "center", color: "var(--gris)" } }, "No hay recetas para mostrar.") : recetasFiltradas.map(function(receta, index) {
+          const instrucciones = getRecipeInstructions(receta);
+          return /* @__PURE__ */ React.createElement("article", { key: `recetario-${receta.id}`, style: { background: "#fff", border: "1px solid #d1d5db", padding: "24px 28px", boxShadow: "0 8px 28px rgba(15,23,42,.10)", breakInside: "avoid", display: "grid", gap: 14 } },
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", borderBottom: "1px solid #111827", paddingBottom: 10 } },
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 900, color: "var(--verde)" } }, "RECETA ", index + 1),
+                /* @__PURE__ */ React.createElement("h2", { style: { margin: "4px 0 0", fontSize: 22, color: "#111827" } }, receta.nombre)
+              ),
+              /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignContent: "start", justifyContent: "flex-end" } },
+                /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, receta.cantidadObjetivo || 0, " ", receta.medidaObjetivo || "Uni"),
+                /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { openRecipeSheet(receta, "view"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-lines" }), "Hoja"),
+                /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { solicitarEditarReceta(receta); closeRecetarioCompleto(); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar")
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 } },
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: 8 } }, "Ingredientes"),
+                /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 5 } }, (receta.insumos || []).map(function(item, idx) {
+                  return /* @__PURE__ */ React.createElement("div", { key: `${receta.id}-book-${idx}`, style: { fontSize: 12, borderBottom: "1px solid #e5e7eb", paddingBottom: 5 } }, /* @__PURE__ */ React.createElement("strong", null, item.producto), " · ", item.cantidad, " ", item.unidad || "");
+                }))
+              ),
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: 8 } }, "Preparacion"),
+                instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, color: "#374151" } }, instrucciones) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 700 } }, "Sin instrucciones guardadas.")
+              )
+            )
+          );
+        })
+      );
+      const footer = /* @__PURE__ */ React.createElement(React.Fragment, null,
+        /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: 280, maxWidth: "100%" } },
+          /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar en recetario...", value: recipeSearch, onChange: function(e) { setRecipeSearch(e.target.value); } })
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+          /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, recetasFiltradas.length, " recetas"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeRecetarioCompleto }, "Cerrar")
+        )
+      );
+      return renderSecureRecipeShell("Recetario Completo", `${moduleLabel} · Solo administradores`, body, footer);
+    }
     function eliminarReceta(recetaId) {
       if (!confirm("¿Eliminar esta receta?")) return;
       setRecetas(function(prev) {
@@ -5898,6 +6090,7 @@ Solicitado: ${cantidad}`);
             ),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               moduleLabel === "Cocina" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-naranja", onClick: openPendingProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-check" }), "Ver producción pendiente"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openRecetarioCompleto }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-lines" }), "Recetario Completo"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openRecipeModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open" }), "Nueva receta"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openDirectLoadModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-upload" }), "Cargar Producción realizada"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: openProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry" }), "Realizar Producción")
@@ -5952,6 +6145,7 @@ Solicitado: ${cantidad}`);
                   );
                 })),
                 /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                  /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { openRecipeSheet(receta, "view"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-lines" }), "Ver hoja"),
                   /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { cargarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar en producción"),
                   /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { solicitarEditarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"),
                   /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { eliminarReceta(receta.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar")
@@ -6270,6 +6464,7 @@ Solicitado: ${cantidad}`);
                             ),
                             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" } },
                               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Carga esta receta para usar el nombre y los insumos correctos."),
+                              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { openRecipeSheet(receta, "production"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-lines" }), "Ver hoja"),
                               /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { cargarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar receta")
                             )
                           );
@@ -6413,6 +6608,10 @@ Solicitado: ${cantidad}`);
                       /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setError(""); }, placeholder: "Ej: Salsa burger, base alfredo, costillas marinadas..." })
                     ),
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Instrucciones de preparacion"),
+                      /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: recipeInstructions, onChange: function(e) { setRecipeInstructions(e.target.value); setError(""); }, placeholder: "Describe el procedimiento, tiempos, temperatura, reposo, empaque o notas de cocina...", rows: 5, style: { resize: "vertical", lineHeight: 1.5 } })
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto Mise que aumenta existencia"),
                       /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "recipe-mise-target-list", value: miseProductTarget, onChange: function(e) { setMiseProductTarget(e.target.value); setError(""); }, placeholder: "Busca y selecciona el producto de Mise an Place" }),
                       /* @__PURE__ */ React.createElement("datalist", { id: "recipe-mise-target-list" }, (Array.isArray(miseAnPlace) ? miseAnPlace : []).map(function(item) {
@@ -6448,6 +6647,8 @@ Solicitado: ${cantidad}`);
           )
         )
       ),
+      renderRecetarioCompletoModal(),
+      renderRecipeSheetModal(),
       recipeAccessModal && /* @__PURE__ */ React.createElement(
         AdminKeyModal,
         {
