@@ -33,6 +33,8 @@ export function getConfig(): ServiceConfig {
     sqlEnabled: bool(process.env.ICG_SQL_ENABLED),
     sqlConnectionString: process.env.ICG_SQL_CONNECTION_STRING || "",
     sqlServer: process.env.ICG_SQL_SERVER || "localhost",
+    icgLiveDatabaseName: process.env.ICG_LIVE_DATABASE_NAME || "",
+    icgSqlDataPath: path.resolve(process.env.ICG_SQL_DATA_PATH || "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA\\FRS_WTFOODVZL"),
     icgBackupPath: path.resolve(process.env.ICG_BACKUP_PATH || "C:\\ICG\\BACKUP\\FRS_WTFOODVZL.BAK_1"),
     icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "WTF_AUDIT_FRS_WTFOODVZL",
     icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\BACKUP\\WTF_AUDIT_SQL"),

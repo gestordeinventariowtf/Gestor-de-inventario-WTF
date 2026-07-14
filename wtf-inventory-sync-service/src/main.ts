@@ -17,6 +17,10 @@ const logger = new Logger("./logs");
 let syncInFlight = false;
 let backupSyncInFlight = false;
 
+function icgSourceDatabaseName(): string {
+  return String(config.icgLiveDatabaseName || "").trim() || config.icgAuditDbName;
+}
+
 async function importParsedPackage(filePath: string | undefined, parsed: Awaited<ReturnType<typeof readHostPackage>>): Promise<ImportResult> {
   const result: ImportResult = { filePath, inserted: 0, duplicated: 0, mappings: 0, errors: [] };
   if (parsed.mappings.length) {
@@ -205,7 +209,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
     return {
       ok: true,
       backupPath: config.icgBackupPath,
-      databaseName: config.icgAuditDbName,
+      databaseName: icgSourceDatabaseName(),
       totalLines: 0,
       matched: 0,
       applied: 0,
@@ -226,7 +230,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
     const result: IcgBackupSyncResult = {
       ok: false,
       backupPath: config.icgBackupPath,
-      databaseName: config.icgAuditDbName,
+      databaseName: icgSourceDatabaseName(),
       totalLines: 0,
       matched: 0,
       applied: 0,

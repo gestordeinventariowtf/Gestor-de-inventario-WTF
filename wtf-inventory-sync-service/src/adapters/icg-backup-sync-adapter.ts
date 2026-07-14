@@ -242,7 +242,12 @@ function parseSqlRows(output: string): AnyRecord[] {
   return rowsOut;
 }
 
+function sourceDatabaseName(config: ServiceConfig): string {
+  return String(config.icgLiveDatabaseName || "").trim() || config.icgAuditDbName;
+}
+
 export async function restoreIcgBackupForAudit(config: ServiceConfig): Promise<void> {
+  if (String(config.icgLiveDatabaseName || "").trim()) return;
   await fs.access(config.icgBackupPath);
   await fs.mkdir(config.icgSqlDataDir, { recursive: true });
   const mdf = path.join(config.icgSqlDataDir, `${config.icgAuditDbName}.mdf`);
@@ -268,7 +273,8 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   tableCounts: Record<string, number>;
   articles: AnyRecord[];
 }> {
-  const latest = parseSqlRows(await runSql(config, config.icgAuditDbName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE c.FECHAANULACION <= '19000101';"))[0]?.Fecha;
+  const databaseName = sourceDatabaseName(config);
+  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE c.FECHAANULACION <= '19000101';"))[0]?.Fecha;
   if (!latest) return { fecha: "", rows: [], tableCounts: {}, articles: [] };
   const dataSql = `
 DECLARE @fecha date='${quoteSql(latest)}';
@@ -308,9 +314,9 @@ SELECT
   ISNULL(CONVERT(varchar(19),FECHAMODIFICADO,120),'') AS FechaModificado
 FROM ARTICULOS
 ORDER BY CODARTICULO;`;
-  const sqlRows = parseSqlRows(await runSql(config, config.icgAuditDbName, dataSql));
-  const countRows = parseSqlRows(await runSql(config, config.icgAuditDbName, countSql));
-  const articles = parseSqlRows(await runSql(config, config.icgAuditDbName, articlesSql));
+  const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
+  const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
+  const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
   return {
     fecha: latest,
     rows: sqlRows.map((row) => ({
@@ -331,7 +337,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
-    databaseName: config.icgAuditDbName,
+    databaseName: sourceDatabaseName(config),
     fecha,
     totalLines: rowsToApply.length,
     matched: 0,
@@ -466,7 +472,7 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
     return {
       ok: true,
       backupPath: config.icgBackupPath,
-      databaseName: config.icgAuditDbName,
+      databaseName: sourceDatabaseName(config),
       totalLines: 0,
       matched: 0,
       applied: 0,
@@ -482,7 +488,7 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
     return {
       ok: true,
       backupPath: config.icgBackupPath,
-      databaseName: config.icgAuditDbName,
+      databaseName: sourceDatabaseName(config),
       totalLines: 0,
       matched: 0,
       applied: 0,

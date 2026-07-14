@@ -67,6 +67,8 @@ export interface ServiceConfig {
   sqlEnabled: boolean;
   sqlConnectionString: string;
   sqlServer: string;
+  icgLiveDatabaseName: string;
+  icgSqlDataPath: string;
   icgBackupPath: string;
   icgAuditDbName: string;
   icgSqlDataDir: string;
