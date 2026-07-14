@@ -5431,6 +5431,22 @@ Solicitado: ${cantidad}`);
         convertedQty: converted
       };
     }
+    function buildProductionSalidaRecord(entry, now, usuario, productoProducido) {
+      const cantidad = Number(entry.convertedQty || 0);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) return null;
+      return {
+        _id: createMovementId(`prod-${normalizar(entry.storageKey || "inventario") || "stock"}`),
+        fecha: now,
+        numero: entry.product.id,
+        medida: entry.product.medida,
+        producto: entry.product.nombre,
+        cantidad: Number(cantidad.toFixed(4)),
+        usuario,
+        origen: entry.origenLabel || entry.almacenLabel || "Inventario",
+        modulo: entry.sourceModuleLabel || moduleLabel,
+        motivo: `Produccion: ${productoProducido}`
+      };
+    }
     function guardarCargaDirecta() {
       setDirectLoadError("");
       const nombre = String(directLoad.nombre || "").trim();
@@ -5651,6 +5667,14 @@ Solicitado: ${cantidad}`);
           });
         });
       }
+      const salidaRecords = resolvedInsumos.map(function(entry) {
+        return buildProductionSalidaRecord(entry, now, usuario, nombreProducido);
+      }).filter(Boolean);
+      if (salidaRecords.length) {
+        setRegSalidas(function(prev) {
+          return [...(Array.isArray(prev) ? prev : []), ...salidaRecords];
+        });
+      }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
@@ -5690,12 +5714,17 @@ Solicitado: ${cantidad}`);
     function guardarReceta() {
       setError("");
       const nombreReceta = String(resultado.nombre || "").trim();
+      const cantidadObjetivo = Number(String(resultado.cantidad || "").replace(",", "."));
       if (!insumos.length) {
         setError("Agrega al menos un insumo para guardar la receta.");
         return;
       }
       if (!nombreReceta) {
         setError("Escribe el nombre de la receta o del producto producido.");
+        return;
+      }
+      if (!Number.isFinite(cantidadObjetivo) || cantidadObjetivo <= 0) {
+        setError("La cantidad objetivo de la receta debe ser mayor a cero.");
         return;
       }
       const recetaItems = [];
@@ -5730,7 +5759,7 @@ Solicitado: ${cantidad}`);
         modulo: moduleLabel,
         usuario: getUserDisplayLabel(currentUser),
         nombre: nombreReceta,
-        cantidadObjetivo: Number(Number(String(resultado.cantidad || 0).replace(",", ".") || 0).toFixed(4)),
+        cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
         medidaObjetivo: resultado.medida,
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
