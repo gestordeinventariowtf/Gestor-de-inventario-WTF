@@ -2828,6 +2828,29 @@
   }
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
+    const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas");
+    if (existingConsumption.length) {
+      return existingConsumption.map(function(row, index) {
+        const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo);
+        return Object.assign({
+          _id: row._id || row.ImportKey || `consumo-${index}`,
+          Fecha: row.Fecha || row.fecha || normalizedData.updatedAt || new Date().toISOString().slice(0, 10),
+          ModuloWTF: row.ModuloWTF || ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+          targetKey,
+          ProductoWTF: row.ProductoWTF || row.ProductoMise || "",
+          ProductoMise: row.ProductoMise || row.ProductoWTF || "",
+          CodArticulo: row.CodArticulo || row.Codigo || "",
+          Referencia: row.Referencia || "",
+          ProductoICG: row.ProductoICG || row.Descripcion || "",
+          UnidadesVendidas: parseIcgNumber(row.UnidadesVendidas || row.Unidades || row.Cantidad),
+          CantidadDescontar: parseIcgNumber(row.CantidadDescontar || row.Cantidad || row.UnidadesVendidas),
+          Unidad: row.Unidad || "Uni",
+          Archivo: row.Archivo || normalizedData.sourceName || "ICG FrontRest",
+          ImportKey: row.ImportKey || quickHashText([row.Fecha, row.CodArticulo, row.Referencia, row.ProductoICG, index].join("|")),
+          Estado: row.Estado || "Pendiente"
+        }, row, { targetKey });
+      }).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
+    }
     const lines = icgRows(normalizedData, "TiquetsLin");
     const bridges = icgRows(normalizedData, "VinculosMiseICG");
     const sourceName = normalizedData.sourceName || "ICG FrontRest";
@@ -7362,15 +7385,16 @@ Solicitado: ${cantidad}`);
     const icgToWebQueue = icgSalesRows.slice(0, 120).map(function(row) {
       const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
       const target = targetIndex[`${targetKey}::${normalizar(row.ProductoWTF || row.ProductoMise)}`] || null;
-      let estado = "pendiente_revision";
-      let mensaje = "Listo para revisar antes de descontar";
+      const estadoOriginal = normalizar(row.Estado || "");
+      let estado = estadoOriginal.includes("aplicado") ? "sincronizado" : estadoOriginal.includes("sin vinculo") ? "requiere_mapeo" : "pendiente_revision";
+      let mensaje = row.Estado || "Listo para revisar antes de descontar";
       if (!row.ProductoWTF && !row.ProductoMise) {
         estado = "requiere_mapeo";
         mensaje = "No hay producto WTF vinculado";
       } else if (!target) {
         estado = "requiere_mapeo";
         mensaje = "El producto vinculado no existe en WTF";
-      } else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) {
+      } else if (estado !== "sincronizado" && parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) {
         estado = "error";
         mensaje = "No hay existencia suficiente";
       }
