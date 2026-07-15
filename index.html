@@ -1050,6 +1050,9 @@
     if (normalized === "g" || normalized === "oz" || normalized === "lb") return normalized;
     return "Uni";
   }
+  function isPoundUnit(unit) {
+    return normalizeUnit(unit) === "lb";
+  }
   function convertMeasureQuantity(amount, fromUnit, toUnit) {
     const qty = Number(amount);
     if (!Number.isFinite(qty) || qty <= 0) return null;
@@ -5384,6 +5387,7 @@ Solicitado: ${cantidad}`);
           cantidad: String(item.cantidad || ""),
           cantidadBaseReceta: String(item.cantidad || ""),
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
+          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -5411,9 +5415,22 @@ Solicitado: ${cantidad}`);
     function addInsumo(product) {
       setInsumos(function(prev) {
         if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
-        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", storageKey: product.storageKey || product.origen || "inventario", sourceModuleLabel: product.sourceModuleLabel || moduleLabel, almacenLabel: product.almacenLabel || "Inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", mermaPorcentaje: "", unidad: inferProductionUnit(product.medida), salidaCompleta: false }];
+        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", storageKey: product.storageKey || product.origen || "inventario", sourceModuleLabel: product.sourceModuleLabel || moduleLabel, almacenLabel: product.almacenLabel || "Inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", mermaPorcentaje: "", convertirLibrasAGramos: false, unidad: inferProductionUnit(product.medida), salidaCompleta: false }];
       });
       setBusqueda("");
+      setError("");
+    }
+    function toggleConvertirLibrasAGramos(rowId, checked) {
+      setInsumos(function(prev) {
+        return prev.map(function(item) {
+          if (item.rowId !== rowId) return item;
+          const product = productosMap[item.productKey || `inventario-${item.productId}`];
+          return Object.assign({}, item, {
+            convertirLibrasAGramos: Boolean(checked),
+            unidad: checked ? "g" : inferProductionUnit(product && product.medida || item.unidad || "lb")
+          });
+        });
+      });
       setError("");
     }
     function updateInsumo(rowId, field, value) {
@@ -5459,7 +5476,8 @@ Solicitado: ${cantidad}`);
       const qty = Number(String(item.cantidad || "").replace(",", "."));
       if (!Number.isFinite(qty) || qty <= 0) return { error: `Indica una cantidad valida para ${product.nombre}.` };
       const mermaPorcentaje = getInsumoMermaPercent(item);
-      const converted = convertMeasureQuantity(qty, item.unidad, product.medida);
+      const inputUnit = item.convertirLibrasAGramos && isPoundUnit(product.medida) ? "g" : item.unidad;
+      const converted = convertMeasureQuantity(qty, inputUnit, product.medida);
       if (item.salidaCompleta) {
         if (1 - product.existencia > 1e-9) {
           return { error: `${product.nombre} no tiene suficiente existencia para sacar 1 ${product.medida || "unidad"} completo. Disponible: ${Number(product.existencia.toFixed(2))} ${product.medida}.` };
@@ -5473,9 +5491,10 @@ Solicitado: ${cantidad}`);
           almacenLabel: product.almacenLabel || "Inventario",
           origenLabel: product.origenLabel || "Inventario",
           qtyInput: qty,
-          inputUnit: item.unidad,
+          inputUnit,
           convertedQty: 1,
           mermaPorcentaje,
+          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           salidaCompleta: true
         };
       }
@@ -5490,13 +5509,14 @@ Solicitado: ${cantidad}`);
             almacenLabel: product.almacenLabel || "Inventario",
             origenLabel: product.origenLabel || "Inventario",
             qtyInput: qty,
-            inputUnit: item.unidad,
+            inputUnit,
             convertedQty: 0,
             mermaPorcentaje,
+            convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
             savedRecipeReference: true
           };
         }
-        return { error: `No se puede convertir ${item.unidad} hacia ${product.medida} en ${product.nombre}.` };
+        return { error: `No se puede convertir ${inputUnit} hacia ${product.medida} en ${product.nombre}.` };
       }
       if (converted - product.existencia > 1e-9) {
         return { error: `${product.nombre} no tiene suficiente existencia. Disponible: ${Number(product.existencia.toFixed(2))} ${product.medida}.` };
@@ -5510,9 +5530,10 @@ Solicitado: ${cantidad}`);
         almacenLabel: product.almacenLabel || "Inventario",
         origenLabel: product.origenLabel || "Inventario",
         qtyInput: qty,
-        inputUnit: item.unidad,
+        inputUnit,
         convertedQty: converted,
-        mermaPorcentaje
+        mermaPorcentaje,
+        convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos)
       };
     }
     function buildProductionSalidaRecord(entry, now, usuario, productoProducido) {
@@ -5793,6 +5814,7 @@ Solicitado: ${cantidad}`);
               producto: entry.product.nombre,
               cantidadUsada: Number(entry.qtyInput.toFixed(4)),
               unidadUsada: entry.inputUnit,
+              convertirLibrasAGramos: Boolean(entry.convertirLibrasAGramos),
               cantidadDescontada: Number(entry.convertedQty.toFixed(4)),
               mermaPorcentaje: Number((entry.mermaPorcentaje || 0).toFixed ? entry.mermaPorcentaje.toFixed(4) : Number(entry.mermaPorcentaje || 0).toFixed(4)),
               cantidadMerma: calculateMermaValues(entry.convertedQty, entry.mermaPorcentaje).merma,
@@ -5856,6 +5878,7 @@ Solicitado: ${cantidad}`);
           cantidadMerma: calculateMermaValues(qty, mermaPorcentaje).merma,
           cantidadNeta: calculateMermaValues(qty, mermaPorcentaje).neta,
           unidad: item.unidad,
+          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           medidaInventario: product.medida,
           salidaCompleta: Boolean(item.salidaCompleta)
         });
@@ -5908,6 +5931,7 @@ Solicitado: ${cantidad}`);
           cantidad: String(item.cantidad || ""),
           cantidadBaseReceta: String(item.cantidad || ""),
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
+          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -6496,6 +6520,10 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
                           )
                         ),
+                        product && isPoundUnit(product.medida) && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 10px" } },
+                          /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.convertirLibrasAGramos), onChange: function(e) { toggleConvertirLibrasAGramos(item.rowId, e.target.checked); }, style: { marginTop: 2 } }),
+                          /* @__PURE__ */ React.createElement("span", null, "Convertir a gramos (1 lb = 453.592 g). Si no lo marcas, se queda en libras.")
+                        ),
                         product && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
                           /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.salidaCompleta), onChange: function(e) { updateInsumo(item.rowId, "salidaCompleta", e.target.checked); }, style: { marginTop: 2 } }),
                           /* @__PURE__ */ React.createElement("span", null, "Dar salida a 1 ", product.nombre || "producto", " COMPLETO")
@@ -6672,6 +6700,10 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("span", null, "Merma: ", mermaValues.merma, " ", item.unidad || ""),
                             /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
                           )
+                        ),
+                        product && isPoundUnit(product.medida) && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 10px" } },
+                          /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.convertirLibrasAGramos), onChange: function(e) { toggleConvertirLibrasAGramos(item.rowId, e.target.checked); }, style: { marginTop: 2 } }),
+                          /* @__PURE__ */ React.createElement("span", null, "Convertir a gramos (1 lb = 453.592 g). Si no lo marcas, se queda en libras.")
                         ),
                         product && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
                           /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.salidaCompleta), onChange: function(e) { updateInsumo(item.rowId, "salidaCompleta", e.target.checked); }, style: { marginTop: 2 } }),
