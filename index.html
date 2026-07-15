@@ -7010,6 +7010,15 @@ Solicitado: ${cantidad}`);
     function getRelationEstado(productValue) {
       return String(productValue || "").trim() ? "Aplicado" : "Sin vinculo";
     }
+    function findWebProductTarget(productValue, preferredTarget) {
+      const name = normalizar(productValue);
+      if (!name) return null;
+      const targetKey = normalizeIcgWtfTarget(preferredTarget || "");
+      const matches = webProductOptions.filter(function(item) {
+        return normalizar(item.producto) === name;
+      });
+      return matches.find(function(item) { return item.targetKey === targetKey; }) || matches[0] || null;
+    }
     function getEstadoCellStyle(estado) {
       const key = normalizar(estado);
       if (key === "aplicado") return { background: "#dcfce7", border: "1px solid #86efac", borderRadius: 8, padding: 8 };
@@ -7018,15 +7027,60 @@ Solicitado: ${cantidad}`);
     }
     function normalizeRelationState(values) {
       if (!values || !Object.prototype.hasOwnProperty.call(values, "ProductoMise")) return values;
-      return Object.assign({}, values, { Estado: getRelationEstado(values.ProductoMise) });
+      const target = findWebProductTarget(values.ProductoMise, values.targetKey || values.ModuloWTF);
+      const productValue = String(values.ProductoMise || "").trim();
+      return Object.assign({}, values, {
+        ProductoWTF: productValue ? values.ProductoWTF || productValue : "",
+        ProductoMise: productValue,
+        ModuloWTF: target ? ICG_WTF_TARGET_LABELS[target.targetKey] || target.targetKey : values.ModuloWTF,
+        targetKey: target ? target.targetKey : values.targetKey,
+        Estado: getRelationEstado(productValue)
+      });
     }
     function patchEditValue(prev, col, value) {
       const values = Object.assign({}, prev.values, { [col]: value });
       if (col === "ProductoMise") {
+        const target = findWebProductTarget(value, values.targetKey || values.ModuloWTF);
         values.Estado = getRelationEstado(value);
-        if (!String(values.ProductoWTF || "").trim()) values.ProductoWTF = value;
+        values.ProductoWTF = value;
+        if (target) {
+          values.ModuloWTF = ICG_WTF_TARGET_LABELS[target.targetKey] || target.targetKey;
+          values.targetKey = target.targetKey;
+        }
       }
       return Object.assign({}, prev, { values });
+    }
+    function sameIcgRelation(a, b) {
+      if (!a || !b) return false;
+      const codeA = normalizar(a.CodArticulo);
+      const codeB = normalizar(b.CodArticulo);
+      const refA = normalizar(a.Referencia);
+      const refB = normalizar(b.Referencia);
+      const icgA = normalizar(a.ProductoICG);
+      const icgB = normalizar(b.ProductoICG);
+      return Boolean(codeA && codeB && codeA === codeB) || Boolean(refA && refB && refA === refB) || Boolean(icgA && icgB && icgA === icgB);
+    }
+    function syncConsumptionRowsFromBridge(datasets, bridgeRow) {
+      const consumo = datasets.ConsumoMiseVentas;
+      if (!consumo || !Array.isArray(consumo.rows)) return datasets;
+      const targetKey = normalizeIcgWtfTarget(bridgeRow.targetKey || bridgeRow.ModuloWTF);
+      const productName = String(bridgeRow.ProductoWTF || bridgeRow.ProductoMise || "").trim();
+      const nextRows = consumo.rows.map(function(row) {
+        if (!sameIcgRelation(row, bridgeRow)) return row;
+        return Object.assign({}, row, {
+          ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || bridgeRow.ModuloWTF || targetKey,
+          targetKey,
+          ProductoWTF: productName,
+          ProductoMise: productName,
+          Estado: getRelationEstado(productName)
+        });
+      });
+      return Object.assign({}, datasets, {
+        ConsumoMiseVentas: Object.assign({}, consumo, {
+          columns: Array.from(new Set([...(consumo.columns || []), ...ICG_TABLE_DEFS.ConsumoMiseVentas.columns])),
+          rows: nextRows
+        })
+      });
     }
     function updateData(next) {
       setData(ensureIcgFrontRestData(Object.assign({}, normalized, next, { updatedAt: new Date().toISOString() })));
@@ -7203,16 +7257,18 @@ Solicitado: ${cantidad}`);
         return;
       }
       const normalizedValues = normalizeRelationState(editRecord.values);
-      updateDataset(editRecord.tableKey, function(ds) {
-        const rows = Array.isArray(ds.rows) ? [...ds.rows] : [];
+      const datasets = Object.assign({}, normalized.datasets);
+      const currentDs = Object.assign({}, datasets[editRecord.tableKey] || { rows: [], columns });
+      const rows = Array.isArray(currentDs.rows) ? [...currentDs.rows] : [];
         if (editRecord.mode === "add") {
           rows.unshift(Object.assign({ _id: `${Date.now()}-${Math.random().toString(16).slice(2)}` }, normalizedValues));
         } else {
           const idx = rows.findIndex(function(row) { return row._id === editRecord.rowId; });
           if (idx >= 0) rows[idx] = Object.assign({}, rows[idx], normalizedValues);
         }
-        return Object.assign({}, ds, { rows });
-      });
+      datasets[editRecord.tableKey] = Object.assign({}, currentDs, { rows });
+      const syncedDatasets = editRecord.tableKey === "VinculosMiseICG" ? syncConsumptionRowsFromBridge(datasets, normalizedValues) : datasets;
+      updateData({ datasets: syncedDatasets });
       setEditRecord(null);
       toast("Registro guardado con autorizacion administradora.", "ok");
     }
