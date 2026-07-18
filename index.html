@@ -4006,21 +4006,22 @@
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
     const syncBadge = useMemo(() => {
+      const syncTitle = lastSyncedAt ? `${firebaseMessage} · Ultima sincronizacion: ${lastSyncedAt}` : firebaseMessage;
       const isFirebaseBusy = firebaseStatus === "connected" && /guardando|protegiendo|sincronizando/i.test(String(firebaseMessage || ""));
       if (isFirebaseBusy) {
         return {
           className: "sync-badge warn",
           icon: "fa-cloud-arrow-up",
-          text: lastSyncedAt ? `Firebase ${lastSyncedAt}` : "Guardando Firebase",
-          title: firebaseMessage
+          text: "Guardando Firebase",
+          title: syncTitle
         };
       }
       if (firebaseStatus === "connected") {
         return {
           className: "sync-badge ok",
           icon: "fa-cloud-arrow-up",
-          text: lastSyncedAt ? `Firebase ${lastSyncedAt}` : "Firebase OK",
-          title: firebaseMessage
+          text: "Firebase OK",
+          title: syncTitle
         };
       }
       if (firebaseStatus === "error") {
