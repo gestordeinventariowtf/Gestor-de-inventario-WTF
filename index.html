@@ -1028,10 +1028,11 @@
   function normalizar(t) {
     return String(t || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/:/g, "");
   }
+  const APP_TIME_ZONE = "America/Santo_Domingo";
   function formatDatetime(d) {
     if (!d) return "";
     const dt = new Date(d);
-    return isNaN(dt) ? String(d) : dt.toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    return isNaN(dt) ? String(d) : dt.toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: APP_TIME_ZONE });
   }
   const PRODUCTION_UNITS = ["Uni", "g", "oz", "lb"];
   function normalizeUnit(unit) {
@@ -3489,6 +3490,7 @@
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
+    const syncRevisionRef = useRef(Number(load("wtf_sync_revision", 0)) || 0);
     const applyingRemoteRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
@@ -3528,7 +3530,9 @@
     function getSyncMeta(signature, reason) {
       return {
         clientId: syncClientIdRef.current,
-        clientTime: localChangeAtRef.current || pendingLocalAtRef.current || Date.now(),
+        clientTime: pendingLocalAtRef.current || localChangeAtRef.current || Date.now(),
+        clientIso: new Date(pendingLocalAtRef.current || localChangeAtRef.current || Date.now()).toISOString(),
+        revision: syncRevisionRef.current,
         signature: quickHashText(signature),
         reason: reason || "web-client"
       };
@@ -3536,13 +3540,22 @@
     function markLocalSyncChange() {
       const now = Date.now();
       localChangeAtRef.current = now;
+      syncRevisionRef.current = Math.max(Number(syncRevisionRef.current || 0), Number(load("wtf_sync_revision", 0)) || 0) + 1;
       save("wtf_sync_local_change_at", now);
+      save("wtf_sync_revision", syncRevisionRef.current);
       return now;
+    }
+    function acceptRemoteSyncRevision(revision) {
+      const nextRevision = Number(revision || 0);
+      if (nextRevision > Number(syncRevisionRef.current || 0)) {
+        syncRevisionRef.current = nextRevision;
+        save("wtf_sync_revision", nextRevision);
+      }
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       pendingLocalSignatureRef.current = signature;
-      pendingLocalAtRef.current = reason === "web-client" ? markLocalSyncChange() : Date.now();
+      pendingLocalAtRef.current = markLocalSyncChange();
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
         try {
@@ -3844,12 +3857,17 @@
             }
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
-            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 30e3;
+            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
+            const remoteRevision = Number(remoteSyncMeta.revision || 0);
+            const localRevision = Number(syncRevisionRef.current || 0);
             const localChangeAt = Number(localChangeAtRef.current || 0);
-            const remoteIsOlderThanLocal = localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
-            const remoteIsStalePendingEcho = hasPendingLocalWrite && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current;
+            const remoteHasRevision = remoteRevision > 0 && localRevision > 0;
+            const remoteIsOlderByRevision = remoteHasRevision && remoteRevision < localRevision;
+            const remoteIsOlderByClientTime = !remoteHasRevision && localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
+            const remoteIsOlderThanLocal = remoteIsOlderByRevision || remoteIsOlderByClientTime;
+            const remoteIsStalePendingEcho = hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
             if (data.updatedAt) {
@@ -3857,6 +3875,7 @@
               setLastSyncedAt(formatDatetime(date));
             }
             if (remoteSignature === currentSignature) {
+              acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
@@ -3865,6 +3884,7 @@
               setFirebaseMessage("Protegiendo cambios locales...");
               scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
+              acceptRemoteSyncRevision(remoteRevision);
               const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState());
               const mergedSignature = serializeAppState(mergedState);
               lastRemoteSignatureRef.current = remoteSignature;
