@@ -1836,7 +1836,7 @@
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
-      icgFrontRestData: state.icgFrontRestData || [],
+      icgFrontRestData: getFirebaseComparableIcgData(state.icgFrontRestData),
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
@@ -1849,6 +1849,70 @@
       barRegProduccion: state.barRegProduccion || [],
       barRecetasProduccion: state.barRecetasProduccion || []
     });
+  }
+  function compactIcgDatasetForFirebase(data, key, rowLimit) {
+    const normalized = ensureIcgFrontRestData(data);
+    const base = normalized.datasets && normalized.datasets[key] ? normalized.datasets[key] : {};
+    const rows = Array.isArray(base.rows) ? base.rows : [];
+    return {
+      key,
+      label: base.label || (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].label) || key,
+      columns: Array.isArray(base.columns) && base.columns.length ? base.columns : (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].columns) || [],
+      rows: rows.slice(Math.max(0, rows.length - rowLimit))
+    };
+  }
+  function getFirebaseComparableIcgData(data) {
+    const normalized = ensureIcgFrontRestData(data);
+    const datasets = {};
+    ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios"].forEach(function(key) {
+      datasets[key] = compactIcgDatasetForFirebase(normalized, key, key === "VinculosMiseICG" ? 4000 : 600);
+    });
+    return {
+      sourceName: normalized.sourceName || "",
+      updatedAt: normalized.updatedAt || "",
+      appliedImports: Array.isArray(normalized.appliedImports) ? normalized.appliedImports.slice(-500) : [],
+      datasets
+    };
+  }
+  function prepareFirebaseAppStateForWrite(state) {
+    return JSON.parse(serializeAppState(state || {}));
+  }
+  function bytesToBase64(bytes) {
+    let binary = "";
+    const chunkSize = 32768;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.slice(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
+  function base64ToBytes(base64) {
+    const binary = atob(String(base64 || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+  function encodeFirebaseAppState(state) {
+    try {
+      if (!window.pako || !window.TextEncoder) return null;
+      return bytesToBase64(window.pako.deflate(new TextEncoder().encode(JSON.stringify(state || {})), { level: 6 }));
+    } catch (error) {
+      console.error("No se pudo comprimir el estado para Firebase:", error);
+      return null;
+    }
+  }
+  function decodeFirebaseAppState(data) {
+    if (!data) return null;
+    if (data.appStateCompressed) {
+      try {
+        if (!window.pako || !window.TextDecoder) throw new Error("pako/TextDecoder no disponible");
+        const bytes = base64ToBytes(data.appStateCompressed);
+        const json = new TextDecoder().decode(window.pako.inflate(bytes));
+        return JSON.parse(json);
+      } catch (error) {
+        console.error("No se pudo leer el estado comprimido de Firebase:", error);
+      }
+    }
+    return data.appState || null;
   }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
@@ -3552,20 +3616,46 @@
         save("wtf_sync_revision", nextRevision);
       }
     }
+    function createFirebaseWriteDoc(appState, reason) {
+      const firebaseState = prepareFirebaseAppStateForWrite(appState);
+      const signature = serializeAppState(firebaseState);
+      const syncMeta = getSyncMeta(signature, reason);
+      const compressed = encodeFirebaseAppState(firebaseState);
+      const baseDoc = {
+        syncMeta,
+        updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: reason,
+        appStateFormat: compressed ? "pako-base64-json-v1" : "json",
+        appStateJsonBytes: JSON.stringify(firebaseState).length,
+        appStateCompressedBytes: compressed ? compressed.length : 0
+      };
+      if (compressed) {
+        return {
+          signature,
+          doc: Object.assign({}, baseDoc, {
+            appStateCompressed: compressed,
+            appState: window.firebase.firestore.FieldValue.delete()
+          })
+        };
+      }
+      return {
+        signature,
+        doc: Object.assign({}, baseDoc, {
+          appState: firebaseState,
+          appStateCompressed: window.firebase.firestore.FieldValue.delete()
+        })
+      };
+    }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      pendingLocalSignatureRef.current = signature;
       pendingLocalAtRef.current = markLocalSyncChange();
+      const writeDoc = createFirebaseWriteDoc(appState, reason);
+      pendingLocalSignatureRef.current = writeDoc.signature;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
         try {
-          await firebaseDocRef.current.set({
-            appState,
-            syncMeta: getSyncMeta(signature, reason),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedBy: reason
-          }, { merge: true });
-          lastRemoteSignatureRef.current = signature;
+          await firebaseDocRef.current.set(writeDoc.doc, { merge: true });
+          lastRemoteSignatureRef.current = writeDoc.signature;
           setFirebaseStatus("connected");
           setFirebaseMessage("Cambios sincronizados");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -3837,19 +3927,14 @@
         setFirebaseMessage("Sincronizando con Firebase...");
         const unsubscribe = docRef.onSnapshot(async (snapshot) => {
           const data = snapshot.data();
-          if (data && data.appState) {
-            const remoteState = data.appState;
+          const remoteState = decodeFirebaseAppState(data);
+          if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
               const initialState2 = getCurrentAppState();
-              const initialSignature2 = serializeAppState(initialState2);
-              lastRemoteSignatureRef.current = initialSignature2;
+              const migrationDoc = createFirebaseWriteDoc(initialState2, "web-migration");
+              lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
-              await docRef.set({
-                appState: initialState2,
-                syncMeta: getSyncMeta(initialSignature2, "web-migration"),
-                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-                updatedBy: "web-migration"
-              }, { merge: true });
+              await docRef.set(migrationDoc.doc, { merge: true });
               setFirebaseStatus("connected");
               setFirebaseMessage("Firebase actualizado con la migraci\xF3n");
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -3904,14 +3989,9 @@
           }
           firebaseBootstrappedRef.current = true;
           const initialState = getCurrentAppState();
-          const initialSignature = serializeAppState(initialState);
-          lastRemoteSignatureRef.current = initialSignature;
-          await docRef.set({
-            appState: initialState,
-            syncMeta: getSyncMeta(initialSignature, "web-bootstrap"),
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedBy: "web-bootstrap"
-          }, { merge: true });
+          const bootstrapDoc = createFirebaseWriteDoc(initialState, "web-bootstrap");
+          lastRemoteSignatureRef.current = bootstrapDoc.signature;
+          await docRef.set(bootstrapDoc.doc, { merge: true });
           setFirebaseStatus("connected");
           setFirebaseMessage("Firebase inicializado");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
