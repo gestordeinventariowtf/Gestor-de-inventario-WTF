@@ -3894,6 +3894,10 @@
               }
               setFirebaseMessage("Sincronizado en tiempo real");
             } else {
+              const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState());
+              const mergedSignature = serializeAppState(mergedState);
+              applyRemoteState(mergedState);
+              scheduleFirebaseWrite(mergedState, mergedSignature, 350, "web-client-pending-merge");
               setFirebaseMessage("Guardando cambios locales...");
             }
             return;
@@ -4002,6 +4006,15 @@
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
     const syncBadge = useMemo(() => {
+      const isFirebaseBusy = firebaseStatus === "connected" && /guardando|protegiendo|sincronizando/i.test(String(firebaseMessage || ""));
+      if (isFirebaseBusy) {
+        return {
+          className: "sync-badge warn",
+          icon: "fa-cloud-arrow-up",
+          text: lastSyncedAt ? `Firebase ${lastSyncedAt}` : "Guardando Firebase",
+          title: firebaseMessage
+        };
+      }
       if (firebaseStatus === "connected") {
         return {
           className: "sync-badge ok",
