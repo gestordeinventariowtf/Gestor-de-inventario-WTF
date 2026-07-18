@@ -1713,13 +1713,14 @@
   }
   function getMovementKey(row) {
     if (!row || typeof row !== "object") return "";
+    if (row.id) return `id:${row.id}`;
     if (row._id) return `id:${row._id}`;
     return [
       row.fecha || "",
       row.numero || "",
-      normalizar(row.producto || ""),
-      row.cantidad == null ? "" : String(row.cantidad),
-      row.medida || "",
+      normalizar(row.producto || row.productoProducido || ""),
+      row.cantidad == null ? row.cantidadProducida == null ? "" : String(row.cantidadProducida) : String(row.cantidad),
+      row.medida || row.medidaProducida || "",
       row.usuario || "",
       row.storageLabel || "",
       row.storageKey || ""
@@ -1742,6 +1743,38 @@
       return String(a && a.fecha || "").localeCompare(String(b && b.fecha || ""));
     });
   }
+  function getInventoryMergeKey(row) {
+    if (!row) return "";
+    return [
+      row.id == null ? "" : String(row.id),
+      normalizar(row.nombre || ""),
+      normalizar(row.medida || ""),
+      normalizar(row.suplidor || "")
+    ].join("|");
+  }
+  function mergeInventoryRows(localRows, remoteRows) {
+    const map = new Map();
+    function addRow(row, preferLocal) {
+      if (!row) return;
+      const key = getInventoryMergeKey(row);
+      if (!key) return;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, Object.assign({}, row));
+        return;
+      }
+      const merged = Object.assign({}, preferLocal ? existing : row, preferLocal ? row : existing);
+      ["entrada", "salida", "decomiso"].forEach(function(field) {
+        merged[field] = Math.max(Number(existing[field] || 0), Number(row[field] || 0));
+      });
+      map.set(key, merged);
+    }
+    (Array.isArray(remoteRows) ? remoteRows : []).forEach(function(row) { addRow(row, false); });
+    (Array.isArray(localRows) ? localRows : []).forEach(function(row) { addRow(row, true); });
+    return Array.from(map.values()).sort(function(a, b) {
+      return Number(a.id || 0) - Number(b.id || 0) || String(a.nombre || "").localeCompare(String(b.nombre || ""));
+    });
+  }
   function mergeRemoteAppStateWithLocal(remoteState, localState) {
     const next = Object.assign({}, remoteState || {});
     [
@@ -1751,11 +1784,21 @@
       "histEntradaRapida",
       "histSalidaRapida",
       "histDecomisoCocina",
+      "regProduccion",
       "barRegEntradas",
       "barRegSalidas",
-      "barRegDecomiso"
+      "barRegDecomiso",
+      "barRegProduccion"
     ].forEach(function(key) {
       next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
+    });
+    [
+      "inventario",
+      "cuartoFrioInventario",
+      "barInventario",
+      "barCuartoFrioInventario"
+    ].forEach(function(key) {
+      next[key] = mergeInventoryRows(localState && localState[key], remoteState && remoteState[key]);
     });
     return next;
   }
