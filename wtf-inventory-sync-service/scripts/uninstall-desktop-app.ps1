@@ -5,6 +5,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Assert-Admin {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  if (!$principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+    $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
+    if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
+    $argsList += @("-TaskName", "`"$TaskName`"")
+    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs
+    exit 0
+  }
+}
+
 function Resolve-InstallDir {
   param([string]$Requested)
   if ($Requested) { return $Requested }
@@ -15,6 +27,25 @@ function Resolve-InstallDir {
   return (Join-Path $env:ProgramFiles "WTF ICG Host")
 }
 
+function Remove-DirectoryWithRetry {
+  param([string]$Path)
+  if (!(Test-Path $Path)) { return }
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+      Remove-Item -LiteralPath $Path -Recurse -Force
+      return
+    } catch {
+      Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds (2 * $attempt)
+      if ($attempt -eq 5) {
+        throw "No se pudo eliminar '$Path'. Cierra cualquier ventana del WTF ICG Host y ejecuta el desinstalador como administrador. Detalle: $($_.Exception.Message)"
+      }
+    }
+  }
+}
+
+Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 
 Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -38,7 +69,7 @@ if (Test-Path $Shortcut) {
 }
 
 if (Test-Path $InstallDir) {
-  Remove-Item -LiteralPath $InstallDir -Recurse -Force
+  Remove-DirectoryWithRetry -Path $InstallDir
 }
 
 Write-Host "WTF ICG Host fue desinstalado. Los datos de operacion en ProgramData se conservan para auditoria." -ForegroundColor Green
