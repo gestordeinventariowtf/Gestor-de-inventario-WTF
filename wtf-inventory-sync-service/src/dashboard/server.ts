@@ -169,6 +169,9 @@ function renderDashboard(): string {
     input[type=file]{border:1px solid #d1d5db;border-radius:7px;padding:7px;background:white;max-width:100%}
     .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .manual-import{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    .tab{border:1px solid #d1d5db;background:#fff;border-radius:999px;padding:7px 12px;font-weight:800;cursor:pointer}
+    .tab.active{background:#0f766e;color:#fff;border-color:#0f766e}
     table{width:100%;border-collapse:collapse;background:white}
     th,td{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left;font-size:13px}
     th{background:#f9fafb}
@@ -185,10 +188,12 @@ function renderDashboard(): string {
       <div class="card"><div>Errores</div><div id="errors" class="metric">0</div></div>
       <div class="card"><div>Mapeos</div><div id="mappings" class="metric">0</div></div>
       <div class="card"><div>CMS procesados</div><div id="cmsProcessed" class="metric">0</div></div>
+      <div class="card"><div>Entradas</div><div id="entradaCount" class="metric">0</div></div>
+      <div class="card"><div>Salidas</div><div id="salidaCount" class="metric">0</div></div>
     </section>
     <section class="card">
       <div class="actions">
-        <button class="primary" onclick="refreshAll()">Actualizar y buscar novedades</button>
+        <button class="primary" onclick="refreshAll()">Sincronizar</button>
         <button onclick="syncNow()">Sincronizar paquetes</button>
         <button onclick="syncCms()">Leer ultimo CMS ICG</button>
         <button onclick="syncBackup()">Procesar Base de Datos ICG Local</button>
@@ -202,26 +207,48 @@ function renderDashboard(): string {
     </section>
     <section class="card">
       <h2>Cola de movimientos</h2>
-      <table><thead><tr><th>Fecha</th><th>Ruta</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th><th>Accion</th></tr></thead><tbody id="rows"></tbody></table>
+      <table><thead><tr><th>Fecha</th><th>Ruta</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="rows"></tbody></table>
+    </section>
+    <section class="card">
+      <h2>Registros</h2>
+      <div class="tabs">
+        <button id="tabEntrada" class="tab active" onclick="setRegistroTab('entrada')">Entradas (0)</button>
+        <button id="tabSalida" class="tab" onclick="setRegistroTab('salida')">Salidas (0)</button>
+      </div>
+      <table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="registroRows"></tbody></table>
     </section>
   </main>
   <script>
     const apiHeaders={};
+    let registroTab='entrada';
+    let cachedRows=[];
     async function load(){
       const res=await fetch('/api/state',{headers:apiHeaders}); const data=await res.json();
       if(!data.movements){msg.textContent=' '+(data.error||'No autorizado'); return;}
       const rows=data.movements||[];
+      cachedRows=rows;
+      const entradas=rows.filter(r=>r.tipo==='entrada');
+      const salidas=rows.filter(r=>r.tipo==='salida');
       total.textContent=rows.length;
       pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
       errors.textContent=rows.filter(r=>r.estado==='error').length;
       mappings.textContent=(data.mappings||[]).length;
       cmsProcessed.textContent=((data.processedCmsFiles||[]).length);
-      document.getElementById('rows').innerHTML=rows.map(r=>'<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+' '+esc(r.referencia||'')+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td><td><button onclick="state(\\''+r.id+'\\',\\'aprobado\\')">Aprobar</button> <button onclick="state(\\''+r.id+'\\',\\'rechazado\\')">Rechazar</button></td></tr>').join('') || '<tr><td colspan="7">Sin movimientos.</td></tr>';
+      entradaCount.textContent=entradas.length;
+      salidaCount.textContent=salidas.length;
+      tabEntrada.textContent='Entradas ('+entradas.length+')';
+      tabSalida.textContent='Salidas ('+salidas.length+')';
+      document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
+      renderRegistros();
     }
+    function renderQueueRow(r){return '<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+' '+esc(r.referencia||'')+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function renderRegistroRow(r){return '<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+'</td><td>'+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+' '+esc(r.referencia||'')+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function renderRegistros(){const rows=cachedRows.filter(r=>r.tipo===registroTab); document.getElementById('registroRows').innerHTML=rows.map(renderRegistroRow).join('') || '<tr><td colspan="7">Sin registros de '+esc(registroTab)+'.</td></tr>';}
+    function setRegistroTab(tab){registroTab=tab; tabEntrada.className='tab '+(tab==='entrada'?'active':''); tabSalida.className='tab '+(tab==='salida'?'active':''); renderRegistros();}
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function refreshAll(){
-      msg.textContent=' Buscando novedades en paquetes, CMS y Base de Datos ICG Local...';
+      msg.textContent=' Sincronizando paquetes, CMS y Base de Datos ICG Local...';
       const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
       const j=await r.json();
       const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
