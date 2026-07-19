@@ -212,8 +212,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$Ru
 $Uninstall = Join-Path $InstallDir "Desinstalar WTF ICG Host.cmd"
 @"
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""$InstallDir\scripts\uninstall-desktop-app.ps1""'"
-pause
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$InstallDir\scripts\uninstall-desktop-app.ps1""'"
+exit /b 0
 "@ | Set-Content -LiteralPath $Uninstall -Encoding ASCII
 
 $StartupTarget = if ($TrayExecutable) { $TrayExecutable } else { "powershell.exe" }

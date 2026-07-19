@@ -12,7 +12,7 @@ function Assert-Admin {
     $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
     if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
     $argsList += @("-TaskName", "`"$TaskName`"")
-    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs
+    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -WindowStyle Hidden
     exit 0
   }
 }
@@ -30,15 +30,15 @@ function Resolve-InstallDir {
 function Remove-DirectoryWithRetry {
   param([string]$Path)
   if (!(Test-Path $Path)) { return }
-  for ($attempt = 1; $attempt -le 5; $attempt++) {
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
     try {
       Remove-Item -LiteralPath $Path -Recurse -Force
       return
     } catch {
       Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
       Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Start-Sleep -Seconds (2 * $attempt)
-      if ($attempt -eq 5) {
+      Start-Sleep -Milliseconds 750
+      if ($attempt -eq 3) {
         throw "No se pudo eliminar '$Path'. Cierra cualquier ventana del WTF ICG Host y ejecuta el desinstalador como administrador. Detalle: $($_.Exception.Message)"
       }
     }
