@@ -1,40 +1,7 @@
 import type { CmsImportResult, CmsTicketLine, ServiceConfig } from "../core/types.js";
+import { decodeFirestoreAppState, encodeCompressedAppState, encodeFirestoreValue } from "../core/firestore-state.js";
 
 type AnyRecord = Record<string, any>;
-
-function encodeFirestoreValue(value: any): AnyRecord {
-  if (value === null || value === undefined) return { nullValue: null };
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(encodeFirestoreValue) } };
-  if (typeof value === "boolean") return { booleanValue: value };
-  if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
-  if (typeof value === "object") {
-    const fields: AnyRecord = {};
-    Object.entries(value).forEach(([key, val]) => {
-      fields[key] = encodeFirestoreValue(val);
-    });
-    return { mapValue: { fields } };
-  }
-  return { stringValue: String(value) };
-}
-
-function decodeFirestoreValue(value: AnyRecord): any {
-  if (!value || typeof value !== "object") return undefined;
-  if ("nullValue" in value) return null;
-  if ("stringValue" in value) return value.stringValue;
-  if ("integerValue" in value) return Number(value.integerValue);
-  if ("doubleValue" in value) return Number(value.doubleValue);
-  if ("booleanValue" in value) return Boolean(value.booleanValue);
-  if ("timestampValue" in value) return value.timestampValue;
-  if ("arrayValue" in value) return (value.arrayValue.values || []).map(decodeFirestoreValue);
-  if ("mapValue" in value) {
-    const out: AnyRecord = {};
-    Object.entries(value.mapValue.fields || {}).forEach(([key, val]) => {
-      out[key] = decodeFirestoreValue(val as AnyRecord);
-    });
-    return out;
-  }
-  return undefined;
-}
 
 function normalizar(value: unknown): string {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -98,13 +65,17 @@ async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
   const res = await fetch(documentUrl(config));
   if (!res.ok) throw new Error(`Firestore no permitio leer estado WTF (${res.status}).`);
   const doc = await res.json() as AnyRecord;
-  return decodeFirestoreValue(doc.fields?.appState) || {};
+  return decodeFirestoreAppState(doc.fields);
 }
 
 async function writeAppState(config: ServiceConfig, appState: AnyRecord, result: CmsImportResult): Promise<void> {
+  const packed = encodeCompressedAppState(appState);
   const payload = {
     fields: {
-      appState: encodeFirestoreValue(appState),
+      appStateCompressed: encodeFirestoreValue(packed.compressed),
+      appStateFormat: encodeFirestoreValue("pako-base64-json-v1"),
+      appStateJsonBytes: encodeFirestoreValue(packed.jsonBytes),
+      appStateCompressedBytes: encodeFirestoreValue(packed.compressedBytes),
       syncMeta: encodeFirestoreValue({
         clientId: "wtf-icg-host-local",
         clientTime: Date.now(),

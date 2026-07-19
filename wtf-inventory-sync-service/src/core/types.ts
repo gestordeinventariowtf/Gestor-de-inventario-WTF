@@ -155,4 +155,5 @@ export interface IcgBackupSyncResult {
   errors: string[];
   message: string;
   tableCounts?: Record<string, number>;
+  movements?: SyncMovement[];
 }

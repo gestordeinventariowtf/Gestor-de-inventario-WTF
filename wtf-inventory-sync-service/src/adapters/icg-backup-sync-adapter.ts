@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { IcgBackupConsumptionRow, IcgBackupSyncResult, ServiceConfig } from "../core/types.js";
+import type { IcgBackupConsumptionRow, IcgBackupSyncResult, ServiceConfig, SyncMovement } from "../core/types.js";
+import { decodeFirestoreAppState, encodeCompressedAppState, encodeFirestoreValue } from "../core/firestore-state.js";
 
 type AnyRecord = Record<string, any>;
 
@@ -23,40 +24,6 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"]
 };
-
-function encodeFirestoreValue(value: any): AnyRecord {
-  if (value === null || value === undefined) return { nullValue: null };
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(encodeFirestoreValue) } };
-  if (typeof value === "boolean") return { booleanValue: value };
-  if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
-  if (typeof value === "object") {
-    const fields: AnyRecord = {};
-    Object.entries(value).forEach(([key, val]) => {
-      fields[key] = encodeFirestoreValue(val);
-    });
-    return { mapValue: { fields } };
-  }
-  return { stringValue: String(value) };
-}
-
-function decodeFirestoreValue(value: AnyRecord): any {
-  if (!value || typeof value !== "object") return undefined;
-  if ("nullValue" in value) return null;
-  if ("stringValue" in value) return value.stringValue;
-  if ("integerValue" in value) return Number(value.integerValue);
-  if ("doubleValue" in value) return Number(value.doubleValue);
-  if ("booleanValue" in value) return Boolean(value.booleanValue);
-  if ("timestampValue" in value) return value.timestampValue;
-  if ("arrayValue" in value) return (value.arrayValue.values || []).map(decodeFirestoreValue);
-  if ("mapValue" in value) {
-    const out: AnyRecord = {};
-    Object.entries(value.mapValue.fields || {}).forEach(([key, val]) => {
-      out[key] = decodeFirestoreValue(val as AnyRecord);
-    });
-    return out;
-  }
-  return undefined;
-}
 
 function normalizar(value: unknown): string {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -180,13 +147,17 @@ async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
   const res = await fetch(documentUrl(config));
   if (!res.ok) throw new Error(`Firestore no permitio leer estado WTF (${res.status}).`);
   const doc = await res.json() as AnyRecord;
-  return decodeFirestoreValue(doc.fields?.appState) || {};
+  return decodeFirestoreAppState(doc.fields);
 }
 
 async function writeAppState(config: ServiceConfig, appState: AnyRecord, result: IcgBackupSyncResult): Promise<void> {
+  const packed = encodeCompressedAppState(appState);
   const payload = {
     fields: {
-      appState: encodeFirestoreValue(appState),
+      appStateCompressed: encodeFirestoreValue(packed.compressed),
+      appStateFormat: encodeFirestoreValue("pako-base64-json-v1"),
+      appStateJsonBytes: encodeFirestoreValue(packed.jsonBytes),
+      appStateCompressedBytes: encodeFirestoreValue(packed.compressedBytes),
       syncMeta: encodeFirestoreValue({
         clientId: "wtf-icg-host-backup",
         clientTime: Date.now(),
@@ -333,6 +304,42 @@ ORDER BY CODARTICULO;`;
   };
 }
 
+function createBackupMovement(
+  line: IcgBackupConsumptionRow,
+  fecha: string,
+  importKey: string,
+  estado: SyncMovement["estado"],
+  mensaje: string,
+  productoWtf = "",
+  cantidad = line.consumo,
+  unidad = "Uni"
+): SyncMovement {
+  return {
+    id: `icg-local-${importKey}`,
+    idempotencyKey: `icg-local-${importKey}`,
+    fecha: `${fecha}T00:00:00.000Z`,
+    origen: "ICG FrontRest",
+    destino: "Sistema Web",
+    tipo: "salida",
+    codigoProducto: line.codArticulo,
+    nombreProducto: productoWtf || line.descripcion || `ICG ${line.codArticulo}`,
+    cantidad,
+    unidad,
+    almacen: line.codAlmacen || "ICG",
+    estado,
+    mensaje,
+    intentos: 0,
+    referencia: line.referencia,
+    raw: {
+      importKey,
+      codAlmacen: line.codAlmacen,
+      productoIcg: line.descripcion,
+      consumo: line.consumo,
+      lineas: line.lineas
+    }
+  };
+}
+
 export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
@@ -346,7 +353,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     pending: 0,
     errors: [],
     message: "",
-    tableCounts
+    tableCounts,
+    movements: []
   };
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
@@ -367,10 +375,12 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     const importKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (appliedKeys.has(importKey)) {
       result.skipped += 1;
+      result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
       continue;
     }
     if (!link) {
       result.pending += 1;
+      result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF."));
       const pendingRow = {
         Fecha: fecha,
         ModuloWTF: "",
@@ -393,7 +403,9 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
     const producto = String(link.ProductoWTF || link.ProductoMise || "").trim();
     if (!producto) {
-      result.errors.push(`Vinculo sin ProductoWTF para CodArticulo ${line.codArticulo}.`);
+      const message = `Vinculo sin ProductoWTF para CodArticulo ${line.codArticulo}.`;
+      result.errors.push(message);
+      result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message));
       continue;
     }
     const qtyFactor = parseNumber(link.CantidadPorVenta) || 1;
@@ -420,7 +432,9 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     result.matched += 1;
     if (!item) {
       consumoRow.Estado = "Producto WTF no encontrado";
-      result.errors.push(`${producto} no existe en ${targetLabel(target)}.`);
+      const message = `${producto} no existe en ${targetLabel(target)}.`;
+      result.errors.push(message);
+      result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message, producto, cantidad, consumoRow.Unidad));
       if (!existingConsumptionKeys.has(importKey)) newConsumption.push(consumoRow);
       continue;
     }
@@ -432,6 +446,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     consumoRow.ExistenciaNueva = existenciaNueva;
     appliedKeys.add(importKey);
     result.applied += 1;
+    result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
     if (!existingConsumptionKeys.has(importKey)) newConsumption.push(consumoRow);
 
     const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";

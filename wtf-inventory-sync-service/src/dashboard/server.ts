@@ -46,6 +46,13 @@ export function startDashboard(
         const results = await onSyncNow();
         return json(res, { ok: true, results });
       }
+      if (url.pathname === "/api/refresh-all" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        const packages = await onSyncNow();
+        const cms = onSyncLatestCms ? await onSyncLatestCms() : null;
+        const backup = onSyncIcgBackup ? await onSyncIcgBackup() : null;
+        return json(res, { ok: true, packages, cms, backup });
+      }
       if (url.pathname === "/api/sync-latest-cms" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         if (!onSyncLatestCms) return json(res, { ok: false, error: "Importacion CMS no disponible" }, 400);
@@ -181,9 +188,10 @@ function renderDashboard(): string {
     </section>
     <section class="card">
       <div class="actions">
-        <button class="primary" onclick="syncNow()">Sincronizar ahora</button>
+        <button class="primary" onclick="refreshAll()">Actualizar y buscar novedades</button>
+        <button onclick="syncNow()">Sincronizar paquetes</button>
         <button onclick="syncCms()">Leer ultimo CMS ICG</button>
-        <button onclick="syncBackup()">Procesar Backup ICG</button>
+        <button onclick="syncBackup()">Procesar Base de Datos ICG Local</button>
         <button onclick="exportIcg()">Exportar entradas para ICG</button>
       </div>
       <div class="manual-import">
@@ -194,7 +202,7 @@ function renderDashboard(): string {
     </section>
     <section class="card">
       <h2>Cola de movimientos</h2>
-      <table><thead><tr><th>Fecha</th><th>Ruta</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Accion</th></tr></thead><tbody id="rows"></tbody></table>
+      <table><thead><tr><th>Fecha</th><th>Ruta</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th><th>Accion</th></tr></thead><tbody id="rows"></tbody></table>
     </section>
   </main>
   <script>
@@ -208,13 +216,22 @@ function renderDashboard(): string {
       errors.textContent=rows.filter(r=>r.estado==='error').length;
       mappings.textContent=(data.mappings||[]).length;
       cmsProcessed.textContent=((data.processedCmsFiles||[]).length);
-      document.getElementById('rows').innerHTML=rows.map(r=>'<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'</td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td><button onclick="state(\\''+r.id+'\\',\\'aprobado\\')">Aprobar</button> <button onclick="state(\\''+r.id+'\\',\\'rechazado\\')">Rechazar</button></td></tr>').join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
+      document.getElementById('rows').innerHTML=rows.map(r=>'<tr><td>'+esc(r.fecha)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+' '+esc(r.referencia||'')+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td><td><button onclick="state(\\''+r.id+'\\',\\'aprobado\\')">Aprobar</button> <button onclick="state(\\''+r.id+'\\',\\'rechazado\\')">Rechazar</button></td></tr>').join('') || '<tr><td colspan="7">Sin movimientos.</td></tr>';
     }
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
+    async function refreshAll(){
+      msg.textContent=' Buscando novedades en paquetes, CMS y Base de Datos ICG Local...';
+      const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
+      const j=await r.json();
+      const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
+      const cmsMsg=j.cms&&j.cms.message?j.cms.message:'';
+      msg.textContent=' '+(j.error||backupMsg||cmsMsg||'Busqueda completada');
+      load();
+    }
     async function syncNow(){await fetch('/api/sync-now',{method:'POST',headers:apiHeaders}); msg.textContent=' Sincronizado'; load();}
     async function syncCms(){const r=await fetch('/api/sync-latest-cms',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'CMS procesado'); load();}
-    async function syncBackup(){const r=await fetch('/api/sync-icg-backup',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'Backup ICG procesado'); load();}
+    async function syncBackup(){const r=await fetch('/api/sync-icg-backup',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' '+((j.result&&j.result.message)||j.error||'Base de Datos ICG Local procesada'); load();}
     async function exportIcg(){const r=await fetch('/api/export-icg',{method:'POST',headers:apiHeaders}); const j=await r.json(); msg.textContent=' Archivo: '+(j.filePath||j.error||''); load();}
     function fileToBase64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const value=String(reader.result||'');resolve(value.includes(',')?value.split(',')[1]:value)};reader.onerror=()=>reject(reader.error||new Error('No se pudo leer el archivo'));reader.readAsDataURL(file);})}
     async function importCmsFile(){

@@ -222,6 +222,11 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
   backupSyncInFlight = true;
   try {
     const result = await syncIcgBackupConsumption(config);
+    if (Array.isArray(result.movements)) {
+      for (const movement of result.movements) {
+        await store.upsertMovement(movement);
+      }
+    }
     await store.appendAudit({ accion: "icg_backup_sync", ...result });
     await logger.write("icg.log", "Backup SQL ICG sincronizado", result);
     return result;
