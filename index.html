@@ -1059,6 +1059,31 @@
     if (!Number.isFinite(number)) return "";
     return String(Number(number.toFixed(4)));
   }
+  const MAX_DECIMAL_PLACES = 4;
+  function normalizeDecimalInputText(value, maxDecimals = MAX_DECIMAL_PLACES) {
+    let text = String(value || "").replace(/,/g, ".");
+    text = text.replace(/[^\d.]/g, "");
+    const firstDot = text.indexOf(".");
+    if (firstDot >= 0) {
+      text = text.slice(0, firstDot + 1) + text.slice(firstDot + 1).replace(/\./g, "");
+      const parts = text.split(".");
+      parts[1] = (parts[1] || "").slice(0, maxDecimals);
+      text = parts[0] + "." + parts[1];
+    }
+    return text;
+  }
+  function isValidDecimalInputText(value, maxDecimals = MAX_DECIMAL_PLACES) {
+    const text = String(value || "").replace(/,/g, ".");
+    if (/[eE+-]/.test(text)) return false;
+    const parts = text.split(".");
+    if (parts.length > 2) return false;
+    return (parts[1] || "").length <= maxDecimals;
+  }
+  function getNextInputText(input, insertedText) {
+    const start = input.selectionStart == null ? input.value.length : input.selectionStart;
+    const end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
+    return input.value.slice(0, start) + insertedText + input.value.slice(end);
+  }
   function convertMeasureQuantity(amount, fromUnit, toUnit) {
     const qty = Number(amount);
     if (!Number.isFinite(qty) || qty <= 0) return null;
@@ -3560,6 +3585,49 @@
     const stateSnapshotRef = useRef(null);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
+    useEffect(() => {
+      function isNumberInput(target) {
+        return target && target.tagName === "INPUT" && target.type === "number";
+      }
+      function onBeforeInput(event) {
+        const input = event.target;
+        if (!isNumberInput(input) || input.readOnly || input.disabled) return;
+        const data = event.data || "";
+        if (!data) return;
+        const next = getNextInputText(input, data);
+        if (!isValidDecimalInputText(next)) event.preventDefault();
+      }
+      function onPaste(event) {
+        const input = event.target;
+        if (!isNumberInput(input) || input.readOnly || input.disabled) return;
+        const text = event.clipboardData && event.clipboardData.getData("text");
+        if (!text) return;
+        const next = getNextInputText(input, normalizeDecimalInputText(text));
+        if (!isValidDecimalInputText(next)) event.preventDefault();
+      }
+      function onInput(event) {
+        const input = event.target;
+        if (!isNumberInput(input) || input.readOnly || input.disabled) return;
+        const clean = normalizeDecimalInputText(input.value);
+        if (clean !== input.value) input.value = clean;
+      }
+      function onFocusIn(event) {
+        const input = event.target;
+        if (!isNumberInput(input)) return;
+        input.setAttribute("step", "0.0001");
+        input.setAttribute("inputmode", "decimal");
+      }
+      document.addEventListener("beforeinput", onBeforeInput, true);
+      document.addEventListener("paste", onPaste, true);
+      document.addEventListener("input", onInput, true);
+      document.addEventListener("focusin", onFocusIn, true);
+      return function() {
+        document.removeEventListener("beforeinput", onBeforeInput, true);
+        document.removeEventListener("paste", onPaste, true);
+        document.removeEventListener("input", onInput, true);
+        document.removeEventListener("focusin", onFocusIn, true);
+      };
+    }, []);
     stateSnapshotRef.current = {
       dataVersion: DATA_VERSION,
       inventario,
