@@ -7264,6 +7264,19 @@ Solicitado: ${cantidad}`);
     }, [miseAnPlace, data, bridgeRows.length, icgProductsForBridge.length]);
     const table = normalized.datasets[activeTable] || normalized.datasets.TiquetsCab;
     const columns = table.columns || [];
+    const webProductOptions = useMemo(function() {
+      const map = {};
+      (Array.isArray(inventoryTargets) ? inventoryTargets : []).forEach(function(item) {
+        const name = String(item.producto || "").trim();
+        if (!name) return;
+        const key = `${normalizeIcgWtfTarget(item.targetKey || item.modulo || "")}::${normalizar(name)}`;
+        if (!map[key]) map[key] = Object.assign({}, item, { producto: name });
+      });
+      return Object.values(map).sort(function(a, b) {
+        return String(a.producto || "").localeCompare(String(b.producto || ""));
+      });
+    }, [inventoryTargets]);
+    const estadoOptions = ["Pendiente", "Aplicado", "Sin vinculo", "Producto WTF no encontrado", "Sin existencia"];
     const filteredRows = (table.rows || []).filter(function(row) {
       const q = normalizar(query);
       if (!q) return true;
@@ -7882,8 +7895,17 @@ Solicitado: ${cantidad}`);
       pendingAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingAction.title, usuarios, onClose: () => setPendingAction(null), onConfirm: pendingAction.run }),
       editRecord && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 760 } },
         /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen", style: { marginRight: 7 } }), editRecord.mode === "add" ? "Agregar registro" : "Editar registro"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setEditRecord(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))),
-        /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 } }, columns.map(function(col) {
-          return /* @__PURE__ */ React.createElement("div", { key: col, className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, col), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editRecord.values[col] || "", onChange: (e) => setEditRecord((prev) => Object.assign({}, prev, { values: Object.assign({}, prev.values, { [col]: e.target.value }) })) }));
+        /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 } }, /* @__PURE__ */ React.createElement("datalist", { id: "icg-producto-mise-list" }, webProductOptions.map(function(item) {
+          return /* @__PURE__ */ React.createElement("option", { key: `${item.targetKey || "web"}-${item.producto}`, value: item.producto }, ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey || "Web", " · ", item.medida || "Uni", " · Exist. ", item.existencia == null ? "-" : item.existencia);
+        })), columns.map(function(col) {
+          if (col === "Estado") {
+            const currentEstado = String(editRecord.values[col] || "");
+            const options = estadoOptions.includes(currentEstado) || !currentEstado ? estadoOptions : [currentEstado].concat(estadoOptions);
+            return /* @__PURE__ */ React.createElement("div", { key: col, className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, col), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: currentEstado, onChange: (e) => setEditRecord((prev) => Object.assign({}, prev, { values: Object.assign({}, prev.values, { [col]: e.target.value }) })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar estado"), options.map(function(option) {
+              return /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option);
+            })));
+          }
+          return /* @__PURE__ */ React.createElement("div", { key: col, className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, col), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: col === "ProductoMise" ? "icg-producto-mise-list" : void 0, value: editRecord.values[col] || "", onChange: (e) => setEditRecord((prev) => Object.assign({}, prev, { values: Object.assign({}, prev.values, { [col]: e.target.value }) })) }));
         }), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0, gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave del administrador"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: editPassword, onChange: (e) => setEditPassword(e.target.value), placeholder: "Obligatoria para guardar valores importantes" }))),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setEditRecord(null) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveEdit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar"))
       ))
