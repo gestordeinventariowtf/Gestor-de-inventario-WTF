@@ -1792,12 +1792,32 @@
   }
   function getInventoryMergeKey(row) {
     if (!row) return "";
+    if (row.tipo === "separador") {
+      return ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|");
+    }
     return [
-      row.id == null ? "" : String(row.id),
+      "prod",
       normalizar(row.nombre || ""),
       normalizar(row.medida || ""),
       normalizar(row.suplidor || "")
     ].join("|");
+  }
+  function mergeInventoryDuplicateRows(existing, row, preferLocal) {
+    const merged = Object.assign({}, preferLocal ? existing : row, preferLocal ? row : existing);
+    const existingId = Number(existing && existing.id);
+    const rowId = Number(row && row.id);
+    if (Number.isFinite(existingId) && Number.isFinite(rowId)) merged.id = Math.min(existingId, rowId);
+    else if (Number.isFinite(existingId)) merged.id = existingId;
+    else if (Number.isFinite(rowId)) merged.id = rowId;
+    ["entrada", "salida", "decomiso"].forEach(function(field) {
+      merged[field] = Math.max(Number(existing && existing[field] || 0), Number(row && row[field] || 0));
+    });
+    ["stockLunesJueves", "stockViernesDomingo"].forEach(function(field) {
+      merged[field] = Math.max(Number(existing && existing[field] || 0), Number(row && row[field] || 0));
+    });
+    merged.codArticulo = String(existing && existing.codArticulo || row && row.codArticulo || "").trim();
+    merged.icgLinks = Array.isArray(merged.icgLinks) && merged.icgLinks.length ? merged.icgLinks : (Array.isArray(existing && existing.icgLinks) && existing.icgLinks.length ? existing.icgLinks : row && row.icgLinks);
+    return merged;
   }
   function normalizeInventoryDeletedKeys(input) {
     const source = input && typeof input === "object" ? input : {};
@@ -1846,10 +1866,7 @@
         map.set(key, Object.assign({}, row));
         return;
       }
-      const merged = Object.assign({}, preferLocal ? existing : row, preferLocal ? row : existing);
-      ["entrada", "salida", "decomiso"].forEach(function(field) {
-        merged[field] = Math.max(Number(existing[field] || 0), Number(row[field] || 0));
-      });
+      const merged = mergeInventoryDuplicateRows(existing, row, preferLocal);
       map.set(key, merged);
     }
     (Array.isArray(remoteRows) ? remoteRows : []).forEach(function(row) { addRow(row, false); });
@@ -1857,6 +1874,9 @@
     return Array.from(map.values()).sort(function(a, b) {
       return Number(a.id || 0) - Number(b.id || 0) || String(a.nombre || "").localeCompare(String(b.nombre || ""));
     });
+  }
+  function normalizeInventoryRows(rows, deletedKeys) {
+    return mergeInventoryRows([], rows, deletedKeys || {});
   }
   function mergeRemoteAppStateWithLocal(remoteState, localState) {
     const next = Object.assign({}, remoteState || {});
@@ -3595,8 +3615,8 @@
     const [inventorySearchTarget, setInventorySearchTarget] = useState(null);
     const [selfAccessModal, setSelfAccessModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
-    const [inventario, setInventario] = useState(() => loadSeeded(KEYS.inventario, initInventario, null) || initInventario());
-    const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => load(KEYS.cuartoFrioInventario, []));
+    const [inventario, setInventario] = useState(() => normalizeInventoryRows(loadSeeded(KEYS.inventario, initInventario, null) || initInventario()));
+    const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => normalizeInventoryRows(load(KEYS.cuartoFrioInventario, [])));
     const [miseAnPlace, setMise] = useState(() => normalizeMiseItems(loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()));
     const [regEntradas, setRegEntradas] = useState(() => loadSeeded(KEYS.regEntradas, initRegEntradas, []));
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
@@ -3617,8 +3637,8 @@
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
-    const [barInventario, setBarInventario] = useState(() => load(BAR_KEYS.inventario, []));
-    const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => load(BAR_KEYS.cuartoFrioInventario, []));
+    const [barInventario, setBarInventario] = useState(() => normalizeInventoryRows(load(BAR_KEYS.inventario, [])));
+    const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => normalizeInventoryRows(load(BAR_KEYS.cuartoFrioInventario, [])));
     const [barMiseAnPlace, setBarMise] = useState(() => normalizeMiseItems(load(BAR_KEYS.miseAnPlace, [])));
     const [barRegEntradas, setBarRegEntradas] = useState(() => load(BAR_KEYS.regEntradas, []));
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
@@ -3800,8 +3820,8 @@
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
       applyingRemoteRef.current = true;
-      if (Array.isArray(nextState.inventario)) setInventario(nextState.inventario);
-      if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(nextState.cuartoFrioInventario);
+      if (Array.isArray(nextState.inventario)) setInventario(normalizeInventoryRows(nextState.inventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario));
+      if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(normalizeInventoryRows(nextState.cuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario));
       if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace));
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(nextState.regEntradas);
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
@@ -3817,8 +3837,8 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
-      if (Array.isArray(nextState.barInventario)) setBarInventario(nextState.barInventario);
-      if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(nextState.barCuartoFrioInventario);
+      if (Array.isArray(nextState.barInventario)) setBarInventario(normalizeInventoryRows(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario));
+      if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRows(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
       if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace));
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(nextState.barRegEntradas);
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
