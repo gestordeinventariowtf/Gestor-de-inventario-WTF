@@ -995,6 +995,7 @@
     usuarios: "wtf_usuarios",
     authUser: "wtf_auth_user"
   };
+  const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
     cuartoFrioInventario: "wtf_bar_cuarto_frio_inventario",
@@ -1778,12 +1779,48 @@
       normalizar(row.suplidor || "")
     ].join("|");
   }
-  function mergeInventoryRows(localRows, remoteRows) {
+  function normalizeInventoryDeletedKeys(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    Object.keys(source).forEach(function(stateKey) {
+      const rows = source[stateKey] && typeof source[stateKey] === "object" ? source[stateKey] : {};
+      const clean = {};
+      Object.keys(rows).forEach(function(key) {
+        const ts = Number(rows[key] || 0);
+        if (key && Number.isFinite(ts) && ts > 0) clean[key] = ts;
+      });
+      if (Object.keys(clean).length) result[stateKey] = clean;
+    });
+    return result;
+  }
+  function mergeInventoryDeletedKeys(remoteKeys, localKeys) {
+    const result = normalizeInventoryDeletedKeys(remoteKeys);
+    const local = normalizeInventoryDeletedKeys(localKeys);
+    Object.keys(local).forEach(function(stateKey) {
+      result[stateKey] = Object.assign({}, result[stateKey] || {});
+      Object.keys(local[stateKey] || {}).forEach(function(key) {
+        result[stateKey][key] = Math.max(Number(result[stateKey][key] || 0), Number(local[stateKey][key] || 0));
+      });
+    });
+    return result;
+  }
+  function pruneInventoryDeletedKeys(deletedKeys, stateKey) {
+    const source = normalizeInventoryDeletedKeys(deletedKeys)[stateKey] || {};
+    const minTs = Date.now() - 90 * 24 * 60 * 60 * 1e3;
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+    });
+    return result;
+  }
+  function mergeInventoryRows(localRows, remoteRows, deletedKeys) {
     const map = new Map();
+    const deletedSet = new Set(Object.keys(deletedKeys || {}));
     function addRow(row, preferLocal) {
       if (!row) return;
       const key = getInventoryMergeKey(row);
       if (!key) return;
+      if (deletedSet.has(key)) return;
       const existing = map.get(key);
       if (!existing) {
         map.set(key, Object.assign({}, row));
@@ -1818,13 +1855,15 @@
     ].forEach(function(key) {
       next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
     });
+    next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, localState && localState.inventoryDeletedKeys);
     [
       "inventario",
       "cuartoFrioInventario",
       "barInventario",
       "barCuartoFrioInventario"
     ].forEach(function(key) {
-      next[key] = mergeInventoryRows(localState && localState[key], remoteState && remoteState[key]);
+      next[key] = mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]);
+      next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
     return next;
   }
@@ -1858,6 +1897,7 @@
       regProduccion: state.regProduccion || [],
       recetasProduccion: state.recetasProduccion || [],
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
+      inventoryDeletedKeys: normalizeInventoryDeletedKeys(state.inventoryDeletedKeys),
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
@@ -3564,6 +3604,7 @@
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
+    const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})));
     const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
@@ -3639,6 +3680,7 @@
       regProduccion,
       recetasProduccion,
       recetasProduccionBaseVersion,
+      inventoryDeletedKeys,
       histDecomisoCocina,
       histEntradaRapida,
       histSalidaRapida,
@@ -3746,6 +3788,7 @@
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
+      if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.histEntradaRapida)) setHistEntradaRapida(nextState.histEntradaRapida);
       if (Array.isArray(nextState.histSalidaRapida)) setHistSalidaRapida(nextState.histSalidaRapida);
@@ -3786,6 +3829,7 @@
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
     useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
+    useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
     useEffect(() => {
       if (recetasProduccionBaseVersion === DEFAULT_RECETAS_PRODUCCION_VERSION) return;
       setRecetasProduccion(function(prev) {
@@ -4094,7 +4138,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -4576,14 +4620,24 @@ Solicitado: ${cantidad}`);
         movedNames: movingRows.map(function(row) { return row.nombre; })
       };
     }
+    function markInventoryRowDeleted(stateKey, row) {
+      const deletedKey = getInventoryMergeKey(row);
+      if (!stateKey || !deletedKey) return;
+      setInventoryDeletedKeys(function(prev) {
+        const normalized = normalizeInventoryDeletedKeys(prev);
+        return Object.assign({}, normalized, {
+          [stateKey]: Object.assign({}, normalized[stateKey] || {}, { [deletedKey]: Date.now() })
+        });
+      });
+    }
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
       dashboardGeneral: /* @__PURE__ */ React.createElement(DashboardGeneral, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion }),
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       icg: /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
@@ -5618,6 +5672,7 @@ Solicitado: ${cantidad}`);
           cantidadBaseReceta: String(item.cantidad || ""),
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -5650,18 +5705,39 @@ Solicitado: ${cantidad}`);
       setBusqueda("");
       setError("");
     }
+    function applyProductionRunMultiplier(value) {
+      setProductionRuns(value);
+      const times = Number(String(value || "").replace(",", "."));
+      if (!Number.isFinite(times) || times <= 0) return;
+      setInsumos(function(prev) {
+        return prev.map(function(item) {
+          const baseSource = item.cantidadBaseReceta !== void 0 && item.cantidadBaseReceta !== null && String(item.cantidadBaseReceta) !== "" ? item.cantidadBaseReceta : item.cantidad;
+          const base = Number(String(baseSource || "").replace(",", "."));
+          if (!Number.isFinite(base) || base <= 0) return item;
+          return Object.assign({}, item, {
+            cantidadBaseReceta: formatProductionRecipeQty(base),
+            cantidad: formatProductionRecipeQty(base * times)
+          });
+        });
+      });
+      setError("");
+    }
     function toggleConvertirLibrasAGramos(rowId, checked) {
+      const target = insumos.find(function(item) {
+        return item.rowId === rowId;
+      });
+      if (checked && target) {
+        const currentQty = parseProductionNumber(target.cantidadBaseReceta || target.cantidad);
+        if (currentQty > 0) {
+          applyProductionRunMultiplier(String(formatConvertedProductionQty(currentQty * 453.59237)));
+        }
+      }
       setInsumos(function(prev) {
         return prev.map(function(item) {
           if (item.rowId !== rowId) return item;
-          const product = productosMap[item.productKey || `inventario-${item.productId}`];
-          const currentQty = parseProductionNumber(item.cantidad);
-          const nextQty = currentQty > 0 ? checked ? currentQty * 453.59237 : currentQty / 453.59237 : currentQty;
           return Object.assign({}, item, {
             convertirLibrasAGramos: Boolean(checked),
-            cantidad: currentQty > 0 ? formatConvertedProductionQty(nextQty) : item.cantidad,
-            cantidadBaseReceta: item.fromRecipe && currentQty > 0 ? formatConvertedProductionQty(nextQty) : item.cantidadBaseReceta,
-            unidad: checked ? "g" : inferProductionUnit(product && product.medida || item.unidad || "lb")
+            conversionComoMultiplicador: Boolean(checked)
           });
         });
       });
@@ -5672,7 +5748,7 @@ Solicitado: ${cantidad}`);
         return prev.map(function(item) {
           if (item.rowId !== rowId) return item;
           const next = Object.assign({}, item, { [field]: value });
-          if (field === "cantidad" && item.fromRecipe) {
+          if (field === "cantidad") {
             const times = Number(String(productionRuns || "").replace(",", "."));
             const typedQty = Number(String(value || "").replace(",", "."));
             next.cantidadBaseReceta = Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
@@ -5683,18 +5759,7 @@ Solicitado: ${cantidad}`);
       setError("");
     }
     function updateProductionRuns(value) {
-      setProductionRuns(value);
-      const times = Number(String(value || "").replace(",", "."));
-      if (!Number.isFinite(times) || times <= 0) return;
-      setInsumos(function(prev) {
-        return prev.map(function(item) {
-          if (!item.fromRecipe) return item;
-          const base = Number(String(item.cantidadBaseReceta || item.cantidad || "").replace(",", "."));
-          if (!Number.isFinite(base) || base <= 0) return item;
-          return Object.assign({}, item, { cantidad: formatProductionRecipeQty(base * times) });
-        });
-      });
-      setError("");
+      applyProductionRunMultiplier(value);
     }
     function removeInsumo(rowId) {
       setInsumos(function(prev) {
@@ -5710,7 +5775,7 @@ Solicitado: ${cantidad}`);
       const qty = Number(String(item.cantidad || "").replace(",", "."));
       if (!Number.isFinite(qty) || qty <= 0) return { error: `Indica una cantidad valida para ${product.nombre}.` };
       const mermaPorcentaje = getInsumoMermaPercent(item);
-      const inputUnit = item.convertirLibrasAGramos && isPoundUnit(product.medida) ? "g" : item.unidad;
+      const inputUnit = item.convertirLibrasAGramos && isPoundUnit(product.medida) && !item.conversionComoMultiplicador ? "g" : item.unidad;
       const converted = convertMeasureQuantity(qty, inputUnit, product.medida);
       if (item.salidaCompleta) {
         if (1 - product.existencia > 1e-9) {
@@ -6072,7 +6137,8 @@ Solicitado: ${cantidad}`);
     function guardarReceta() {
       setError("");
       const nombreReceta = String(resultado.nombre || "").trim();
-      const cantidadObjetivo = Number(String(resultado.cantidad || "").replace(",", "."));
+      const cantidadObjetivoText = String(resultado.cantidad || "").trim();
+      const cantidadObjetivo = cantidadObjetivoText === "" ? 0 : Number(cantidadObjetivoText.replace(",", "."));
       if (!insumos.length) {
         setError("Agrega al menos un insumo para guardar la receta.");
         return;
@@ -6081,8 +6147,8 @@ Solicitado: ${cantidad}`);
         setError("Escribe el nombre de la receta o del producto producido.");
         return;
       }
-      if (!Number.isFinite(cantidadObjetivo) || cantidadObjetivo <= 0) {
-        setError("La cantidad objetivo de la receta debe ser mayor a cero.");
+      if (!Number.isFinite(cantidadObjetivo) || cantidadObjetivo < 0) {
+        setError("La cantidad objetivo puede quedar en blanco, ser 0 o ser mayor a cero.");
         return;
       }
       const recetaItems = [];
@@ -6113,6 +6179,7 @@ Solicitado: ${cantidad}`);
           cantidadNeta: calculateMermaValues(qty, mermaPorcentaje).neta,
           unidad: item.unidad,
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
           medidaInventario: product.medida,
           salidaCompleta: Boolean(item.salidaCompleta)
         });
@@ -6166,6 +6233,7 @@ Solicitado: ${cantidad}`);
           cantidadBaseReceta: String(item.cantidad || ""),
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
           unidad: item.unidad || inferProductionUnit(item.medidaInventario),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
@@ -6173,7 +6241,7 @@ Solicitado: ${cantidad}`);
       }));
       setResultado({
         nombre: receta.nombre || "",
-        cantidad: receta.cantidadObjetivo ? String(receta.cantidadObjetivo) : "",
+        cantidad: "",
         medida: receta.medidaObjetivo || "Uni"
       });
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
@@ -6967,7 +7035,7 @@ Solicitado: ${cantidad}`);
                     /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                       /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                         /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad objetivo"),
-                        /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: resultado.cantidad, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { cantidad: e.target.value }); }); setError(""); }, placeholder: "0.00" })
+                        /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: resultado.cantidad, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { cantidad: e.target.value }); }); setError(""); }, placeholder: "Opcional: 0.00" })
                       ),
                       /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                         /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad objetivo"),
@@ -8291,7 +8359,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", sourceKey = "inventario", allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
+  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -8410,6 +8478,8 @@ Solicitado: ${cantidad}`);
     }
     function deleteRow(id) {
       if (!confirm("\xBFEliminar esta fila?")) return;
+      const target = inventario.find((r) => r.id === id);
+      if (target && typeof onMarkDeleted === "function") onMarkDeleted(inventoryStateKey || sourceKey, target);
       setInventario((p) => p.filter((r) => r.id !== id));
       toast("Fila eliminada", "info");
     }
@@ -8641,7 +8711,7 @@ Solicitado: ${cantidad}`);
       const existenciaClass = covered ? "exist-low" : stockStatus.urgent && r.existencia <= 0 ? "exist-zero" : "exist-low";
       return /* @__PURE__ */ React.createElement("tr", { key: `alerta-${r.id}`, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, r.nombre, covered && linkedMise && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3, fontWeight: 700 } }, "Cubierto por Mise: ", linkedMise.producto, " (", formatMiseQty(linkedMise.existencia), " ", linkedMise.medida || "Uni", ")")), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)" } }, r.suplidor), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, r.medida)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, Number(r.existencia.toFixed(2)), " ", r.medida), covered && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3 } }, "No urgente")), /* @__PURE__ */ React.createElement("td", null, stockStatus.stock || r.stockLunesJueves || 0, " ", r.medida));
     }), alertasFiltradas.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en alerta para esa búsqueda")))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAlertas(false) }, "Cerrar")))) : null;
-    const resetModal = confirmReset ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, "Reiniciar movimientos")), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14 } }, "¿Reiniciar entradas, salidas y decomiso de ", /* @__PURE__ */ React.createElement("strong", null, confirmReset.nombre), " a cero?")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setConfirmReset(null) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => resetMovs(confirmReset) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-left" }), "Reiniciar")))) : null;
+    const resetModal = confirmReset ? /* @__PURE__ */ React.createElement(AdminKeyModal, { title: `Autorizar reinicio de ${confirmReset.nombre}`, usuarios, onClose: () => setConfirmReset(null), onConfirm: () => resetMovs(confirmReset) }) : null;
     const relocateKeyModal = showRelocateKey ? /* @__PURE__ */ React.createElement(AdminKeyModal, { title: "Autorizar reubicación de inventario", usuarios, onClose: () => setShowRelocateKey(false), onConfirm: () => {
       setShowRelocateKey(false);
       setModalReubicar(true);
