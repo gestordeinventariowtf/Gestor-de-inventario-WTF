@@ -6403,20 +6403,17 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("th", null, "Producto"),
                   /* @__PURE__ */ React.createElement("th", null, "Cantidad actual"),
                   /* @__PURE__ */ React.createElement("th", null, "Unidad"),
-                  /* @__PURE__ */ React.createElement("th", null, "Merma"),
                   /* @__PURE__ */ React.createElement("th", null, "Origen")
                 )),
                 /* @__PURE__ */ React.createElement("tbody", null, insumos.map(function(item) {
                   const product = productosMap[item.productKey || `inventario-${item.productId}`];
-                  const mermaLabel = item.fromRecipe ? `${item.mermaRealCantidad || 0} desperdicio · esp. ${item.mermaEsperadaPorcentaje || item.mermaPorcentaje || 0}%` : `${item.mermaPorcentaje || 0}% esperada`;
                   return /* @__PURE__ */ React.createElement("tr", { key: `preview-${item.rowId}` },
                     /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
                     /* @__PURE__ */ React.createElement("td", null, item.cantidad || 0),
                     /* @__PURE__ */ React.createElement("td", null, item.unidad || ""),
-                    /* @__PURE__ */ React.createElement("td", null, mermaLabel),
                     /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 12 } }, item.origenLabel || item.almacenLabel || "-")
                   );
-                }), insumos.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay insumos agregados.")))
+                }), insumos.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay insumos agregados.")))
               )
             ),
             recipeInstructions ? /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, background: "#f9fafb" } },
@@ -6636,7 +6633,7 @@ Solicitado: ${cantidad}`);
                     item.cantidad,
                     " ",
                     item.unidad,
-                    Number(item.mermaPorcentaje || 0) > 0 ? ` · merma ${item.mermaPorcentaje}% · neto ${item.cantidadNeta || calculateMermaValues(item.cantidad, item.mermaPorcentaje).neta} ${item.unidad || ""}` : ""
+                    Number(item.mermaRealCantidad || item.cantidadMerma || 0) > 0 ? ` · merma real ${item.mermaRealCantidad ?? item.cantidadMerma ?? 0} ${item.unidad || ""}` : ""
                   );
                 })),
                 /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
@@ -6697,27 +6694,25 @@ Solicitado: ${cantidad}`);
                         " ",
                         item.unidadInventario,
                         ")",
-                        Number(item.mermaPorcentaje || 0) > 0 ? ` · merma ${item.mermaPorcentaje}% (${item.cantidadMerma || 0} ${item.unidadInventario}) · neto ${item.cantidadNeta || 0} ${item.unidadInventario}` : ""
+                        Number(item.mermaRealCantidad || item.cantidadMerma || 0) > 0 ? ` · merma real ${item.mermaRealCantidad ?? item.cantidadMerma ?? 0} ${item.unidadInventario || ""}` : ""
                       );
                     }))
                   ),
                   /* @__PURE__ */ React.createElement("td", null,
                     /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 5, minWidth: 190 } },
-                      row.mermaResumen && Number(row.mermaResumen.alertas || 0) > 0 ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, row.mermaResumen.alertas, " alerta", Number(row.mermaResumen.alertas || 0) === 1 ? "" : "s") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Normal"),
-                      (row.insumos || []).filter(function(item) { return Number(item.mermaRealCantidad || item.cantidadMerma || 0) > 0 || Number(item.mermaEsperadaPorcentaje || item.mermaPorcentaje || 0) > 0; }).map(function(item, idx) {
+                      row.mermaResumen && Number(row.mermaResumen.alertas || 0) > 0 ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, row.mermaResumen.alertas, " alerta", Number(row.mermaResumen.alertas || 0) === 1 ? "" : "s") : null,
+                      (row.insumos || []).filter(function(item) { return Number(item.mermaRealCantidad || item.cantidadMerma || 0) > 0; }).map(function(item, idx) {
                         const alert = Boolean(item.mermaAlerta);
                         return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-merma-${idx}`, style: { fontSize: 11, color: alert ? "#991b1b" : "#374151", fontWeight: alert ? 800 : 500 } },
                           item.producto,
-                          ": esp. ",
-                          item.mermaEsperadaPorcentaje ?? item.mermaPorcentaje ?? 0,
-                          "% / real ",
+                          ": real ",
                           item.mermaRealCantidad ?? item.cantidadMerma ?? 0,
                           " ",
                           item.unidadInventario || "",
                           alert ? " · ALERTA" : ""
                         );
                       }),
-                      row.mermaResumen && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Real: ", row.mermaResumen.cantidadMermaReal ?? row.mermaResumen.cantidadMerma ?? 0, " · Esperada: ", row.mermaResumen.cantidadMermaEsperada ?? "-")
+                      row.mermaResumen && Number(row.mermaResumen.cantidadMermaReal ?? row.mermaResumen.cantidadMerma ?? 0) > 0 ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Real: ", row.mermaResumen.cantidadMermaReal ?? row.mermaResumen.cantidadMerma ?? 0) : null
                     )
                   ),
                   /* @__PURE__ */ React.createElement("td", null,
@@ -6955,15 +6950,17 @@ Solicitado: ${cantidad}`);
                         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                           /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, item.fromRecipe ? "Cantidad de Merma (Desperdicio)" : "Merma esperada %"),
-                            item.fromRecipe ? /* @__PURE__ */ React.createElement(React.Fragment, null,
-                              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: item.mermaRealCantidad || "", onChange: function(e) { updateInsumo(item.rowId, "mermaRealCantidad", e.target.value); }, placeholder: "0.00" }),
-                              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Esperada: ", item.mermaEsperadaPorcentaje || item.mermaPorcentaje || 0, "%")
-                            ) : /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", max: "100", step: "0.01", value: item.mermaPorcentaje || "", onChange: function(e) { updateInsumo(item.rowId, "mermaPorcentaje", e.target.value); }, placeholder: "0" })
+                            item.fromRecipe ? /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: item.mermaRealCantidad || "", onChange: function(e) { updateInsumo(item.rowId, "mermaRealCantidad", e.target.value); }, placeholder: "0.00" }) : /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", max: "100", step: "0.01", value: item.mermaPorcentaje || "", onChange: function(e) { updateInsumo(item.rowId, "mermaPorcentaje", e.target.value); }, placeholder: "0" })
                           ),
                           /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#374151", display: "grid", gap: 3 } },
-                            /* @__PURE__ */ React.createElement("strong", null, "Rendimiento estimado"),
-                            /* @__PURE__ */ React.createElement("span", null, "Merma: ", mermaValues.merma, " ", item.unidad || ""),
-                            /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
+                            item.fromRecipe ? /* @__PURE__ */ React.createElement(React.Fragment, null,
+                              /* @__PURE__ */ React.createElement("strong", null, "Merma real"),
+                              /* @__PURE__ */ React.createElement("span", null, item.mermaRealCantidad || 0, " ", item.unidad || "")
+                            ) : /* @__PURE__ */ React.createElement(React.Fragment, null,
+                              /* @__PURE__ */ React.createElement("strong", null, "Rendimiento estimado"),
+                              /* @__PURE__ */ React.createElement("span", null, "Merma: ", mermaValues.merma, " ", item.unidad || ""),
+                              /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
+                            )
                           )
                         ),
                         product && isPoundUnit(product.medida) && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 10px" } },
