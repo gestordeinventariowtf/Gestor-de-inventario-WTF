@@ -4925,6 +4925,34 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [historial, historySearch]);
+    const historialMermasFiltrado = useMemo(function() {
+      return historialFiltrado.flatMap(function(row) {
+        return (Array.isArray(row.insumos) ? row.insumos : []).map(function(item, idx) {
+          const expectedPercent = Number(item.mermaEsperadaPorcentaje ?? item.mermaPorcentaje ?? 0) || 0;
+          const expectedAmount = Number(item.cantidadMermaEsperada ?? 0) || Number(calculateMermaValues(item.cantidadDescontada || 0, expectedPercent).merma || 0);
+          const realAmount = Number(item.mermaRealCantidad ?? item.cantidadMerma ?? 0) || 0;
+          const realPercent = Number(item.mermaRealPorcentaje ?? 0) || (Number(item.cantidadDescontada || 0) > 0 ? Number((realAmount / Number(item.cantidadDescontada || 0) * 100).toFixed(4)) : 0);
+          const difference = Number(item.mermaDiferenciaCantidad ?? (realAmount - expectedAmount)) || 0;
+          return {
+            id: `${row.id || row.fecha || "prod"}-${idx}`,
+            fecha: row.fecha,
+            productoProducido: row.productoProducido,
+            usuario: row.usuario,
+            insumo: item.producto,
+            unidad: item.unidadInventario || item.unidadUsada || "",
+            cantidadBase: Number(item.cantidadDescontada || 0),
+            expectedPercent,
+            expectedAmount,
+            realAmount,
+            realPercent,
+            difference,
+            alerta: Boolean(item.mermaAlerta || realPercent > expectedPercent + 1e-9)
+          };
+        });
+      }).filter(function(item) {
+        return item.expectedPercent > 0 || item.realAmount > 0;
+      });
+    }, [historialFiltrado]);
     const directLoadOptions = useMemo(function() {
       const map = {};
       if (moduleLabel === "Bar") {
@@ -6514,6 +6542,57 @@ Solicitado: ${cantidad}`);
       });
       toast("Receta eliminada", "info");
     }
+    const totalMermaEsperada = historialMermasFiltrado.reduce(function(sum, row) {
+      return sum + Number(row.expectedAmount || 0);
+    }, 0);
+    const totalMermaReal = historialMermasFiltrado.reduce(function(sum, row) {
+      return sum + Number(row.realAmount || 0);
+    }, 0);
+    const totalMermaAlertas = historialMermasFiltrado.filter(function(row) {
+      return row.alerta;
+    }).length;
+    const historialMermasCard = /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 16 } },
+      /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+        /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 7, color: "#f59e0b" } }), "Historial de Mermas"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+          /* @__PURE__ */ React.createElement("span", { className: totalMermaAlertas ? "pill pill-rojo" : "pill pill-verde" }, totalMermaAlertas, " alerta", totalMermaAlertas === 1 ? "" : "s"),
+          /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, "Real: ", Number(totalMermaReal.toFixed(4))),
+          /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Esperada: ", Number(totalMermaEsperada.toFixed(4)))
+        )
+      ),
+      historialMermasFiltrado.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", paddingTop: 28, paddingBottom: 28 } },
+        /* @__PURE__ */ React.createElement("i", { className: "fas fa-scale-balanced", style: { fontSize: 28, display: "block", marginBottom: 8, color: "#9ca3af" } }),
+        "Aun no hay mermas registradas. Cuando uses una receta y coloques Cantidad de Merma (Desperdicio), apareceran aqui."
+      ) : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+        /* @__PURE__ */ React.createElement("table", null,
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
+            /* @__PURE__ */ React.createElement("th", null, "Fecha"),
+            /* @__PURE__ */ React.createElement("th", null, "Produccion"),
+            /* @__PURE__ */ React.createElement("th", null, "Insumo"),
+            /* @__PURE__ */ React.createElement("th", null, "Base"),
+            /* @__PURE__ */ React.createElement("th", null, "Esperada"),
+            /* @__PURE__ */ React.createElement("th", null, "Real"),
+            /* @__PURE__ */ React.createElement("th", null, "Diferencia"),
+            /* @__PURE__ */ React.createElement("th", null, "Estado")
+          )),
+          /* @__PURE__ */ React.createElement("tbody", null, historialMermasFiltrado.map(function(row) {
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id, className: row.alerta ? "tr-out-stock" : "" },
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(row.fecha)),
+              /* @__PURE__ */ React.createElement("td", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.productoProducido || "-"),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.usuario || "")
+              ),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, row.insumo || "-"),
+              /* @__PURE__ */ React.createElement("td", null, Number(row.cantidadBase.toFixed ? row.cantidadBase.toFixed(4) : row.cantidadBase), " ", row.unidad),
+              /* @__PURE__ */ React.createElement("td", null, row.expectedPercent, "% - ", Number(row.expectedAmount.toFixed(4)), " ", row.unidad),
+              /* @__PURE__ */ React.createElement("td", { style: { color: row.alerta ? "var(--rojo)" : "var(--verde)", fontWeight: 800 } }, row.realPercent, "% - ", Number(row.realAmount.toFixed(4)), " ", row.unidad),
+              /* @__PURE__ */ React.createElement("td", { style: { color: row.difference > 0 ? "var(--rojo)" : "var(--gris)", fontWeight: row.difference > 0 ? 800 : 500 } }, Number(row.difference.toFixed(4)), " ", row.unidad),
+              /* @__PURE__ */ React.createElement("td", null, row.alerta ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Revisar") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Normal"))
+            );
+          }))
+        )
+      )
+    );
     return /* @__PURE__ */ React.createElement("div", null,
       /* @__PURE__ */ React.createElement("div", { className: "action-bar" },
         /* @__PURE__ */ React.createElement("div", { className: "card", style: { flex: 1, minWidth: 220, marginBottom: 0 } },
@@ -6675,6 +6754,7 @@ Solicitado: ${cantidad}`);
           )
         )
       ),
+      historialMermasCard,
       deleteRequest && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
         /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: function(e) { e.stopPropagation(); } },
           /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
