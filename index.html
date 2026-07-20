@@ -5274,11 +5274,14 @@ Solicitado: ${cantidad}`);
       const unidadProducida = resolveProducedMiseUnit(row.medidaProducida);
       const match = findMiseTarget(row.miseProductoId || row.miseProductoTarget || row.transferidoAMiseTarget) || findBestMiseMatch(productoNombre);
       const fechaTransferencia = new Date().toISOString();
+      const unidadDestinoTransferencia = match ? normalizarMedidaMise(match.medida || unidadProducida) : unidadProducida;
+      const cantidadDestinoTransferencia = match ? convertirCantidadMise(cantidad, unidadProducida, unidadDestinoTransferencia) : null;
+      const usaMiseExistente = Boolean(match && cantidadDestinoTransferencia != null);
       setMise(function(prev) {
         const current = Array.isArray(prev) ? prev : [];
-        if (match) {
+        if (usaMiseExistente) {
           const destinoUnidad = normalizarMedidaMise(match.medida || unidadProducida);
-          const cantidadConvertida = convertirCantidadMise(cantidad, unidadProducida, destinoUnidad);
+          const cantidadConvertida = cantidadDestinoTransferencia;
           if (cantidadConvertida != null) {
             return current.map(function(item) {
               if (item.id !== match.id) return item;
@@ -5304,11 +5307,13 @@ Solicitado: ${cantidad}`);
         return (Array.isArray(prev) ? prev : []).map(function(item) {
           return item.id === row.id ? Object.assign({}, item, {
             transferidoAMiseAt: fechaTransferencia,
-            transferidoAMiseTarget: match ? match.producto : productoNombre
+            transferidoAMiseTarget: usaMiseExistente ? match.producto : productoNombre,
+            transferidoAMiseTargetId: usaMiseExistente ? match.id : null,
+            transferidoAMiseCreated: !usaMiseExistente
           }) : item;
         });
       });
-      if (match) {
+      if (usaMiseExistente) {
         const unidadDestino = normalizarMedidaMise(match.medida || unidadProducida);
         const cantidadDestino = convertirCantidadMise(cantidad, unidadProducida, unidadDestino);
         if (cantidadDestino != null) {
@@ -5363,7 +5368,8 @@ Solicitado: ${cantidad}`);
               targetName,
               missingTarget: false,
               skipReverse: false,
-              cantidadReversaMise
+              cantidadReversaMise,
+              createdTarget: Boolean(row.transferidoAMiseCreated)
             };
           }
         }
@@ -5431,7 +5437,8 @@ Solicitado: ${cantidad}`);
               targetName,
               missingTarget: false,
               skipReverse: false,
-              cantidadReversaMise
+              cantidadReversaMise,
+              createdTarget: Boolean(row.transferidoAMiseCreated)
             };
           }
         }
@@ -5462,7 +5469,7 @@ Solicitado: ${cantidad}`);
       }
       const row = deleteRequest.row;
       const nombreProducido = deleteRequest.nombreProducido;
-      if (!row.cargaDirecta && deleteRequest.reverseInventario) {
+      if (!row.cargaDirecta) {
         const inventarioInsumos = (row.insumos || []).filter(function(entry) {
           return (entry.storageKey || entry.origen || "inventario") === "inventario";
         });
@@ -5487,7 +5494,7 @@ Solicitado: ${cantidad}`);
                 salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
               })];
             }
-            if (itemNombre === normalizar(nombreProducido)) {
+            if (deleteRequest.reverseInventario && itemNombre === normalizar(nombreProducido)) {
               const nextEntrada = Math.max(0, Number((item.entrada || 0) - deleteRequest.cantidadReversaInventario).toFixed(4));
               const shouldRemove = normalizar(item.suplidor || "") === normalizar("Produccion") && nextEntrada <= 0 && Number(item.salida || 0) <= 0 && Number(item.decomiso || 0) <= 0;
               if (shouldRemove) return [];
@@ -5542,11 +5549,37 @@ Solicitado: ${cantidad}`);
       if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget && !deleteRequest.transferData.skipReverse) {
         const targetName = String(deleteRequest.transferData.targetName || row.transferidoAMiseTarget || row.productoProducido || "").trim();
         setMise(function(prev) {
-          return (Array.isArray(prev) ? prev : []).map(function(item) {
+          return (Array.isArray(prev) ? prev : []).flatMap(function(item) {
             if (normalizar(item.producto) !== normalizar(targetName)) return item;
+            const nextExistencia = Math.max(0, Number(((Number(item.existencia) || 0) - deleteRequest.transferData.cantidadReversaMise).toFixed(4)));
+            if (deleteRequest.transferData.createdTarget && nextExistencia <= 0) return [];
             return Object.assign({}, item, {
-              existencia: Math.max(0, Number(((Number(item.existencia) || 0) - deleteRequest.transferData.cantidadReversaMise).toFixed(4)))
+              existencia: nextExistencia
             });
+          });
+        });
+      }
+      if (!row.cargaDirecta && typeof setRegSalidas === "function") {
+        const motivoProduccion = normalizar(`Produccion: ${nombreProducido}`);
+        const salidaKeys = new Set((row.insumos || []).map(function(entry) {
+          return [
+            normalizar(entry.producto || ""),
+            String(Number(entry.cantidadDescontada || 0).toFixed(4)),
+            normalizar(entry.unidadInventario || "")
+          ].join("|");
+        }));
+        setRegSalidas(function(prev) {
+          return (Array.isArray(prev) ? prev : []).filter(function(record) {
+            if (String(record.productionId || "") === String(row.id || "")) return false;
+            if (String(record.fecha || "") === String(row.fecha || "") && normalizar(record.motivo || "") === motivoProduccion) {
+              const key = [
+                normalizar(record.producto || ""),
+                String(Number(record.cantidad || 0).toFixed(4)),
+                normalizar(record.medida || "")
+              ].join("|");
+              if (salidaKeys.has(key)) return false;
+            }
+            return true;
           });
         });
       }
@@ -5938,7 +5971,7 @@ Solicitado: ${cantidad}`);
         usaUnidadInternaEmpaque: Boolean(validPackageConversion)
       };
     }
-    function buildProductionSalidaRecord(entry, now, usuario, productoProducido) {
+    function buildProductionSalidaRecord(entry, now, usuario, productoProducido, productionId) {
       const cantidad = Number(entry.convertedQty || 0);
       if (!Number.isFinite(cantidad) || cantidad <= 0) return null;
       return {
@@ -5949,6 +5982,7 @@ Solicitado: ${cantidad}`);
         producto: entry.product.nombre,
         cantidad: Number(cantidad.toFixed(4)),
         usuario,
+        productionId: productionId || "",
         origen: entry.origenLabel || entry.almacenLabel || "Inventario",
         modulo: entry.sourceModuleLabel || moduleLabel,
         motivo: `Produccion: ${productoProducido}`,
@@ -6092,7 +6126,9 @@ Solicitado: ${cantidad}`);
           insumos: [],
           cargaDirecta: true,
           transferidoAMiseAt: now,
-          transferidoAMiseTarget: targetName
+          transferidoAMiseTarget: targetName,
+          transferidoAMiseTargetId: existingMise ? existingMise.id : null,
+          transferidoAMiseCreated: !existingMise
         }];
       });
       toast(existingMise ? `Carga rápida aplicada a Mise an Place: ${targetName}` : `Producto creado y cargado en Mise an Place: ${targetName}`, "ok");
@@ -6193,8 +6229,9 @@ Solicitado: ${cantidad}`);
           });
         });
       }
+      const productionId = `prod-${Date.now()}-${Math.random()}`;
       const salidaRecords = resolvedInsumos.map(function(entry) {
-        return buildProductionSalidaRecord(entry, now, usuario, nombreProducido);
+        return buildProductionSalidaRecord(entry, now, usuario, nombreProducido, productionId);
       }).filter(Boolean);
       if (salidaRecords.length) {
         setRegSalidas(function(prev) {
@@ -6203,7 +6240,7 @@ Solicitado: ${cantidad}`);
       }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
-          id: `prod-${Date.now()}-${Math.random()}`,
+          id: productionId,
           fecha: now,
           modulo: moduleLabel,
           usuario,
