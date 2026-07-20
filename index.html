@@ -1035,7 +1035,20 @@
     const dt = new Date(d);
     return isNaN(dt) ? String(d) : dt.toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: APP_TIME_ZONE });
   }
-  const PRODUCTION_UNITS = ["Uni", "G", "Oz", "Lb", "Galon", "Medio Galon"];
+  const PRODUCTION_UNITS = ["Uni", "g", "oz", "lb", "Galon", "Medio Galon"];
+  function normalizeProductionUnitLabel(unit) {
+    const normalized = normalizeUnit(unit);
+    if (normalized === "g") return "g";
+    if (normalized === "oz") return "oz";
+    if (normalized === "lb") return "lb";
+    if (normalized === "uni") return "Uni";
+    if (["galon", "gal"].includes(normalized)) return "Galon";
+    if (["medio galon", "1/2 galon", "medio-galon"].includes(normalized)) return "Medio Galon";
+    const existing = PRODUCTION_UNITS.find(function(option) {
+      return normalizar(option) === normalizar(unit);
+    });
+    return existing || unit || "Uni";
+  }
   function normalizeUnit(unit) {
     const normalized = normalizar(unit);
     if (!normalized) return "uni";
@@ -1049,7 +1062,7 @@
   function inferProductionUnit(unit) {
     const normalized = normalizeUnit(unit);
     if (normalized === "kg") return "g";
-    if (normalized === "g" || normalized === "oz" || normalized === "lb") return normalized;
+    if (normalized === "g" || normalized === "oz" || normalized === "lb") return normalizeProductionUnitLabel(normalized);
     return "Uni";
   }
   function isPoundUnit(unit) {
@@ -2112,7 +2125,7 @@
       { tipo: "producto", nombre: "Miel", medida: "Uni", suplidor: "Chicho vendedor", stockLunesJueves: 1, stockViernesDomingo: 1, entrada: 1, salida: 0, decomiso: 0 },
       { tipo: "separador", nombre: "Sazonadores" },
       { tipo: "producto", nombre: "Sazon Super Completo Baldom", medida: "uni", suplidor: "Distribuidora 3 Dragones", stockLunesJueves: 1, stockViernesDomingo: 2, entrada: 1, salida: 0, decomiso: 0 },
-      { tipo: "producto", nombre: "Azafran Baldom", medida: "Paq", suplidor: "Distribuidora 3 Dragones", stockLunesJueves: 1, stockViernesDomingo: 3, entrada: 3, salida: 0, decomiso: 0 },
+      { tipo: "producto", nombre: "Azafran Baldom", medida: "Paq", suplidor: "Distribuidora 3 Dragones", stockLunesJueves: 1, stockViernesDomingo: 3, entrada: 3, salida: 0, decomiso: 0, unidadesPorEmpaque: 10 },
       { tipo: "producto", nombre: "Adobo goya Azul", medida: "uni", suplidor: "PriceSmart", stockLunesJueves: 1, stockViernesDomingo: 2, entrada: 2, salida: 1, decomiso: 0 },
       { tipo: "producto", nombre: "Ajo en polvo badia", medida: "uni", suplidor: "PriceSmart", stockLunesJueves: 2, stockViernesDomingo: 2, entrada: 3, salida: 0, decomiso: 0 },
       { tipo: "producto", nombre: "Cebolla en polvo badia", medida: "uni", suplidor: "PriceSmart", stockLunesJueves: 2, stockViernesDomingo: 2, entrada: 2, salida: 2, decomiso: 0 },
@@ -5551,11 +5564,35 @@ Solicitado: ${cantidad}`);
       if (!Number.isFinite(number)) return "";
       return String(Number(number.toFixed(4)));
     }
-    function parseProductionNumber(value) {
-      const number = Number(String(value || "").replace(",", "."));
-      return Number.isFinite(number) ? number : 0;
-    }
-    function getInsumoMermaPercent(item) {
+  function parseProductionNumber(value) {
+    const number = Number(String(value || "").replace(",", "."));
+    return Number.isFinite(number) ? number : 0;
+  }
+  function isPackageInventoryUnit(unit) {
+    const normalized = normalizar(unit);
+    return ["paq", "paquete", "paquetes", "funda", "fundas", "caja", "cajas", "fardo", "fardos", "penca", "pencas"].includes(normalized);
+  }
+  function getPackageUnitsPerPack(product, item) {
+    const raw = item ? item.unidadesPorEmpaque ?? item.contenidoPorEmpaque ?? item.unidadesInternasPorEmpaque ?? (product && product.unidadesPorEmpaque) : product && product.unidadesPorEmpaque;
+    const configured = parseProductionNumber(raw);
+    if (configured > 0) return configured;
+    if (normalizar(product && product.nombre) === "azafran baldom") return 10;
+    return 0;
+  }
+  function canUseInternalUnits(product, item) {
+    return Boolean(product && isPackageInventoryUnit(product.medida) && normalizeUnit(item && item.unidad) === "uni");
+  }
+  function getPackageConversionInfo(product, item, qty) {
+    if (!canUseInternalUnits(product, item)) return null;
+    const unitsPerPack = getPackageUnitsPerPack(product, item);
+    if (unitsPerPack <= 0) return { missing: true, unitsPerPack: 0, convertedQty: null };
+    return {
+      missing: false,
+      unitsPerPack,
+      convertedQty: Number((Number(qty || 0) / unitsPerPack).toFixed(4))
+    };
+  }
+  function getInsumoMermaPercent(item) {
       const percent = parseProductionNumber(item && (item.mermaPorcentaje ?? item.mermaPct ?? item.merma));
       if (!Number.isFinite(percent) || percent < 0) return 0;
       return Math.min(100, percent);
@@ -5706,7 +5743,7 @@ Solicitado: ${cantidad}`);
           mermaRealCantidad: "",
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
-          unidad: item.unidad || inferProductionUnit(item.medidaInventario),
+          unidad: normalizeProductionUnitLabel(item.unidad || inferProductionUnit(item.medidaInventario)),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
         };
@@ -5714,7 +5751,7 @@ Solicitado: ${cantidad}`);
       setResultado({
         nombre: targetRecipe.nombre || "",
         cantidad: targetRecipe.cantidadObjetivo ? String(targetRecipe.cantidadObjetivo) : "",
-        medida: targetRecipe.medidaObjetivo || "Uni"
+        medida: normalizeProductionUnitLabel(targetRecipe.medidaObjetivo || "Uni")
       });
       setRecipeInstructions(String(targetRecipe.instruccionesPreparacion || targetRecipe.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
@@ -5733,7 +5770,7 @@ Solicitado: ${cantidad}`);
     function addInsumo(product) {
       setInsumos(function(prev) {
         if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
-        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", storageKey: product.storageKey || product.origen || "inventario", sourceModuleLabel: product.sourceModuleLabel || moduleLabel, almacenLabel: product.almacenLabel || "Inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", mermaPorcentaje: "", convertirLibrasAGramos: false, unidad: inferProductionUnit(product.medida), salidaCompleta: false }];
+        return [...prev, { rowId: `ins-${Date.now()}-${Math.random()}`, productId: product.id, productKey: product.productKey, origen: product.origen || "inventario", storageKey: product.storageKey || product.origen || "inventario", sourceModuleLabel: product.sourceModuleLabel || moduleLabel, almacenLabel: product.almacenLabel || "Inventario", origenLabel: product.origenLabel || "Inventario", cantidad: "", mermaPorcentaje: "", convertirLibrasAGramos: false, unidad: inferProductionUnit(product.medida), unidadesPorEmpaque: getPackageUnitsPerPack(product, null) || "", salidaCompleta: false }];
       });
       setBusqueda("");
       setError("");
@@ -5815,7 +5852,12 @@ Solicitado: ${cantidad}`);
       const mermaPorcentaje = getInsumoExpectedMermaPercent(item);
       const mermaRealCantidad = getInsumoRealMermaAmount(item);
       const inputUnit = item.convertirLibrasAGramos && isPoundUnit(product.medida) ? "g" : item.unidad;
-      const converted = convertMeasureQuantity(qty, inputUnit, product.medida);
+      const packageConversion = getPackageConversionInfo(product, item, qty);
+      const validPackageConversion = packageConversion && !packageConversion.missing;
+      if (packageConversion && packageConversion.missing && !item.salidaCompleta) {
+        return { error: `${product.nombre} esta en ${product.medida}. Indica cuantas unidades internas trae cada ${product.medida} para descontar correctamente.` };
+      }
+      const converted = validPackageConversion ? packageConversion.convertedQty : convertMeasureQuantity(qty, inputUnit, product.medida);
       if (item.salidaCompleta) {
         if (1 - product.existencia > 1e-9) {
           return { error: `${product.nombre} no tiene suficiente existencia para sacar 1 ${product.medida || "unidad"} completo. Disponible: ${Number(product.existencia.toFixed(2))} ${product.medida}.` };
@@ -5835,6 +5877,8 @@ Solicitado: ${cantidad}`);
           mermaEsperadaPorcentaje: mermaPorcentaje,
           mermaRealCantidad,
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
+          usaUnidadInternaEmpaque: Boolean(validPackageConversion),
           salidaCompleta: true
         };
       }
@@ -5855,6 +5899,8 @@ Solicitado: ${cantidad}`);
             mermaEsperadaPorcentaje: mermaPorcentaje,
             mermaRealCantidad,
             convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+            unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
+            usaUnidadInternaEmpaque: Boolean(validPackageConversion),
             savedRecipeReference: true
           };
         }
@@ -5877,7 +5923,9 @@ Solicitado: ${cantidad}`);
         mermaPorcentaje,
         mermaEsperadaPorcentaje: mermaPorcentaje,
         mermaRealCantidad,
-        convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos)
+        convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+        unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
+        usaUnidadInternaEmpaque: Boolean(validPackageConversion)
       };
     }
     function buildProductionSalidaRecord(entry, now, usuario, productoProducido) {
@@ -5899,7 +5947,11 @@ Solicitado: ${cantidad}`);
         cantidadNeta: Number(calculateMermaValues(cantidad, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje).neta.toFixed(4)),
         mermaRealCantidad: Number(entry.mermaRealCantidad || 0),
         mermaRealPorcentaje: calculateRealMermaComparison(cantidad, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.mermaRealCantidad).realPercent,
-        mermaAlerta: calculateRealMermaComparison(cantidad, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.mermaRealCantidad).exceedsExpected
+        mermaAlerta: calculateRealMermaComparison(cantidad, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.mermaRealCantidad).exceedsExpected,
+        cantidadUsadaReceta: Number(entry.qtyInput.toFixed ? entry.qtyInput.toFixed(4) : entry.qtyInput),
+        unidadUsadaReceta: entry.inputUnit,
+        unidadesPorEmpaque: entry.unidadesPorEmpaque || "",
+        usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque)
       };
     }
     function guardarCargaDirecta() {
@@ -6166,6 +6218,8 @@ Solicitado: ${cantidad}`);
               unidadUsada: entry.inputUnit,
               convertirLibrasAGramos: Boolean(entry.convertirLibrasAGramos),
               cantidadDescontada: Number(entry.convertedQty.toFixed(4)),
+              unidadesPorEmpaque: entry.unidadesPorEmpaque || "",
+              usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque),
               mermaPorcentaje: mermaComparison.expectedPercent,
               mermaEsperadaPorcentaje: mermaComparison.expectedPercent,
               cantidadMermaEsperada: mermaComparison.expectedAmount,
@@ -6237,9 +6291,11 @@ Solicitado: ${cantidad}`);
           mermaPorcentaje: Number(mermaPorcentaje.toFixed(4)),
           cantidadMerma: calculateMermaValues(qty, mermaPorcentaje).merma,
           cantidadNeta: calculateMermaValues(qty, mermaPorcentaje).neta,
-          unidad: item.unidad,
+          unidad: normalizeProductionUnitLabel(item.unidad),
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
+          unidadesPorEmpaque: getPackageUnitsPerPack(product, item) || "",
+          usaUnidadInternaEmpaque: canUseInternalUnits(product, item) && getPackageUnitsPerPack(product, item) > 0,
           medidaInventario: product.medida,
           salidaCompleta: Boolean(item.salidaCompleta)
         });
@@ -6250,7 +6306,7 @@ Solicitado: ${cantidad}`);
         usuario: getUserDisplayLabel(currentUser),
         nombre: nombreReceta,
         cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
-        medidaObjetivo: resultado.medida,
+        medidaObjetivo: normalizeProductionUnitLabel(resultado.medida),
         instruccionesPreparacion: String(recipeInstructions || "").trim(),
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
@@ -6298,7 +6354,9 @@ Solicitado: ${cantidad}`);
           mermaRealCantidad: "",
           convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
           conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
-          unidad: item.unidad || inferProductionUnit(item.medidaInventario),
+          unidadesPorEmpaque: item.unidadesPorEmpaque || item.contenidoPorEmpaque || item.unidadesInternasPorEmpaque || "",
+          usaUnidadInternaEmpaque: Boolean(item.usaUnidadInternaEmpaque),
+          unidad: normalizeProductionUnitLabel(item.unidad || inferProductionUnit(item.medidaInventario)),
           salidaCompleta: Boolean(item.salidaCompleta),
           fromRecipe: true
         };
@@ -6306,7 +6364,7 @@ Solicitado: ${cantidad}`);
       setResultado({
         nombre: receta.nombre || "",
         cantidad: "",
-        medida: receta.medidaObjetivo || "Uni"
+        medida: normalizeProductionUnitLabel(receta.medidaObjetivo || "Uni")
       });
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
@@ -6922,7 +6980,8 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
                       const product = productosMap[item.productKey || `inventario-${item.productId}`];
-                      const cannotConvertUnit = product && convertMeasureQuantity(1, item.unidad, product.medida) == null;
+                      const packageInfo = product ? getPackageConversionInfo(product, item, parseProductionNumber(item.cantidad)) : null;
+                      const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
                       return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
@@ -6932,6 +6991,18 @@ Solicitado: ${cantidad}`);
                             product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
                           ),
                           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                        ),
+                        product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 8 } },
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque"),
+                          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidades por ", product.medida || "empaque"),
+                              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: item.unidadesPorEmpaque || "", onChange: function(e) { updateInsumo(item.rowId, "unidadesPorEmpaque", e.target.value); }, placeholder: "Ej: 10" })
+                            ),
+                            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", alignContent: "center", fontSize: 12, color: "#92400e", fontWeight: 700 } },
+                              packageInfo && !packageInfo.missing ? /* @__PURE__ */ React.createElement("span", null, item.cantidad || 0, " Uni descuentan ", packageInfo.convertedQty, " ", product.medida) : /* @__PURE__ */ React.createElement("span", null, "Indica el contenido para descontar fracciones del empaque.")
+                            )
+                          )
                         ),
                         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                           /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
@@ -7109,7 +7180,8 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
                       const product = productosMap[item.productKey || `inventario-${item.productId}`];
-                      const cannotConvertUnit = product && convertMeasureQuantity(1, item.unidad, product.medida) == null;
+                      const packageInfo = product ? getPackageConversionInfo(product, item, parseProductionNumber(item.cantidad)) : null;
+                      const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
                       return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
@@ -7119,6 +7191,18 @@ Solicitado: ${cantidad}`);
                             product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", Number(product.existencia.toFixed(2)), " ", product.medida)
                           ),
                           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                        ),
+                        product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 8 } },
+                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque"),
+                          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidades por ", product.medida || "empaque"),
+                              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: item.unidadesPorEmpaque || "", onChange: function(e) { updateInsumo(item.rowId, "unidadesPorEmpaque", e.target.value); }, placeholder: "Ej: 10" })
+                            ),
+                            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", alignContent: "center", fontSize: 12, color: "#92400e", fontWeight: 700 } },
+                              packageInfo && !packageInfo.missing ? /* @__PURE__ */ React.createElement("span", null, item.cantidad || 0, " Uni descuentan ", packageInfo.convertedQty, " ", product.medida) : /* @__PURE__ */ React.createElement("span", null, "Indica el contenido para descontar fracciones del empaque.")
+                            )
+                          )
                         ),
                         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                           /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
