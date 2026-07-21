@@ -242,16 +242,17 @@ function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyReco
 
 function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyRecord[] {
   const currentYear = new Date().getFullYear();
+  const yearPrefix = `${currentYear}-`;
   const map = new Map<string, AnyRecord>();
   (Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
     const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
-    if (!key.startsWith(`${currentYear}-`)) return;
+    if (!key.startsWith(yearPrefix)) return;
     if (key) map.set(key, row);
   });
   (Array.isArray(newRows) ? newRows : []).forEach((row) => {
     const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
     if (!key) return;
-    if (!key.startsWith(`${currentYear}-`)) return;
+    if (!key.startsWith(yearPrefix)) return;
     map.set(key, Object.assign({}, map.get(key) || {}, row));
   });
   return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || ""))).slice(0, 1200);
@@ -275,9 +276,9 @@ WITH cab AS (
     ISNULL(c.TOTALNETO,0) AS TOTALNETO,
     ISNULL(c.PROPINA,0) AS PROPINA
   FROM TIQUETSCAB c
-  WHERE c.FECHAANULACION <= '19000101'
-    AND CONVERT(date,c.FECHA) >= '${currentYear}0101'
-    AND CONVERT(date,c.FECHA) < '${currentYear + 1}0101'
+  WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+    AND CONVERT(date,c.FECHA) >= '${currentYear}-01-01'
+    AND CONVERT(date,c.FECHA) < '${currentYear + 1}-01-01'
 ),
 lineas AS (
   SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
@@ -339,7 +340,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
-  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE c.FECHAANULACION <= '19000101';"))[0]?.Fecha;
+  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
   const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
   if (!latest) return { fecha: "", rows: [], tableCounts: {}, articles: [], closures };
   const dataSql = `
@@ -355,7 +356,7 @@ SELECT
 FROM TIQUETSCONSUMO tc
 JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
 LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
-WHERE CONVERT(date,c.FECHA)=@fecha AND c.FECHAANULACION <= '19000101'
+WHERE CONVERT(date,c.FECHA)=@fecha AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
 GROUP BY tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
 ORDER BY tc.CODARTICULO,tc.CODALMACEN;`;
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS') GROUP BY t.name;";
