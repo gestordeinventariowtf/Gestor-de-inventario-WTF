@@ -1802,9 +1802,12 @@
       normalizar(row.suplidor || "")
     ].join("|");
   }
+  function getInventoryCanonicalProductName(value) {
+    return normalizar(value).replace(/[()[\]{}.,;:'"¿?¡!]+/g, " ").replace(/\s+/g, " ").trim();
+  }
   function getInventoryDeletedNameKey(row) {
     if (!row || row.tipo === "separador") return "";
-    const name = normalizar(row.nombre || row.producto || "");
+    const name = getInventoryCanonicalProductName(row.nombre || row.producto || "");
     return name ? ["prod-name", name].join("|") : "";
   }
   function getInventoryDeletedKeysForRow(row) {
@@ -1885,18 +1888,33 @@
   }
   function mergeInventoryRows(localRows, remoteRows, deletedKeys) {
     const map = new Map();
+    const idIndex = new Map();
     function addRow(row, preferLocal) {
       if (!row) return;
       const key = getInventoryMergeKey(row);
       if (!key) return;
       if (isInventoryRowDeleted(row, deletedKeys)) return;
+      const idKey = getInventoryRowIdKey(row);
+      if (idKey && idIndex.has(idKey) && idIndex.get(idKey) !== key) {
+        const oldKey = idIndex.get(idKey);
+        const existingById = map.get(oldKey);
+        if (existingById) {
+          const mergedById = mergeInventoryDuplicateRows(existingById, row, preferLocal);
+          map.delete(oldKey);
+          map.set(key, mergedById);
+          idIndex.set(idKey, key);
+          return;
+        }
+      }
       const existing = map.get(key);
       if (!existing) {
         map.set(key, Object.assign({}, row));
+        if (idKey) idIndex.set(idKey, key);
         return;
       }
       const merged = mergeInventoryDuplicateRows(existing, row, preferLocal);
       map.set(key, merged);
+      if (idKey) idIndex.set(idKey, key);
     }
     (Array.isArray(remoteRows) ? remoteRows : []).forEach(function(row) { addRow(row, false); });
     (Array.isArray(localRows) ? localRows : []).forEach(function(row) { addRow(row, true); });
@@ -1908,15 +1926,26 @@
     return mergeInventoryRows([], rows, deletedKeys || {});
   }
   function normalizeInventoryRowsForDisplay(rows, deletedKeys) {
-    const seenProducts = new Set();
-    return normalizeInventoryRows(rows, deletedKeys).filter(function(row) {
-      if (!row || row.tipo === "separador") return true;
-      const key = [normalizar(row.nombre || row.producto || ""), normalizar(row.medida || "")].join("|");
-      if (!key || key === "|") return false;
-      if (seenProducts.has(key)) return false;
-      seenProducts.add(key);
-      return true;
+    const output = [];
+    const productIndex = new Map();
+    normalizeInventoryRows(rows, deletedKeys).forEach(function(row) {
+      if (!row || row.tipo === "separador") {
+        output.push(row);
+        return;
+      }
+      const key = [getInventoryCanonicalProductName(row.nombre || row.producto || ""), normalizar(row.medida || "")].join("|");
+      if (!key || key === "|") return;
+      if (!productIndex.has(key)) {
+        productIndex.set(key, { row: Object.assign({}, row), index: output.length });
+        output.push(row);
+        return;
+      }
+      const current = productIndex.get(key);
+      const merged = mergeInventoryDuplicateRows(current.row, row, true);
+      productIndex.set(key, { row: merged, index: current.index });
+      output[current.index] = merged;
     });
+    return output;
   }
   function mergeSearchProductRows(existing, row) {
     const merged = Object.assign({}, existing, row);
@@ -1931,13 +1960,18 @@
     merged.suplidor = String(existing && existing.suplidor || row && row.suplidor || "");
     return merged;
   }
+  function getInventoryRowIdKey(row) {
+    if (!row || row.tipo === "separador") return "";
+    const id = Number(row.id);
+    return Number.isFinite(id) && id > 0 ? `id:${id}` : "";
+  }
   function uniqueInventoryProductsForSearch(rows, storageKey) {
     const map = new Map();
     (Array.isArray(rows) ? rows : []).forEach(function(row) {
       if (!row || row.tipo !== "producto") return;
       const key = [
         storageKey || row.storageKey || "",
-        normalizar(row.nombre || row.producto || ""),
+        getInventoryCanonicalProductName(row.nombre || row.producto || ""),
         normalizar(row.medida || "")
       ].join("|");
       if (!key || key === "||") return;
