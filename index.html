@@ -994,7 +994,8 @@
     icgFrontRest: "wtf_icg_frontrest",
     googleConfig: "wtf_google_config",
     usuarios: "wtf_usuarios",
-    authUser: "wtf_auth_user"
+    authUser: "wtf_auth_user",
+    systemLogs: "wtf_system_logs"
   };
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
   const BAR_KEYS = {
@@ -1371,7 +1372,8 @@
     { key: "autorizacionRecetas", label: "Autorizacion a Recetas" },
     { key: "icg", label: "ICG FrontRest" },
     { key: "icgHost", label: "ICG Host" },
-    { key: "sharp", label: "Sharp de Limpieza" }
+    { key: "sharp", label: "Sharp de Limpieza" },
+    { key: "systemLogs", label: "Logs de Sistema" }
   ];
   const DEFAULT_FIREBASE_SYNC_CONFIG = {
     enabled: false,
@@ -1758,6 +1760,37 @@
   function createMovementId(prefix) {
     return `${prefix || "mov"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
+  function normalizeSystemLogs(logs) {
+    const rows = Array.isArray(logs) ? logs.filter(Boolean) : [];
+    return rows.map(function(row) {
+      return Object.assign({
+        id: createMovementId("syslog"),
+        fecha: new Date().toISOString(),
+        usuario: "Sistema",
+        email: "",
+        modulo: "Sistema",
+        accion: "Evento",
+        producto: "",
+        detalle: ""
+      }, row);
+    }).sort(function(a, b) {
+      return String(b.fecha || "").localeCompare(String(a.fecha || ""));
+    }).slice(0, 3000);
+  }
+  function buildSystemLogEntry(user, payload) {
+    const safePayload = payload && typeof payload === "object" ? payload : {};
+    const usuario = user ? getUserDisplayLabel(user) : safePayload.usuario || "Sistema";
+    return Object.assign({
+      id: createMovementId("syslog"),
+      fecha: new Date().toISOString(),
+      usuario,
+      email: user && user.email ? user.email : safePayload.email || "",
+      modulo: "Sistema",
+      accion: "Evento",
+      producto: "",
+      detalle: ""
+    }, safePayload, { usuario });
+  }
   function getMovementKey(row) {
     if (!row || typeof row !== "object") return "";
     if (row.id) return `id:${row.id}`;
@@ -1995,9 +2028,10 @@
       "barRegEntradas",
       "barRegSalidas",
       "barRegDecomiso",
-      "barRegProduccion"
+      "barRegProduccion",
+      "systemLogs"
     ].forEach(function(key) {
-      next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
+      next[key] = key === "systemLogs" ? normalizeSystemLogs(mergeMovementRows(localState && localState[key], remoteState && remoteState[key])) : mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
     });
     next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, localState && localState.inventoryDeletedKeys);
     [
@@ -2050,6 +2084,7 @@
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
+      systemLogs: normalizeSystemLogs(state.systemLogs || []),
       barInventario: normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario),
       barCuartoFrioInventario: normalizeInventoryRowsForDisplay(state.barCuartoFrioInventario || [], deletedKeys.barCuartoFrioInventario),
       barMiseAnPlace: state.barMiseAnPlace || [],
@@ -3757,6 +3792,7 @@
     const [googleAuthed, setGoogleAuthed] = useState(false);
     const [authorizing, setAuthorizing] = useState(false);
     const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
+    const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
     const [firebaseStatus, setFirebaseStatus] = useState(() => firebaseCfg.enabled ? "connecting" : "disabled");
     const [firebaseMessage, setFirebaseMessage] = useState(() => firebaseCfg.enabled ? "Conectando Firebase..." : "Solo local");
     const [lastSyncedAt, setLastSyncedAt] = useState("");
@@ -3835,6 +3871,7 @@
       neveras,
       correos,
       usuarios,
+      systemLogs,
       barInventario,
       barCuartoFrioInventario,
       barMiseAnPlace,
@@ -3846,6 +3883,13 @@
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
+    }
+    function addSystemLog(payload, userOverride) {
+      const entry = buildSystemLogEntry(userOverride || currentUser, payload);
+      setSystemLogs(function(prev) {
+        return normalizeSystemLogs([entry].concat(prev || []));
+      });
+      return entry;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
     function getSyncMeta(signature, reason) {
@@ -3943,6 +3987,7 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
+      if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(normalizeInventoryRowsForDisplay(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario));
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
       if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace));
@@ -3956,6 +4001,7 @@
       }, 0);
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
+    useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
@@ -4102,6 +4148,13 @@
         }
       }
       resetGoogleSession();
+      if (currentUser) {
+        addSystemLog({
+          modulo: "Sistema",
+          accion: "Cierre de sesion",
+          detalle: "El usuario cerro sesion en el sistema."
+        });
+      }
       setAuthUserEmail("");
       sessionStorage.removeItem("wtf_modulo");
       setModulo(null);
@@ -4113,6 +4166,11 @@
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
       setAuthUserEmail(user.email);
+      addSystemLog({
+        modulo: "Sistema",
+        accion: "Inicio de sesion",
+        detalle: "Acceso confirmado con correo y contrasena."
+      }, user);
       sessionStorage.removeItem("wtf_modulo");
       setModulo(null);
       setPage("dashboard");
@@ -4285,7 +4343,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -4324,13 +4382,13 @@
       }
     }, [currentUser, modulo]);
     useEffect(() => {
-      if (modulo === "sharp" && page !== "sharp" && page !== "usuarios") {
+      if (modulo === "sharp" && page !== "sharp" && page !== "usuarios" && page !== "systemLogs") {
         setPage("sharp");
       }
-      if (modulo === "icg" && page !== "icg" && page !== "usuarios") {
+      if (modulo === "icg" && page !== "icg" && page !== "usuarios" && page !== "systemLogs") {
         setPage("icg");
       }
-      if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios") {
+      if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios" && page !== "systemLogs") {
         setPage("icgHost");
       }
     }, [modulo, page]);
@@ -4551,7 +4609,8 @@ Solicitado: ${cantidad}`);
       { key: "listado", icon: "fa-cart-shopping", label: "Listado de Compra", section: null },
       { key: "registros", icon: "fa-clock-rotate-left", label: "Registros", section: "REPORTES" },
       { key: "histDecomiso", icon: "fa-file-lines", label: "Historial Decomiso", section: null },
-      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" }
+      { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" },
+      { key: "systemLogs", icon: "fa-clipboard-list", label: "Logs de Sistema", section: null }
     ];
     const titles = {
       dashboard: "Dashboard",
@@ -4570,13 +4629,15 @@ Solicitado: ${cantidad}`);
       histDecomiso: "Historial Decomiso Cocina",
       historialMermas: "Historial de Mermas",
       usuarios: "Administrar Usuarios",
+      systemLogs: "Logs de Sistema",
       produccion: "Producción"
     };
     const esBar = modulo === "bar";
     const esSharp = modulo === "sharp";
     const esIcg = modulo === "icg";
     const esIcgHost = modulo === "icgHost";
-    const activePage = esSharp && page !== "usuarios" ? "sharp" : esIcg && page !== "usuarios" ? "icg" : esIcgHost && page !== "usuarios" ? "icgHost" : page;
+    const isAdminUtilityPage = page === "usuarios" || page === "systemLogs";
+    const activePage = esSharp && !isAdminUtilityPage ? "sharp" : esIcg && !isAdminUtilityPage ? "icg" : esIcgHost && !isAdminUtilityPage ? "icgHost" : page;
     const activeInv = esBar ? barInventario : inventario;
     const setActiveInv = esBar ? setBarInventario : setInventario;
     const activeCuartoFrio = esBar ? barCuartoFrioInventario : cuartoFrioInventario;
@@ -4792,17 +4853,18 @@ Solicitado: ${cantidad}`);
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       icg: /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }], codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: "Inventario / Cuarto Frio", storageSources: activeMovementSources }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       historialMermas: /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
+      systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
       produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
@@ -4931,11 +4993,12 @@ Solicitado: ${cantidad}`);
       if (!esSharp && item.key === "sharp") return false;
       if (!esIcg && item.key === "icg") return false;
       if (modulo !== "icgHost" && item.key === "icgHost") return false;
-      if (esSharp && item.key !== "sharp" && item.key !== "usuarios") return false;
-      if (esIcg && item.key !== "icg" && item.key !== "usuarios") return false;
-      if (modulo === "icgHost" && item.key !== "icgHost" && item.key !== "usuarios") return false;
+      if (esSharp && item.key !== "sharp" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
+      if (esIcg && item.key !== "icg" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
+      if (modulo === "icgHost" && item.key !== "icgHost" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
+      if (item.key === "systemLogs") return isAdminUser(currentUser) || hasAccess("systemLogs");
       return hasAccess(item.key);
     });
     let lastSection = null;
@@ -7588,6 +7651,32 @@ Solicitado: ${cantidad}`);
       submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Ingresando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-to-bracket" }), "Entrar al sistema")
     )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
   }
+  function SystemLogsPage({ logs }) {
+    const [query, setQuery] = useState("");
+    const [actionFilter, setActionFilter] = useState("todos");
+    const rows = normalizeSystemLogs(logs);
+    const actionOptions = Array.from(new Set(rows.map(function(row) {
+      return row.accion || "Evento";
+    }))).sort();
+    const term = normalizar(query);
+    const filtered = rows.filter(function(row) {
+      const matchesAction = actionFilter === "todos" || String(row.accion || "") === actionFilter;
+      const haystack = [row.fecha, row.usuario, row.email, row.modulo, row.accion, row.producto, row.detalle].join(" ");
+      return matchesAction && (!term || normalizar(haystack).includes(term));
+    });
+    const stats = {
+      sesiones: rows.filter(function(row) { return normalizar(row.accion).includes("sesion"); }).length,
+      inventario: rows.filter(function(row) { return normalizar(row.modulo).includes("inventario") || normalizar(row.modulo).includes("cuarto frio"); }).length,
+      mise: rows.filter(function(row) { return normalizar(row.modulo).includes("mise"); }).length
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
+      return /* @__PURE__ */ React.createElement("option", { key: action, value: action }, action);
+    }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Modulo"), /* @__PURE__ */ React.createElement("th", null, "Accion"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Detalle"))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map(function(row) {
+      const accion = String(row.accion || "Evento");
+      const pillClass = normalizar(accion).includes("eliminar") ? "pill-rojo" : normalizar(accion).includes("agregar") || normalizar(accion).includes("inicio") ? "pill-verde" : normalizar(accion).includes("editar") ? "pill-naranja" : "pill-azul";
+      return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.usuario || "Sistema"), row.email ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.email) : null), /* @__PURE__ */ React.createElement("td", null, row.modulo || "Sistema"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${pillClass}` }, accion)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, row.producto || "-"), /* @__PURE__ */ React.createElement("td", { style: { maxWidth: 360, whiteSpace: "normal" } }, row.detalle || "-"));
+    }), filtered.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin eventos registrados")))))));
+  }
   function UsuariosPage({ usuarios, setUsuarios }) {
     const toast = useToast();
     const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos" };
@@ -8820,7 +8909,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios, pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
+  function InventarioPage({ inventario, setInventario, usuarios, currentUser = null, onSystemLog = null, moduleLabel = "Cocina", pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -8959,6 +9048,14 @@ Solicitado: ${cantidad}`);
       if (target && typeof onMarkDeleted === "function") onMarkDeleted(inventoryStateKey || sourceKey, target);
       const deletedKeys = new Set(getInventoryDeletedKeysForRow(target));
       setInventario((p) => p.filter((r) => r.id !== id && !getInventoryDeletedKeysForRow(r).some(function(key) { return deletedKeys.has(key); })));
+      if (typeof onSystemLog === "function" && target) {
+        onSystemLog({
+          modulo: `${pageLabel} ${moduleLabel}`,
+          accion: "Eliminar producto",
+          producto: target.nombre || "",
+          detalle: `Producto eliminado de ${pageLabel} ${moduleLabel}. CodArticulo: ${getInventoryCodArticulo(target, "") || "Sin codigo"}.`
+        }, currentUser);
+      }
       toast("Fila eliminada", "info");
     }
     function startEdit(r) {
@@ -8994,6 +9091,14 @@ Solicitado: ${cantidad}`);
       delete payload.originalNombre;
       setInventario((p) => p.map((r) => r.id === editingId ? { ...r, ...payload } : r));
       saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, payload.nombre, cleanIcgLinks, icgArticleRows, payload.medida || "kg", `Seleccion manual desde ${pageLabel}`, editData.originalNombre);
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          modulo: `${pageLabel} ${moduleLabel}`,
+          accion: "Editar producto",
+          producto: payload.nombre || "",
+          detalle: `Producto actualizado en ${pageLabel} ${moduleLabel}. Antes: ${editData.originalNombre || payload.nombre}. CodArticulo: ${codArticulo}.`
+        }, currentUser);
+      }
       setEditingId(null);
       toast("Producto actualizado");
     }
@@ -9035,6 +9140,14 @@ Solicitado: ${cantidad}`);
         return next;
       });
       saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, newProd.medida || "kg", `Seleccion manual desde ${pageLabel}`);
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          modulo: `${pageLabel} ${moduleLabel}`,
+          accion: "Agregar producto",
+          producto: newProd.nombre.trim(),
+          detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
+        }, currentUser);
+      }
       setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
       setModalAdd(false);
       toast("Producto agregado");
@@ -9382,7 +9495,7 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
+  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, onSystemLog = null, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -9418,18 +9531,43 @@ Solicitado: ${cantidad}`);
       const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, "Uni");
       setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), icgLinks: cleanIcgLinks }]);
       saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise");
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          modulo: `Mise an Place ${moduleLabel}`,
+          accion: "Agregar producto",
+          producto: newProd.producto.trim(),
+          detalle: `Producto agregado al Mise an Place ${moduleLabel}. CodArticulo: ${String(id).padStart(3, "0")}.`
+        }, currentUser);
+      }
       setNewProd({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, icgLinks: [createBlankIcgLink("Uni")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
     function deleteProd(id) {
       if (!confirm("\xBFEliminar?")) return;
+      const target = miseAnPlace.find((m) => m.id === id);
       setMise((p) => p.filter((m) => m.id !== id));
+      if (typeof onSystemLog === "function" && target) {
+        onSystemLog({
+          modulo: `Mise an Place ${moduleLabel}`,
+          accion: "Eliminar producto",
+          producto: target.producto || "",
+          detalle: `Producto eliminado del Mise an Place ${moduleLabel}. CodArticulo: ${getMiseCodArticulo(target, 0)}.`
+        }, currentUser);
+      }
       toast("Eliminado", "info");
     }
     function saveEditProd(nextItem) {
       saveMiseIcgLinks(nextItem);
       setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: nextItem.medida, stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem) } : m));
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          modulo: `Mise an Place ${moduleLabel}`,
+          accion: "Editar producto",
+          producto: nextItem.producto || "",
+          detalle: `Producto actualizado en Mise an Place ${moduleLabel}. CodArticulo: ${getMiseCodArticulo(nextItem, 0)}.`
+        }, currentUser);
+      }
       setEditItem(null);
       toast("Producto actualizado");
     }
