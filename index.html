@@ -1981,6 +1981,67 @@
     });
     return output;
   }
+  function getRowUpdateTime(row) {
+    const candidates = [
+      row && row.updatedAt,
+      row && row._updatedAt,
+      row && row.fechaActualizacion,
+      row && row.createdAt,
+      row && row.fecha,
+      row && row.createdAtMs
+    ];
+    for (const raw of candidates) {
+      if (raw == null || raw === "") continue;
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+      const parsed = Date.parse(String(raw));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
+  }
+  function getMiseMergeKey(row) {
+    if (!row || typeof row !== "object") return "";
+    const name = normalizar(row.producto || row.nombre || "");
+    if (name) return `name:${name}`;
+    const cod = String(row.codArticulo || row.codigo || "").trim();
+    if (cod) return `cod:${normalizar(cod)}`;
+    if (row.id != null) return `id:${row.id}`;
+    return "";
+  }
+  function mergeStateRowsByKey(localRows, remoteRows, getKey, normalizeRows) {
+    const map = new Map();
+    function addRows(rows, preferLocalOnTie) {
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        const key = getKey(row);
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, Object.assign({}, row));
+          return;
+        }
+        const existingTime = getRowUpdateTime(existing);
+        const rowTime = getRowUpdateTime(row);
+        const preferRow = rowTime > existingTime || (preferLocalOnTie && rowTime === existingTime);
+        map.set(key, Object.assign({}, preferRow ? existing : row, preferRow ? row : existing));
+      });
+    }
+    addRows(remoteRows, false);
+    addRows(localRows, true);
+    const merged = Array.from(map.values());
+    return typeof normalizeRows === "function" ? normalizeRows(merged) : merged;
+  }
+  function mergeMiseRows(localRows, remoteRows) {
+    return mergeStateRowsByKey(localRows, remoteRows, getMiseMergeKey, normalizeMiseItems);
+  }
+  function getRecipeMergeKey(row) {
+    if (!row || typeof row !== "object") return "";
+    if (row.id) return `id:${row.id}`;
+    const name = normalizar(row.nombre || row.producto || "");
+    return name ? `name:${name}` : "";
+  }
+  function mergeRecipeRows(localRows, remoteRows) {
+    return mergeStateRowsByKey(localRows, remoteRows, getRecipeMergeKey);
+  }
   function mergeSearchProductRows(existing, row) {
     const merged = Object.assign({}, existing, row);
     const existingId = Number(existing && existing.id);
@@ -2044,6 +2105,10 @@
       next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
+    next.miseAnPlace = mergeMiseRows(localState && localState.miseAnPlace, remoteState && remoteState.miseAnPlace);
+    next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace);
+    next.recetasProduccion = mergeRecipeRows(localState && localState.recetasProduccion, remoteState && remoteState.recetasProduccion);
+    next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion);
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -4782,7 +4847,7 @@ Solicitado: ${cantidad}`);
       if (miseMoves.length) {
         setMise((prev) => prev.map(function(item) {
           const move = miseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)) } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
           return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Number((move.target.existencia - move.cantidad).toFixed(4)) };
@@ -4792,7 +4857,7 @@ Solicitado: ${cantidad}`);
       if (barMiseMoves.length) {
         setBarMise((prev) => prev.map(function(item) {
           const move = barMiseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)) } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now } : item;
         }));
       }
       return candidates.map((row) => row.ImportKey).filter(Boolean);
@@ -5486,6 +5551,7 @@ Solicitado: ${cantidad}`);
       const unidadProducida = resolveProducedMiseUnit(row.medidaProducida);
       const match = findMiseTarget(row.miseProductoId || row.miseProductoTarget || row.transferidoAMiseTarget) || findBestMiseMatch(productoNombre);
       const fechaTransferencia = new Date().toISOString();
+      const now = fechaTransferencia;
       setMise(function(prev) {
         const current = Array.isArray(prev) ? prev : [];
         if (match) {
@@ -5496,7 +5562,8 @@ Solicitado: ${cantidad}`);
               if (item.id !== match.id) return item;
               return Object.assign({}, item, {
                 existencia: Number(((Number(item.existencia) || 0) + cantidadConvertida).toFixed(4)),
-                medida: destinoUnidad
+                medida: destinoUnidad,
+                updatedAt: now
               });
             });
           }
@@ -5509,7 +5576,9 @@ Solicitado: ${cantidad}`);
           codArticulo: String(nextId).padStart(3, "0"),
           producto: productoNombre,
           existencia: Number(cantidad.toFixed(4)),
-          medida: unidadProducida
+          medida: unidadProducida,
+          createdAt: now,
+          updatedAt: now
         }];
       });
       setProducciones(function(prev) {
@@ -5757,7 +5826,8 @@ Solicitado: ${cantidad}`);
           return (Array.isArray(prev) ? prev : []).map(function(item) {
             if (normalizar(item.producto) !== normalizar(targetName)) return item;
             return Object.assign({}, item, {
-              existencia: Math.max(0, Number(((Number(item.existencia) || 0) - deleteRequest.transferData.cantidadReversaMise).toFixed(4)))
+              existencia: Math.max(0, Number(((Number(item.existencia) || 0) - deleteRequest.transferData.cantidadReversaMise).toFixed(4))),
+              updatedAt: new Date().toISOString()
             });
           });
         });
@@ -6271,7 +6341,8 @@ Solicitado: ${cantidad}`);
             if (item.id !== existingMise.id) return item;
             return Object.assign({}, item, {
               existencia: Number(((Number(item.existencia) || 0) + converted).toFixed(4)),
-              medida: targetUnit
+              medida: targetUnit,
+              updatedAt: now
             });
           });
         }
@@ -6283,7 +6354,9 @@ Solicitado: ${cantidad}`);
           codArticulo: String(nextId).padStart(3, "0"),
           producto: nombre,
           existencia: Number(cantidad.toFixed(4)),
-          medida: unidad
+          medida: unidad,
+          createdAt: now,
+          updatedAt: now
         }];
       });
       if (existingMise) {
@@ -6537,19 +6610,24 @@ Solicitado: ${cantidad}`);
         notaOperacion: recetaItems.some(function(item) { return item.conversionComoMultiplicador || item.convertirLibrasAGramos; }) ? "Coloca las libras reales de la proteina, pulsa Convertir a gramos y el sistema multiplicara los demas insumos segun el peso convertido. Las cantidades guardadas no son por libra, son proporcionales al gramo base." : "",
         insumos: recetaItems
       };
+      recetaPayload.updatedAt = recetaPayload.fecha;
       setRecetas(function(prev) {
         const current = Array.isArray(prev) ? prev : [];
         if (editingRecipeId) {
           return current.map(function(item) {
             return item.id === editingRecipeId ? Object.assign({}, item, recetaPayload, {
               id: item.id,
+              createdAt: item.createdAt || item.fecha || recetaPayload.fecha,
               fecha: item.fecha || recetaPayload.fecha,
-              fechaActualizacion: recetaPayload.fecha
+              fechaActualizacion: recetaPayload.fecha,
+              updatedAt: recetaPayload.fecha
             }) : item;
           });
         }
         return [...current, Object.assign({}, recetaPayload, {
-          id: `rec-${Date.now()}-${Math.random()}`
+          id: `rec-${Date.now()}-${Math.random()}`,
+          createdAt: recetaPayload.fecha,
+          updatedAt: recetaPayload.fecha
         })];
       });
       toast(editingRecipeId ? `Receta actualizada: ${nombreReceta}` : `Receta guardada: ${nombreReceta}`, "ok");
@@ -9567,7 +9645,8 @@ Solicitado: ${cantidad}`);
       }
       const id = Math.max(0, ...miseAnPlace.map((m) => m.id)) + 1;
       const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, "Uni");
-      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), icgLinks: cleanIcgLinks }]);
+      const now = new Date().toISOString();
+      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), icgLinks: cleanIcgLinks, createdAt: now, updatedAt: now }]);
       saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise");
       if (typeof onSystemLog === "function") {
         onSystemLog({
@@ -9597,7 +9676,8 @@ Solicitado: ${cantidad}`);
     }
     function saveEditProd(nextItem) {
       saveMiseIcgLinks(nextItem);
-      setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: nextItem.medida, stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem) } : m));
+      const now = new Date().toISOString();
+      setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: nextItem.medida, stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem), updatedAt: now } : m));
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `Mise an Place ${moduleLabel}`,
@@ -9886,7 +9966,8 @@ Solicitado: ${cantidad}`);
       if (!data.responsable.trim()) return setError("Ingrese el responsable.");
       if (!prodInfo) return setError(`"${data.producto}" no existe en Mise an Place.`);
       if (cant > prodInfo.existencia) return setError(`Excede la existencia actual (${prodInfo.existencia}).`);
-      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: m.existencia - cant } : m));
+      const now = new Date().toISOString();
+      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: m.existencia - cant, updatedAt: now } : m));
       setHistDecomisoCocina((p) => [...p, { ...data, cantidad: cant }]);
       syncNeveras && syncNeveras({ nombre: data.producto, delta: -cant, existenciaAntes: prodInfo.existencia });
       toast(`Decomiso: ${data.producto} x${cant}`);
@@ -9999,7 +10080,7 @@ Solicitado: ${cantidad}`);
       });
       setMise((p) => p.map((m) => {
         const k = normalizar(m.producto);
-        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) + acum[k].delta), medida: acum[k].medida } : m;
+        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) + acum[k].delta), medida: acum[k].medida, updatedAt: fecha } : m;
       }));
       if (setHistEntradaRapida) setHistEntradaRapida((p) => [...p, ...registros]);
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
@@ -10047,7 +10128,7 @@ Solicitado: ${cantidad}`);
       });
       setMise((p) => p.map((m) => {
         const k = normalizar(m.producto);
-        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - acum[k]) } : m;
+        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - acum[k]), updatedAt: fecha } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
       if (setProducciones) {
