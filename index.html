@@ -998,6 +998,7 @@
     systemLogs: "wtf_system_logs"
   };
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
+  const MISE_DELETED_KEYS_STORAGE = "wtf_mise_deleted_keys";
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
     cuartoFrioInventario: "wtf_bar_cuarto_frio_inventario",
@@ -2008,6 +2009,59 @@
     if (row.id != null) return `id:${row.id}`;
     return "";
   }
+  function normalizeMiseDeletedKeys(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    ["miseAnPlace", "barMiseAnPlace"].forEach(function(stateKey) {
+      const rows = source[stateKey] && typeof source[stateKey] === "object" ? source[stateKey] : {};
+      const clean = {};
+      Object.keys(rows).forEach(function(key) {
+        const ts = Number(rows[key] || 0);
+        if (key && Number.isFinite(ts) && ts > 0) clean[key] = ts;
+      });
+      if (Object.keys(clean).length) result[stateKey] = clean;
+    });
+    return result;
+  }
+  function mergeMiseDeletedKeys(remoteKeys, localKeys) {
+    const result = normalizeMiseDeletedKeys(remoteKeys);
+    const local = normalizeMiseDeletedKeys(localKeys);
+    Object.keys(local).forEach(function(stateKey) {
+      result[stateKey] = Object.assign({}, result[stateKey] || {});
+      Object.keys(local[stateKey] || {}).forEach(function(key) {
+        result[stateKey][key] = Math.max(Number(result[stateKey][key] || 0), Number(local[stateKey][key] || 0));
+      });
+    });
+    return result;
+  }
+  function pruneMiseDeletedKeys(deletedKeys, stateKey) {
+    const source = normalizeMiseDeletedKeys(deletedKeys)[stateKey] || {};
+    const minTs = Date.now() - 90 * 24 * 60 * 60 * 1e3;
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+    });
+    return result;
+  }
+  function getMiseDeletedKeysForRow(row) {
+    const keys = [];
+    const mergeKey = getMiseMergeKey(row);
+    if (mergeKey) keys.push(mergeKey);
+    const name = normalizar(row && (row.producto || row.nombre || ""));
+    if (name) keys.push(`name:${name}`);
+    const cod = String(row && (row.codArticulo || row.codigo || "") || "").trim();
+    if (cod) keys.push(`cod:${normalizar(cod)}`);
+    if (row && row.id != null) keys.push(`id:${row.id}`);
+    return Array.from(new Set(keys.filter(Boolean)));
+  }
+  function isMiseRowDeleted(row, deletedKeys) {
+    const source = deletedKeys && typeof deletedKeys === "object" ? deletedKeys : {};
+    const createdAt = getRowUpdateTime(row);
+    return getMiseDeletedKeysForRow(row).some(function(key) {
+      const deletedAt = Number(source[key] || 0);
+      return deletedAt > 0 && (!createdAt || createdAt <= deletedAt);
+    });
+  }
   function mergeStateRowsByKey(localRows, remoteRows, getKey, normalizeRows) {
     const map = new Map();
     function addRows(rows, preferLocalOnTie) {
@@ -2030,8 +2084,11 @@
     const merged = Array.from(map.values());
     return typeof normalizeRows === "function" ? normalizeRows(merged) : merged;
   }
-  function mergeMiseRows(localRows, remoteRows) {
-    return mergeStateRowsByKey(localRows, remoteRows, getMiseMergeKey, normalizeMiseItems);
+  function mergeMiseRows(localRows, remoteRows, deletedKeys) {
+    const merged = mergeStateRowsByKey(localRows, remoteRows, getMiseMergeKey, normalizeMiseItems);
+    return normalizeMiseItems(merged.filter(function(row) {
+      return !isMiseRowDeleted(row, deletedKeys);
+    }));
   }
   function getRecipeMergeKey(row) {
     if (!row || typeof row !== "object") return "";
@@ -2105,8 +2162,11 @@
       next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
-    next.miseAnPlace = mergeMiseRows(localState && localState.miseAnPlace, remoteState && remoteState.miseAnPlace);
-    next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace);
+    next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, localState && localState.miseDeletedKeys);
+    next.miseAnPlace = mergeMiseRows(localState && localState.miseAnPlace, remoteState && remoteState.miseAnPlace, next.miseDeletedKeys.miseAnPlace);
+    next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace, next.miseDeletedKeys.barMiseAnPlace);
+    next.miseDeletedKeys.miseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "miseAnPlace");
+    next.miseDeletedKeys.barMiseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "barMiseAnPlace");
     next.recetasProduccion = mergeRecipeRows(localState && localState.recetasProduccion, remoteState && remoteState.recetasProduccion);
     next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion);
     return next;
@@ -2131,11 +2191,12 @@
   }
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
+    const miseDeletedKeys = normalizeMiseDeletedKeys(state.miseDeletedKeys);
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
       inventario: normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario),
       cuartoFrioInventario: normalizeInventoryRowsForDisplay(state.cuartoFrioInventario || [], deletedKeys.cuartoFrioInventario),
-      miseAnPlace: state.miseAnPlace || [],
+      miseAnPlace: normalizeMiseItems((state.miseAnPlace || []).filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.miseAnPlace); })),
       regEntradas: state.regEntradas || [],
       regSalidas: state.regSalidas || [],
       regDecomiso: state.regDecomiso || [],
@@ -2143,6 +2204,7 @@
       recetasProduccion: state.recetasProduccion || [],
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       inventoryDeletedKeys: deletedKeys,
+      miseDeletedKeys,
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
@@ -2153,7 +2215,7 @@
       systemLogs: normalizeSystemLogs(state.systemLogs || []),
       barInventario: normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario),
       barCuartoFrioInventario: normalizeInventoryRowsForDisplay(state.barCuartoFrioInventario || [], deletedKeys.barCuartoFrioInventario),
-      barMiseAnPlace: state.barMiseAnPlace || [],
+      barMiseAnPlace: normalizeMiseItems((state.barMiseAnPlace || []).filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.barMiseAnPlace); })),
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
       barRegDecomiso: state.barRegDecomiso || [],
@@ -2510,14 +2572,63 @@
     });
   }
   function normalizeMiseItems(items) {
-    return (Array.isArray(items) ? items : []).map(function(item, index) {
-      return Object.assign({ medida: "Uni", stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 }, item || {}, {
+    const map = new Map();
+    (Array.isArray(items) ? items : []).forEach(function(item, index) {
+      if (!item) return;
+      const producto = String(item.producto || item.nombre || "").trim();
+      if (!producto) return;
+      const clean = Object.assign({ medida: "Uni", stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0 }, item, {
         id: item && item.id ? item.id : index + 1,
+        producto,
         codArticulo: getMiseCodArticulo(item, index),
         existencia: getMiseSafeNumber(item && item.existencia, 0),
         medida: normalizarMedidaMise(item && item.medida || "Uni"),
         stockMinimoLunesJueves: getMiseStockMinLJ(item),
-        stockMinimoViernesDomingo: getMiseStockMinVD(item)
+        stockMinimoViernesDomingo: getMiseStockMinVD(item),
+        __sourceIndex: index
+      });
+      const key = normalizar(producto);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, clean);
+        return;
+      }
+      const existingTime = getRowUpdateTime(existing);
+      const cleanTime = getRowUpdateTime(clean);
+      const preferClean = cleanTime > existingTime || (cleanTime === existingTime && index > Number(existing.__sourceIndex || 0));
+      const merged = Object.assign({}, preferClean ? existing : clean, preferClean ? clean : existing, { __sourceIndex: index });
+      map.set(key, merged);
+    });
+    const rows = Array.from(map.values()).map(function(item) {
+      const copy = Object.assign({}, item);
+      delete copy.__sourceIndex;
+      return copy;
+    });
+    const usedCodes = new Set();
+    const usedIds = new Set();
+    let nextCode = 1;
+    let nextId = 1;
+    return rows.map(function(item, index) {
+      let code = String(item.codArticulo || "").trim();
+      const numericCode = /^\d+$/.test(code) ? Number(code) : NaN;
+      if (Number.isFinite(numericCode)) code = String(numericCode).padStart(3, "0");
+      if (!code || usedCodes.has(code)) {
+        while (usedCodes.has(String(nextCode).padStart(3, "0"))) nextCode += 1;
+        code = String(nextCode).padStart(3, "0");
+      } else if (Number.isFinite(numericCode) && numericCode >= nextCode) {
+        nextCode = numericCode + 1;
+      }
+      usedCodes.add(code);
+      let id = Number(item.id) || index + 1;
+      if (!Number.isFinite(id) || id <= 0 || usedIds.has(id)) {
+        while (usedIds.has(nextId)) nextId += 1;
+        id = nextId;
+      }
+      usedIds.add(id);
+      if (id >= nextId) nextId = id + 1;
+      return Object.assign({}, item, {
+        id,
+        codArticulo: code
       });
     });
   }
@@ -3822,9 +3933,10 @@
     const [selfAccessModal, setSelfAccessModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
     const initialInventoryDeletedKeys = useMemo(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})), []);
+    const initialMiseDeletedKeys = useMemo(() => normalizeMiseDeletedKeys(load(MISE_DELETED_KEYS_STORAGE, {})), []);
     const [inventario, setInventario] = useState(() => normalizeInventoryRowsForDisplay(loadSeeded(KEYS.inventario, initInventario, null) || initInventario(), initialInventoryDeletedKeys.inventario));
     const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.cuartoFrioInventario));
-    const [miseAnPlace, setMise] = useState(() => normalizeMiseItems(loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()));
+    const [miseAnPlace, setMise] = useState(() => normalizeMiseItems((loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()).filter(function(row) { return !isMiseRowDeleted(row, initialMiseDeletedKeys.miseAnPlace); })));
     const [regEntradas, setRegEntradas] = useState(() => loadSeeded(KEYS.regEntradas, initRegEntradas, []));
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
@@ -3846,13 +3958,14 @@
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [barInventario, setBarInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.inventario, []), initialInventoryDeletedKeys.barInventario));
     const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.barCuartoFrioInventario));
-    const [barMiseAnPlace, setBarMise] = useState(() => normalizeMiseItems(load(BAR_KEYS.miseAnPlace, [])));
+    const [barMiseAnPlace, setBarMise] = useState(() => normalizeMiseItems((load(BAR_KEYS.miseAnPlace, []) || []).filter(function(row) { return !isMiseRowDeleted(row, initialMiseDeletedKeys.barMiseAnPlace); })));
     const [barRegEntradas, setBarRegEntradas] = useState(() => load(BAR_KEYS.regEntradas, []));
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
+    const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
     const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
@@ -3930,6 +4043,7 @@
       recetasProduccion,
       recetasProduccionBaseVersion,
       inventoryDeletedKeys,
+      miseDeletedKeys,
       histDecomisoCocina,
       histEntradaRapida,
       histSalidaRapida,
@@ -4038,7 +4152,7 @@
       applyingRemoteRef.current = true;
       if (Array.isArray(nextState.inventario)) setInventario(normalizeInventoryRowsForDisplay(nextState.inventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario));
       if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.cuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario));
-      if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace));
+      if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.miseAnPlace); })));
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(nextState.regEntradas);
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
@@ -4046,6 +4160,7 @@
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
+      if (nextState.miseDeletedKeys && typeof nextState.miseDeletedKeys === "object") setMiseDeletedKeys(normalizeMiseDeletedKeys(nextState.miseDeletedKeys));
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.histEntradaRapida)) setHistEntradaRapida(nextState.histEntradaRapida);
       if (Array.isArray(nextState.histSalidaRapida)) setHistSalidaRapida(nextState.histSalidaRapida);
@@ -4056,7 +4171,7 @@
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(normalizeInventoryRowsForDisplay(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario));
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
-      if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace));
+      if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.barMiseAnPlace); })));
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(nextState.barRegEntradas);
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
@@ -4068,6 +4183,7 @@
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
+    useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
@@ -4082,7 +4198,7 @@
     useEffect(() => save("wtf_neveras", neveras), [neveras]);
     useEffect(() => save(KEYS.inventario, inventario), [inventario]);
     useEffect(() => save(KEYS.cuartoFrioInventario, cuartoFrioInventario), [cuartoFrioInventario]);
-    useEffect(() => save(KEYS.miseAnPlace, miseAnPlace), [miseAnPlace]);
+    useEffect(() => save(KEYS.miseAnPlace, normalizeMiseItems(miseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.miseAnPlace); }))), [miseAnPlace, miseDeletedKeys]);
     useEffect(() => save(KEYS.regEntradas, regEntradas), [regEntradas]);
     useEffect(() => save(KEYS.regSalidas, regSalidas), [regSalidas]);
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
@@ -4116,7 +4232,7 @@
     }, []);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.cuartoFrioInventario, barCuartoFrioInventario), [barCuartoFrioInventario]);
-    useEffect(() => save(BAR_KEYS.miseAnPlace, barMiseAnPlace), [barMiseAnPlace]);
+    useEffect(() => save(BAR_KEYS.miseAnPlace, normalizeMiseItems(barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.barMiseAnPlace); }))), [barMiseAnPlace, miseDeletedKeys]);
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
     useEffect(() => save(BAR_KEYS.regSalidas, barRegSalidas), [barRegSalidas]);
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
@@ -4411,7 +4527,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -4931,6 +5047,21 @@ Solicitado: ${cantidad}`);
         });
       });
     }
+    function markMiseRowDeleted(stateKey, row) {
+      if (!stateKey || !row) return;
+      const deletedAt = Date.now();
+      const keys = getMiseDeletedKeysForRow(row);
+      if (!keys.length) return;
+      setMiseDeletedKeys(function(prev) {
+        const current = normalizeMiseDeletedKeys(prev);
+        const next = Object.assign({}, current);
+        next[stateKey] = Object.assign({}, next[stateKey] || {});
+        keys.forEach(function(key) {
+          next[stateKey][key] = Math.max(Number(next[stateKey][key] || 0), deletedAt);
+        });
+        return next;
+      });
+    }
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
       dashboardGeneral: /* @__PURE__ */ React.createElement(DashboardGeneral, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion }),
@@ -4942,7 +5073,7 @@ Solicitado: ${cantidad}`);
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
@@ -9611,7 +9742,7 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MisePage({ miseAnPlace, setMise, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, onSystemLog = null, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
+  function MisePage({ miseAnPlace, setMise, miseStateKey = "miseAnPlace", onMarkDeleted = null, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, onSystemLog = null, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -9634,16 +9765,17 @@ Solicitado: ${cantidad}`);
         return Object.assign({}, prev, { icgLinks: nextLinks });
       });
     }
+    const miseRows = useMemo(() => normalizeMiseItems(miseAnPlace), [miseAnPlace]);
     const terminoBusqueda = normalizar(busqueda);
-    const miseFiltrada = terminoBusqueda ? miseAnPlace.filter((m) => {
-      return normalizar(m.producto).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
-    }) : miseAnPlace;
+    const miseFiltrada = terminoBusqueda ? miseRows.filter((m) => {
+      return normalizar(m.producto).includes(terminoBusqueda) || normalizar(getMiseCodArticulo(m, 0)).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
+    }) : miseRows;
     function addProd() {
       if (!newProd.producto.trim()) {
         toast("Ingrese el nombre", "error");
         return;
       }
-      const id = Math.max(0, ...miseAnPlace.map((m) => m.id)) + 1;
+      const id = Math.max(0, ...miseRows.map((m) => Number(m.id) || 0)) + 1;
       const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, "Uni");
       const now = new Date().toISOString();
       setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: "Uni", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), icgLinks: cleanIcgLinks, createdAt: now, updatedAt: now }]);
@@ -9662,8 +9794,10 @@ Solicitado: ${cantidad}`);
     }
     function deleteProd(id) {
       if (!confirm("\xBFEliminar?")) return;
-      const target = miseAnPlace.find((m) => m.id === id);
-      setMise((p) => p.filter((m) => m.id !== id));
+      const target = miseRows.find((m) => m.id === id);
+      if (typeof onMarkDeleted === "function" && target) onMarkDeleted(miseStateKey, target);
+      const deletedKeys = new Set(getMiseDeletedKeysForRow(target));
+      setMise((p) => normalizeMiseItems((Array.isArray(p) ? p : []).filter((m) => m.id !== id && !getMiseDeletedKeysForRow(m).some(function(key) { return deletedKeys.has(key); }))));
       if (typeof onSystemLog === "function" && target) {
         onSystemLog({
           modulo: `Mise an Place ${moduleLabel}`,
@@ -9772,16 +9906,16 @@ Solicitado: ${cantidad}`);
       const stockVdClass = stockAlert.active && stockAlert.periodo === "V-D" ? "pill pill-rojo" : "pill pill-gris";
       return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getMiseCodArticulo(m, i)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto, stockAlert.active && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 800 } }, "Producir: faltan ", formatMiseQty(stockAlert.faltante), " ", m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockLjClass }, formatMiseQty(getMiseStockMinLJ(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockVdClass }, formatMiseQty(getMiseStockMinVD(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, formatMiseQty(m.existencia))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar producto y vinculos ICG", onClick: () => setEditItem(Object.assign({}, m, { icgLinks: getExistingIcgLinksForMise(m) })) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
-    if (miseAnPlace.length === 0) {
+    if (miseRows.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
     } else if (miseFiltrada.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "no-results" }, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "No hay productos que coincidan con la b\xFAsqueda")));
     }
     let mainView = null;
     if (tab === "tabla") {
-      mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", style: { marginLeft: "auto" }, onClick: () => generateMisePdf(miseAnPlace, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo V-D"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Unidad de Medida"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
+      mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", style: { marginLeft: "auto" }, onClick: () => generateMisePdf(miseRows, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo V-D"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Unidad de Medida"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
     } else if (tab === "neveras") {
-      mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseAnPlace, productos });
+      mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseRows, productos });
     } else if (tab === "histEntrada") {
       mainView = /* @__PURE__ */ React.createElement(HistorialRapidoMise, { data: histEntradaRapida, tipo: "entrada" });
     } else if (tab === "histSalida") {
@@ -9830,9 +9964,9 @@ Solicitado: ${cantidad}`);
       )
     ) : null;
     const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, icgArticles: icgArticleRows, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
-    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
-    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
-    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
+    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
+    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
+    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
   function EditMiseItemModal({ item, icgArticles = [], onClose, onSave }) {
