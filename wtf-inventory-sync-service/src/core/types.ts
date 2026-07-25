@@ -50,8 +50,6 @@ export interface ServiceConfig {
   firebaseProjectId: string;
   firebaseCollection: string;
   firebaseDocumentId: string;
-  autoApplyIcgCms: boolean;
-  autoExportIcg: boolean;
   autoApplyIcgBackup: boolean;
   apiKey: string;
   branch: string;
@@ -59,7 +57,6 @@ export interface ServiceConfig {
   mode: "manual" | "automatico";
   pollSeconds: number;
   dataDir: string;
-  icgCmsDir: string;
   icgExportDir: string;
   icgImportDir: string;
   processedDir: string;
@@ -78,14 +75,6 @@ export interface ServiceConfig {
 export interface StoreData {
   movements: SyncMovement[];
   mappings: ProductMapping[];
-  processedCmsFiles?: Array<{
-    fingerprint: string;
-    fileName: string;
-    filePath: string;
-    processedAt: string;
-    status: "applied" | "skipped" | "error";
-    message?: string;
-  }>;
   audit: Array<Record<string, unknown>>;
 }
 
@@ -95,41 +84,6 @@ export interface ImportResult {
   duplicated: number;
   mappings: number;
   errors: string[];
-}
-
-export interface CmsTicketLine {
-  id: string;
-  sourceFile: string;
-  sourcePath: string;
-  sourceMtime: string;
-  sourceHash: string;
-  fecha: string;
-  serie: string;
-  numero: string;
-  numLinea: string;
-  codArticulo: string;
-  referencia: string;
-  descripcion: string;
-  unidades: number;
-}
-
-export interface CmsImportResult {
-  ok: boolean;
-  filePath?: string;
-  fileName?: string;
-  fingerprint?: string;
-  datasets?: Record<string, {
-    key: string;
-    columns: string[];
-    rows: Array<Record<string, unknown>>;
-  }>;
-  tableCounts?: Record<string, number>;
-  totalLines: number;
-  matched: number;
-  applied: number;
-  skipped: number;
-  errors: string[];
-  message: string;
 }
 
 export interface IcgBackupConsumptionRow {

@@ -121,16 +121,13 @@ WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
 WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
-WTF_AUTO_APPLY_ICG_CMS=true
 WTF_AUTO_APPLY_ICG_BACKUP=true
-WTF_AUTO_EXPORT_ICG=true
 WTF_API_KEY=
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
 WTF_POLL_SECONDS=30
 WTF_DATA_DIR=$DataDir\data
-ICG_CMS_DIR=C:\ICG EXPORTACION
 ICG_EXPORT_DIR=$DataDir\data\inbox
 ICG_IMPORT_DIR=$DataDir\data\outbox
 WTF_PROCESSED_DIR=$DataDir\data\processed
@@ -147,12 +144,9 @@ ICG_SQL_CONNECTION_STRING=Server=localhost;Database=ICGFrontRest;Trusted_Connect
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
 }
 
-Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_CMS" -Value "true"
 Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_BACKUP" -Value "true"
-Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_EXPORT_ICG" -Value "true"
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
-Set-EnvValue -Path $EnvPath -Name "ICG_CMS_DIR" -Value "C:\ICG EXPORTACION"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
 Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
@@ -167,7 +161,6 @@ $RunScript = Join-Path $InstallDir "run-host.ps1"
 `$ErrorActionPreference = "Stop"
 Set-Location "$InstallDir"
 `$env:WTF_DATA_DIR = "$DataDir\data"
-`$env:ICG_CMS_DIR = "C:\ICG EXPORTACION"
 `$env:ICG_BACKUP_PATH = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 `$env:ICG_SQL_SERVER = "localhost"
 `$env:ICG_LIVE_DATABASE_NAME = "FRS_WTFOODVZL"

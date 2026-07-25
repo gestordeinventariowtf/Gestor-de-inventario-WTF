@@ -293,7 +293,7 @@ SELECT
   CAST(SUM(ISNULL(p.PAGOS,0)) AS decimal(18,2)) AS Pagos,
   CAST(SUM(ISNULL(c.PROPINA,0)) AS decimal(18,2)) AS Propina,
   'Calculado desde Base de Datos ICG Local' AS Estado,
-  'Generado sin CMS desde SQL/backup local' AS Observacion
+  'Generado desde SQL/base local ICG' AS Observacion
 FROM cab c
 LEFT JOIN lineas l ON l.FO=c.FO AND l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
 ${paymentsJoin}
