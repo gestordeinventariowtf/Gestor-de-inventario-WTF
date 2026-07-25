@@ -4641,13 +4641,13 @@
       }
     }, [currentUser, modulo]);
     useEffect(() => {
-      if (modulo === "sharp" && page !== "sharp" && page !== "usuarios" && page !== "systemLogs") {
+      if (modulo === "sharp" && page !== "sharp" && page !== "usuarios") {
         setPage("sharp");
       }
-      if (modulo === "icg" && page !== "icg" && page !== "usuarios" && page !== "systemLogs") {
+      if (modulo === "icg" && page !== "icg" && page !== "usuarios") {
         setPage("icg");
       }
-      if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios" && page !== "systemLogs") {
+      if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios") {
         setPage("icgHost");
       }
     }, [modulo, page]);
@@ -5284,11 +5284,12 @@ Solicitado: ${cantidad}`);
       if (!esSharp && item.key === "sharp") return false;
       if (!esIcg && item.key === "icg") return false;
       if (modulo !== "icgHost" && item.key === "icgHost") return false;
-      if (esSharp && item.key !== "sharp" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
-      if (esIcg && item.key !== "icg" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
-      if (modulo === "icgHost" && item.key !== "icgHost" && item.key !== "usuarios" && item.key !== "systemLogs") return false;
+      if (esSharp && item.key !== "sharp" && item.key !== "usuarios") return false;
+      if (esIcg && item.key !== "icg" && item.key !== "usuarios") return false;
+      if (modulo === "icgHost" && item.key !== "icgHost" && item.key !== "usuarios") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
+      if (item.key === "systemLogs" && modulo !== "cocina" && modulo !== "bar") return false;
       if (item.key === "systemLogs") return isAdminUser(currentUser) || hasAccess("systemLogs");
       return hasAccess(item.key);
     });
@@ -8182,6 +8183,8 @@ Solicitado: ${cantidad}`);
     const [tab, setTab] = useState("resumen");
     const [activeTable, setActiveTable] = useState("TiquetsCab");
     const [query, setQuery] = useState("");
+    const [salesConsumptionFilter, setSalesConsumptionFilter] = useState("todos");
+    const [salesConsumptionQuery, setSalesConsumptionQuery] = useState("");
     const [pendingAction, setPendingAction] = useState(null);
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
@@ -8610,6 +8613,23 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15, color: color || "#111827", wordBreak: "break-word" } }, value)
       );
     }
+    function renderSalesFilterButton(key, label, value, color) {
+      const active = salesConsumptionFilter === key;
+      return /* @__PURE__ */ React.createElement("button", {
+        type: "button",
+        onClick: () => setSalesConsumptionFilter(key),
+        style: Object.assign({}, statStyle, {
+          padding: 12,
+          textAlign: "left",
+          cursor: "pointer",
+          borderColor: active ? color || "var(--azul)" : "var(--borde)",
+          boxShadow: active ? `0 0 0 2px ${color || "#4338ca"}22` : "none"
+        })
+      },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, label),
+        /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15, color: color || "#111827", wordBreak: "break-word" } }, value)
+      );
+    }
     function formatLabOffset(value) {
       return value < 0 ? "Sin diferencias" : Number(value || 0).toLocaleString("en-US");
     }
@@ -8617,21 +8637,42 @@ Solicitado: ${cantidad}`);
       const readyRows = salesConsumptionRows.filter((row) => row.Estado === "Pendiente");
       const blockedRows = salesConsumptionRows.filter((row) => row.Estado !== "Pendiente" && row.Estado !== "Aplicado");
       const appliedRows = salesConsumptionRows.filter((row) => row.Estado === "Aplicado");
+      const q = normalizar(salesConsumptionQuery);
+      const filteredSalesRows = salesConsumptionRows.filter(function(row) {
+        if (salesConsumptionFilter === "bloqueadas" && !(row.Estado !== "Pendiente" && row.Estado !== "Aplicado")) return false;
+        if (salesConsumptionFilter === "aplicadas" && row.Estado !== "Aplicado") return false;
+        if (!q) return true;
+        return [
+          row.Fecha,
+          row.ProductoICG,
+          row.CodArticulo,
+          row.Referencia,
+          row.ModuloWTF,
+          row.ProductoWTF,
+          row.ProductoMise,
+          row.Estado
+        ].some(function(value) {
+          return normalizar(value).includes(q);
+        });
+      });
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
         /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-shield-halved" }), "Importar no modifica inventario. Primero genera esta vista previa, revisa bloqueos y luego aplica con clave administradora."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
-          renderLabMetric("Lineas consumo", salesConsumptionRows.length, "#4338ca"),
-          renderLabMetric("Listas para aplicar", readyRows.length, "#15803d"),
-          renderLabMetric("Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
-          renderLabMetric("Ya aplicadas", appliedRows.length, "#0f766e")
+          renderSalesFilterButton("todos", "Lineas consumo", salesConsumptionRows.length, "#4338ca"),
+          renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
+          renderSalesFilterButton("aplicadas", "Ya aplicadas", appliedRows.length, "#0f766e")
         ),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+          /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 390, width: "100%" } },
+            /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar consumo por fecha, codigo, producto, destino o estado...", value: salesConsumptionQuery, onChange: (e) => setSalesConsumptionQuery(e.target.value) })
+          ),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: syncSalesConsumptionDataset }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate" }), "Generar consumo desde ventas"),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: applySalesConsumption, disabled: !readyRows.length, style: { opacity: readyRows.length ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Aplicar al inventario")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
-          /* @__PURE__ */ React.createElement("tbody", null, salesConsumptionRows.slice(0, 160).map(function(row, index) {
+          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(row, index) {
             const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             return /* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || index, className: row.Estado === "Sin existencia" ? "tr-out-stock" : "" },
               /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
@@ -8644,7 +8685,7 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("td", null, row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, row.Estado || "-"))
             );
-          }), salesConsumptionRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "9", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")))
+          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "9", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "9", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
       );
     }
