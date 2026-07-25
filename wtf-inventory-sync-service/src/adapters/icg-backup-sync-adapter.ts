@@ -25,6 +25,8 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"]
 };
 
+const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
+
 function normalizar(value: unknown): string {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
@@ -109,6 +111,12 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     key: "ConsumoMiseVentas",
     label: "Consumo Mise ventas",
     columns: ["Fecha", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "Estado"],
+    rows: []
+  };
+  appState.icgFrontRestData.datasets.CierresDiarios = appState.icgFrontRestData.datasets.CierresDiarios || {
+    key: "CierresDiarios",
+    label: "Cierres diarios",
+    columns: CIERRES_DIARIOS_COLUMNS,
     rows: []
   };
   appState.icgFrontRestData.appliedImports = Array.isArray(appState.icgFrontRestData.appliedImports) ? appState.icgFrontRestData.appliedImports : [];
@@ -213,8 +221,93 @@ function parseSqlRows(output: string): AnyRecord[] {
   return rowsOut;
 }
 
+function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyRecord[] {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const fecha = String(row.FechaCierre || row.Fecha || "").slice(0, 10);
+    return {
+      _id: `sql-cierre-${fecha || quickHashText(JSON.stringify(row))}`,
+      Archivo: sourceName,
+      FechaCierre: fecha || String(row.FechaCierre || row.Fecha || ""),
+      Tickets: Math.round(parseNumber(row.Tickets)),
+      Lineas: Math.round(parseNumber(row.Lineas)),
+      VentaBruta: Number(parseNumber(row.VentaBruta).toFixed(2)),
+      VentaNeta: Number(parseNumber(row.VentaNeta).toFixed(2)),
+      Pagos: Number(parseNumber(row.Pagos).toFixed(2)),
+      Propina: Number(parseNumber(row.Propina).toFixed(2)),
+      Estado: row.Estado || "Calculado desde Base de Datos ICG Local",
+      Observacion: row.Observacion || "Generado desde TIQUETSCAB, TIQUETSLIN y pagos de la base local."
+    };
+  }).filter((row) => row.FechaCierre);
+}
+
+function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyRecord[] {
+  const currentYear = new Date().getFullYear();
+  const map = new Map<string, AnyRecord>();
+  (Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
+    const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
+    if (!key.startsWith(`${currentYear}-`)) return;
+    if (key) map.set(key, row);
+  });
+  (Array.isArray(newRows) ? newRows : []).forEach((row) => {
+    const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
+    if (!key) return;
+    if (!key.startsWith(`${currentYear}-`)) return;
+    map.set(key, Object.assign({}, map.get(key) || {}, row));
+  });
+  return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || ""))).slice(0, 1200);
+}
+
+async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
+  const currentYear = new Date().getFullYear();
+  const paymentsExists = parseSqlRows(await runSql(config, databaseName, "SELECT CASE WHEN OBJECT_ID('TIQUETSPAG','U') IS NULL THEN 0 ELSE 1 END AS Existe;"))[0]?.Existe === "1";
+  const paymentsJoin = paymentsExists
+    ? "LEFT JOIN (SELECT FO,SERIE,NUMERO,N,SUM(IMPORTE) AS PAGOS FROM TIQUETSPAG GROUP BY FO,SERIE,NUMERO,N) p ON p.FO=c.FO AND p.SERIE=c.SERIE AND p.NUMERO=c.NUMERO AND p.N=c.N"
+    : "LEFT JOIN (SELECT CAST(NULL AS varchar(20)) AS FO, CAST(NULL AS varchar(20)) AS SERIE, CAST(NULL AS int) AS NUMERO, CAST(NULL AS int) AS N, CAST(0 AS decimal(18,4)) AS PAGOS WHERE 1=0) p ON 1=0";
+  const sql = `
+WITH cab AS (
+  SELECT
+    CONVERT(date,c.FECHA) AS FechaCierre,
+    c.FO,
+    c.SERIE,
+    c.NUMERO,
+    c.N,
+    ISNULL(c.TOTALBRUTO,0) AS TOTALBRUTO,
+    ISNULL(c.TOTALNETO,0) AS TOTALNETO,
+    ISNULL(c.PROPINA,0) AS PROPINA
+  FROM TIQUETSCAB c
+  WHERE c.FECHAANULACION <= '19000101'
+    AND CONVERT(date,c.FECHA) >= '${currentYear}0101'
+    AND CONVERT(date,c.FECHA) < '${currentYear + 1}0101'
+),
+lineas AS (
+  SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
+  FROM TIQUETSLIN
+  GROUP BY FO,SERIE,NUMERO,N
+)
+SELECT
+  CONVERT(varchar(10), c.FechaCierre, 120) AS FechaCierre,
+  CAST(COUNT(*) AS int) AS Tickets,
+  CAST(SUM(ISNULL(l.Lineas,0)) AS int) AS Lineas,
+  CAST(SUM(ISNULL(c.TOTALBRUTO,0)) AS decimal(18,2)) AS VentaBruta,
+  CAST(SUM(ISNULL(c.TOTALNETO,0)) AS decimal(18,2)) AS VentaNeta,
+  CAST(SUM(ISNULL(p.PAGOS,0)) AS decimal(18,2)) AS Pagos,
+  CAST(SUM(ISNULL(c.PROPINA,0)) AS decimal(18,2)) AS Propina,
+  'Calculado desde Base de Datos ICG Local' AS Estado,
+  'Generado sin CMS desde SQL/backup local' AS Observacion
+FROM cab c
+LEFT JOIN lineas l ON l.FO=c.FO AND l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
+${paymentsJoin}
+GROUP BY c.FechaCierre
+ORDER BY FechaCierre DESC;`;
+  return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), path.basename(config.icgBackupPath || databaseName));
+}
+
 function sourceDatabaseName(config: ServiceConfig): string {
   return String(config.icgLiveDatabaseName || "").trim() || config.icgAuditDbName;
+}
+
+function auditBackupConfig(config: ServiceConfig): ServiceConfig {
+  return Object.assign({}, config, { icgLiveDatabaseName: "" });
 }
 
 export async function restoreIcgBackupForAudit(config: ServiceConfig): Promise<void> {
@@ -243,10 +336,12 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   rows: IcgBackupConsumptionRow[];
   tableCounts: Record<string, number>;
   articles: AnyRecord[];
+  closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE c.FECHAANULACION <= '19000101';"))[0]?.Fecha;
-  if (!latest) return { fecha: "", rows: [], tableCounts: {}, articles: [] };
+  const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
+  if (!latest) return { fecha: "", rows: [], tableCounts: {}, articles: [], closures };
   const dataSql = `
 DECLARE @fecha date='${quoteSql(latest)}';
 SELECT
@@ -300,7 +395,8 @@ ORDER BY CODARTICULO;`;
       lineas: Math.round(parseNumber(row.lineas))
     })).filter((row) => row.consumo > 0 && row.codArticulo),
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
-    articles
+    articles,
+    closures
   };
 }
 
@@ -340,7 +436,7 @@ function createBackupMovement(
   };
 }
 
-export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
+export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
@@ -359,6 +455,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
   mergeBackupArticlesIntoIcgData(icg, articles);
+  const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
+  if (closures.length) {
+    icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
+      columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
+      rows: mergeClosureRows(currentClosures.rows || [], closures)
+    });
+  }
   const links = rows(appState, "VinculosMiseICG").filter(active);
   const appliedKeys = new Set((icg.appliedImports || []).map(String));
   const consumoRows: AnyRecord[] = icg.datasets.ConsumoMiseVentas.rows || [];
@@ -497,13 +600,28 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
       message: "Sincronizacion de backup ICG desactivada."
     };
   }
-  await restoreIcgBackupForAudit(config);
-  const data = await readLatestBackupConsumption(config);
+  let activeConfig = config;
+  let data: Awaited<ReturnType<typeof readLatestBackupConsumption>>;
+  try {
+    await restoreIcgBackupForAudit(activeConfig);
+    data = await readLatestBackupConsumption(activeConfig);
+  } catch (error) {
+    if (!String(config.icgLiveDatabaseName || "").trim()) throw error;
+    activeConfig = auditBackupConfig(config);
+    await restoreIcgBackupForAudit(activeConfig);
+    data = await readLatestBackupConsumption(activeConfig);
+  }
   if (!data.fecha || !data.rows.length) {
+    if (data.closures.length) {
+      const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10);
+      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures);
+      result.message = "Cierres diarios ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
+      return result;
+    }
     return {
       ok: true,
-      backupPath: config.icgBackupPath,
-      databaseName: sourceDatabaseName(config),
+      backupPath: activeConfig.icgBackupPath,
+      databaseName: sourceDatabaseName(activeConfig),
       totalLines: 0,
       matched: 0,
       applied: 0,
@@ -514,5 +632,5 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
       tableCounts: data.tableCounts
     };
   }
-  return applyBackupConsumptionToFirestore(config, data.rows, data.fecha, data.tableCounts, data.articles);
+  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures);
 }

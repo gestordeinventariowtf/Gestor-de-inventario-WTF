@@ -986,6 +986,7 @@
     regEntradas: "wtf_reg_entradas",
     regSalidas: "wtf_reg_salidas",
     regDecomiso: "wtf_reg_decomiso",
+    regRecuento: "wtf_reg_recuento",
     regProduccion: "wtf_reg_produccion",
     recetasProduccion: "wtf_recetas_produccion",
     histDecomisoCocina: "wtf_hist_decomiso",
@@ -1006,6 +1007,7 @@
     regEntradas: "wtf_bar_reg_entradas",
     regSalidas: "wtf_bar_reg_salidas",
     regDecomiso: "wtf_bar_reg_decomiso",
+    regRecuento: "wtf_bar_reg_recuento",
     regProduccion: "wtf_bar_reg_produccion",
     recetasProduccion: "wtf_bar_recetas_produccion",
   };
@@ -1364,6 +1366,7 @@
     { key: "entradas", label: "Entradas" },
     { key: "salidas", label: "Salidas" },
     { key: "decomiso", label: "Decomiso" },
+    { key: "recuento", label: "Recuento" },
     { key: "mise", label: "Mise an Place" },
     { key: "listado", label: "Listado de Compra" },
     { key: "registros", label: "Registros" },
@@ -2140,6 +2143,7 @@
       "regEntradas",
       "regSalidas",
       "regDecomiso",
+      "regRecuento",
       "histEntradaRapida",
       "histSalidaRapida",
       "histDecomisoCocina",
@@ -2147,6 +2151,7 @@
       "barRegEntradas",
       "barRegSalidas",
       "barRegDecomiso",
+      "barRegRecuento",
       "barRegProduccion",
       "systemLogs"
     ].forEach(function(key) {
@@ -2200,6 +2205,7 @@
       regEntradas: state.regEntradas || [],
       regSalidas: state.regSalidas || [],
       regDecomiso: state.regDecomiso || [],
+      regRecuento: state.regRecuento || [],
       regProduccion: state.regProduccion || [],
       recetasProduccion: state.recetasProduccion || [],
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
@@ -2219,6 +2225,7 @@
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
       barRegDecomiso: state.barRegDecomiso || [],
+      barRegRecuento: state.barRegRecuento || [],
       barRegProduccion: state.barRegProduccion || [],
       barRecetasProduccion: state.barRecetasProduccion || []
     });
@@ -3120,7 +3127,11 @@
     const normalized = ensureIcgFrontRestData(icgData);
     const articleRows = icgRows(normalized, "Articulos");
     const refRows = icgRows(normalized, "Referencias");
-    return (articleRows.length ? articleRows : refRows).filter(function(row) {
+    const seen = new Set();
+    return articleRows.concat(refRows).filter(function(row) {
+      const key = normalizar(getIcgArticleOptionValue(row));
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
       return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
     });
   }
@@ -3250,14 +3261,66 @@
     if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
     return text.slice(0, 10);
   }
+  function getIcgCurrentYear() {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: APP_TIME_ZONE, year: "numeric" }).formatToParts(new Date());
+    const year = Number((parts.find((part) => part.type === "year") || {}).value);
+    return Number.isFinite(year) ? year : new Date().getFullYear();
+  }
+  function getIcgTimeZoneParts(date) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: APP_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+      weekday: "short"
+    }).formatToParts(date || new Date()).reduce(function(acc, part) {
+      if (part.type !== "literal") acc[part.type] = part.value;
+      return acc;
+    }, {});
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return {
+      dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+      hour: Number(parts.hour || 0),
+      dayOfWeek: weekdayMap[parts.weekday] ?? 0
+    };
+  }
+  function addDaysToIcgDateKey(dateKey, days) {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
+    return date.toISOString().slice(0, 10);
+  }
+  function getIcgCloseHourForDay(dayOfWeek) {
+    return dayOfWeek === 5 || dayOfWeek === 6 ? 3 : 1;
+  }
+  function getIcgBusinessDateKey(date) {
+    const parts = getIcgTimeZoneParts(date || new Date());
+    const previousKey = addDaysToIcgDateKey(parts.dateKey, -1);
+    const previousDate = new Date(`${previousKey}T12:00:00Z`);
+    const previousCloseHour = getIcgCloseHourForDay(previousDate.getUTCDay());
+    if (parts.hour < previousCloseHour) return previousKey;
+    return parts.dateKey;
+  }
   function sumIcgFields(row, fields) {
     return (fields || []).reduce(function(total, field) {
       return total + parseIcgNumber(row && row[field]);
     }, 0);
   }
   function buildIcgDailyClosures(data) {
+    const currentYear = getIcgCurrentYear();
+    const isCurrentYearRow = function(row) {
+      const key = icgDateKey(row && (row.FechaCierre || row.Fecha || row.createdAt));
+      return key && Number(key.slice(0, 4)) === currentYear;
+    };
+    const sortRecentFirst = function(rows) {
+      return (Array.isArray(rows) ? rows : []).filter(isCurrentYearRow).sort(function(a, b) {
+        return icgDateKey(b.FechaCierre || b.Fecha || b.createdAt).localeCompare(icgDateKey(a.FechaCierre || a.Fecha || a.createdAt));
+      });
+    };
     const explicit = icgRows(data, "CierresDiarios");
-    if (explicit.length) return explicit;
+    if (explicit.length) return sortRecentFirst(explicit);
     const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
       return !(row.FechaAnulacion || row.Anulado || row.Cancelado);
     });
@@ -3282,7 +3345,7 @@
       const key = icgDateKey(row.Fecha || row._fechaTicket || row._sourceDate) || "";
       if (key && groups[key]) groups[key].Pagos += sumIcgFields(row, ["Importe", "Importe2"]);
     });
-    return Object.keys(groups).sort().map(function(key) {
+    return Object.keys(groups).sort().reverse().map(function(key) {
       const row = groups[key];
       return Object.assign({}, row, {
         VentaBruta: Number(row.VentaBruta.toFixed(2)),
@@ -3290,7 +3353,7 @@
         Pagos: Number(row.Pagos.toFixed(2)),
         Propina: Number(row.Propina.toFixed(2))
       });
-    });
+    }).filter(isCurrentYearRow);
   }
   function buildIcgPurchaseDays(data) {
     const explicit = icgRows(data, "ComprasDiarias");
@@ -3940,6 +4003,7 @@
     const [regEntradas, setRegEntradas] = useState(() => loadSeeded(KEYS.regEntradas, initRegEntradas, []));
     const [regSalidas, setRegSalidas] = useState(() => loadSeeded(KEYS.regSalidas, initRegSalidas, []));
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
+    const [regRecuento, setRegRecuento] = useState(() => load(KEYS.regRecuento, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
     const [recetasProduccion, setRecetasProduccion] = useState(() => load(KEYS.recetasProduccion, []));
     const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
@@ -3962,6 +4026,7 @@
     const [barRegEntradas, setBarRegEntradas] = useState(() => load(BAR_KEYS.regEntradas, []));
     const [barRegSalidas, setBarRegSalidas] = useState(() => load(BAR_KEYS.regSalidas, []));
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
+    const [barRegRecuento, setBarRegRecuento] = useState(() => load(BAR_KEYS.regRecuento, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
@@ -4039,6 +4104,7 @@
       regEntradas,
       regSalidas,
       regDecomiso,
+      regRecuento,
       regProduccion,
       recetasProduccion,
       recetasProduccionBaseVersion,
@@ -4058,6 +4124,7 @@
       barRegEntradas,
       barRegSalidas,
       barRegDecomiso,
+      barRegRecuento,
       barRegProduccion,
       barRecetasProduccion,
     };
@@ -4156,6 +4223,7 @@
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(nextState.regEntradas);
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(nextState.regSalidas);
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
+      if (Array.isArray(nextState.regRecuento)) setRegRecuento(nextState.regRecuento);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
@@ -4175,6 +4243,7 @@
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(nextState.barRegEntradas);
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(nextState.barRegSalidas);
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
+      if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(nextState.barRegRecuento);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
       if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion);
       window.setTimeout(function() {
@@ -4202,6 +4271,7 @@
     useEffect(() => save(KEYS.regEntradas, regEntradas), [regEntradas]);
     useEffect(() => save(KEYS.regSalidas, regSalidas), [regSalidas]);
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
+    useEffect(() => save(KEYS.regRecuento, regRecuento), [regRecuento]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
     useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
     useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
@@ -4236,6 +4306,7 @@
     useEffect(() => save(BAR_KEYS.regEntradas, barRegEntradas), [barRegEntradas]);
     useEffect(() => save(BAR_KEYS.regSalidas, barRegSalidas), [barRegSalidas]);
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
+    useEffect(() => save(BAR_KEYS.regRecuento, barRegRecuento), [barRegRecuento]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
     useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion), [barRecetasProduccion]);
     useEffect(() => {
@@ -4527,7 +4598,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -4793,6 +4864,7 @@ Solicitado: ${cantidad}`);
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
       { key: "decomiso", icon: "fa-trash-can", label: "Decomiso", section: null },
+      { key: "recuento", icon: "fa-camera-retro", label: "Recuento", section: null },
       { key: "mise", icon: "fa-fire-burner", label: "Mise an Place", section: "COCINA" },
       { key: "listado", icon: "fa-cart-shopping", label: "Listado de Compra", section: null },
       { key: "registros", icon: "fa-clock-rotate-left", label: "Registros", section: "REPORTES" },
@@ -4811,6 +4883,7 @@ Solicitado: ${cantidad}`);
       entradas: "Registrar Entrada",
       salidas: "Registrar Salida",
       decomiso: "Registrar Decomiso",
+      recuento: "Recuento de Inventario",
       mise: "Mise an Place",
       listado: "Listado de Compra",
       registros: "Registros de Movimientos",
@@ -4840,6 +4913,8 @@ Solicitado: ${cantidad}`);
     const setActiveSalidas = esBar ? setBarRegSalidas : setRegSalidas;
     const activeDecomiso = esBar ? barRegDecomiso : regDecomiso;
     const setActiveDecomiso = esBar ? setBarRegDecomiso : setRegDecomiso;
+    const activeRecuento = esBar ? barRegRecuento : regRecuento;
+    const setActiveRecuento = esBar ? setBarRegRecuento : setRegRecuento;
     const activeProduccion = esBar ? barRegProduccion : regProduccion;
     const setActiveProduccion = esBar ? setBarRegProduccion : setRegProduccion;
     const activeRecetasProduccion = esBar ? barRecetasProduccion : recetasProduccion;
@@ -5073,6 +5148,7 @@ Solicitado: ${cantidad}`);
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
+      recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
@@ -8144,7 +8220,11 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [data, inventoryTargets, normalized.appliedImports]);
-    const ventaNetaTotal = closureRows.reduce((sum, row) => sum + parseIcgNumber(row.VentaNeta), 0);
+    const icgBusinessDateKey = getIcgBusinessDateKey(new Date());
+    const currentClosureRow = closureRows.find(function(row) {
+      return icgDateKey(row.FechaCierre || row.Fecha) === icgBusinessDateKey;
+    }) || closureRows[0] || null;
+    const ventaNetaCierreActual = currentClosureRow ? parseIcgNumber(currentClosureRow.VentaNeta) : 0;
     const compraNetaTotal = purchaseRows.reduce((sum, row) => sum + parseIcgNumber(row.TotalNeto), 0);
     const icgProductsForBridge = (icgRows(normalized, "Articulos").length ? icgRows(normalized, "Articulos") : icgRows(normalized, "Referencias")).filter(function(row) {
       return row && (row.Descripcion || row.ProductoICG || row.Nombre || row.Referencia || row.CodArticulo || row.Codigo);
@@ -8489,6 +8569,24 @@ Solicitado: ${cantidad}`);
       const blob = new Blob([JSON.stringify(ensureIcgFrontRestData(normalized), null, 2)], { type: "application/json;charset=utf-8" });
       downloadBlobFile(blob, `wtf-icg-frontrest-${new Date().toISOString().slice(0, 10)}.json`);
     }
+    async function syncIcgArticlesFromLocalDb() {
+      setBusy(true);
+      try {
+        const res = await fetch("http://127.0.0.1:8787/api/sync-icg-backup", { method: "POST" });
+        const payload = await res.json().catch(function() { return {}; });
+        if (!res.ok || !payload.ok) {
+          throw new Error(payload.error || payload.message || "No se pudo conectar con WTF ICG Host local.");
+        }
+        const result = payload.result || {};
+        setActiveTable("Articulos");
+        setTab("tablas");
+        toast(result.message || "Base de Datos ICG Local procesada. La tabla Articulos ICG se actualizara desde Firebase.", "ok", 6500);
+      } catch (err) {
+        toast((err && err.message ? err.message : "No se pudo procesar la base ICG local.") + " Verifica que WTF ICG Host este abierto en esta PC.", "error", 7500);
+      } finally {
+        setBusy(false);
+      }
+    }
     function exportCms() {
       setPendingAction({
         title: "Generar archivo .CMS",
@@ -8654,13 +8752,13 @@ Solicitado: ${cantidad}`);
         closureRows.length > 0 && (totals.TiquetsCab || 0) === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Estos cierres vienen de una auditoria/importacion agregada. Si el estado dice Sin tickets, el archivo fue leido pero no trae ventas."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderLabMetric("Cierres", closureRows.length, "#4338ca"),
-          renderLabMetric("Venta neta", formatIcgMoney(ventaNetaTotal), "#15803d"),
+          renderLabMetric("Venta neta", formatIcgMoney(ventaNetaCierreActual), "#15803d"),
           renderLabMetric("Tickets", closureRows.reduce((sum, row) => sum + parseIcgNumber(row.Tickets), 0), "#b45309"),
           renderLabMetric("Compras netas", formatIcgMoney(compraNetaTotal), "#111827")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Archivo"), /* @__PURE__ */ React.createElement("th", null, "Tickets"), /* @__PURE__ */ React.createElement("th", null, "Venta neta"), /* @__PURE__ */ React.createElement("th", null, "Pagos"), /* @__PURE__ */ React.createElement("th", null, "Estado"))),
-          /* @__PURE__ */ React.createElement("tbody", null, closureRows.slice().reverse().map(function(row, index) {
+          /* @__PURE__ */ React.createElement("tbody", null, closureRows.map(function(row, index) {
             return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.Archivo || "cierre"}-${row.FechaCierre || index}` },
               /* @__PURE__ */ React.createElement("td", null, row.FechaCierre || row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.Archivo || "-"),
@@ -8753,7 +8851,7 @@ Solicitado: ${cantidad}`);
     return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } },
       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 } },
         /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Cierres"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 24, color: "#4338ca" } }, closureRows.length || 0)),
-        /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Venta neta"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 22, color: "#15803d" } }, formatIcgMoney(ventaNetaTotal))),
+        /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Venta neta"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 22, color: "#15803d" } }, formatIcgMoney(ventaNetaCierreActual))),
         /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Articulos ICG"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 24, color: "#b45309" } }, totals.Articulos || totals.Referencias || 0)),
         /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Vinculos Mise"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 24, color: "#0f766e" } }, bridgeRows.length || 0)),
         /* @__PURE__ */ React.createElement("div", { style: statStyle }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Estado CMS"), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 14, color: "#111827" } }, normalized.audit.status || "Sin archivo"))
@@ -8763,6 +8861,7 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-cash-register", style: { marginRight: 7, color: "#6366f1" } }), "Puente ICG FrontRest"),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("label", { className: `btn btn-sm btn-outline ${busy ? "disabled" : ""}`, style: { cursor: busy ? "not-allowed" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: busy ? "fas fa-spinner fa-spin" : "fas fa-file-import" }), busy ? "Leyendo..." : "Importar archivo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".cms,.xlsx,.xls,.csv,.json", style: { display: "none" }, disabled: busy, onChange: function(e) { handleFile(e.target.files && e.target.files[0]); e.target.value = ""; } })),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: syncIcgArticlesFromLocalDb, disabled: busy, style: { opacity: busy ? 0.65 : 1 } }, /* @__PURE__ */ React.createElement("i", { className: busy ? "fas fa-spinner fa-spin" : "fas fa-database" }), "Actualizar Articulos ICG"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: exportJson }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-code" }), "Exportar JSON"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: exportCms }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-zipper" }), "Generar .CMS")
           )
@@ -9645,6 +9744,350 @@ Solicitado: ${cantidad}`);
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { marginRight: 7, color: "#0ea5e9" } }), `Migrar productos a ${targetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)" } }, `Selecciona los productos que saldrán de Inventario y pasarán a ${targetLabel}. El sistema conservará el renglón actual y lo creará si no existe en el destino.`), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o renglón actual...", value: busqueda, onChange: (e) => setBusqueda(e.target.value), autoFocus: true })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Seleccionados: ", /* @__PURE__ */ React.createElement("strong", null, selectedProductIds.length)), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "50vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { width: 48 } }, "Sel."), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Renglón actual"))), /* @__PURE__ */ React.createElement("tbody", null, productRows)))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: submit, disabled: !selectedProductIds.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), "Migrar seleccionados"))));
   }
+  function getLocalDatetimeInputValue(date = new Date()) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+  function parseRecountQuantity(value) {
+    const cleaned = String(value == null ? "" : value).replace(",", ".").replace(/[^\d.-]/g, "");
+    const number = Number(cleaned);
+    return Number.isFinite(number) ? number : NaN;
+  }
+  function getRecountMatchScore(query, row) {
+    const q = normalizar(query);
+    const name = normalizar(row && (row.producto || row.nombre || ""));
+    const code = normalizar(row && (row.codArticulo || ""));
+    if (!q || !name) return 0;
+    if (q === name || q === code) return 100;
+    if (name.includes(q) || q.includes(name)) return 88;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return 0;
+    const hits = tokens.filter(function(token) {
+      return name.includes(token) || code.includes(token);
+    }).length;
+    return Math.round(hits / tokens.length * 78);
+  }
+  function parseRecountTextToRows(text, catalog) {
+    return String(text || "").split(/\r?\n/).map(function(line) {
+      const raw = String(line || "").trim();
+      if (!raw) return null;
+      const match = raw.match(/(.+?)\s+(-?\d+(?:[.,]\d{1,4})?)\s*(?:uni|unidad|unidades|lb|lbs|g|kg|oz|paq|paquete|galon|medio galon)?\s*$/i);
+      if (!match) return null;
+      const producto = String(match[1] || "").replace(/^[#*\-\s]+/, "").trim();
+      const cantidad = parseRecountQuantity(match[2]);
+      if (!producto || !Number.isFinite(cantidad)) return null;
+      const best = (catalog || []).map(function(item) {
+        return { item, score: getRecountMatchScore(producto, item) };
+      }).sort(function(a, b) {
+        return b.score - a.score;
+      })[0];
+      return {
+        id: `rec-line-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        raw,
+        productoDetectado: producto,
+        cantidadContada: Number(cantidad.toFixed(4)),
+        producto: best && best.score >= 45 ? best.item.producto : "",
+        productId: best && best.score >= 45 ? best.item.id : "",
+        score: best ? best.score : 0,
+        selected: Boolean(best && best.score >= 45)
+      };
+    }).filter(Boolean);
+  }
+  function RecuentoPage({ moduleLabel = "Cocina", currentUser, inventario = [], setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace = [], setMise, regEntradas = [], setRegEntradas, regSalidas = [], setRegSalidas, regDecomiso = [], histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, histDecomisoCocina = [], setHistDecomisoCocina, regRecuento = [], setRegRecuento }) {
+    const toast = useToast();
+    const [target, setTarget] = useState("inventario");
+    const [countedAt, setCountedAt] = useState(() => getLocalDatetimeInputValue());
+    const [photoName, setPhotoName] = useState("");
+    const [photoPreview, setPhotoPreview] = useState("");
+    const [ocrText, setOcrText] = useState("");
+    const [ocrStatus, setOcrStatus] = useState("");
+    const [rows, setRows] = useState([]);
+    const [error, setError] = useState("");
+    const catalog = useMemo(function() {
+      if (target === "mise") {
+        return normalizeMiseItems(miseAnPlace).map(function(item) {
+          return {
+            id: item.id,
+            producto: item.producto,
+            codArticulo: getMiseCodArticulo(item, 0),
+            medida: item.medida || "Uni",
+            existencia: getMiseSafeNumber(item.existencia, 0),
+            source: "Mise an Place"
+          };
+        });
+      }
+      const source = target === "cuartoFrio" ? cuartoFrioInventario : inventario;
+      return (Array.isArray(source) ? source : []).filter(function(item) {
+        return item && item.tipo === "producto";
+      }).map(function(item) {
+        return {
+          id: item.id,
+          producto: item.nombre,
+          codArticulo: getInventoryCodArticulo(item, ""),
+          medida: item.medida || "Uni",
+          existencia: getInventoryExistence(item),
+          source: target === "cuartoFrio" ? "Cuarto Frio" : "Inventario"
+        };
+      });
+    }, [target, inventario, cuartoFrioInventario, miseAnPlace]);
+    const datalistId = `recuento-products-${target}`;
+    const countedDate = new Date(countedAt);
+    function readFileAsDataUrl(file) {
+      return new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function() { resolve(String(reader.result || "")); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+    async function onPhotoChange(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      setError("");
+      setPhotoName(file.name || "foto-recuento");
+      const dataUrl = await readFileAsDataUrl(file);
+      setPhotoPreview(dataUrl);
+      setOcrStatus("Foto cargada. Puedes ejecutar lectura IA/OCR.");
+    }
+    async function runOcr() {
+      setError("");
+      if (!photoPreview) {
+        setError("Primero selecciona una foto del conteo.");
+        return;
+      }
+      try {
+        setOcrStatus("Cargando motor de lectura IA/OCR...");
+        if (!window.Tesseract) {
+          await new Promise(function(resolve, reject) {
+            const script = document.createElement("script");
+            script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+        setOcrStatus("Leyendo foto. Esto puede tardar unos segundos...");
+        const result = await window.Tesseract.recognize(photoPreview, "spa+eng", {
+          logger: function(message) {
+            if (message && message.status) setOcrStatus(`IA/OCR: ${message.status}${message.progress ? " " + Math.round(message.progress * 100) + "%" : ""}`);
+          }
+        });
+        const text = result && result.data && result.data.text ? result.data.text : "";
+        setOcrText(text);
+        const parsed = parseRecountTextToRows(text, catalog);
+        setRows(parsed);
+        setOcrStatus(parsed.length ? `Lectura completada: ${parsed.length} lineas detectadas.` : "Lectura completada, pero no se detectaron cantidades claras.");
+      } catch (err) {
+        setOcrStatus("");
+        setError("No se pudo leer la foto automaticamente. Puedes escribir o pegar el texto del conteo y pulsar Analizar texto.");
+      }
+    }
+    function analyzeText() {
+      const parsed = parseRecountTextToRows(ocrText, catalog);
+      setRows(parsed);
+      toast(parsed.length ? `${parsed.length} lineas detectadas` : "No se detectaron lineas validas", parsed.length ? "ok" : "info");
+    }
+    function resolveProductByValue(value) {
+      const q = normalizar(value);
+      return catalog.find(function(item) {
+        return normalizar(item.producto) === q || normalizar(item.codArticulo) === q;
+      }) || null;
+    }
+    function updateRow(id, patch) {
+      setRows(function(prev) {
+        return prev.map(function(row) {
+          if (row.id !== id) return row;
+          const next = Object.assign({}, row, patch);
+          if (patch.producto != null) {
+            const match = resolveProductByValue(patch.producto);
+            if (match) {
+              next.producto = match.producto;
+              next.productId = match.id;
+              next.score = 100;
+            }
+          }
+          if (patch.cantidadContada != null) {
+            next.cantidadContada = parseRecountQuantity(patch.cantidadContada);
+          }
+          return next;
+        });
+      });
+    }
+    function addManualRow() {
+      setRows(function(prev) {
+        return prev.concat({
+          id: `rec-manual-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          raw: "",
+          productoDetectado: "",
+          cantidadContada: 0,
+          producto: "",
+          productId: "",
+          score: 0,
+          selected: true
+        });
+      });
+    }
+    function postCountDelta(producto) {
+      if (!(countedDate instanceof Date) || isNaN(countedDate)) return 0;
+      const after = function(row) {
+        const dt = new Date(row && row.fecha);
+        return !isNaN(dt) && dt > countedDate && normalizar(row.producto || row.nombre || "") === normalizar(producto);
+      };
+      if (target === "mise") {
+        const entradas = (Array.isArray(histEntradaRapida) ? histEntradaRapida : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+        const salidas = (Array.isArray(histSalidaRapida) ? histSalidaRapida : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+        const decomisos = (Array.isArray(histDecomisoCocina) ? histDecomisoCocina : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+        return Number((entradas - salidas - decomisos).toFixed(4));
+      }
+      const entradas = (Array.isArray(regEntradas) ? regEntradas : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+      const salidas = (Array.isArray(regSalidas) ? regSalidas : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+      const decomisos = (Array.isArray(regDecomiso) ? regDecomiso : []).filter(after).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+      return Number((entradas - salidas - decomisos).toFixed(4));
+    }
+    const previewRows = rows.map(function(row) {
+      const product = catalog.find(function(item) {
+        return String(item.id) === String(row.productId) || normalizar(item.producto) === normalizar(row.producto);
+      });
+      const counted = Number(row.cantidadContada);
+      const deltaPosterior = product ? postCountDelta(product.producto) : 0;
+      const existenciaActual = product ? Number(product.existencia || 0) : 0;
+      const existenciaEsperadaAhora = Number(((Number.isFinite(counted) ? counted : 0) + deltaPosterior).toFixed(4));
+      const ajuste = product && Number.isFinite(counted) ? Number((existenciaEsperadaAhora - existenciaActual).toFixed(4)) : 0;
+      return Object.assign({}, row, { product, deltaPosterior, existenciaActual, existenciaEsperadaAhora, ajuste });
+    });
+    function applyRecount() {
+      setError("");
+      if (!(countedDate instanceof Date) || isNaN(countedDate)) {
+        setError("Selecciona una fecha y hora valida del conteo.");
+        return;
+      }
+      const selectedRows = previewRows.filter(function(row) {
+        return row.selected && row.product && Number.isFinite(Number(row.cantidadContada));
+      });
+      if (!selectedRows.length) {
+        setError("No hay lineas validas seleccionadas para aplicar.");
+        return;
+      }
+      const now = new Date().toISOString();
+      const usuario = getUserDisplayLabel(currentUser);
+      const adjustments = selectedRows.filter(function(row) {
+        return Math.abs(Number(row.ajuste || 0)) >= 1e-4;
+      });
+      if (target === "mise") {
+        setMise(function(prev) {
+          return normalizeMiseItems((Array.isArray(prev) ? prev : []).map(function(item) {
+            const row = adjustments.find(function(entry) {
+              return Number(entry.product.id) === Number(item.id) || normalizar(entry.product.producto) === normalizar(item.producto);
+            });
+            return row ? Object.assign({}, item, { existencia: row.existenciaEsperadaAhora, updatedAt: now }) : item;
+          }));
+        });
+        const entradas = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
+          return { id: createMovementId("rec-ent-mise"), fecha: now, producto: row.product.producto, cantidad: Number(row.ajuste.toFixed(4)), medida: row.product.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaActual, existenciaNueva: row.existenciaEsperadaAhora };
+        });
+        const salidas = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
+          return { id: createMovementId("rec-sal-mise"), fecha: now, producto: row.product.producto, cantidad: Math.abs(Number(row.ajuste.toFixed(4))), medida: row.product.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaActual, existenciaNueva: row.existenciaEsperadaAhora };
+        });
+        if (entradas.length) setHistEntradaRapida((prev) => (Array.isArray(prev) ? prev : []).concat(entradas));
+        if (salidas.length) setHistSalidaRapida((prev) => (Array.isArray(prev) ? prev : []).concat(salidas));
+      } else {
+        const setter = target === "cuartoFrio" ? setCuartoFrioInventario : setInventario;
+        setter(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(item) {
+            if (!item || item.tipo !== "producto") return item;
+            const row = adjustments.find(function(entry) {
+              return Number(entry.product.id) === Number(item.id) || normalizar(entry.product.producto) === normalizar(item.nombre);
+            });
+            if (!row) return item;
+            return row.ajuste > 0 ? Object.assign({}, item, { entrada: Number((Number(item.entrada || 0) + row.ajuste).toFixed(4)) }) : Object.assign({}, item, { salida: Number((Number(item.salida || 0) + Math.abs(row.ajuste)).toFixed(4)) });
+          });
+        });
+        const entradaRegs = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
+          return { fecha: now, producto: row.product.producto, medida: row.product.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.product.source}`, conteoFecha: countedAt };
+        });
+        const salidaRegs = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
+          return { fecha: now, producto: row.product.producto, medida: row.product.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.product.source}`, conteoFecha: countedAt };
+        });
+        if (entradaRegs.length) setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).concat(entradaRegs));
+        if (salidaRegs.length) setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).concat(salidaRegs));
+      }
+      const report = {
+        id: createMovementId("recuento"),
+        fecha: now,
+        conteoFecha: new Date(countedAt).toISOString(),
+        modulo: moduleLabel,
+        destino: target === "mise" ? "Mise an Place" : target === "cuartoFrio" ? "Cuarto Frio" : "Inventario",
+        foto: photoName,
+        usuario,
+        totalLineas: rows.length,
+        aplicadas: selectedRows.length,
+        ajustes: adjustments.length,
+        detalles: selectedRows.map(function(row) {
+          return {
+            producto: row.product.producto,
+            medida: row.product.medida || "Uni",
+            cantidadContada: row.cantidadContada,
+            movimientosPosteriores: row.deltaPosterior,
+            existenciaSistemaAntes: row.existenciaActual,
+            existenciaAjustada: row.existenciaEsperadaAhora,
+            ajuste: row.ajuste
+          };
+        })
+      };
+      setRegRecuento((prev) => (Array.isArray(prev) ? prev : []).concat([report]));
+      toast(`Recuento aplicado: ${adjustments.length} ajustes`, "ok");
+    }
+    const targetLabel = target === "mise" ? "Mise an Place" : target === "cuartoFrio" ? "Cuarto Frio" : "Inventario";
+    return /* @__PURE__ */ React.createElement("div", null,
+      /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera-retro", style: { marginRight: 7, color: "var(--azul)" } }), "Recuento por foto"),
+          /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, moduleLabel)
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
+          error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-3" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Area del conteo"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: target, onChange: (e) => { setTarget(e.target.value); setRows([]); } }, /* @__PURE__ */ React.createElement("option", { value: "inventario" }, "Inventario"), /* @__PURE__ */ React.createElement("option", { value: "cuartoFrio" }, "Cuarto Frio"), /* @__PURE__ */ React.createElement("option", { value: "mise" }, "Mise an Place"))),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha y hora del conteo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "datetime-local", value: countedAt, onChange: (e) => setCountedAt(e.target.value) })),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Foto de la hoja"), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), photoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: onPhotoChange, style: { display: "none" } })))
+          ),
+          photoPreview && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px, 260px) 1fr", gap: 12, alignItems: "start" } },
+            /* @__PURE__ */ React.createElement("img", { src: photoPreview, alt: "Foto del recuento", style: { width: "100%", maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOcr }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), "Leer foto con IA"),
+              ocrStatus && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), ocrStatus)
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Texto detectado o transcrito"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 5, value: ocrText, onChange: (e) => setOcrText(e.target.value), placeholder: "Ejemplo: PECHUGA PLANCHA 25\nALITAS 18\nSALSA ROSA 7" })),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: analyzeText }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Analizar texto"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: addManualRow }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar linea manual"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: applyRecount, disabled: !previewRows.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Aplicar recuento")
+          )
+        )
+      ),
+      /* @__PURE__ */ React.createElement("datalist", { id: datalistId }, catalog.map(function(item) { return /* @__PURE__ */ React.createElement("option", { key: `${item.id}-${item.producto}`, value: item.producto }, item.codArticulo ? `${item.codArticulo} - ${item.producto}` : item.producto); })),
+      /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Revision antes de aplicar"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, targetLabel)),
+        /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Usar"), /* @__PURE__ */ React.createElement("th", null, "Detectado"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"))),
+          /* @__PURE__ */ React.createElement("tbody", null, previewRows.map(function(row) {
+            const ajusteClass = row.ajuste > 0 ? "pill pill-verde" : row.ajuste < 0 ? "pill pill-rojo" : "pill pill-gris";
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(row.selected), onChange: (e) => updateRow(row.id, { selected: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.productoDetectado || row.raw || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: row.producto || "", onChange: (e) => updateRow(row.id, { producto: e.target.value }), placeholder: "Seleccionar producto" }), row.score ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Coincidencia IA: ", row.score, "%") : null), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: Number.isFinite(Number(row.cantidadContada)) ? row.cantidadContada : "", onChange: (e) => updateRow(row.id, { cantidadContada: e.target.value }) })), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.existenciaActual) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.deltaPosterior) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, row.ajuste > 0 ? "+" : "", formatMiseQty(row.ajuste)) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin vinculo")));
+          }), !previewRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, "Sube una foto, lee con IA o agrega lineas manuales.")))
+        ))
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Informes de recuento"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, (Array.isArray(regRecuento) ? regRecuento : []).length, " registros")),
+        /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Aplicado"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Area"), /* @__PURE__ */ React.createElement("th", null, "Lineas"), /* @__PURE__ */ React.createElement("th", null, "Ajustes"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))),
+          /* @__PURE__ */ React.createElement("tbody", null, [...(Array.isArray(regRecuento) ? regRecuento : [])].reverse().slice(0, 30).map(function(row) {
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.fecha }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.conteoFecha)), /* @__PURE__ */ React.createElement("td", null, row.destino), /* @__PURE__ */ React.createElement("td", null, row.aplicadas || 0), /* @__PURE__ */ React.createElement("td", null, row.ajustes || 0), /* @__PURE__ */ React.createElement("td", null, row.usuario || "-"));
+          }), !(Array.isArray(regRecuento) && regRecuento.length) && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Sin informes de recuento.")))
+        ))
+      )
+    );
+  }
   function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [], specialAccess = false }) {
     const toast = useToast();
     const [producto, setProducto] = useState("");
@@ -9754,9 +10197,7 @@ Solicitado: ${cantidad}`);
     const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, icgLinks: [createBlankIcgLink("Uni")] });
     const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
     const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
-    const icgArticleRows = (icgRows(normalizedIcgData, "Articulos").length ? icgRows(normalizedIcgData, "Articulos") : icgRows(normalizedIcgData, "Referencias")).filter(function(row) {
-      return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
-    });
+    const icgArticleRows = getIcgArticleRowsForLinks(normalizedIcgData);
     const icgBridgeRows = icgRows(normalizedIcgData, "VinculosMiseICG");
     function setNewMiseIcgLinks(updater) {
       setNewProd(function(prev) {
@@ -10065,6 +10506,7 @@ Solicitado: ${cantidad}`);
               const value = getIcgArticleOptionValue(row);
               return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${index}`, value }, value) : null;
             })),
+            !icgArticles.length && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "No hay Articulos ICG cargados. Importa o sincroniza ICG FrontRest para activar esta lista."),
             /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, icgLinks.map(function(link, index) {
               return /* @__PURE__ */ React.createElement("div", { key: index, style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
                 /* @__PURE__ */ React.createElement("input", { className: "form-control", list: `mise-icg-article-list-${item.id}`, value: link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | "), onChange: (e) => updateIcgLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
