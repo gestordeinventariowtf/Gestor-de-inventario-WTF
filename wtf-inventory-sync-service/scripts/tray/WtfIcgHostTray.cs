@@ -66,7 +66,7 @@ namespace WtfIcgHostTray
             menu.Items.Add(statusItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Abrir panel local", null, (sender, args) => OpenPanel());
-            menu.Items.Add("Procesar Base de Datos ICG Local", null, (sender, args) => PostLocal("/api/sync-icg-backup"));
+            menu.Items.Add("Sincronizar", null, (sender, args) => PostLocal("/api/refresh-all"));
             menu.Items.Add("Abrir carpeta de datos", null, (sender, args) => OpenDataFolder());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Iniciar servicio", null, (sender, args) => { StartHost(); UpdateStatus(); });

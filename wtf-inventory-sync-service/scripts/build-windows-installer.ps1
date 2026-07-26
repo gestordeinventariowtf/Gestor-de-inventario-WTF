@@ -61,6 +61,75 @@ function Build-TrayApp {
   }
 }
 
+function Build-SelfExtractingInstallerFallback {
+  param(
+    [string]$ZipSource,
+    [string]$OutputPath
+  )
+  $fallbackWork = Join-Path $env:TEMP "wtf-icg-host-installer-fallback"
+  if (Test-Path $fallbackWork) {
+    Remove-Item -LiteralPath $fallbackWork -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $fallbackWork | Out-Null
+  $payloadResource = Join-Path $fallbackWork "payload.zip"
+  $sourcePath = Join-Path $fallbackWork "WtfIcgHostSetup.cs"
+  Copy-Item -LiteralPath $ZipSource -Destination $payloadResource -Force
+  @"
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
+
+class WtfIcgHostSetup {
+  static int Main() {
+    try {
+      string target = Path.Combine(Path.GetTempPath(), "WTF-ICG-Host-Setup-" + Guid.NewGuid().ToString("N"));
+      Directory.CreateDirectory(target);
+      string zipPath = Path.Combine(target, "payload.zip");
+      using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")) {
+        if (input == null) throw new Exception("No se encontro payload.zip dentro del instalador.");
+        using (FileStream output = File.Create(zipPath)) input.CopyTo(output);
+      }
+      ZipFile.ExtractToDirectory(zipPath, target);
+      string setup = Path.Combine(target, "INSTALAR-WTF-ICG-HOST.cmd");
+      if (!File.Exists(setup)) throw new Exception("No se encontro INSTALAR-WTF-ICG-HOST.cmd.");
+      Process proc = Process.Start(new ProcessStartInfo {
+        FileName = setup,
+        WorkingDirectory = target,
+        UseShellExecute = true
+      });
+      if (proc != null) proc.WaitForExit();
+      return 0;
+    } catch (Exception ex) {
+      Console.Error.WriteLine(ex.Message);
+      return 1;
+    }
+  }
+}
+"@ | Set-Content -LiteralPath $sourcePath -Encoding ASCII
+  $csc = Get-CSharpCompiler
+  $compilerArgs = @(
+    "/nologo",
+    "/target:exe",
+    "/platform:x64",
+    "/resource:$payloadResource,payload.zip",
+    "/reference:System.dll",
+    "/reference:System.Core.dll",
+    "/reference:System.IO.Compression.dll",
+    "/reference:System.IO.Compression.FileSystem.dll"
+  )
+  & $csc @compilerArgs "/out:$OutputPath" $sourcePath
+  if ($LASTEXITCODE -ne 0 -or !(Test-Path $OutputPath)) {
+    $fallbackOutput = Join-Path (Split-Path -Parent $OutputPath) (([IO.Path]::GetFileNameWithoutExtension($OutputPath)) + "-actualizado.exe")
+    Write-Warning "No se pudo sobrescribir $OutputPath. Se generara $fallbackOutput."
+    & $csc @compilerArgs "/out:$fallbackOutput" $sourcePath
+    if ($LASTEXITCODE -ne 0 -or !(Test-Path $fallbackOutput)) {
+      throw "No se pudo generar el instalador .exe alternativo."
+    }
+  }
+}
+
 Set-Location $Root
 npm.cmd install
 npm.cmd run build
@@ -203,9 +272,13 @@ SourceFiles0=$ShortPayload
     & $IExpress /N /Q $SedPath | Out-Null
     if (Test-Path $ShortExe) {
       Copy-Item -LiteralPath $ShortExe -Destination $ExePath -Force
+    } else {
+      Write-Warning "IExpress no genero el .exe. Generando instalador alternativo."
+      Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
     }
   } catch {
-    Write-Warning "No se pudo generar el .exe con IExpress. El .zip instalable si fue generado."
+    Write-Warning "No se pudo generar el .exe con IExpress. Generando instalador alternativo."
+    Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
   }
 }
 

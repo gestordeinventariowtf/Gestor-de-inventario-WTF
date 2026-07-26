@@ -342,23 +342,6 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   const databaseName = sourceDatabaseName(config);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
   const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
-  if (!latest) return { fecha: "", rows: [], tableCounts: {}, articles: [], closures };
-  const dataSql = `
-DECLARE @fecha date='${quoteSql(latest)}';
-SELECT
-  CONVERT(varchar(10), @fecha, 120) AS fecha,
-  CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
-  ISNULL(a.REFERENCIA,'') AS referencia,
-  ISNULL(a.DESCRIPCION,'') AS descripcion,
-  ISNULL(tc.CODALMACEN,'') AS codAlmacen,
-  CAST(SUM(tc.CONSUMO) AS decimal(18,4)) AS consumo,
-  CAST(COUNT(*) AS int) AS lineas
-FROM TIQUETSCONSUMO tc
-JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
-LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
-WHERE CONVERT(date,c.FECHA)=@fecha AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-GROUP BY tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
-ORDER BY tc.CODARTICULO,tc.CODALMACEN;`;
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS') GROUP BY t.name;";
   const articlesSql = `
 SELECT
@@ -381,9 +364,34 @@ SELECT
   ISNULL(CONVERT(varchar(19),FECHAMODIFICADO,120),'') AS FechaModificado
 FROM ARTICULOS
 ORDER BY CODARTICULO;`;
-  const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
   const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
+  if (!latest) {
+    return {
+      fecha: "",
+      rows: [],
+      tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
+      articles,
+      closures
+    };
+  }
+  const dataSql = `
+DECLARE @fecha date='${quoteSql(latest)}';
+SELECT
+  CONVERT(varchar(10), @fecha, 120) AS fecha,
+  CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
+  ISNULL(a.REFERENCIA,'') AS referencia,
+  ISNULL(a.DESCRIPCION,'') AS descripcion,
+  ISNULL(tc.CODALMACEN,'') AS codAlmacen,
+  CAST(SUM(tc.CONSUMO) AS decimal(18,4)) AS consumo,
+  CAST(COUNT(*) AS int) AS lineas
+FROM TIQUETSCONSUMO tc
+JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
+LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
+WHERE CONVERT(date,c.FECHA)=@fecha AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+GROUP BY tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
+ORDER BY tc.CODARTICULO,tc.CODALMACEN;`;
+  const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   return {
     fecha: latest,
     rows: sqlRows.map((row) => ({
