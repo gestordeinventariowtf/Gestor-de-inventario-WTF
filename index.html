@@ -43,15 +43,15 @@
       --topbar-h: 50px;
     }
 
-    /* â”€â”€ Scrollbar â”€â”€ */
+    /* -- Scrollbar -- */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
-    /* â”€â”€ Root layout â”€â”€ */
+    /* -- Root layout -- */
     #root { display: flex; height: 100%; min-height: 100dvh; }
 
-    /* â”€â”€ Sidebar â”€â”€ */
+    /* -- Sidebar -- */
     .sidebar {
       width: var(--sidebar-w);
       background: #1a1f2e;
@@ -134,7 +134,7 @@
       flex-shrink: 0;
     }
 
-    /* â”€â”€ Main â”€â”€ */
+    /* -- Main -- */
     .main {
       margin-left: var(--sidebar-w);
       flex: 1;
@@ -146,7 +146,7 @@
     }
     .main.full { margin-left: 0; }
 
-    /* â”€â”€ Topbar â”€â”€ */
+    /* -- Topbar -- */
     .topbar {
       background: var(--blanco);
       border-bottom: 1px solid var(--borde);
@@ -336,7 +336,7 @@
       color: #9a3412;
     }
 
-    /* â”€â”€ Content â”€â”€ */
+    /* -- Content -- */
     .content {
       padding: clamp(12px, 3vw, 24px);
       flex: 1;
@@ -350,7 +350,7 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* â”€â”€ Cards â”€â”€ */
+    /* -- Cards -- */
     .card {
       background: var(--blanco);
       border-radius: 10px;
@@ -367,7 +367,7 @@
     .card-header h2 { font-size: 14px; font-weight: 600; }
     .card-body { padding: 16px; }
 
-    /* â”€â”€ Stat Cards â”€â”€ */
+    /* -- Stat Cards -- */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(clamp(130px, 20vw, 180px), 1fr));
@@ -396,7 +396,7 @@
     .stat-card.rojo  { border-color: var(--rojo);  } .stat-card.rojo  .stat-value { color: var(--rojo);  }
     .stat-card.naranja { border-color: #f59e0b; } .stat-card.naranja .stat-value { color: #d97706; }
 
-    /* â”€â”€ Buttons â”€â”€ */
+    /* -- Buttons -- */
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 8px 13px;
@@ -418,7 +418,7 @@
     .btn-sm  { padding: 5px 9px; font-size: 12px; }
     .btn-icon { padding: 7px 8px; }
 
-    /* â”€â”€ Action bar â”€â”€ */
+    /* -- Action bar -- */
     .action-bar {
       display: flex; gap: 8px; flex-wrap: wrap;
       margin-bottom: 14px; align-items: center;
@@ -455,7 +455,7 @@
       flex: 1 1 180px;
     }
 
-    /* â”€â”€ Forms â”€â”€ */
+    /* -- Forms -- */
     .form-group { margin-bottom: 13px; }
     .form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #374151; }
     .form-control {
@@ -474,14 +474,14 @@
     textarea.form-control { resize: vertical; min-height: 68px; }
     .icg-link-row { min-width: 0; }
 
-    /* â”€â”€ Search â”€â”€ */
+    /* -- Search -- */
     .search-wrap { position: relative; }
     .search-wrap .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 13px; pointer-events: none; }
     .search-wrap input { padding-left: 32px; }
     .search-wrap,
     .search-wrap input { min-width: 0; }
 
-    /* â”€â”€ Table â”€â”€ */
+    /* -- Table -- */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
@@ -512,7 +512,7 @@
     .tr-covered-mise:hover td { background: #fef3c7 !important; }
     .tr-separator:hover td { background: #fce8e8 !important; }
 
-    /* â”€â”€ Pills â”€â”€ */
+    /* -- Pills -- */
     .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
     .pill-verde   { background: #d1fae5; color: #065f46; }
     .pill-rojo    { background: #fee2e2; color: #991b1b; }
@@ -520,18 +520,18 @@
     .pill-gris    { background: #f3f4f6; color: #374151; }
     .pill-naranja { background: #fef3c7; color: #92400e; }
 
-    /* â”€â”€ Alerts â”€â”€ */
+    /* -- Alerts -- */
     .alert { border-radius: 8px; padding: 10px 13px; font-size: 13px; margin-bottom: 12px; display: flex; align-items: flex-start; gap: 8px; }
     .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
     .alert-ok    { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
     .alert-info  { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
     .alert-warn  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 
-    /* â”€â”€ Grids â”€â”€ */
+    /* -- Grids -- */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
     .grid-dash { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
-    /* â”€â”€ Modal â”€â”€ */
+    /* -- Modal -- */
     .modal-overlay {
       position: fixed; inset: 0;
       background: rgba(0,0,0,.48);
@@ -565,7 +565,7 @@
       flex-shrink: 0;
     }
 
-    /* â”€â”€ Tabs â”€â”€ */
+    /* -- Tabs -- */
     .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--borde); margin-bottom: 14px; overflow-x: auto; }
     .tab {
       padding: 8px 14px;
@@ -580,7 +580,7 @@
     .tab.active { color: var(--verde); border-color: var(--verde); }
     .tab:hover { color: var(--verde); }
 
-    /* â”€â”€ Mise multi-row â”€â”€ */
+    /* -- Mise multi-row -- */
     .mise-row {
       display: grid;
       grid-template-columns: 1fr 90px 28px;
@@ -596,7 +596,7 @@
     }
     .mise-row-header span { font-size: 11px; font-weight: 600; color: var(--gris); text-transform: uppercase; letter-spacing: .04em; }
 
-    /* â”€â”€ Exist colors â”€â”€ */
+    /* -- Exist colors -- */
     .exist-ok   { color: var(--verde); font-weight: 600; }
     .exist-low  { color: #f59e0b;      font-weight: 600; }
     .exist-zero { color: var(--rojo);  font-weight: 600; }
@@ -697,7 +697,7 @@
       border-bottom: 3px solid #0ea5e9 !important;
     }
 
-    /* â”€â”€ Toast â”€â”€ */
+    /* -- Toast -- */
     .toast-container {
       position: fixed;
       bottom: clamp(12px, 3vw, 24px);
@@ -729,21 +729,21 @@
       50% { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18); }
     }
 
-    /* â”€â”€ Number input fix â”€â”€ */
+    /* -- Number input fix -- */
     input[type=number] { -moz-appearance: textfield; }
     input[type=number]::-webkit-inner-spin-button,
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 
-    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    /* =======================
        RESPONSIVE BREAKPOINTS
-    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+    ======================= */
 
-    /* Tablet landscape / small desktop â‰¤ 1024px */
+    /* Tablet landscape / small desktop ≤ 1024px */
     @media (max-width: 1024px) {
       :root { --sidebar-w: 220px; }
     }
 
-    /* Tablet portrait â‰¤ 768px: sidebar becomes overlay */
+    /* Tablet portrait ≤ 768px: sidebar becomes overlay */
     @media (max-width: 768px) {
       .login-screen { padding: 14px; }
       .login-card { grid-template-columns: 1fr; }
@@ -852,7 +852,7 @@
       .modal { border-bottom-left-radius: 0; border-bottom-right-radius: 0; max-height: 92dvh; }
     }
 
-    /* Mobile â‰¤ 480px */
+    /* Mobile ≤ 480px */
     @media (max-width: 480px) {
       :root { --topbar-h: 50px; }
       .content { padding: 10px; }
@@ -949,7 +949,7 @@
       .date-badge { display: none; }
     }
 
-    /* Very small â‰¤ 360px */
+    /* Very small ≤ 360px */
     @media (max-width: 360px) {
       .stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
       .stat-value { font-size: 20px; }
@@ -6892,7 +6892,7 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del producto"),
               /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-direct-load-list", value: directLoad.nombre, onChange: function(e) { setDirectLoad(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setDirectLoadError(""); }, placeholder: "Selecciona o escribe un producto", autoFocus: true }),
               /* @__PURE__ */ React.createElement("datalist", { id: "mise-direct-load-list" }, directLoadOptions.map(function(item) {
-                return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, item.producto, item.medida ? ` â€” ${item.medida}` : "");
+                return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, item.producto, item.medida ? ` — ${item.medida}` : "");
               })),
               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, moduleLabel === "Bar" ? "Los nombres se toman de recetas y producciones del Bar. También puedes escribir una nueva producción." : "Los nombres se toman de Mise an Place. Si no existe, el sistema te preguntará si deseas crearlo.")
             ),
@@ -9457,11 +9457,11 @@ Solicitado: ${cantidad}`);
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
-            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " â€” ", p.storageLabel || "Inventario", " â€” ", p.existencia.toFixed(2), " ", p.medida))),
+            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " — ", p.storageLabel || "Inventario", " — ", p.existencia.toFixed(2), " ", p.medida))),
             prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 14px" } },
               /* @__PURE__ */ React.createElement("span", null, "Existencia total: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, prodInfo.existencia.toFixed(2), " ", prodInfo.medida)),
               /* @__PURE__ */ React.createElement("span", null, "Ubicación: ", prodInfo.storageLabel || "Inventario"),
-              /* @__PURE__ */ React.createElement("span", null, "Suplidor: ", prodInfo.suplidor || "â€”"),
+              /* @__PURE__ */ React.createElement("span", null, "Suplidor: ", prodInfo.suplidor || "—"),
               Array.isArray(prodInfo.locations) && prodInfo.locations.length > 1 && /* @__PURE__ */ React.createElement("span", { style: { flexBasis: "100%" } }, prodInfo.locations.map(function(loc) { return `${loc.storageLabel}: ${Number(loc.existencia || 0).toFixed(2)} ${loc.medida}`; }).join(" · "))
             )
           ),
@@ -10505,7 +10505,7 @@ Solicitado: ${cantidad}`);
       const DRIVE_FOLDER_ID = "1Guly82tDsfunuhfgBBNqEQ6SsnbtQnyL";
       const fechaStr = new Date(listado.fecha).toLocaleDateString("es-DO", { day: "2-digit", month: "short", year: "numeric" });
       const fechaArchivo = new Date(listado.fecha).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
-      const tituloLimpio = titulo.replace(/[â€” ]+/g, "_");
+      const tituloLimpio = titulo.replace(/[— ]+/g, "_");
       const filename = `Listado_Compra_${tituloLimpio}_${fechaArchivo}`;
       const nombreXlsx = `${filename}.xlsx`;
       const rows = buildListadoRows(listado, titulo);
@@ -10584,7 +10584,7 @@ Solicitado: ${cantidad}`);
       const subject = `LISTADO DE COMPRA - ${titulo} - ${fechaStr}`;
       if (typeof XLSX !== "undefined") {
         const fechaArchivo = new Date(listado.fecha).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
-        const tituloLimpio = titulo.replace(/[â€” ]+/g, "_");
+        const tituloLimpio = titulo.replace(/[— ]+/g, "_");
         const nombreArchivo = `Listado_Compra_${tituloLimpio}_${fechaArchivo}.xlsx`;
         const filas = buildListadoRows(listado, titulo);
         const wb = XLSX.utils.book_new();
@@ -10669,7 +10669,7 @@ Solicitado: ${cantidad}`);
         return;
       }
       const fechaStr = new Date(listado.fecha).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
-      const tituloLimpio = titulo.replace(/[â€” ]+/g, "_");
+      const tituloLimpio = titulo.replace(/[— ]+/g, "_");
       const nombreArchivo = `Listado_Compra_${tituloLimpio}_${fechaStr}.xlsx`;
       const filas = buildListadoRows(listado, titulo);
       const wb = XLSX.utils.book_new();

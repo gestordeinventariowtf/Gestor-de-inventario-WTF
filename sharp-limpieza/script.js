@@ -2915,7 +2915,7 @@ function autoFillCalendar() {
     }
   }
   if (allTasks.length === 0) {
-    alert("La biblioteca estÃ¡ vacÃ­a. Agrega tareas antes de usar Auto-llenar.");
+    alert("La biblioteca está vacía. Agrega tareas antes de usar Auto-llenar.");
     return;
   }
   const collabs = state.collaborators;
