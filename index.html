@@ -2171,6 +2171,35 @@
       return !isRecipeRowDeleted(row, deletedKeys);
     });
   }
+  function getUserMergeKey(row) {
+    if (!row || typeof row !== "object") return "";
+    if (row.id) return `id:${row.id}`;
+    const email = normalizar(row.email || row.correo || "");
+    if (email) return `email:${email}`;
+    const name = normalizar(row.nombre || "");
+    return name ? `name:${name}` : "";
+  }
+  function mergeUserRows(localRows, remoteRows) {
+    const map = new Map();
+    function addRows(rows, preferLocalOnTie) {
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        const key = getUserMergeKey(row);
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, Object.assign({}, row));
+          return;
+        }
+        const existingTime = getRowUpdateTime(existing);
+        const rowTime = getRowUpdateTime(row);
+        const preferRow = rowTime > existingTime || (preferLocalOnTie && rowTime === existingTime);
+        map.set(key, Object.assign({}, preferRow ? existing : row, preferRow ? row : existing));
+      });
+    }
+    addRows(remoteRows, false);
+    addRows(localRows, true);
+    return ensureAdminUser(Array.from(map.values()));
+  }
   function mergeSearchProductRows(existing, row) {
     const merged = Object.assign({}, existing, row);
     const existingId = Number(existing && existing.id);
@@ -2246,6 +2275,7 @@
     next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion, next.recipeDeletedKeys.barRecetasProduccion);
     next.recipeDeletedKeys.recetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "recetasProduccion");
     next.recipeDeletedKeys.barRecetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "barRecetasProduccion");
+    next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -4702,7 +4732,7 @@
       if (nextState.employeeCenterData && typeof nextState.employeeCenterData === "object") setEmployeeCenterData(ensureEmployeeCenterData(nextState.employeeCenterData));
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
-      if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
+      if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(normalizeInventoryRowsForDisplay(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario));
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
@@ -4930,11 +4960,13 @@
       });
       if (duplicate) throw new Error("Ese correo ya est\xE1 en uso por otro usuario.");
       setUsuarios(function(prev) {
+        const now = new Date().toISOString();
         return ensureAdminUser(prev.map(function(u) {
           if (u.id !== currentUser.id) return u;
           return Object.assign({}, u, {
             email: nextEmail,
-            password: nextPassword || u.password
+            password: nextPassword || u.password,
+            updatedAt: now
           });
         }));
       });
@@ -8653,6 +8685,7 @@ Solicitado: ${cantidad}`);
       }
       if (editingId) {
         setUsuarios(function(prev) {
+          const now = new Date().toISOString();
           return ensureAdminUser(prev.map(function(u) {
             if (u.id !== editingId) return u;
             return Object.assign({}, u, {
@@ -8662,13 +8695,15 @@ Solicitado: ${cantidad}`);
               role: form.role,
               permisos,
               activo: form.activo !== false,
-              modulo: baseModulo
+              modulo: baseModulo,
+              updatedAt: now
             });
           }));
         });
         toast("Usuario actualizado.", "ok");
       } else {
         setUsuarios(function(prev) {
+          const now = new Date().toISOString();
           return ensureAdminUser([].concat(prev, [{
             id: `user-${Date.now()}`,
             nombre,
@@ -8678,7 +8713,8 @@ Solicitado: ${cantidad}`);
             permisos,
             activo: form.activo !== false,
             modulo: baseModulo,
-            createdAt: (/* @__PURE__ */ new Date()).toISOString()
+            createdAt: now,
+            updatedAt: now
           }]));
         });
         toast("Usuario creado.", "ok");
@@ -8688,8 +8724,9 @@ Solicitado: ${cantidad}`);
     function toggleActivo(user) {
       if (isRootAdmin(user)) return;
       setUsuarios(function(prev) {
+        const now = new Date().toISOString();
         return ensureAdminUser(prev.map(function(u) {
-          return u.id === user.id ? Object.assign({}, u, { activo: u.activo === false ? true : false }) : u;
+          return u.id === user.id ? Object.assign({}, u, { activo: u.activo === false ? true : false, updatedAt: now }) : u;
         }));
       });
     }
