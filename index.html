@@ -2471,7 +2471,6 @@
         const permisosSet = new Set(Array.isArray(user.permisos) ? user.permisos : []);
         if (legacyModulo === "sharp") permisosSet.add("sharp");
         if (legacyModulo === "icg") permisosSet.add("icg");
-        if (legacyModulo === "employeeCenter") permisosSet.add("employeeCenter");
         const baseModulo = legacyModulo === "cocina" || legacyModulo === "bar" || legacyModulo === "sharp" || legacyModulo === "employeeCenter" ? legacyModulo : "ambos";
         user = Object.assign({}, user, { modulo: baseModulo, permisos: Array.from(permisosSet) });
         list[i] = user;
@@ -4924,8 +4923,7 @@
       }
       if (pageKey === "employeeCenter") {
         if (currentUser.employeeCenterBlocked === true || currentUser.centroColaboradorBloqueado === true) return false;
-        if (Array.isArray(currentUser.permisos) && currentUser.permisos.includes("employeeCenter")) return true;
-        return currentUser.activo !== false;
+        return isAdminUser(currentUser) || Array.isArray(currentUser.permisos) && currentUser.permisos.includes("employeeCenter");
       }
       if (pageKey === "sharp") {
         const assignedModulo = currentUser.modulo || "ambos";
@@ -8641,7 +8639,6 @@ Solicitado: ${cantidad}`);
       const permisos = new Set(Array.isArray(user.permisos) ? user.permisos : ["dashboard"]);
       if (legacyModulo === "sharp") permisos.add("sharp");
       if (legacyModulo === "icg") permisos.add("icg");
-      if (legacyModulo === "employeeCenter") permisos.add("employeeCenter");
       setForm({
         nombre: user.nombre || "",
         email: user.email || "",
@@ -8657,7 +8654,6 @@ Solicitado: ${cantidad}`);
       const nombre = (form.nombre || "").trim();
       const password = String(form.password || "");
       const permisosSet = new Set(form.permisos || []);
-      if (form.modulo === "employeeCenter") permisosSet.add("employeeCenter");
       const baseModulo = form.modulo === "cocina" || form.modulo === "bar" || form.modulo === "sharp" || form.modulo === "employeeCenter" ? form.modulo : "ambos";
       const permisos = Array.from(permisosSet);
       if (!nombre) {
