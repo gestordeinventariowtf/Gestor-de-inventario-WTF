@@ -1005,6 +1005,7 @@
   };
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
   const MISE_DELETED_KEYS_STORAGE = "wtf_mise_deleted_keys";
+  const RECIPE_DELETED_KEYS_STORAGE = "wtf_recipe_deleted_keys";
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
     cuartoFrioInventario: "wtf_bar_cuarto_frio_inventario",
@@ -1819,18 +1820,25 @@
     ].join("|");
   }
   function mergeMovementRows(localRows, remoteRows) {
-    const result = [];
-    const seen = new Set();
-    function addRows(rows) {
+    const map = new Map();
+    function addRows(rows, preferLocalOnTie) {
       (Array.isArray(rows) ? rows : []).forEach(function(row) {
         const key = getMovementKey(row);
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        result.push(row);
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, Object.assign({}, row));
+          return;
+        }
+        const existingTime = getRowUpdateTime(existing);
+        const rowTime = getRowUpdateTime(row);
+        const preferRow = rowTime > existingTime || (preferLocalOnTie && rowTime === existingTime);
+        map.set(key, Object.assign({}, preferRow ? existing : row, preferRow ? row : existing));
       });
     }
-    addRows(remoteRows);
-    addRows(localRows);
+    addRows(remoteRows, false);
+    addRows(localRows, true);
+    const result = Array.from(map.values());
     return result.sort(function(a, b) {
       return String(a && a.fecha || "").localeCompare(String(b && b.fecha || ""));
     });
@@ -2106,8 +2114,62 @@
     const name = normalizar(row.nombre || row.producto || "");
     return name ? `name:${name}` : "";
   }
-  function mergeRecipeRows(localRows, remoteRows) {
-    return mergeStateRowsByKey(localRows, remoteRows, getRecipeMergeKey);
+  function normalizeRecipeDeletedKeys(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    ["recetasProduccion", "barRecetasProduccion"].forEach(function(stateKey) {
+      const rows = source[stateKey] && typeof source[stateKey] === "object" ? source[stateKey] : {};
+      const clean = {};
+      Object.keys(rows).forEach(function(key) {
+        const ts = Number(rows[key] || 0);
+        if (key && Number.isFinite(ts) && ts > 0) clean[key] = ts;
+      });
+      result[stateKey] = clean;
+    });
+    return result;
+  }
+  function mergeRecipeDeletedKeys(remoteKeys, localKeys) {
+    const result = normalizeRecipeDeletedKeys(remoteKeys);
+    const local = normalizeRecipeDeletedKeys(localKeys);
+    ["recetasProduccion", "barRecetasProduccion"].forEach(function(stateKey) {
+      result[stateKey] = Object.assign({}, result[stateKey] || {});
+      Object.keys(local[stateKey] || {}).forEach(function(key) {
+        result[stateKey][key] = Math.max(Number(result[stateKey][key] || 0), Number(local[stateKey][key] || 0));
+      });
+    });
+    return result;
+  }
+  function pruneRecipeDeletedKeys(deletedKeys, stateKey) {
+    const source = normalizeRecipeDeletedKeys(deletedKeys)[stateKey] || {};
+    const result = {};
+    const minTs = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    Object.keys(source).forEach(function(key) {
+      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+    });
+    return result;
+  }
+  function getRecipeDeletedKeysForRow(row) {
+    const keys = [];
+    const mergeKey = getRecipeMergeKey(row);
+    if (mergeKey) keys.push(mergeKey);
+    const name = normalizar(row && (row.nombre || row.producto || ""));
+    if (name) keys.push(`name:${name}`);
+    if (row && row.id != null) keys.push(`id:${row.id}`);
+    return Array.from(new Set(keys.filter(Boolean)));
+  }
+  function isRecipeRowDeleted(row, deletedKeys) {
+    const source = deletedKeys && typeof deletedKeys === "object" ? deletedKeys : {};
+    const createdAt = getRowUpdateTime(row);
+    return getRecipeDeletedKeysForRow(row).some(function(key) {
+      const deletedAt = Number(source[key] || 0);
+      return deletedAt > 0 && (!createdAt || createdAt <= deletedAt);
+    });
+  }
+  function mergeRecipeRows(localRows, remoteRows, deletedKeys) {
+    const merged = mergeStateRowsByKey(localRows, remoteRows, getRecipeMergeKey);
+    return merged.filter(function(row) {
+      return !isRecipeRowDeleted(row, deletedKeys);
+    });
   }
   function mergeSearchProductRows(existing, row) {
     const merged = Object.assign({}, existing, row);
@@ -2179,8 +2241,11 @@
     next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace, next.miseDeletedKeys.barMiseAnPlace);
     next.miseDeletedKeys.miseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "miseAnPlace");
     next.miseDeletedKeys.barMiseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "barMiseAnPlace");
-    next.recetasProduccion = mergeRecipeRows(localState && localState.recetasProduccion, remoteState && remoteState.recetasProduccion);
-    next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion);
+    next.recipeDeletedKeys = mergeRecipeDeletedKeys(remoteState && remoteState.recipeDeletedKeys, localState && localState.recipeDeletedKeys);
+    next.recetasProduccion = mergeRecipeRows(localState && localState.recetasProduccion, remoteState && remoteState.recetasProduccion, next.recipeDeletedKeys.recetasProduccion);
+    next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion, next.recipeDeletedKeys.barRecetasProduccion);
+    next.recipeDeletedKeys.recetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "recetasProduccion");
+    next.recipeDeletedKeys.barRecetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "barRecetasProduccion");
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -2204,6 +2269,7 @@
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
     const miseDeletedKeys = normalizeMiseDeletedKeys(state.miseDeletedKeys);
+    const recipeDeletedKeys = normalizeRecipeDeletedKeys(state.recipeDeletedKeys);
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
       inventario: normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario),
@@ -2214,10 +2280,11 @@
       regDecomiso: state.regDecomiso || [],
       regRecuento: state.regRecuento || [],
       regProduccion: state.regProduccion || [],
-      recetasProduccion: state.recetasProduccion || [],
+      recetasProduccion: (state.recetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); }),
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       inventoryDeletedKeys: deletedKeys,
       miseDeletedKeys,
+      recipeDeletedKeys,
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
@@ -2236,7 +2303,7 @@
       barRegDecomiso: state.barRegDecomiso || [],
       barRegRecuento: state.barRegRecuento || [],
       barRegProduccion: state.barRegProduccion || [],
-      barRecetasProduccion: state.barRecetasProduccion || []
+      barRecetasProduccion: (state.barRecetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })
     });
   }
   function compactIcgDatasetForFirebase(data, key, rowLimit) {
@@ -4387,6 +4454,7 @@
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
     const initialInventoryDeletedKeys = useMemo(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})), []);
     const initialMiseDeletedKeys = useMemo(() => normalizeMiseDeletedKeys(load(MISE_DELETED_KEYS_STORAGE, {})), []);
+    const initialRecipeDeletedKeys = useMemo(() => normalizeRecipeDeletedKeys(load(RECIPE_DELETED_KEYS_STORAGE, {})), []);
     const [inventario, setInventario] = useState(() => normalizeInventoryRowsForDisplay(loadSeeded(KEYS.inventario, initInventario, null) || initInventario(), initialInventoryDeletedKeys.inventario));
     const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.cuartoFrioInventario));
     const [miseAnPlace, setMise] = useState(() => normalizeMiseItems((loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()).filter(function(row) { return !isMiseRowDeleted(row, initialMiseDeletedKeys.miseAnPlace); })));
@@ -4395,7 +4463,7 @@
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
     const [regRecuento, setRegRecuento] = useState(() => load(KEYS.regRecuento, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
-    const [recetasProduccion, setRecetasProduccion] = useState(() => load(KEYS.recetasProduccion, []));
+    const [recetasProduccion, setRecetasProduccion] = useState(() => (load(KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.recetasProduccion); }));
     const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [histEntradaRapida, setHistEntradaRapida] = useState(() => load(KEYS.histEntradaRapida, []));
@@ -4420,9 +4488,10 @@
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegRecuento, setBarRegRecuento] = useState(() => load(BAR_KEYS.regRecuento, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
-    const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => load(BAR_KEYS.recetasProduccion, []));
+    const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => (load(BAR_KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.barRecetasProduccion); }));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
+    const [recipeDeletedKeys, setRecipeDeletedKeys] = useState(() => initialRecipeDeletedKeys);
     const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
@@ -4502,6 +4571,7 @@
       recetasProduccionBaseVersion,
       inventoryDeletedKeys,
       miseDeletedKeys,
+      recipeDeletedKeys,
       histDecomisoCocina,
       histEntradaRapida,
       histSalidaRapida,
@@ -4619,10 +4689,11 @@
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
       if (Array.isArray(nextState.regRecuento)) setRegRecuento(nextState.regRecuento);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
-      if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion);
+      if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.recetasProduccion); }));
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
       if (nextState.miseDeletedKeys && typeof nextState.miseDeletedKeys === "object") setMiseDeletedKeys(normalizeMiseDeletedKeys(nextState.miseDeletedKeys));
+      if (nextState.recipeDeletedKeys && typeof nextState.recipeDeletedKeys === "object") setRecipeDeletedKeys(normalizeRecipeDeletedKeys(nextState.recipeDeletedKeys));
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.histEntradaRapida)) setHistEntradaRapida(nextState.histEntradaRapida);
       if (Array.isArray(nextState.histSalidaRapida)) setHistSalidaRapida(nextState.histSalidaRapida);
@@ -4641,7 +4712,7 @@
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
       if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(nextState.barRegRecuento);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
-      if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion);
+      if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
       }, 0);
@@ -4649,6 +4720,7 @@
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
+    useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
@@ -4669,15 +4741,17 @@
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
     useEffect(() => save(KEYS.regRecuento, regRecuento), [regRecuento]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
-    useEffect(() => save(KEYS.recetasProduccion, recetasProduccion), [recetasProduccion]);
+    useEffect(() => save(KEYS.recetasProduccion, recetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); })), [recetasProduccion, recipeDeletedKeys]);
     useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
     useEffect(() => {
       if (recetasProduccionBaseVersion === DEFAULT_RECETAS_PRODUCCION_VERSION) return;
       setRecetasProduccion(function(prev) {
-        return mergeDefaultProductionRecipes(prev);
+        return mergeDefaultProductionRecipes(prev).filter(function(row) {
+          return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion);
+        });
       });
       setRecetasProduccionBaseVersion(DEFAULT_RECETAS_PRODUCCION_VERSION);
-    }, [recetasProduccionBaseVersion]);
+    }, [recetasProduccionBaseVersion, recipeDeletedKeys]);
     useEffect(() => save(KEYS.histDecomisoCocina, histDecomisoCocina), [histDecomisoCocina]);
     useEffect(() => save(KEYS.histEntradaRapida, histEntradaRapida), [histEntradaRapida]);
     useEffect(() => save(KEYS.histSalidaRapida, histSalidaRapida), [histSalidaRapida]);
@@ -4692,7 +4766,7 @@
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
     useEffect(() => save(BAR_KEYS.regRecuento, barRegRecuento), [barRegRecuento]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
-    useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion), [barRecetasProduccion]);
+    useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })), [barRecetasProduccion, recipeDeletedKeys]);
     useEffect(() => {
       const result = repairInventoryCodArticuloCollections([
         { key: "inventario", rows: inventario },
@@ -4988,7 +5062,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -5545,6 +5619,21 @@ Solicitado: ${cantidad}`);
         return next;
       });
     }
+    function markRecipeRowDeleted(stateKey, row) {
+      if (!stateKey || !row) return;
+      const deletedAt = Date.now();
+      const keys = getRecipeDeletedKeysForRow(row);
+      if (!keys.length) return;
+      setRecipeDeletedKeys(function(prev) {
+        const current = normalizeRecipeDeletedKeys(prev);
+        const next = Object.assign({}, current);
+        next[stateKey] = Object.assign({}, next[stateKey] || {});
+        keys.forEach(function(key) {
+          next[stateKey][key] = Math.max(Number(next[stateKey][key] || 0), deletedAt);
+        });
+        return next;
+      });
+    }
     const pages = {
       dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
       dashboardGeneral: /* @__PURE__ */ React.createElement(DashboardGeneral, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion }),
@@ -5566,7 +5655,7 @@ Solicitado: ${cantidad}`);
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -5768,7 +5857,7 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, recipeStateKey = "recetasProduccion", onMarkRecipeDeleted, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -6263,7 +6352,8 @@ Solicitado: ${cantidad}`);
         return (Array.isArray(prev) ? prev : []).map(function(item) {
           return item.id === row.id ? Object.assign({}, item, {
             transferidoAMiseAt: fechaTransferencia,
-            transferidoAMiseTarget: match ? match.producto : productoNombre
+            transferidoAMiseTarget: match ? match.producto : productoNombre,
+            updatedAt: fechaTransferencia
           }) : item;
         });
       });
@@ -7634,6 +7724,10 @@ Solicitado: ${cantidad}`);
     }
     function eliminarReceta(recetaId) {
       if (!confirm("¿Eliminar esta receta?")) return;
+      const receta = (Array.isArray(recetas) ? recetas : []).find(function(item) {
+        return item.id === recetaId;
+      });
+      if (typeof onMarkRecipeDeleted === "function") onMarkRecipeDeleted(recipeStateKey, receta || { id: recetaId });
       setRecetas(function(prev) {
         return (Array.isArray(prev) ? prev : []).filter(function(item) {
           return item.id !== recetaId;
