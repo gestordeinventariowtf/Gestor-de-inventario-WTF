@@ -9653,7 +9653,7 @@ Solicitado: ${cantidad}`);
     const [showMigrateKey, setShowMigrateKey] = useState(false);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
-    const [autoSearchToken, setAutoSearchToken] = useState(null);
+    const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
     const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
@@ -9668,32 +9668,36 @@ Solicitado: ${cantidad}`);
       const localPage = pageLabel === "Cuarto Frio" ? "cuartoFrio" : "inventario";
       if (targetPage && targetPage !== localPage) return;
       const query = String(inventorySearchTarget.query || inventorySearchTarget.nombre || inventorySearchTarget.codArticulo || "").trim();
-      if (query) {
-        setAutoSearchToken(inventorySearchTarget.ts);
-        setBusqueda(query);
-      }
-      setFocusedSearchResultId(inventorySearchTarget.rowId == null ? null : Number(inventorySearchTarget.rowId));
+      const rowId = inventorySearchTarget.rowId == null ? null : Number(inventorySearchTarget.rowId);
+      setPinnedSearchTarget({
+        rowId,
+        query,
+        nombre: inventorySearchTarget.nombre || query,
+        codArticulo: inventorySearchTarget.codArticulo || "",
+        ts: inventorySearchTarget.ts
+      });
+      setBusqueda("");
+      setFocusedSearchResultId(rowId);
       window.setTimeout(function() {
         const el = document.getElementById(`inventory-row-${localPage}-${inventorySearchTarget.rowId}`);
         if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 120);
     }, [inventorySearchTarget && inventorySearchTarget.ts]);
-    useEffect(() => {
-      if (!autoSearchToken || !busqueda) return;
-      const timer = window.setTimeout(function() {
-        setBusqueda("");
-        setFocusedSearchResultId(null);
-        setAutoSearchToken(null);
-      }, 900);
-      return function() {
-        window.clearTimeout(timer);
-      };
-    }, [autoSearchToken, busqueda]);
     const rows = useMemo(() => {
+      if (!busqueda.trim() && pinnedSearchTarget) {
+        const pinnedRowId = pinnedSearchTarget.rowId == null ? null : Number(pinnedSearchTarget.rowId);
+        const pinnedQuery = normalizar(pinnedSearchTarget.query || pinnedSearchTarget.nombre || pinnedSearchTarget.codArticulo || "");
+        return inventarioLimpio.filter((r) => {
+          if (r.tipo !== "producto") return false;
+          if (pinnedRowId != null && Number(r.id) === pinnedRowId) return true;
+          if (!pinnedQuery) return false;
+          return normalizar(getInventoryCodArticulo(r, "")).includes(pinnedQuery) || normalizar(r.nombre).includes(pinnedQuery) || normalizar(r.suplidor || "").includes(pinnedQuery);
+        });
+      }
       if (!busqueda.trim()) return inventarioLimpio;
       const q = normalizar(busqueda);
       return inventarioLimpio.filter((r) => r.tipo === "producto" && (normalizar(getInventoryCodArticulo(r, "")).includes(q) || normalizar(r.nombre).includes(q) || normalizar(r.suplidor || "").includes(q)));
-    }, [inventarioLimpio, busqueda]);
+    }, [inventarioLimpio, busqueda, pinnedSearchTarget]);
     const globalSearchResults = useMemo(() => {
       const q = normalizar(busqueda);
       if (!q) return [];
@@ -9924,8 +9928,15 @@ Solicitado: ${cantidad}`);
     }
     function openSearchResult(result) {
       if (!result || typeof onNavigateToPage !== "function") return;
-      setBusqueda(result.nombre || result.codArticulo || "");
-      setFocusedSearchResultId(result.rowId == null ? null : Number(result.rowId));
+      const rowId = result.rowId == null ? null : Number(result.rowId);
+      setBusqueda("");
+      setPinnedSearchTarget({
+        rowId,
+        query: result.nombre || result.codArticulo || "",
+        nombre: result.nombre || "",
+        codArticulo: result.codArticulo || ""
+      });
+      setFocusedSearchResultId(rowId);
       onNavigateToPage(result.pageKey, {
         moduleTarget: result.moduleTarget || "",
         inventorySearchTarget: {
@@ -10070,7 +10081,11 @@ Solicitado: ${cantidad}`);
     const migrateModal = modalMigrar ? /* @__PURE__ */ React.createElement(InventarioMigracionModal, { inventario, targetLabel: migrateTargetLabel, onClose: () => setModalMigrar(false), onConfirm: migrarProductos }) : null;
     const globalResultButtons = globalSearchResults.map((result) => /* @__PURE__ */ React.createElement("button", { key: result.id, type: "button", className: "btn btn-outline", onClick: () => openSearchResult(result), style: { justifyContent: "space-between", textAlign: "left", padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4 } }, /* @__PURE__ */ React.createElement("strong", null, result.nombre), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, result.codArticulo ? `CodArticulo: ${result.codArticulo} · ${result.suplidor || "Sin suplidor"}` : result.suplidor || "Sin suplidor")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "end", gap: 4 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${result.pageKey === "cuartoFrio" ? "pill-azul" : "pill-verde"}` }, result.pageLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, Number(result.existencia.toFixed(2)), " ", result.medida))));
     const globalResultsNode = busqueda.trim() && globalSearchResults.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-compass", style: { marginRight: 7, color: "var(--azul)" } }), "Resultados globales")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, globalResultButtons)) : null;
-    const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => { setAutoSearchToken(null); setFocusedSearchResultId(null); setBusqueda(e.target.value); } })));
+    const pinnedSearchNotice = pinnedSearchTarget && !busqueda.trim() ? /* @__PURE__ */ React.createElement("div", { style: { width: "100%", maxWidth: 420, display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", padding: "8px 10px", border: "1px solid #bfdbfe", borderRadius: 8, background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 700 } }, /* @__PURE__ */ React.createElement("span", null, "Mostrando: ", pinnedSearchTarget.nombre || pinnedSearchTarget.query || pinnedSearchTarget.codArticulo || "producto seleccionado"), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => {
+      setPinnedSearchTarget(null);
+      setFocusedSearchResultId(null);
+    } }, "Ver todos")) : null;
+    const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => { setPinnedSearchTarget(null); setFocusedSearchResultId(null); setBusqueda(e.target.value); } })), pinnedSearchNotice);
     const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
     const inventoryRightTools = /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "grid", gap: 8, justifyItems: "stretch", minWidth: 150 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || ""), codArticulo: String(p.codArticulo || "").trim() || suggestedCodArticulo }));
