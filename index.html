@@ -2241,11 +2241,35 @@
       rows: rows.slice(Math.max(0, rows.length - rowLimit))
     };
   }
+  function compactIcgLookupDatasetForFirebase(data, key, rowLimit) {
+    const normalized = ensureIcgFrontRestData(data);
+    const base = normalized.datasets && normalized.datasets[key] ? normalized.datasets[key] : {};
+    const rows = Array.isArray(base.rows) ? base.rows : [];
+    const columnsByKey = {
+      Articulos: ["CodArticulo", "Referencia", "Descripcion", "UnidadMedida", "Unidades", "SeCompra", "SeVende", "UsaStocks", "Suspendido", "Descatalogado", "FechaModificado"],
+      Referencias: ["Referencia", "Codigo", "TipoRef", "CodProveedor"]
+    };
+    const columns = columnsByKey[key] || (Array.isArray(base.columns) && base.columns.length ? base.columns : (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].columns) || []);
+    return {
+      key,
+      label: base.label || (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].label) || key,
+      columns,
+      rows: rows.slice(Math.max(0, rows.length - rowLimit)).map(function(row) {
+        return columns.reduce(function(acc, column) {
+          if (row && Object.prototype.hasOwnProperty.call(row, column)) acc[column] = row[column];
+          return acc;
+        }, {});
+      })
+    };
+  }
   function getFirebaseComparableIcgData(data) {
     const normalized = ensureIcgFrontRestData(data);
     const datasets = {};
     ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios"].forEach(function(key) {
       datasets[key] = compactIcgDatasetForFirebase(normalized, key, key === "VinculosMiseICG" ? 4000 : 600);
+    });
+    ["Articulos", "Referencias"].forEach(function(key) {
+      datasets[key] = compactIcgLookupDatasetForFirebase(normalized, key, 6000);
     });
     return {
       sourceName: normalized.sourceName || "",
@@ -3135,6 +3159,24 @@
       return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
     });
   }
+  function filterIcgArticleRowsForInput(icgArticles, query, limit) {
+    const rows = Array.isArray(icgArticles) ? icgArticles : [];
+    const max = limit || 90;
+    const text = normalizar(query);
+    if (!text) return rows.slice(0, max);
+    const matches = [];
+    for (let i = 0; i < rows.length && matches.length < max; i += 1) {
+      const row = rows[i];
+      const optionText = normalizar(getIcgArticleOptionValue(row));
+      const code = normalizar(getIcgArticleCode(row));
+      const reference = normalizar(getIcgArticleReference(row));
+      const description = normalizar(getIcgArticleDescription(row));
+      if (optionText.includes(text) || code.includes(text) || reference.includes(text) || description.includes(text)) {
+        matches.push(row);
+      }
+    }
+    return matches;
+  }
   function cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit) {
     return (Array.isArray(rawLinks) ? rawLinks : []).map(function(link) {
       const article = resolveIcgArticleSelection(link.value || link.ProductoICG || link.CodArticulo || link.Referencia, icgArticles);
@@ -3215,17 +3257,22 @@
     };
     return /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { gridColumn: "1 / -1" } },
       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Articulo ICG relacionado"),
-      /* @__PURE__ */ React.createElement("datalist", { id: `${idPrefix}-icg-article-list` }, (Array.isArray(icgArticles) ? icgArticles : []).map(function(row, index) {
-        const value = getIcgArticleOptionValue(row);
-        return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${index}`, value }, value) : null;
-      })),
       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, safeLinks.map(function(link, index) {
-        return /* @__PURE__ */ React.createElement("div", { key: index, className: "icg-link-row", style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", list: `${idPrefix}-icg-article-list`, value: link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | "), onChange: (e) => updateLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: link.CantidadPorVenta, onChange: (e) => updateLink(index, { CantidadPorVenta: e.target.value }), title: "Cantidad a descontar por cada venta ICG" }),
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", value: link.Unidad || defaultUnit || "Uni", onChange: (e) => updateLink(index, { Unidad: e.target.value }), title: "Unidad del descuento" }),
-          /* @__PURE__ */ React.createElement("select", { className: "form-control", value: link.Activo || "Si", onChange: (e) => updateLink(index, { Activo: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "Si" }, "Activo"), /* @__PURE__ */ React.createElement("option", { value: "No" }, "No")),
-          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: () => removeLink(index), title: "Quitar vinculo ICG" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        const inputValue = link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | ");
+        const listId = `${idPrefix}-icg-article-list-${index}`;
+        const filteredArticles = filterIcgArticleRowsForInput(icgArticles, inputValue, 90);
+        return /* @__PURE__ */ React.createElement(React.Fragment, { key: index },
+          /* @__PURE__ */ React.createElement("datalist", { id: listId }, filteredArticles.map(function(row, articleIndex) {
+            const value = getIcgArticleOptionValue(row);
+            return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${articleIndex}`, value }, value) : null;
+          })),
+          /* @__PURE__ */ React.createElement("div", { className: "icg-link-row", style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", list: listId, value: inputValue, onChange: (e) => updateLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: link.CantidadPorVenta, onChange: (e) => updateLink(index, { CantidadPorVenta: e.target.value }), title: "Cantidad a descontar por cada venta ICG" }),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: link.Unidad || defaultUnit || "Uni", onChange: (e) => updateLink(index, { Unidad: e.target.value }), title: "Unidad del descuento" }),
+            /* @__PURE__ */ React.createElement("select", { className: "form-control", value: link.Activo || "Si", onChange: (e) => updateLink(index, { Activo: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "Si" }, "Activo"), /* @__PURE__ */ React.createElement("option", { value: "No" }, "No")),
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: () => removeLink(index), title: "Quitar vinculo ICG" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          )
         );
       })),
       /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", style: { marginTop: 8 }, onClick: addLink }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar otro Articulo ICG")
@@ -8561,6 +8608,7 @@ Solicitado: ${cantidad}`);
     const [showMigrateKey, setShowMigrateKey] = useState(false);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
+    const [autoSearchToken, setAutoSearchToken] = useState(null);
     const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
@@ -8575,13 +8623,27 @@ Solicitado: ${cantidad}`);
       const localPage = pageLabel === "Cuarto Frio" ? "cuartoFrio" : "inventario";
       if (targetPage && targetPage !== localPage) return;
       const query = String(inventorySearchTarget.query || inventorySearchTarget.nombre || inventorySearchTarget.codArticulo || "").trim();
-      if (query) setBusqueda(query);
+      if (query) {
+        setAutoSearchToken(inventorySearchTarget.ts);
+        setBusqueda(query);
+      }
       setFocusedSearchResultId(inventorySearchTarget.rowId == null ? null : Number(inventorySearchTarget.rowId));
       window.setTimeout(function() {
         const el = document.getElementById(`inventory-row-${localPage}-${inventorySearchTarget.rowId}`);
         if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 120);
     }, [inventorySearchTarget && inventorySearchTarget.ts]);
+    useEffect(() => {
+      if (!autoSearchToken || !busqueda) return;
+      const timer = window.setTimeout(function() {
+        setBusqueda("");
+        setFocusedSearchResultId(null);
+        setAutoSearchToken(null);
+      }, 900);
+      return function() {
+        window.clearTimeout(timer);
+      };
+    }, [autoSearchToken, busqueda]);
     const rows = useMemo(() => {
       if (!busqueda.trim()) return inventarioLimpio;
       const q = normalizar(busqueda);
@@ -8963,7 +9025,7 @@ Solicitado: ${cantidad}`);
     const migrateModal = modalMigrar ? /* @__PURE__ */ React.createElement(InventarioMigracionModal, { inventario, targetLabel: migrateTargetLabel, onClose: () => setModalMigrar(false), onConfirm: migrarProductos }) : null;
     const globalResultButtons = globalSearchResults.map((result) => /* @__PURE__ */ React.createElement("button", { key: result.id, type: "button", className: "btn btn-outline", onClick: () => openSearchResult(result), style: { justifyContent: "space-between", textAlign: "left", padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4 } }, /* @__PURE__ */ React.createElement("strong", null, result.nombre), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, result.codArticulo ? `CodArticulo: ${result.codArticulo} · ${result.suplidor || "Sin suplidor"}` : result.suplidor || "Sin suplidor")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", justifyItems: "end", gap: 4 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${result.pageKey === "cuartoFrio" ? "pill-azul" : "pill-verde"}` }, result.pageLabel), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, Number(result.existencia.toFixed(2)), " ", result.medida))));
     const globalResultsNode = busqueda.trim() && globalSearchResults.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-compass", style: { marginRight: 7, color: "var(--azul)" } }), "Resultados globales")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, globalResultButtons)) : null;
-    const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => setBusqueda(e.target.value) })));
+    const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => { setAutoSearchToken(null); setFocusedSearchResultId(null); setBusqueda(e.target.value); } })));
     const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
     const inventoryRightTools = /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "grid", gap: 8, justifyItems: "stretch", minWidth: 150 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || ""), codArticulo: String(p.codArticulo || "").trim() || suggestedCodArticulo }));
