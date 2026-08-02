@@ -6810,11 +6810,15 @@ Solicitado: ${cantidad}`);
       toast("Acceso a recetas autorizado.", "ok");
     }
     function solicitarEditarReceta(receta) {
+      if (isAdminUser(currentUser)) {
+        confirmarEditarReceta(receta);
+        return;
+      }
       setRecipeEditRequest(receta);
     }
-    function confirmarEditarReceta() {
-      if (!recipeEditRequest) return;
-      const targetRecipe = recipeEditRequest;
+    function confirmarEditarReceta(recetaAutorizada) {
+      const targetRecipe = recetaAutorizada || recipeEditRequest;
+      if (!targetRecipe) return;
       setInsumos((targetRecipe.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
         const storageKey = item.storageKey || origen;
