@@ -533,6 +533,34 @@
     .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
     .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
     .grid-dash { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .production-history-layout {
+      display: grid;
+      grid-template-columns: minmax(340px, 460px) minmax(0, 1fr);
+      gap: 13px;
+      align-items: start;
+    }
+    .production-recipes-card .card-body {
+      max-height: none;
+      overflow: visible;
+    }
+    .production-history-card {
+      min-width: 0;
+    }
+    .production-history-card .table-wrap {
+      max-width: 100%;
+    }
+    .production-history-card th:last-child,
+    .production-history-card td:last-child {
+      position: sticky;
+      right: 0;
+      background: #fff;
+      box-shadow: -8px 0 12px rgba(255,255,255,.92);
+      z-index: 2;
+    }
+    .production-history-card th:last-child {
+      background: #f9fafb;
+      z-index: 3;
+    }
 
     /* -- Modal -- */
     .modal-overlay {
@@ -846,6 +874,18 @@
       }
       .table-wrap {
         border-radius: 10px;
+      }
+      .production-history-layout {
+        grid-template-columns: 1fr;
+      }
+      .production-recipes-card .card-body {
+        max-height: none;
+        overflow: visible;
+      }
+      .production-history-card th:last-child,
+      .production-history-card td:last-child {
+        position: static;
+        box-shadow: none;
       }
       table {
         min-width: 640px;
@@ -7972,8 +8012,8 @@ Solicitado: ${cantidad}`);
         )
       ),
       productionHoldsNode,
-      /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
-        /* @__PURE__ */ React.createElement("div", { className: "card" },
+      /* @__PURE__ */ React.createElement("div", { className: "production-history-layout" },
+        /* @__PURE__ */ React.createElement("div", { className: "card production-recipes-card" },
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
             /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-book-open", style: { marginRight: 7, color: "var(--verde)" } }), "Recetas de Producción"),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
@@ -8029,7 +8069,7 @@ Solicitado: ${cantidad}`);
             })
           )
         ),
-        /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card production-history-card" },
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
             /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clock-rotate-left", style: { marginRight: 7, color: "var(--azul)" } }), "Historial de Producción"),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
