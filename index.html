@@ -6778,6 +6778,17 @@ Solicitado: ${cantidad}`);
       setActiveProductionHoldId(null);
       resetProductionForm();
     }
+    function minimizeProductionModal() {
+      const holdId = saveCurrentProductionHold();
+      setModalOpen(false);
+      setProductionPreviewOpen(false);
+      setError("");
+      if (holdId) {
+        toast("Produccion guardada en hold.", "ok");
+      } else {
+        resetProductionForm();
+      }
+    }
     useEffect(function() {
       save(getProductionHoldStorageKey(moduleLabel), productionHolds);
     }, [productionHolds, moduleLabel]);
@@ -8249,7 +8260,10 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980, maxHeight: "92dvh" }, onClick: function(e) { e.stopPropagation(); } },
           /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
             /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-industry", style: { marginRight: 7, color: "var(--verde)" } }), "Realizar Producción"),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-icon btn-sm", onClick: minimizeProductionModal, title: "Minimizar y guardar en hold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-window-minimize" })),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeProductionModal, title: "Cancelar y olvidar esta produccion" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+            )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 16 } },
             error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
@@ -8443,6 +8457,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "El sistema descontara insumos de Inventario o Cuarto Frio y registrara la producción en el historial."),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeProductionModal }, "Cancelar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: minimizeProductionModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-window-minimize" }), "Minimizar en hold"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: function() { setProductionPreviewOpen(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Vista Previa Receta"),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarProduccion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Confirmar producción")
             )
