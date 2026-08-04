@@ -541,6 +541,13 @@
       display: flex; align-items: center; justify-content: center;
       z-index: 500;
       padding: 12px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: auto;
+    }
+    html:has(.modal-overlay),
+    body:has(.modal-overlay) {
+      overflow: hidden;
     }
     .modal {
       background: var(--blanco);
@@ -549,6 +556,9 @@
       box-shadow: 0 20px 60px rgba(0,0,0,.22);
       display: flex; flex-direction: column;
       max-height: calc(100dvh - 24px);
+      min-height: 0;
+      overflow: hidden;
+      overscroll-behavior: contain;
     }
     .modal-lg { max-width: 660px; }
     .modal-header {
@@ -559,7 +569,14 @@
       flex-shrink: 0;
     }
     .modal-header h3 { font-size: 15px; font-weight: 600; }
-    .modal-body { padding: 18px; overflow-y: auto; flex: 1; }
+    .modal-body {
+      padding: 18px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+    }
     .modal-footer {
       padding: 12px 18px;
       border-top: 1px solid var(--borde);
@@ -2114,6 +2131,36 @@
     const name = normalizar(row.nombre || row.producto || "");
     return name ? `name:${name}` : "";
   }
+  function hashRecipeIdentity(value) {
+    const text = String(value || "");
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(16);
+  }
+  function normalizeRecipeRows(rows) {
+    const usedIds = new Set();
+    return (Array.isArray(rows) ? rows : []).map(function(row, index) {
+      if (!row || typeof row !== "object") return row;
+      const copy = Object.assign({}, row);
+      const originalId = String(copy.id || "").trim();
+      const fingerprint = [
+        originalId,
+        copy.createdAt || "",
+        copy.fecha || "",
+        copy.fechaActualizacion || "",
+        copy.updatedAt || "",
+        copy.nombre || "",
+        index
+      ].join("|");
+      let nextId = originalId || `rec-${hashRecipeIdentity(fingerprint)}`;
+      if (usedIds.has(nextId)) nextId = `${nextId}-dup-${hashRecipeIdentity(fingerprint)}`;
+      while (usedIds.has(nextId)) nextId = `${nextId}-${index}`;
+      usedIds.add(nextId);
+      return Object.assign({}, copy, { id: nextId });
+    }).filter(Boolean);
+  }
   function normalizeRecipeDeletedKeys(input) {
     const source = input && typeof input === "object" ? input : {};
     const result = {};
@@ -2152,8 +2199,6 @@
     const keys = [];
     const mergeKey = getRecipeMergeKey(row);
     if (mergeKey) keys.push(mergeKey);
-    const name = normalizar(row && (row.nombre || row.producto || ""));
-    if (name) keys.push(`name:${name}`);
     if (row && row.id != null) keys.push(`id:${row.id}`);
     return Array.from(new Set(keys.filter(Boolean)));
   }
@@ -2166,8 +2211,8 @@
     });
   }
   function mergeRecipeRows(localRows, remoteRows, deletedKeys) {
-    const merged = mergeStateRowsByKey(localRows, remoteRows, getRecipeMergeKey);
-    return merged.filter(function(row) {
+    const merged = mergeStateRowsByKey(normalizeRecipeRows(localRows), normalizeRecipeRows(remoteRows), getRecipeMergeKey);
+    return normalizeRecipeRows(merged).filter(function(row) {
       return !isRecipeRowDeleted(row, deletedKeys);
     });
   }
@@ -4493,7 +4538,7 @@
     const [regDecomiso, setRegDecomiso] = useState(() => loadSeeded(KEYS.regDecomiso, initRegDecomiso, []));
     const [regRecuento, setRegRecuento] = useState(() => load(KEYS.regRecuento, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
-    const [recetasProduccion, setRecetasProduccion] = useState(() => (load(KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.recetasProduccion); }));
+    const [recetasProduccion, setRecetasProduccion] = useState(() => normalizeRecipeRows(load(KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.recetasProduccion); }));
     const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [histEntradaRapida, setHistEntradaRapida] = useState(() => load(KEYS.histEntradaRapida, []));
@@ -4518,7 +4563,7 @@
     const [barRegDecomiso, setBarRegDecomiso] = useState(() => load(BAR_KEYS.regDecomiso, []));
     const [barRegRecuento, setBarRegRecuento] = useState(() => load(BAR_KEYS.regRecuento, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
-    const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => (load(BAR_KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.barRecetasProduccion); }));
+    const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => normalizeRecipeRows(load(BAR_KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.barRecetasProduccion); }));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
     const [recipeDeletedKeys, setRecipeDeletedKeys] = useState(() => initialRecipeDeletedKeys);
@@ -4719,7 +4764,7 @@
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(nextState.regDecomiso);
       if (Array.isArray(nextState.regRecuento)) setRegRecuento(nextState.regRecuento);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
-      if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(nextState.recetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.recetasProduccion); }));
+      if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(normalizeRecipeRows(nextState.recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.recetasProduccion); }));
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
       if (nextState.miseDeletedKeys && typeof nextState.miseDeletedKeys === "object") setMiseDeletedKeys(normalizeMiseDeletedKeys(nextState.miseDeletedKeys));
@@ -4742,7 +4787,7 @@
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
       if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(nextState.barRegRecuento);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
-      if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(nextState.barRecetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
+      if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(normalizeRecipeRows(nextState.barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
       }, 0);
@@ -4771,7 +4816,7 @@
     useEffect(() => save(KEYS.regDecomiso, regDecomiso), [regDecomiso]);
     useEffect(() => save(KEYS.regRecuento, regRecuento), [regRecuento]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
-    useEffect(() => save(KEYS.recetasProduccion, recetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); })), [recetasProduccion, recipeDeletedKeys]);
+    useEffect(() => save(KEYS.recetasProduccion, normalizeRecipeRows(recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); })), [recetasProduccion, recipeDeletedKeys]);
     useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
     useEffect(() => {
       if (recetasProduccionBaseVersion === DEFAULT_RECETAS_PRODUCCION_VERSION) return;
@@ -4796,7 +4841,7 @@
     useEffect(() => save(BAR_KEYS.regDecomiso, barRegDecomiso), [barRegDecomiso]);
     useEffect(() => save(BAR_KEYS.regRecuento, barRegRecuento), [barRegRecuento]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
-    useEffect(() => save(BAR_KEYS.recetasProduccion, barRecetasProduccion.filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })), [barRecetasProduccion, recipeDeletedKeys]);
+    useEffect(() => save(BAR_KEYS.recetasProduccion, normalizeRecipeRows(barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })), [barRecetasProduccion, recipeDeletedKeys]);
     useEffect(() => {
       const result = repairInventoryCodArticuloCollections([
         { key: "inventario", rows: inventario },
@@ -5920,6 +5965,11 @@ Solicitado: ${cantidad}`);
     const [error, setError] = useState("");
     const [directLoad, setDirectLoad] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [directLoadError, setDirectLoadError] = useState("");
+    const [productionHolds, setProductionHolds] = useState(() => {
+      const rows = load(getProductionHoldStorageKey(moduleLabel), []);
+      return Array.isArray(rows) ? rows : [];
+    });
+    const [activeProductionHoldId, setActiveProductionHoldId] = useState(null);
     function buildSearchProducts(rows, origen, almacenLabel, storageKey, sourceModuleLabel) {
       return uniqueInventoryProductsForSearch(normalizeInventoryRows(rows), storageKey).filter(function(row) {
         return row.tipo === "producto";
@@ -6019,6 +6069,13 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [recetasOrdenadas, recipeSearch]);
+    useEffect(function() {
+      if (typeof setRecetas !== "function") return;
+      const normalized = normalizeRecipeRows(recetas);
+      const currentIds = (Array.isArray(recetas) ? recetas : []).map(function(item) { return item && item.id; }).join("|");
+      const nextIds = normalized.map(function(item) { return item && item.id; }).join("|");
+      if (currentIds !== nextIds) setRecetas(normalized);
+    }, [recetas, setRecetas]);
     const historialFiltrado = useMemo(function() {
       const q = normalizar(historySearch);
       if (!q) return historial;
@@ -6650,6 +6707,92 @@ Solicitado: ${cantidad}`);
       setHiddenProductionMatchName("");
       setError("");
     }
+    function getProductionHoldStorageKey(targetModuleLabel) {
+      return `wtf_production_holds_${normalizar(targetModuleLabel || "cocina")}`;
+    }
+    function hasProductionHoldContent(snapshot) {
+      if (!snapshot) return false;
+      if (String(snapshot.resultado && snapshot.resultado.nombre || "").trim()) return true;
+      if (String(snapshot.resultado && snapshot.resultado.cantidad || "").trim()) return true;
+      if (String(snapshot.miseProductTarget || "").trim()) return true;
+      if (String(snapshot.recipeInstructions || "").trim()) return true;
+      return Array.isArray(snapshot.insumos) && snapshot.insumos.length > 0;
+    }
+    function buildProductionHoldSnapshot(holdId) {
+      return {
+        id: holdId || activeProductionHoldId || `hold-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        modulo: moduleLabel,
+        titulo: String(resultado.nombre || "").trim() || "Produccion en espera",
+        resultado: Object.assign({}, resultado),
+        insumos: (Array.isArray(insumos) ? insumos : []).map(function(item) { return Object.assign({}, item); }),
+        recipeInstructions,
+        productionRuns,
+        miseProductTarget,
+        usuario: getUserDisplayLabel(currentUser),
+        updatedAt: new Date().toISOString()
+      };
+    }
+    function upsertProductionHold(snapshot) {
+      if (!hasProductionHoldContent(snapshot)) return null;
+      setProductionHolds(function(prev) {
+        const rows = Array.isArray(prev) ? prev : [];
+        const kept = rows.filter(function(item) { return item.id !== snapshot.id; });
+        return [snapshot].concat(kept).slice(0, 20);
+      });
+      return snapshot.id;
+    }
+    function saveCurrentProductionHold() {
+      const snapshot = buildProductionHoldSnapshot();
+      if (!hasProductionHoldContent(snapshot)) return null;
+      const id = upsertProductionHold(snapshot);
+      if (id && !activeProductionHoldId) setActiveProductionHoldId(id);
+      return id;
+    }
+    function deleteProductionHold(holdId) {
+      if (!holdId) return;
+      setProductionHolds(function(prev) {
+        return (Array.isArray(prev) ? prev : []).filter(function(item) { return item.id !== holdId; });
+      });
+      if (activeProductionHoldId === holdId) setActiveProductionHoldId(null);
+    }
+    function resumeProductionHold(hold) {
+      if (!hold) return;
+      saveCurrentProductionHold();
+      setActiveProductionHoldId(hold.id);
+      setResultado(Object.assign({ nombre: "", cantidad: "", medida: "Uni" }, hold.resultado || {}));
+      setInsumos(Array.isArray(hold.insumos) ? hold.insumos.map(function(item) { return Object.assign({}, item, { rowId: item.rowId || `ins-${Date.now()}-${Math.random()}` }); }) : []);
+      setRecipeInstructions(hold.recipeInstructions || "");
+      setProductionRuns(hold.productionRuns || "1");
+      setMiseProductTarget(hold.miseProductTarget || "");
+      setBusqueda("");
+      setError("");
+      setHiddenRecipeMatchName("");
+      setHiddenProductionMatchName("");
+      setModalOpen(true);
+      toast(`Produccion retomada: ${hold.titulo || "en espera"}`, "ok");
+    }
+    function cancelProductionHold() {
+      if (activeProductionHoldId) deleteProductionHold(activeProductionHoldId);
+      setModalOpen(false);
+      setProductionPreviewOpen(false);
+      setActiveProductionHoldId(null);
+      resetProductionForm();
+    }
+    useEffect(function() {
+      save(getProductionHoldStorageKey(moduleLabel), productionHolds);
+    }, [productionHolds, moduleLabel]);
+    useEffect(function() {
+      const rows = load(getProductionHoldStorageKey(moduleLabel), []);
+      setProductionHolds(Array.isArray(rows) ? rows : []);
+      setActiveProductionHoldId(null);
+    }, [moduleLabel]);
+    useEffect(function() {
+      if (!modalOpen) return;
+      const snapshot = buildProductionHoldSnapshot(activeProductionHoldId);
+      if (!hasProductionHoldContent(snapshot)) return;
+      const id = upsertProductionHold(snapshot);
+      if (id && !activeProductionHoldId) setActiveProductionHoldId(id);
+    }, [modalOpen, activeProductionHoldId, resultado, insumos, recipeInstructions, productionRuns, miseProductTarget, moduleLabel]);
     function formatProductionRecipeQty(value) {
       const number = Number(value);
       if (!Number.isFinite(number)) return "";
@@ -6725,7 +6868,9 @@ Solicitado: ${cantidad}`);
       setDirectLoadError("");
     }
     function openProductionModal() {
+      saveCurrentProductionHold();
       resetProductionForm();
+      setActiveProductionHoldId(null);
       setModalOpen(true);
     }
     function openPendingProductionModal() {
@@ -6737,9 +6882,7 @@ Solicitado: ${cantidad}`);
       setPendingSearch("");
     }
     function closeProductionModal() {
-      setModalOpen(false);
-      setProductionPreviewOpen(false);
-      setError("");
+      cancelProductionHold();
     }
     function openRecipeModal() {
       resetProductionForm();
@@ -7377,7 +7520,10 @@ Solicitado: ${cantidad}`);
         }];
       });
       toast(`Produccion registrada: ${nombreProducido}`, "ok");
-      closeProductionModal();
+      if (activeProductionHoldId) deleteProductionHold(activeProductionHoldId);
+      setModalOpen(false);
+      setProductionPreviewOpen(false);
+      setActiveProductionHoldId(null);
       resetProductionForm();
     }
     function guardarReceta() {
@@ -7472,6 +7618,9 @@ Solicitado: ${cantidad}`);
       resetProductionForm();
     }
     function cargarReceta(receta) {
+      saveCurrentProductionHold();
+      const holdId = `hold-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setActiveProductionHoldId(holdId);
       setInsumos((receta.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
         const storageKey = item.storageKey || origen;
@@ -7520,6 +7669,8 @@ Solicitado: ${cantidad}`);
         toast(`Receta cargada para ${item.recetaMatch.nombre}`, "ok");
         return;
       }
+      saveCurrentProductionHold();
+      setActiveProductionHoldId(`hold-${Date.now()}-${Math.random().toString(16).slice(2)}`);
       resetProductionForm();
       setResultado({
         nombre: item.nombre || "",
@@ -7770,6 +7921,27 @@ Solicitado: ${cantidad}`);
       });
       toast("Receta eliminada", "info");
     }
+    const productionHoldsNode = productionHolds.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 16, border: "1px solid #fed7aa", background: "#fff7ed" } },
+      /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 10, alignItems: "center" } },
+        /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pause-circle", style: { marginRight: 7, color: "#f59e0b" } }), "Producciones en hold"),
+        /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, productionHolds.length, " esperando cierre")
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+        productionHolds.map(function(hold) {
+          const count = (hold.insumos || []).length;
+          return /* @__PURE__ */ React.createElement("div", { key: hold.id, style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", border: "1px solid #fed7aa", borderRadius: 10, padding: "10px 12px", background: "#fff" } },
+            /* @__PURE__ */ React.createElement("div", { style: { minWidth: 220 } },
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: "#111827" } }, hold.titulo || "Produccion en espera"),
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, count, " insumo", count === 1 ? "" : "s", " · ", hold.resultado && hold.resultado.cantidad ? `Cantidad: ${hold.resultado.cantidad} ${hold.resultado.medida || "Uni"} · ` : "", "Actualizado: ", formatDatetime(hold.updatedAt))
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { resumeProductionHold(hold); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-play" }), "Retomar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { deleteProductionHold(hold.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Cancelar")
+            )
+          );
+        })
+      )
+    ) : null;
     return /* @__PURE__ */ React.createElement("div", null,
       /* @__PURE__ */ React.createElement("div", { className: "action-bar" },
         /* @__PURE__ */ React.createElement("div", { className: "card", style: { flex: 1, minWidth: 220, marginBottom: 0 } },
@@ -7788,6 +7960,7 @@ Solicitado: ${cantidad}`);
           )
         )
       ),
+      productionHoldsNode,
       /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
         /* @__PURE__ */ React.createElement("div", { className: "card" },
           /* @__PURE__ */ React.createElement("div", { className: "card-header" },
