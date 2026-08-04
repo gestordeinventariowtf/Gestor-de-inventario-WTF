@@ -2320,7 +2320,9 @@
       return String(a.nombre || a.producto || "").localeCompare(String(b.nombre || b.producto || ""));
     });
   }
-  function mergeRemoteAppStateWithLocal(remoteState, localState) {
+  function mergeRemoteAppStateWithLocal(remoteState, localState, options) {
+    const mergeOptions = options && typeof options === "object" ? options : {};
+    const includeLocalDeletedKeys = mergeOptions.includeLocalDeletedKeys !== false;
     const next = Object.assign({}, remoteState || {});
     [
       "regEntradas",
@@ -2340,7 +2342,7 @@
     ].forEach(function(key) {
       next[key] = key === "systemLogs" ? normalizeSystemLogs(mergeMovementRows(localState && localState[key], remoteState && remoteState[key])) : mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
     });
-    next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, localState && localState.inventoryDeletedKeys);
+    next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, includeLocalDeletedKeys ? localState && localState.inventoryDeletedKeys : null);
     [
       "inventario",
       "cuartoFrioInventario",
@@ -2350,12 +2352,12 @@
       next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
-    next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, localState && localState.miseDeletedKeys);
+    next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
     next.miseAnPlace = mergeMiseRows(localState && localState.miseAnPlace, remoteState && remoteState.miseAnPlace, next.miseDeletedKeys.miseAnPlace);
     next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace, next.miseDeletedKeys.barMiseAnPlace);
     next.miseDeletedKeys.miseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "miseAnPlace");
     next.miseDeletedKeys.barMiseAnPlace = pruneMiseDeletedKeys(next.miseDeletedKeys, "barMiseAnPlace");
-    next.recipeDeletedKeys = mergeRecipeDeletedKeys(remoteState && remoteState.recipeDeletedKeys, localState && localState.recipeDeletedKeys);
+    next.recipeDeletedKeys = mergeRecipeDeletedKeys(remoteState && remoteState.recipeDeletedKeys, includeLocalDeletedKeys ? localState && localState.recipeDeletedKeys : null);
     next.recetasProduccion = mergeRecipeRows(localState && localState.recetasProduccion, remoteState && remoteState.recetasProduccion, next.recipeDeletedKeys.recetasProduccion);
     next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion, next.recipeDeletedKeys.barRecetasProduccion);
     next.recipeDeletedKeys.recetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "recetasProduccion");
@@ -4624,6 +4626,8 @@
     const pendingLocalAtRef = useRef(0);
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
     const syncRevisionRef = useRef(Number(load("wtf_sync_revision", 0)) || 0);
+    const sessionStartedAtRef = useRef(Date.now());
+    const hasSessionLocalChangeRef = useRef(false);
     const applyingRemoteRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
@@ -4730,6 +4734,7 @@
     }
     function markLocalSyncChange() {
       const now = Date.now();
+      hasSessionLocalChangeRef.current = true;
       localChangeAtRef.current = now;
       syncRevisionRef.current = Math.max(Number(syncRevisionRef.current || 0), Number(load("wtf_sync_revision", 0)) || 0) + 1;
       save("wtf_sync_local_change_at", now);
@@ -4783,6 +4788,7 @@
         try {
           await firebaseDocRef.current.set(writeDoc.doc, { merge: true });
           lastRemoteSignatureRef.current = writeDoc.signature;
+          hasSessionLocalChangeRef.current = false;
           setFirebaseStatus("connected");
           setFirebaseMessage("Cambios sincronizados");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -5082,13 +5088,18 @@
           const remoteState = decodeFirebaseAppState(data);
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
-              const initialState2 = getCurrentAppState();
-              const migrationDoc = createFirebaseWriteDoc(initialState2, "web-migration");
+              const migratedState = Object.assign(
+                {},
+                mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: false }),
+                { dataVersion: DATA_VERSION }
+              );
+              applyRemoteState(migratedState);
+              const migrationDoc = createFirebaseWriteDoc(migratedState, "web-migration-cloud-first");
               lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
               await docRef.set(migrationDoc.doc, { merge: true });
               setFirebaseStatus("connected");
-              setFirebaseMessage("Firebase actualizado con la migraci\xF3n");
+              setFirebaseMessage("Firebase actualizado con migracion segura");
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
               return;
             }
@@ -5100,11 +5111,12 @@
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
             const localRevision = Number(syncRevisionRef.current || 0);
             const localChangeAt = Number(localChangeAtRef.current || 0);
+            const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || (hasPendingLocalWrite && Number(pendingLocalAtRef.current || 0) >= Number(sessionStartedAtRef.current || 0));
             const remoteHasRevision = remoteRevision > 0 && localRevision > 0;
             const remoteIsOlderByRevision = remoteHasRevision && remoteRevision < localRevision;
             const remoteIsOlderByClientTime = !remoteHasRevision && localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
-            const remoteIsOlderThanLocal = remoteIsOlderByRevision || remoteIsOlderByClientTime;
-            const remoteIsStalePendingEcho = hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
+            const remoteIsOlderThanLocal = hasCurrentSessionLocalChange && (remoteIsOlderByRevision || remoteIsOlderByClientTime);
+            const remoteIsStalePendingEcho = hasCurrentSessionLocalChange && hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
             if (data.updatedAt) {
@@ -5116,13 +5128,14 @@
               lastRemoteSignatureRef.current = remoteSignature;
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
+              hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
               setFirebaseMessage("Protegiendo cambios locales...");
               scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
-              const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState());
+              const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: hasCurrentSessionLocalChange });
               const mergedSignature = serializeAppState(mergedState);
               lastRemoteSignatureRef.current = remoteSignature;
               applyRemoteState(mergedState);
