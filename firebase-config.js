@@ -9,5 +9,10 @@ window.WTF_FIREBASE_CONFIG = {
     appId: "1:863301490729:web:f5018bd6e6489f69686438"
   },
   collection: "wtfSistema",
-  documentId: "estadoGeneral"
+  documentId: "estadoGeneral",
+  ai: {
+    enabled: false,
+    endpoint: "",
+    model: "gpt-5.5"
+  }
 };

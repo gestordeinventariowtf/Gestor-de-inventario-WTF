@@ -1445,6 +1445,7 @@
     { key: "sharp", label: "Sharp de Limpieza" },
     { key: "activosOperativos", label: "Activos Operativos" },
     { key: "employeeCenter", label: "Centro del Colaborador" },
+    { key: "aiAssistant", label: "Asistente IA" },
     { key: "systemLogs", label: "Logs de Sistema" },
     { key: "linkCocinaBar", label: "Enlazar COCINA Y BAR" }
   ];
@@ -1459,7 +1460,12 @@
       appId: ""
     },
     collection: "wtfSistema",
-    documentId: "estadoGeneral"
+    documentId: "estadoGeneral",
+    ai: {
+      enabled: false,
+      endpoint: "",
+      model: "gpt-5.5"
+    }
   };
   function escapeHtml(text) {
     return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -2567,7 +2573,8 @@
       enabled: Boolean(input.enabled),
       firebaseConfig: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.firebaseConfig, input.firebaseConfig || {}),
       collection: input.collection || DEFAULT_FIREBASE_SYNC_CONFIG.collection,
-      documentId: input.documentId || DEFAULT_FIREBASE_SYNC_CONFIG.documentId
+      documentId: input.documentId || DEFAULT_FIREBASE_SYNC_CONFIG.documentId,
+      ai: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.ai || {}, input.ai || {})
     };
   }
   function serializeAppState(state) {
@@ -5682,6 +5689,7 @@ Solicitado: ${cantidad}`);
       { key: "activosOperativos", icon: "fa-kitchen-set", label: "Activos Operativos", section: "OPERACION" },
       { key: "employeeCenter", icon: "fa-people-group", label: "Centro del Colaborador", section: "COLABORADORES" },
       { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" },
+      { key: "aiAssistant", icon: "fa-brain", label: "Asistente IA", section: null },
       { key: "systemLogs", icon: "fa-clipboard-list", label: "Logs de Sistema", section: null }
     ];
     const titles = {
@@ -5704,6 +5712,7 @@ Solicitado: ${cantidad}`);
       activosOperativos: "Activos Operativos",
       employeeCenter: "Centro del Colaborador",
       usuarios: "Administrar Usuarios",
+      aiAssistant: "Asistente IA",
       systemLogs: "Logs de Sistema",
       produccion: "Producción"
     };
@@ -5712,7 +5721,8 @@ Solicitado: ${cantidad}`);
     const esIcg = modulo === "icg";
     const esIcgHost = modulo === "icgHost";
     const esEmployeeCenter = modulo === "employeeCenter";
-    const isAdminUtilityPage = page === "usuarios" || page === "systemLogs";
+    const isAdminUtilityPage = page === "usuarios" || page === "systemLogs" || page === "aiAssistant";
+    const showFloatingAiChat = isAdminUser(currentUser) || Boolean(currentUser && Array.isArray(currentUser.permisos) && currentUser.permisos.includes("aiAssistant"));
     const activePage = esSharp && !isAdminUtilityPage ? "sharp" : esIcg && !isAdminUtilityPage ? "icg" : esIcgHost && !isAdminUtilityPage ? "icgHost" : esEmployeeCenter && !isAdminUtilityPage ? "employeeCenter" : page;
     const activeInv = esBar ? barInventario : inventario;
     const setActiveInv = esBar ? setBarInventario : setInventario;
@@ -5990,6 +6000,7 @@ Solicitado: ${cantidad}`);
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, onSystemLog: addSystemLog }),
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
+      aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
       produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
@@ -6166,7 +6177,7 @@ Solicitado: ${cantidad}`);
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage])), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser })), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -9047,6 +9058,417 @@ Solicitado: ${cantidad}`);
       },
       submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Ingresando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-to-bracket" }), "Entrar al sistema")
     )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
+  }
+  function getAiAssistantConfig() {
+    const localConfig = window.WTF_AI_CONFIG || {};
+    const firebaseConfig = getFirebaseSyncConfig();
+    const cloudAi = firebaseConfig && firebaseConfig.ai ? firebaseConfig.ai : {};
+    return Object.assign({ enabled: false, endpoint: "", model: "gpt-5.5" }, localConfig, cloudAi);
+  }
+  function aiWords(text) {
+    return normalizar(text).split(/\s+/).filter(function(word) {
+      return word && word.length > 1;
+    });
+  }
+  function aiNameScore(a, b) {
+    const aw = aiWords(a);
+    const bw = aiWords(b);
+    if (!aw.length || !bw.length) return 0;
+    const aset = new Set(aw);
+    const bset = new Set(bw);
+    let common = 0;
+    aset.forEach(function(word) {
+      if (bset.has(word)) common++;
+    });
+    const includesBoost = normalizar(a).includes(normalizar(b)) || normalizar(b).includes(normalizar(a)) ? 22 : 0;
+    const lengthPenalty = Math.abs(aw.length - bw.length) * 3;
+    return Math.max(0, Math.min(100, Math.round(common / Math.max(aset.size, bset.size) * 100 + includesBoost - lengthPenalty)));
+  }
+  function aiProductName(item) {
+    return String(item && (item.nombre || item.producto || item.Descripcion || item.DescripcionArticulo || item.Articulo || "") || "").trim();
+  }
+  function aiProductCode(item) {
+    return String(item && (item.codArticulo ?? item.CodArticulo ?? item.CodArticuloIcg ?? item.Codigo ?? item.Referencia ?? "") || "").trim();
+  }
+  function aiInventoryExistence(item) {
+    if (!item) return 0;
+    if (item.tipo === "producto") return getInventoryExistence(item);
+    return getMiseSafeNumber(item.existencia, 0);
+  }
+  function buildAiInventoryCatalog({ inventario = [], cuartoFrioInventario = [], miseAnPlace = [], barInventario = [], barCuartoFrioInventario = [], barMiseAnPlace = [] }) {
+    const rows = [];
+    function addInventory(list, moduleLabel, sourceLabel, targetKey) {
+      (Array.isArray(list) ? list : []).filter((item) => item && item.tipo === "producto").forEach(function(item) {
+        rows.push({
+          id: `${targetKey}-${item.id || aiProductName(item)}`,
+          targetKey,
+          modulo: moduleLabel,
+          origen: sourceLabel,
+          nombre: aiProductName(item),
+          codArticulo: aiProductCode(item),
+          suplidor: item.suplidor || "",
+          medida: item.medida || "Uni",
+          stock: Number(item.stock || 0),
+          existencia: aiInventoryExistence(item)
+        });
+      });
+    }
+    function addMise(list, moduleLabel, targetKey) {
+      normalizeMiseItems(list).forEach(function(item) {
+        rows.push({
+          id: `${targetKey}-${item.id || aiProductName(item)}`,
+          targetKey,
+          modulo: moduleLabel,
+          origen: "Mise an Place",
+          nombre: aiProductName(item),
+          codArticulo: aiProductCode(item),
+          suplidor: "Mise an Place",
+          medida: item.medida || "Uni",
+          stock: Number(item.stock || item.minimo || 0),
+          existencia: aiInventoryExistence(item)
+        });
+      });
+    }
+    addInventory(inventario, "Cocina", "Inventario", "inventarioCocina");
+    addInventory(cuartoFrioInventario, "Cocina", "Cuarto Frio", "cuartoFrioCocina");
+    addMise(miseAnPlace, "Cocina", "miseCocina");
+    addInventory(barInventario, "Bar", "Inventario", "inventarioBar");
+    addInventory(barCuartoFrioInventario, "Bar", "Cuarto Frio", "cuartoFrioBar");
+    addMise(barMiseAnPlace, "Bar", "miseBar");
+    return rows.filter(function(row) {
+      return row.nombre;
+    });
+  }
+  function buildAiDuplicateSuggestions(products) {
+    const rows = [];
+    const catalog = Array.isArray(products) ? products : [];
+    for (let i = 0; i < catalog.length; i++) {
+      for (let j = i + 1; j < catalog.length; j++) {
+        const a = catalog[i];
+        const b = catalog[j];
+        if (!a.nombre || !b.nombre) continue;
+        const sameArea = normalizar(a.modulo) === normalizar(b.modulo) && normalizar(a.origen) === normalizar(b.origen);
+        if (!sameArea) continue;
+        const sameCode = a.codArticulo && b.codArticulo && String(a.codArticulo) === String(b.codArticulo);
+        const score = sameCode ? 100 : aiNameScore(a.nombre, b.nombre);
+        if (score >= 72) rows.push({ a, b, score, motivo: sameCode ? "Mismo CodArticulo en la misma area" : "Nombre muy parecido en la misma area" });
+      }
+    }
+    return rows.sort((a, b) => b.score - a.score).slice(0, 60);
+  }
+  function getIcgArticleName(row) {
+    return String(row && (row.Descripcion || row.DescripcionArticulo || row.Articulo || row.Nombre || row.Producto || row.Referencia || row.CodArticulo || "") || "").trim();
+  }
+  function buildAiIcgLinkSuggestions(icgData, products) {
+    const articles = Array.isArray(icgData && icgData.Articulos) ? icgData.Articulos : [];
+    return articles.map(function(article) {
+      const name = getIcgArticleName(article);
+      const current = article.ProductoWTF || article.ProductoMise || "";
+      if (!name || current) return null;
+      const best = (Array.isArray(products) ? products : []).map(function(product) {
+        return { product, score: aiNameScore(name, product.nombre) };
+      }).sort((a, b) => b.score - a.score)[0];
+      return best && best.score >= 45 ? { article, name, product: best.product, score: best.score } : null;
+    }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 80);
+  }
+  function buildAiMermaAudit(producciones, moduleLabel) {
+    const rows = [];
+    (Array.isArray(producciones) ? producciones : []).forEach(function(prod) {
+      (Array.isArray(prod.insumos) ? prod.insumos : []).forEach(function(item) {
+        const expected = Number(item.mermaEsperadaPorcentaje ?? item.mermaPorcentaje ?? 0) || 0;
+        const real = Number(item.mermaRealPorcentaje ?? 0) || 0;
+        const realAmount = Number(item.mermaRealCantidad ?? item.cantidadMerma ?? 0) || 0;
+        if (realAmount > 0 || real > expected) {
+          rows.push({
+            fecha: prod.fecha,
+            modulo: moduleLabel || prod.modulo || "Cocina",
+            produccion: prod.nombre || prod.producto || "Produccion",
+            insumo: item.nombre || item.producto || "-",
+            esperado: expected,
+            real,
+            cantidad: realAmount,
+            unidad: item.unidadInventario || item.unidad || "",
+            alerta: real > expected + 1e-9
+          });
+        }
+      });
+    });
+    return rows.sort(function(a, b) {
+      return Number(b.alerta) - Number(a.alerta) || new Date(b.fecha || 0) - new Date(a.fecha || 0);
+    }).slice(0, 80);
+  }
+  function buildAiPurchaseList(products) {
+    return (Array.isArray(products) ? products : []).filter(function(item) {
+      return Number(item.stock || 0) > 0 && Number(item.existencia || 0) < Number(item.stock || 0);
+    }).map(function(item) {
+      return Object.assign({}, item, {
+        comprar: Number(Math.max(0, Number(item.stock || 0) - Number(item.existencia || 0)).toFixed(4)),
+        prioridad: Number(item.existencia || 0) <= 0 ? "Agotado" : "Bajo stock"
+      });
+    }).sort(function(a, b) {
+      return String(a.suplidor || "").localeCompare(String(b.suplidor || "")) || String(a.nombre || "").localeCompare(String(b.nombre || ""));
+    });
+  }
+  function buildAiInventoryAlerts(products, movements) {
+    const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return (Array.isArray(products) ? products : []).map(function(item) {
+      const consumo = (Array.isArray(movements) ? movements : []).filter(function(row) {
+        const dt = new Date(row && row.fecha).getTime();
+        return dt >= since && normalizar(row.producto) === normalizar(item.nombre);
+      }).reduce((sum, row) => sum + Number(row.cantidad || 0), 0);
+      const daily = consumo / 7;
+      const dias = daily > 0 ? Number((Number(item.existencia || 0) / daily).toFixed(1)) : null;
+      return Object.assign({}, item, { consumo7d: Number(consumo.toFixed(4)), diasRestantes: dias });
+    }).filter(function(item) {
+      return Number(item.existencia || 0) <= Number(item.stock || 0) || (item.diasRestantes != null && item.diasRestantes <= 3);
+    }).sort(function(a, b) {
+      return (a.diasRestantes ?? 999) - (b.diasRestantes ?? 999);
+    }).slice(0, 80);
+  }
+  function buildAiMovementAudit(movements) {
+    return (Array.isArray(movements) ? movements : []).filter(function(row) {
+      const qty = Number(row.cantidad || 0);
+      return qty > 100 || qty <= 0 || !row.producto || !row.fecha;
+    }).slice(-80).reverse();
+  }
+  function buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }) {
+    const today = new Date().toISOString().slice(0, 10);
+    const sameDay = function(row) {
+      return String(row && row.fecha || "").slice(0, 10) === today || String(row && row.Fecha || "").slice(0, 10) === today;
+    };
+    const ventas = Array.isArray(icgFrontRestData && icgFrontRestData.CierresDiarios) ? icgFrontRestData.CierresDiarios.filter(sameDay) : [];
+    const salidaRows = [].concat(regSalidas || [], barRegSalidas || []).filter(sameDay);
+    const top = Object.values(salidaRows.reduce(function(acc, row) {
+      const key = normalizar(row.producto);
+      if (!key) return acc;
+      if (!acc[key]) acc[key] = { producto: row.producto, cantidad: 0 };
+      acc[key].cantidad += Number(row.cantidad || 0);
+      return acc;
+    }, {})).sort((a, b) => b.cantidad - a.cantidad).slice(0, 8);
+    return {
+      fecha: today,
+      cierres: ventas.length,
+      entradas: [].concat(regEntradas || [], barRegEntradas || []).filter(sameDay).length,
+      salidas: salidaRows.length,
+      decomisos: [].concat(regDecomiso || [], barRegDecomiso || []).filter(sameDay).length,
+      producciones: [].concat(regProduccion || [], barRegProduccion || []).filter(sameDay).length,
+      logs: (Array.isArray(systemLogs) ? systemLogs : []).filter(sameDay).length,
+      bajoStock: (Array.isArray(products) ? products : []).filter((p) => Number(p.stock || 0) > 0 && Number(p.existencia || 0) < Number(p.stock || 0)).length,
+      topConsumo: top
+    };
+  }
+  async function callWtfOpenAiAssistant(task, payload) {
+    const cfg = getAiAssistantConfig();
+    if (!cfg.enabled || !cfg.endpoint) throw new Error("Configura WTF_AI_CONFIG.endpoint o DEFAULT_FIREBASE_SYNC_CONFIG.ai.endpoint para activar ChatGPT/OpenAI.");
+    const response = await fetch(cfg.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task, model: cfg.model || "gpt-5.5", payload })
+    });
+    if (!response.ok) throw new Error("OpenAI no respondio correctamente: " + response.status);
+    return response.json();
+  }
+  function AiAssistantPage(props) {
+    const {
+      inventario = [], cuartoFrioInventario = [], miseAnPlace = [], regEntradas = [], regSalidas = [], regDecomiso = [], regProduccion = [],
+      barInventario = [], barCuartoFrioInventario = [], barMiseAnPlace = [], barRegEntradas = [], barRegSalidas = [], barRegDecomiso = [], barRegProduccion = [],
+      icgFrontRestData = {}, systemLogs = [], currentUser
+    } = props;
+    const toast = useToast();
+    const [active, setActive] = useState("resumen");
+    const [question, setQuestion] = useState("");
+    const [answer, setAnswer] = useState("");
+    const [aiBusy, setAiBusy] = useState(false);
+    const [recountPhotoName, setRecountPhotoName] = useState("");
+    const [recountPhotoData, setRecountPhotoData] = useState("");
+    const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
+    const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
+    const duplicateRows = useMemo(() => buildAiDuplicateSuggestions(products), [products]);
+    const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
+    const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
+    const purchaseRows = useMemo(() => buildAiPurchaseList(products), [products]);
+    const alertRows = useMemo(() => buildAiInventoryAlerts(products, allSalidas), [products, allSalidas]);
+    const movementRows = useMemo(() => buildAiMovementAudit([].concat(regEntradas || [], regSalidas || [], regDecomiso || [], regProduccion || [], barRegEntradas || [], barRegSalidas || [], barRegDecomiso || [], barRegProduccion || [])), [regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion]);
+    const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    const cfg = getAiAssistantConfig();
+    async function askAssistant() {
+      const text = question.trim();
+      if (!text) {
+        toast("Escribe una pregunta para el asistente.", "error");
+        return;
+      }
+      setAiBusy(true);
+      setAnswer("");
+      const localHint = `Productos cargados: ${products.length}. Bajo stock: ${purchaseRows.length}. Duplicados posibles: ${duplicateRows.length}. Mermas con alerta: ${mermaRows.filter((r) => r.alerta).length}.`;
+      try {
+        const result = await callWtfOpenAiAssistant("chat_colaborador", { pregunta: text, usuario: getUserDisplayLabel(currentUser), contexto: { summary, productos: products.slice(0, 250), compras: purchaseRows.slice(0, 80), alertas: alertRows.slice(0, 80), mermas: mermaRows.slice(0, 80), icgLinks: icgLinks.slice(0, 80) } });
+        setAnswer(result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto.");
+      } catch (err) {
+        const matches = products.filter(function(item) {
+          return normalizar([item.nombre, item.modulo, item.origen, item.suplidor].join(" ")).includes(normalizar(text));
+        }).slice(0, 8);
+        setAnswer(localHint + (matches.length ? "\n\nCoincidencias locales:\n" + matches.map((m) => `- ${m.nombre} · ${m.modulo} · ${m.origen} · ${formatMiseQty(m.existencia)} ${m.medida}`).join("\n") : "\n\nOpenAI aun no esta configurado. El analisis local queda disponible."));
+      } finally {
+        setAiBusy(false);
+      }
+    }
+    async function runOpenAiReport(task) {
+      setAiBusy(true);
+      try {
+        const result = await callWtfOpenAiAssistant(task, { summary, productos: products.slice(0, 300), duplicados: duplicateRows.slice(0, 80), compras: purchaseRows.slice(0, 120), alertas: alertRows.slice(0, 120), mermas: mermaRows.slice(0, 120), movimientos: movementRows.slice(0, 120), icgLinks: icgLinks.slice(0, 120) });
+        setAnswer(result && (result.resumen || result.summary || result.respuesta || result.text) || JSON.stringify(result, null, 2));
+        toast("Analisis OpenAI generado.", "ok");
+      } catch (err) {
+        toast(err.message || "OpenAI no esta configurado.", "error");
+      } finally {
+        setAiBusy(false);
+      }
+    }
+    function readAiPhoto(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      setRecountPhotoName(file.name || "foto-recuento");
+      const reader = new FileReader();
+      reader.onload = function() {
+        setRecountPhotoData(String(reader.result || ""));
+      };
+      reader.readAsDataURL(file);
+    }
+    async function runOpenAiRecountPhoto() {
+      if (!recountPhotoData) {
+        toast("Selecciona una foto de conteo primero.", "error");
+        return;
+      }
+      setAiBusy(true);
+      try {
+        const result = await callWtfOpenAiAssistant("recuento_inteligente_por_foto", {
+          imageDataUrl: recountPhotoData,
+          instrucciones: "Lee la hoja de conteo, extrae productos y cantidades, compara contra el catalogo y propone ajustes. Devuelve los productos no encontrados por separado.",
+          catalogo: products.slice(0, 500)
+        });
+        setAnswer(result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto.");
+        toast("Foto analizada con OpenAI.", "ok");
+      } catch (err) {
+        toast(err.message || "OpenAI no esta configurado.", "error");
+      } finally {
+        setAiBusy(false);
+      }
+    }
+    const tabs = [
+      ["resumen", "Resumen IA", "fa-chart-pie"],
+      ["recuento", "Recuento por foto", "fa-camera-retro"],
+      ["duplicados", "Duplicados", "fa-clone"],
+      ["icg", "Vinculos ICG", "fa-link"],
+      ["mermas", "Mermas", "fa-scale-balanced"],
+      ["compras", "Compra automatica", "fa-cart-shopping"],
+      ["alertas", "Alertas", "fa-triangle-exclamation"],
+      ["movimientos", "Movimientos", "fa-shield-halved"],
+      ["chat", "Chat interno", "fa-comments"]
+    ];
+    return /* @__PURE__ */ React.createElement("div", null,
+      /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain", style: { marginRight: 7, color: "var(--azul)" } }), "Asistente IA"),
+          /* @__PURE__ */ React.createElement("span", { className: `pill ${cfg.enabled && cfg.endpoint ? "pill-verde" : "pill-naranja"}` }, cfg.enabled && cfg.endpoint ? "OpenAI conectado" : "Analisis local")
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+          /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { overflowX: "auto" } }, tabs.map(function(tab) {
+            return /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${active === tab[0] ? "active" : ""}`, onClick: () => setActive(tab[0]) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${tab[2]}`, style: { marginRight: 6 } }), tab[1]);
+          })),
+          /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "La IA genera recomendaciones. Los cambios de inventario deben revisarse antes de aplicarse.")
+        )
+      ),
+      active === "resumen" && /* @__PURE__ */ React.createElement("div", null,
+        /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Bajo stock", value: summary.bajoStock, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Duplicados posibles", value: duplicateRows.length, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mermas alerta", value: mermaRows.filter((r) => r.alerta).length, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Vinculos ICG sugeridos", value: icgLinks.length, color: "azul" })),
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resumen diario automatico"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => runOpenAiReport("resumen_diario"), disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Mejorar con OpenAI")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, ["Entradas: " + summary.entradas, "Salidas: " + summary.salidas, "Decomisos: " + summary.decomisos, "Producciones: " + summary.producciones, "Bajo stock: " + summary.bajoStock].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)), summary.topConsumo.length ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Productos mas consumidos"), summary.topConsumo.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.producto, style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, item.producto, " · ", formatMiseQty(item.cantidad)))) : null))
+      ),
+      active === "recuento" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Recuento inteligente por foto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--gris)", fontSize: 13 } }, "Sube una foto de la hoja de conteo. OpenAI leera productos y cantidades, y devolvera una propuesta para revisar antes de aplicar en el modulo Recuento."), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), recountPhotoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: readAiPhoto, style: { display: "none" } })), recountPhotoData && /* @__PURE__ */ React.createElement("img", { src: recountPhotoData, alt: "Foto de recuento", style: { width: "100%", maxWidth: 360, maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOpenAiRecountPhoto, disabled: aiBusy || !recountPhotoData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), aiBusy ? "Analizando..." : "Leer foto con OpenAI"))),
+      active === "duplicados" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Detector de productos duplicados", rows: duplicateRows, empty: "No se detectaron duplicados fuertes.", columns: ["Producto A", "Producto B", "Coincidencia", "Motivo"], render: (row) => [row.a.nombre + " · " + row.a.modulo + " / " + row.a.origen, row.b.nombre + " · " + row.b.modulo + " / " + row.b.origen, row.score + "%", row.motivo] }),
+      active === "icg" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Vinculos inteligentes ICG hacia productos web", rows: icgLinks, empty: "No hay articulos ICG pendientes con coincidencias claras.", columns: ["Articulo ICG", "Producto sugerido", "Destino WTF", "Coincidencia"], render: (row) => [row.name, row.product.nombre, row.product.modulo + " · " + row.product.origen, row.score + "%"] }),
+      active === "mermas" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Auditor de mermas", rows: mermaRows, empty: "No hay mermas con datos suficientes.", columns: ["Fecha", "Produccion", "Insumo", "Resultado"], render: (row) => [formatDatetime(row.fecha), row.produccion, row.insumo, (row.alerta ? "Alerta: " : "Normal: ") + row.real + "% real vs " + row.esperado + "% esperado"] }),
+      active === "compras" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Listado de compra automatico", rows: purchaseRows, empty: "No hay productos por comprar segun stock minimo.", columns: ["Producto", "Area", "Suplidor", "A comprar"], render: (row) => [row.nombre, row.modulo + " · " + row.origen, row.suplidor || "-", formatMiseQty(row.comprar) + " " + row.medida] }),
+      active === "alertas" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Alertas inteligentes de inventario", rows: alertRows, empty: "No hay alertas inteligentes.", columns: ["Producto", "Existencia", "Consumo 7 dias", "Estimado"], render: (row) => [row.nombre + " · " + row.modulo + " / " + row.origen, formatMiseQty(row.existencia) + " " + row.medida, formatMiseQty(row.consumo7d), row.diasRestantes == null ? "Sin consumo reciente" : "Se agota en " + row.diasRestantes + " dias"] }),
+      active === "movimientos" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Auditor de movimientos", rows: movementRows, empty: "No se detectaron movimientos raros basicos.", columns: ["Fecha", "Producto", "Cantidad", "Origen"], render: (row) => [formatDatetime(row.fecha), row.producto || "-", formatMiseQty(row.cantidad), row.origen || row.usuario || "-"] }),
+      active === "chat" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistente para colaboradores")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 4, value: question, onChange: (e) => setQuestion(e.target.value), placeholder: "Ej: Donde esta el ajo? Que productos estan agotados? Cuanto ajo necesito para 20 libras?" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: askAssistant, disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), aiBusy ? "Analizando..." : "Preguntar"), answer && /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", background: "#f8fafc", border: "1px solid var(--borde)", borderRadius: 8, padding: 12, margin: 0, fontFamily: "inherit", fontSize: 13 } }, answer))),
+      answer && active !== "chat" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Respuesta OpenAI")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit", fontSize: 13 } }, answer)))
+    );
+  }
+  function AiSimpleTable({ title, rows, columns, render, empty }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, title), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, (rows || []).length, " registros")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, col)))), /* @__PURE__ */ React.createElement("tbody", null, (rows || []).map(function(row, index) {
+      const cells = render(row);
+      return /* @__PURE__ */ React.createElement("tr", { key: index }, cells.map((cell, cellIndex) => /* @__PURE__ */ React.createElement("td", { key: cellIndex, style: { fontSize: 12, whiteSpace: cellIndex === 0 ? "normal" : "nowrap" } }, cell)));
+    }), !(rows || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: columns.length, style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, empty || "Sin datos"))))));
+  }
+  function FloatingAiChat(props) {
+    const {
+      inventario = [], cuartoFrioInventario = [], miseAnPlace = [], regEntradas = [], regSalidas = [], regDecomiso = [], regProduccion = [],
+      barInventario = [], barCuartoFrioInventario = [], barMiseAnPlace = [], barRegEntradas = [], barRegSalidas = [], barRegDecomiso = [], barRegProduccion = [],
+      icgFrontRestData = {}, systemLogs = [], currentUser
+    } = props;
+    const [open, setOpen] = useState(false);
+    const [input, setInput] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
+    const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
+    const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
+    const purchaseRows = useMemo(() => buildAiPurchaseList(products), [products]);
+    const alertRows = useMemo(() => buildAiInventoryAlerts(products, allSalidas), [products, allSalidas]);
+    const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
+    const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
+    const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    function localAnswer(question) {
+      const term = normalizar(question);
+      const matches = products.filter(function(item) {
+        return normalizar([item.nombre, item.modulo, item.origen, item.suplidor, item.codArticulo].join(" ")).includes(term);
+      }).slice(0, 8);
+      if (matches.length) {
+        return "Encontré estas coincidencias:\n" + matches.map((m) => `- ${m.nombre} · ${m.modulo} · ${m.origen} · ${formatMiseQty(m.existencia)} ${m.medida}`).join("\n");
+      }
+      if (/agotad|bajo stock|comprar|compra/i.test(question)) {
+        return purchaseRows.slice(0, 8).map((m) => `- ${m.nombre}: comprar ${formatMiseQty(m.comprar)} ${m.medida} · ${m.modulo} / ${m.origen}`).join("\n") || "No hay productos por comprar segun el stock minimo.";
+      }
+      if (/merma|desperdicio/i.test(question)) {
+        return mermaRows.slice(0, 8).map((m) => `- ${m.produccion}: ${m.insumo} · real ${m.real}% vs esperado ${m.esperado}%`).join("\n") || "No hay mermas con alerta registrada.";
+      }
+      if (/icg|vincul/i.test(question)) {
+        return icgLinks.slice(0, 8).map((m) => `- ${m.name} -> ${m.product.nombre} (${m.score}%)`).join("\n") || "No hay sugerencias ICG claras pendientes.";
+      }
+      return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura OpenAI.`;
+    }
+    async function send() {
+      const text = input.trim();
+      if (!text || busy) return;
+      setInput("");
+      setMessages((prev) => prev.concat([{ role: "user", text }]));
+      setBusy(true);
+      try {
+        const result = await callWtfOpenAiAssistant("chat_flotante", { pregunta: text, usuario: getUserDisplayLabel(currentUser), contexto: { summary, productos: products.slice(0, 220), compras: purchaseRows.slice(0, 70), alertas: alertRows.slice(0, 70), mermas: mermaRows.slice(0, 70), icgLinks: icgLinks.slice(0, 70) } });
+        setMessages((prev) => prev.concat([{ role: "assistant", text: result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto." }]));
+      } catch (err) {
+        setMessages((prev) => prev.concat([{ role: "assistant", text: localAnswer(text) }]));
+      } finally {
+        setBusy(false);
+      }
+    }
+    const panelStyle = { position: "fixed", right: 18, bottom: 82, width: "min(380px, calc(100vw - 28px))", maxHeight: "min(560px, calc(100vh - 120px))", background: "#fff", border: "1px solid var(--borde)", borderRadius: 12, boxShadow: "0 18px 50px rgba(15,23,42,0.22)", zIndex: 1400, overflow: "hidden", display: "flex", flexDirection: "column" };
+    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
+    return /* @__PURE__ */ React.createElement(React.Fragment, null,
+      open && /* @__PURE__ */ React.createElement("div", { style: panelStyle },
+        /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 14px", background: "#111827", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 } },
+          /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Asistente IA"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, opacity: 0.72 } }, "Inventario · Produccion · ICG · Mermas")),
+          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", onClick: () => setOpen(false), title: "Minimizar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-minus" }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, messages.map(function(message, index) {
+          const mine = message.role === "user";
+          return /* @__PURE__ */ React.createElement("div", { key: index, style: { justifySelf: mine ? "end" : "start", maxWidth: "92%", background: mine ? "#dcfce7" : "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827" } }, message.text);
+        }), busy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Analizando...")),
+        /* @__PURE__ */ React.createElement("div", { style: { padding: 10, borderTop: "1px solid var(--borde)", display: "flex", gap: 8, background: "#fff" } },
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Hablar con la IA..." }),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde btn-icon", onClick: send, disabled: busy || !input.trim(), title: "Enviar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }))
+        )
+      ),
+      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: () => setOpen((value) => !value), title: "Hablar con la IA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
+    );
   }
   function SystemLogsPage({ logs }) {
     const [query, setQuery] = useState("");
