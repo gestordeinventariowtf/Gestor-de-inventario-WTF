@@ -1064,6 +1064,7 @@
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
   const MISE_DELETED_KEYS_STORAGE = "wtf_mise_deleted_keys";
   const RECIPE_DELETED_KEYS_STORAGE = "wtf_recipe_deleted_keys";
+  const PRODUCTION_HOLD_DELETED_KEYS_STORAGE = "wtf_production_hold_deleted_keys";
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
     cuartoFrioInventario: "wtf_bar_cuarto_frio_inventario",
@@ -1902,12 +1903,54 @@
       return String(a && a.fecha || "").localeCompare(String(b && b.fecha || ""));
     });
   }
-  function normalizeProductionHolds(rows) {
+  function normalizeProductionHoldDeletedKeys(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    ["productionHolds", "barProductionHolds"].forEach(function(stateKey) {
+      const rows = source[stateKey] && typeof source[stateKey] === "object" ? source[stateKey] : {};
+      const clean = {};
+      Object.keys(rows).forEach(function(key) {
+        const ts = Number(rows[key] || 0);
+        if (key && Number.isFinite(ts) && ts > 0) clean[key] = ts;
+      });
+      result[stateKey] = clean;
+    });
+    return result;
+  }
+  function mergeProductionHoldDeletedKeys(remoteKeys, localKeys) {
+    const result = normalizeProductionHoldDeletedKeys(remoteKeys);
+    const local = normalizeProductionHoldDeletedKeys(localKeys);
+    ["productionHolds", "barProductionHolds"].forEach(function(stateKey) {
+      result[stateKey] = Object.assign({}, result[stateKey] || {});
+      Object.keys(local[stateKey] || {}).forEach(function(key) {
+        result[stateKey][key] = Math.max(Number(result[stateKey][key] || 0), Number(local[stateKey][key] || 0));
+      });
+    });
+    return result;
+  }
+  function pruneProductionHoldDeletedKeys(deletedKeys, stateKey) {
+    const source = normalizeProductionHoldDeletedKeys(deletedKeys)[stateKey] || {};
+    const result = {};
+    const minTs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    Object.keys(source).forEach(function(key) {
+      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+    });
+    return result;
+  }
+  function isProductionHoldDeleted(row, deletedKeys) {
+    if (!row || !row.id) return false;
+    const deletedAt = Number((deletedKeys && deletedKeys[row.id]) || 0);
+    if (!deletedAt) return false;
+    const updatedAt = getRowUpdateTime(row);
+    return !updatedAt || updatedAt <= deletedAt;
+  }
+  function normalizeProductionHolds(rows, deletedKeys) {
     const map = new Map();
     (Array.isArray(rows) ? rows : []).forEach(function(row) {
       if (!row || typeof row !== "object") return;
       const id = String(row.id || "").trim() || `hold-${hashRecipeIdentity(JSON.stringify(row))}`;
       const copy = Object.assign({}, row, { id });
+      if (isProductionHoldDeleted(copy, deletedKeys)) return;
       const existing = map.get(id);
       if (!existing || getRowUpdateTime(copy) >= getRowUpdateTime(existing)) map.set(id, copy);
     });
@@ -1915,8 +1958,8 @@
       return getRowUpdateTime(b) - getRowUpdateTime(a);
     }).slice(0, 30);
   }
-  function mergeProductionHolds(localRows, remoteRows) {
-    return normalizeProductionHolds([].concat(Array.isArray(remoteRows) ? remoteRows : [], Array.isArray(localRows) ? localRows : []));
+  function mergeProductionHolds(localRows, remoteRows, deletedKeys) {
+    return normalizeProductionHolds([].concat(Array.isArray(remoteRows) ? remoteRows : [], Array.isArray(localRows) ? localRows : []), deletedKeys);
   }
   function getInventoryMergeKey(row) {
     if (!row) return "";
@@ -2352,13 +2395,11 @@
       "histSalidaRapida",
       "histDecomisoCocina",
       "regProduccion",
-      "productionHolds",
       "barRegEntradas",
       "barRegSalidas",
       "barRegDecomiso",
       "barRegRecuento",
       "barRegProduccion",
-      "barProductionHolds",
       "systemLogs"
     ].forEach(function(key) {
       if (key === "systemLogs") next[key] = normalizeSystemLogs(mergeMovementRows(localState && localState[key], remoteState && remoteState[key]));
@@ -2385,6 +2426,11 @@
     next.barRecetasProduccion = mergeRecipeRows(localState && localState.barRecetasProduccion, remoteState && remoteState.barRecetasProduccion, next.recipeDeletedKeys.barRecetasProduccion);
     next.recipeDeletedKeys.recetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "recetasProduccion");
     next.recipeDeletedKeys.barRecetasProduccion = pruneRecipeDeletedKeys(next.recipeDeletedKeys, "barRecetasProduccion");
+    next.productionHoldDeletedKeys = mergeProductionHoldDeletedKeys(remoteState && remoteState.productionHoldDeletedKeys, includeLocalDeletedKeys ? localState && localState.productionHoldDeletedKeys : null);
+    next.productionHolds = mergeProductionHolds(includeLocalProductionHolds ? localState && localState.productionHolds : null, remoteState && remoteState.productionHolds, next.productionHoldDeletedKeys.productionHolds);
+    next.barProductionHolds = mergeProductionHolds(includeLocalProductionHolds ? localState && localState.barProductionHolds : null, remoteState && remoteState.barProductionHolds, next.productionHoldDeletedKeys.barProductionHolds);
+    next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
+    next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
     next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
     return next;
   }
@@ -2410,6 +2456,7 @@
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
     const miseDeletedKeys = normalizeMiseDeletedKeys(state.miseDeletedKeys);
     const recipeDeletedKeys = normalizeRecipeDeletedKeys(state.recipeDeletedKeys);
+    const productionHoldDeletedKeys = normalizeProductionHoldDeletedKeys(state.productionHoldDeletedKeys);
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
       inventario: normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario),
@@ -2421,11 +2468,12 @@
       regRecuento: state.regRecuento || [],
       regProduccion: state.regProduccion || [],
       recetasProduccion: (state.recetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); }),
-      productionHolds: normalizeProductionHolds(state.productionHolds || []),
+      productionHolds: normalizeProductionHolds(state.productionHolds || [], productionHoldDeletedKeys.productionHolds),
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       inventoryDeletedKeys: deletedKeys,
       miseDeletedKeys,
       recipeDeletedKeys,
+      productionHoldDeletedKeys,
       histDecomisoCocina: state.histDecomisoCocina || [],
       histEntradaRapida: state.histEntradaRapida || [],
       histSalidaRapida: state.histSalidaRapida || [],
@@ -2444,7 +2492,7 @@
       barRegDecomiso: state.barRegDecomiso || [],
       barRegRecuento: state.barRegRecuento || [],
       barRegProduccion: state.barRegProduccion || [],
-      barProductionHolds: normalizeProductionHolds(state.barProductionHolds || []),
+      barProductionHolds: normalizeProductionHolds(state.barProductionHolds || [], productionHoldDeletedKeys.barProductionHolds),
       barRecetasProduccion: (state.barRecetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })
     });
   }
@@ -4597,6 +4645,7 @@
     const initialInventoryDeletedKeys = useMemo(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})), []);
     const initialMiseDeletedKeys = useMemo(() => normalizeMiseDeletedKeys(load(MISE_DELETED_KEYS_STORAGE, {})), []);
     const initialRecipeDeletedKeys = useMemo(() => normalizeRecipeDeletedKeys(load(RECIPE_DELETED_KEYS_STORAGE, {})), []);
+    const initialProductionHoldDeletedKeys = useMemo(() => normalizeProductionHoldDeletedKeys(load(PRODUCTION_HOLD_DELETED_KEYS_STORAGE, {})), []);
     const [inventario, setInventario] = useState(() => normalizeInventoryRowsForDisplay(loadSeeded(KEYS.inventario, initInventario, null) || initInventario(), initialInventoryDeletedKeys.inventario));
     const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.cuartoFrioInventario));
     const [miseAnPlace, setMise] = useState(() => normalizeMiseItems((loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()).filter(function(row) { return !isMiseRowDeleted(row, initialMiseDeletedKeys.miseAnPlace); })));
@@ -4606,7 +4655,7 @@
     const [regRecuento, setRegRecuento] = useState(() => load(KEYS.regRecuento, []));
     const [regProduccion, setRegProduccion] = useState(() => load(KEYS.regProduccion, []));
     const [recetasProduccion, setRecetasProduccion] = useState(() => normalizeRecipeRows(load(KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.recetasProduccion); }));
-    const [productionHolds, setProductionHolds] = useState(() => normalizeProductionHolds(load(KEYS.productionHolds, [])));
+    const [productionHolds, setProductionHolds] = useState(() => normalizeProductionHolds(load(KEYS.productionHolds, []), initialProductionHoldDeletedKeys.productionHolds));
     const [recetasProduccionBaseVersion, setRecetasProduccionBaseVersion] = useState(() => load("wtf_recetas_produccion_base_version", ""));
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []));
     const [histEntradaRapida, setHistEntradaRapida] = useState(() => load(KEYS.histEntradaRapida, []));
@@ -4632,10 +4681,11 @@
     const [barRegRecuento, setBarRegRecuento] = useState(() => load(BAR_KEYS.regRecuento, []));
     const [barRegProduccion, setBarRegProduccion] = useState(() => load(BAR_KEYS.regProduccion, []));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => normalizeRecipeRows(load(BAR_KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.barRecetasProduccion); }));
-    const [barProductionHolds, setBarProductionHolds] = useState(() => normalizeProductionHolds(load(BAR_KEYS.productionHolds, [])));
+    const [barProductionHolds, setBarProductionHolds] = useState(() => normalizeProductionHolds(load(BAR_KEYS.productionHolds, []), initialProductionHoldDeletedKeys.barProductionHolds));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
     const [recipeDeletedKeys, setRecipeDeletedKeys] = useState(() => initialRecipeDeletedKeys);
+    const [productionHoldDeletedKeys, setProductionHoldDeletedKeys] = useState(() => initialProductionHoldDeletedKeys);
     const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
@@ -4719,6 +4769,7 @@
       inventoryDeletedKeys,
       miseDeletedKeys,
       recipeDeletedKeys,
+      productionHoldDeletedKeys,
       histDecomisoCocina,
       histEntradaRapida,
       histSalidaRapida,
@@ -4840,11 +4891,12 @@
       if (Array.isArray(nextState.regRecuento)) setRegRecuento(nextState.regRecuento);
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(nextState.regProduccion);
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(normalizeRecipeRows(nextState.recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.recetasProduccion); }));
-      if (Array.isArray(nextState.productionHolds)) setProductionHolds(normalizeProductionHolds(nextState.productionHolds));
+      if (Array.isArray(nextState.productionHolds)) setProductionHolds(normalizeProductionHolds(nextState.productionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.productionHolds));
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
       if (nextState.miseDeletedKeys && typeof nextState.miseDeletedKeys === "object") setMiseDeletedKeys(normalizeMiseDeletedKeys(nextState.miseDeletedKeys));
       if (nextState.recipeDeletedKeys && typeof nextState.recipeDeletedKeys === "object") setRecipeDeletedKeys(normalizeRecipeDeletedKeys(nextState.recipeDeletedKeys));
+      if (nextState.productionHoldDeletedKeys && typeof nextState.productionHoldDeletedKeys === "object") setProductionHoldDeletedKeys(normalizeProductionHoldDeletedKeys(nextState.productionHoldDeletedKeys));
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(nextState.histDecomisoCocina);
       if (Array.isArray(nextState.histEntradaRapida)) setHistEntradaRapida(nextState.histEntradaRapida);
       if (Array.isArray(nextState.histSalidaRapida)) setHistSalidaRapida(nextState.histSalidaRapida);
@@ -4863,7 +4915,7 @@
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(nextState.barRegDecomiso);
       if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(nextState.barRegRecuento);
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(nextState.barRegProduccion);
-      if (Array.isArray(nextState.barProductionHolds)) setBarProductionHolds(normalizeProductionHolds(nextState.barProductionHolds));
+      if (Array.isArray(nextState.barProductionHolds)) setBarProductionHolds(normalizeProductionHolds(nextState.barProductionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.barProductionHolds));
       if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(normalizeRecipeRows(nextState.barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
@@ -4873,6 +4925,7 @@
     useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
+    useEffect(() => save(PRODUCTION_HOLD_DELETED_KEYS_STORAGE, normalizeProductionHoldDeletedKeys(productionHoldDeletedKeys)), [productionHoldDeletedKeys]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
@@ -4894,7 +4947,7 @@
     useEffect(() => save(KEYS.regRecuento, regRecuento), [regRecuento]);
     useEffect(() => save(KEYS.regProduccion, regProduccion), [regProduccion]);
     useEffect(() => save(KEYS.recetasProduccion, normalizeRecipeRows(recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); })), [recetasProduccion, recipeDeletedKeys]);
-    useEffect(() => save(KEYS.productionHolds, normalizeProductionHolds(productionHolds)), [productionHolds]);
+    useEffect(() => save(KEYS.productionHolds, normalizeProductionHolds(productionHolds, productionHoldDeletedKeys.productionHolds)), [productionHolds, productionHoldDeletedKeys]);
     useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
     useEffect(() => {
       if (recetasProduccionBaseVersion === DEFAULT_RECETAS_PRODUCCION_VERSION) return;
@@ -4920,7 +4973,7 @@
     useEffect(() => save(BAR_KEYS.regRecuento, barRegRecuento), [barRegRecuento]);
     useEffect(() => save(BAR_KEYS.regProduccion, barRegProduccion), [barRegProduccion]);
     useEffect(() => save(BAR_KEYS.recetasProduccion, normalizeRecipeRows(barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })), [barRecetasProduccion, recipeDeletedKeys]);
-    useEffect(() => save(BAR_KEYS.productionHolds, normalizeProductionHolds(barProductionHolds)), [barProductionHolds]);
+    useEffect(() => save(BAR_KEYS.productionHolds, normalizeProductionHolds(barProductionHolds, productionHoldDeletedKeys.barProductionHolds)), [barProductionHolds, productionHoldDeletedKeys]);
     useEffect(() => {
       const result = repairInventoryCodArticuloCollections([
         { key: "inventario", rows: inventario },
@@ -5224,7 +5277,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -5565,6 +5618,7 @@ Solicitado: ${cantidad}`);
     const setActiveRecetasProduccion = esBar ? setBarRecetasProduccion : setRecetasProduccion;
     const activeProductionHolds = esBar ? barProductionHolds : productionHolds;
     const setActiveProductionHolds = esBar ? setBarProductionHolds : setProductionHolds;
+    const activeProductionHoldDeletedKey = esBar ? "barProductionHolds" : "productionHolds";
     const activeMiseAnPlace = esBar ? barMiseAnPlace : miseAnPlace;
     const setActiveMise = esBar ? setBarMise : setMise;
     const hasCocinaBarLinkAccess = isAdminUser(currentUser) || Boolean(currentUser && Array.isArray(currentUser.permisos) && currentUser.permisos.includes("linkCocinaBar"));
@@ -5819,7 +5873,7 @@ Solicitado: ${cantidad}`);
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
@@ -6021,7 +6075,7 @@ Solicitado: ${cantidad}`);
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, productionHolds = [], setProductionHolds, recipeStateKey = "recetasProduccion", onMarkRecipeDeleted, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, productionHolds = [], setProductionHolds, productionHoldDeletedKeys = {}, setProductionHoldDeletedKeys, productionHoldDeletedKey = "productionHolds", recipeStateKey = "recetasProduccion", onMarkRecipeDeleted, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, moduleLabel }) {
     const toast = useToast();
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
@@ -6836,6 +6890,17 @@ Solicitado: ${cantidad}`);
     function deleteProductionHold(holdId) {
       if (!holdId) return;
       if (typeof setProductionHolds !== "function") return;
+      if (typeof setProductionHoldDeletedKeys === "function") {
+        setProductionHoldDeletedKeys(function(prev) {
+          const normalized = normalizeProductionHoldDeletedKeys(prev);
+          const key = productionHoldDeletedKey || "productionHolds";
+          const nextRows = Object.assign({}, normalized[key] || {});
+          nextRows[holdId] = Date.now();
+          return Object.assign({}, normalized, {
+            [key]: nextRows
+          });
+        });
+      }
       setProductionHolds(function(prev) {
         return (Array.isArray(prev) ? prev : []).filter(function(item) { return item.id !== holdId; });
       });
@@ -6879,11 +6944,12 @@ Solicitado: ${cantidad}`);
       const legacyRows = load(getProductionHoldStorageKey(moduleLabel), []);
       if (Array.isArray(legacyRows) && legacyRows.length && typeof setProductionHolds === "function") {
         setProductionHolds(function(prev) {
-          return mergeProductionHolds(legacyRows, prev);
+          const deletedRows = normalizeProductionHoldDeletedKeys(productionHoldDeletedKeys)[productionHoldDeletedKey] || {};
+          return mergeProductionHolds(legacyRows, prev, deletedRows);
         });
       }
       setActiveProductionHoldId(null);
-    }, [moduleLabel]);
+    }, [moduleLabel, productionHoldDeletedKey, productionHoldDeletedKeys]);
     useEffect(function() {
       if (!modalOpen) return;
       const snapshot = buildProductionHoldSnapshot(activeProductionHoldId);
