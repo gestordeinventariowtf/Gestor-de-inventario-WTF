@@ -1827,6 +1827,124 @@
     doc.save("Conteo_" + String(pageLabel || "Inventario").replace(/\s+/g, "_") + "_" + generatedAt.toISOString().slice(0, 10) + ".pdf");
     toast && toast(`PDF de ${pageLabel} generado.`, "ok");
   }
+  function openInventoryCountPdfPrintFallbackV2(items, pageLabel, generatedAt, toast) {
+    const rows = (Array.isArray(items) ? items : []).map(function(item) {
+      return '<tr><td>' + escapeHtml(item.nombre || "") + '</td><td><span class="line"></span></td></tr>';
+    }).join("");
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter portrait;margin:10mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:10px}h1{font-size:14pt;margin:0}.meta{font-size:9pt;color:#4b5563;white-space:nowrap}.fields{font-size:9pt;color:#4b5563;margin-bottom:12px}.grid{columns:2;column-gap:7mm}table{width:100%;border-collapse:collapse;break-inside:avoid;margin-bottom:8px}thead th{background:#0a9f28;color:#fff;font-size:10pt;padding:4px 5px;text-align:left}thead th:last-child{text-align:right}td{border:1px solid #e5e7eb;font-size:10pt;padding:5px;height:22px}tbody tr:nth-child(even){background:#f9fafb}.line{display:block;border-bottom:1px solid #6b7280;height:12px;margin:0 5px}@media print{button{display:none}}</style></head><body><header><h1>WTF Sistema - Hoja de Conteo Manual</h1><div class="meta">Fecha: ____ / ____ / ______ &nbsp;&nbsp; Hora: ________</div></header><div class="fields">Modulo: ____________________ &nbsp;&nbsp; Responsable: ____________________ &nbsp;&nbsp; Area: ____________________</div><main class="grid"><table><thead><tr><th>Producto</th><th>Conteo</th></tr></thead><tbody>' + rows + "</tbody></table></main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast && toast("Permite ventanas emergentes para generar el PDF.", "error");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    toast && toast("Se abrio la vista para guardar como PDF.", "info");
+  }
+  async function generateInventoryCountPdf(inventario, pageLabel, toast) {
+    const items = (Array.isArray(inventario) ? inventario : []).filter(function(item) {
+      return item && item.tipo === "producto" && String(item.nombre || "").trim();
+    }).map(function(item) {
+      return Object.assign({}, item, { nombre: String(item.nombre || "").trim() });
+    });
+    if (!items.length) {
+      toast && toast(`No hay productos en ${pageLabel} para generar PDF.`, "error");
+      return;
+    }
+    const generatedAt = /* @__PURE__ */ new Date();
+    const jsPdfApi = await loadJsPdfApi();
+    if (!jsPdfApi) {
+      openInventoryCountPdfPrintFallbackV2(items, pageLabel, generatedAt, toast);
+      return;
+    }
+    const doc = new jsPdfApi({ orientation: "portrait", unit: "mm", format: "letter" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const gap = 6;
+    const tableTop = 32;
+    const footerY = pageHeight - 7;
+    const tableWidth = (pageWidth - margin * 2 - gap) / 2;
+    const nameWidth = tableWidth * 0.68;
+    const headerHeight = 7.4;
+    const rowHeight = 8.1;
+    const rowsPerTable = Math.max(1, Math.floor((footerY - tableTop - headerHeight - 2) / rowHeight));
+    const rowsPerPage = rowsPerTable * 2;
+    function fitText(text, maxWidth) {
+      const raw = String(text || "");
+      if (doc.getTextWidth(raw) <= maxWidth) return raw;
+      const ellipsis = "...";
+      let output = raw;
+      while (output.length && doc.getTextWidth(output + ellipsis) > maxWidth) output = output.slice(0, -1);
+      return (output || raw.slice(0, 1)) + ellipsis;
+    }
+    function drawHeader() {
+      doc.setTextColor(17, 24, 39);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("WTF Sistema - Hoja de Conteo Manual", margin, 12);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(75, 85, 99);
+      doc.text("Fecha: ____ / ____ / ______", pageWidth - margin - 70, 12);
+      doc.text("Hora: ________", pageWidth - margin - 28, 12);
+      doc.text("Modulo: ____________________", margin, 20);
+      doc.text("Responsable: ____________________", margin + 50, 20);
+      doc.text("Area: ____________________", margin + 118, 20);
+    }
+    function drawTableHeader(x, y) {
+      doc.setFillColor(10, 159, 40);
+      doc.roundedRect(x, y, tableWidth, headerHeight, 1.6, 1.6, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Producto", x + 2.5, y + 5.1);
+      doc.text("Conteo", x + tableWidth - 2.5, y + 5.1, { align: "right" });
+    }
+    function drawProductLine(item, x, rowTop, index) {
+      if (index % 2 === 1) {
+        doc.setFillColor(249, 250, 251);
+        doc.rect(x, rowTop, tableWidth, rowHeight, "F");
+      }
+      doc.setDrawColor(229, 231, 235);
+      doc.setLineWidth(0.18);
+      doc.line(x, rowTop + rowHeight, x + tableWidth, rowTop + rowHeight);
+      doc.line(x + nameWidth, rowTop, x + nameWidth, rowTop + rowHeight);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(17, 24, 39);
+      doc.text(fitText(item.nombre || "", nameWidth - 5), x + 2.5, rowTop + 5.5);
+      doc.setDrawColor(107, 114, 128);
+      doc.setLineWidth(0.25);
+      doc.line(x + nameWidth + 4.5, rowTop + 5.4, x + tableWidth - 4.5, rowTop + 5.4);
+    }
+    items.forEach(function(item, index) {
+      const indexOnPage = index % rowsPerPage;
+      const tableIndex = Math.floor(indexOnPage / rowsPerTable);
+      const rowIndex = indexOnPage % rowsPerTable;
+      if (index > 0 && indexOnPage === 0) doc.addPage();
+      if (indexOnPage === 0) {
+        drawHeader();
+        drawTableHeader(margin, tableTop);
+        drawTableHeader(margin + tableWidth + gap, tableTop);
+      }
+      const x = tableIndex === 0 ? margin : margin + tableWidth + gap;
+      const y = tableTop + headerHeight + rowIndex * rowHeight;
+      drawProductLine(item, x, y, rowIndex);
+    });
+    const pages = doc.getNumberOfPages();
+    for (let page = 1; page <= pages; page++) {
+      doc.setPage(page);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(107, 114, 128);
+      doc.text("Formato de conteo manual - " + pageLabel, pageWidth / 2, pageHeight - 5, { align: "center" });
+      doc.text("Pagina " + page + " de " + pages, pageWidth - margin, pageHeight - 5, { align: "right" });
+    }
+    doc.save("Conteo_" + String(pageLabel || "Inventario").replace(/\s+/g, "_") + "_" + generatedAt.toISOString().slice(0, 10) + ".pdf");
+    toast && toast(`PDF de ${pageLabel} generado.`, "ok");
+  }
   function cloneData(value) {
     return JSON.parse(JSON.stringify(value));
   }
