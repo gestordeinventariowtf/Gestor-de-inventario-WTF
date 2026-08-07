@@ -11,8 +11,8 @@ window.WTF_FIREBASE_CONFIG = {
   collection: "wtfSistema",
   documentId: "estadoGeneral",
   ai: {
-    enabled: false,
-    endpoint: "",
-    model: "gpt-5.5"
+    enabled: true,
+    endpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAiAssistant",
+    model: "gpt-5.6"
   }
 };

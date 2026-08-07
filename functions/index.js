@@ -42,7 +42,7 @@ function buildInstructions(task) {
   ].join("\n");
 }
 
-export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", secrets: [OPENAI_API_KEY] }, async (req, res) => {
+export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", secrets: [OPENAI_API_KEY], invoker: "public" }, async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") {
     res.status(204).send("");
@@ -80,7 +80,7 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: model || "gpt-5.5",
+        model: model || "gpt-5.6",
         instructions: buildInstructions(task),
         input: [
           {
