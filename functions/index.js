@@ -32,6 +32,20 @@ function extractOutputText(data) {
 }
 
 function buildInstructions(task) {
+  if (String(task || "").includes("recuento_lectura_foto_conteo")) {
+    return [
+      "Eres un lector experto de hojas de conteo manual de inventario para WTF Sistema.",
+      "Debes leer la foto como una tabla de productos y conteos escritos a mano.",
+      "La hoja puede tener dos columnas. Lee izquierda completa y derecha completa.",
+      "Extrae solo filas reales de productos con cantidad visible.",
+      "Ignora encabezados, fecha, hora, modulo, responsable, area, pagina y textos decorativos.",
+      "No inventes productos ni cantidades. Si una cantidad no se ve, omite esa fila.",
+      "Devuelve exclusivamente JSON valido, sin markdown, sin explicaciones.",
+      "Formato obligatorio: {\"lineas\":[{\"productoDetectado\":\"Nombre exacto visible\",\"cantidadContada\":0,\"codArticulo\":\"\",\"productoWtf\":\"\"}]}",
+      "cantidadContada debe ser numero. Conserva el nombre visible del producto lo mas exacto posible.",
+      `Tarea solicitada: ${task || "recuento_lectura_foto_conteo"}.`
+    ].join("\n");
+  }
   return [
     "Eres el asistente IA del sistema WTF de inventario, cocina, bar, produccion, ICG y mermas.",
     "Trabaja como auditor operativo: claro, conservador y orientado a prevenir perdidas de dinero.",
@@ -60,11 +74,14 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
   try {
     const { task, model, payload } = req.body || {};
     const imageDataUrl = payload && typeof payload.imageDataUrl === "string" && payload.imageDataUrl.startsWith("data:image/") ? payload.imageDataUrl : "";
-    const safePayload = JSON.stringify(payload || {}).slice(0, 120000);
+    const safePayloadObject = Object.assign({}, payload || {});
+    delete safePayloadObject.imageDataUrl;
+    const safePayload = JSON.stringify(safePayloadObject).slice(0, 120000);
+    const isRecountPhotoTask = String(task || "").includes("recuento_lectura_foto_conteo");
     const content = [
       {
         type: "input_text",
-        text: "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n" + safePayload
+        text: (isRecountPhotoTask ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload
       }
     ];
     if (imageDataUrl) {

@@ -1838,7 +1838,7 @@
     const rows = (Array.isArray(items) ? items : []).map(function(item) {
       return '<tr><td>' + escapeHtml(item.nombre || "") + '</td><td><span class="line"></span></td></tr>';
     }).join("");
-    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter portrait;margin:10mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:10px}h1{font-size:14pt;margin:0}.meta{font-size:9pt;color:#4b5563;white-space:nowrap}.fields{font-size:9pt;color:#4b5563;margin-bottom:12px}.grid{columns:2;column-gap:7mm}table{width:100%;border-collapse:collapse;break-inside:avoid;margin-bottom:8px}thead th{background:#0a9f28;color:#fff;font-size:10pt;padding:4px 5px;text-align:left}thead th:last-child{text-align:right}td{border:1px solid #e5e7eb;font-size:10pt;padding:5px;height:22px}tbody tr:nth-child(even){background:#f9fafb}.line{display:block;border-bottom:1px solid #6b7280;height:12px;margin:0 5px}@media print{button{display:none}}</style></head><body><header><h1>WTF Sistema - Hoja de Conteo Manual</h1><div class="meta">Fecha: ____ / ____ / ______ &nbsp;&nbsp; Hora: ________</div></header><div class="fields">Modulo: ____________________ &nbsp;&nbsp; Responsable: ____________________ &nbsp;&nbsp; Area: ____________________</div><main class="grid"><table><thead><tr><th>Producto</th><th>Conteo</th></tr></thead><tbody>' + rows + "</tbody></table></main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter portrait;margin:8mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:1px solid #d1d5db;padding-bottom:6px;margin-bottom:8px}h1{font-size:14pt;margin:0 0 4px}.meta{font-size:9pt;color:#374151;font-weight:700}.fields{font-size:9pt;color:#374151;margin:6px 0 8px}.grid{columns:3;column-gap:5mm}table{width:100%;border-collapse:collapse;break-inside:avoid;margin-bottom:6px}thead th{background:#0a9f28;color:#fff;font-size:10pt;padding:3px 4px;text-align:left}thead th:last-child{text-align:right}td{border:1px solid #e5e7eb;font-size:8.5pt;padding:3px 4px;height:16px}tbody tr:nth-child(even){background:#f9fafb}.line{display:block;border-bottom:1px solid #6b7280;height:9px;margin:0 3px}@media print{button{display:none}}</style></head><body><header><h1>WTF Sistema - Hoja de Conteo Manual</h1><div class="meta">Modulo: ' + escapeHtml(pageLabel || "Inventario") + '</div></header><div class="fields">Responsable: ______________________________________________</div><main class="grid"><table><thead><tr><th>Producto</th><th>Conteo</th></tr></thead><tbody>' + rows + "</tbody></table></main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast && toast("Permite ventanas emergentes para generar el PDF.", "error");
@@ -1868,16 +1868,17 @@
     const doc = new jsPdfApi({ orientation: "portrait", unit: "mm", format: "letter" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 10;
-    const gap = 6;
-    const tableTop = 32;
+    const margin = 8;
+    const gap = 4;
+    const tableTop = 27;
     const footerY = pageHeight - 7;
-    const tableWidth = (pageWidth - margin * 2 - gap) / 2;
-    const nameWidth = tableWidth * 0.68;
+    const columnCount = 3;
+    const tableWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
+    const nameWidth = tableWidth * 0.7;
     const headerHeight = 7.4;
-    const rowHeight = 8.1;
+    const rowHeight = 6.2;
     const rowsPerTable = Math.max(1, Math.floor((footerY - tableTop - headerHeight - 2) / rowHeight));
-    const rowsPerPage = rowsPerTable * 2;
+    const rowsPerPage = rowsPerTable * columnCount;
     function fitText(text, maxWidth) {
       const raw = String(text || "");
       if (doc.getTextWidth(raw) <= maxWidth) return raw;
@@ -1891,14 +1892,13 @@
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
       doc.text("WTF Sistema - Hoja de Conteo Manual", margin, 12);
-      doc.setFont("helvetica", "normal");
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
-      doc.setTextColor(75, 85, 99);
-      doc.text("Fecha: ____ / ____ / ______", pageWidth - margin - 70, 12);
-      doc.text("Hora: ________", pageWidth - margin - 28, 12);
-      doc.text("Modulo: ____________________", margin, 20);
-      doc.text("Responsable: ____________________", margin + 50, 20);
-      doc.text("Area: ____________________", margin + 118, 20);
+      doc.setTextColor(55, 65, 81);
+      doc.text("Modulo: " + String(pageLabel || "Inventario"), margin, 18);
+      doc.setFont("helvetica", "normal");
+      doc.text("Responsable:", margin + 92, 18);
+      doc.line(margin + 116, 18.5, pageWidth - margin, 18.5);
     }
     function drawTableHeader(x, y) {
       doc.setFillColor(10, 159, 40);
@@ -1919,12 +1919,12 @@
       doc.line(x, rowTop + rowHeight, x + tableWidth, rowTop + rowHeight);
       doc.line(x + nameWidth, rowTop, x + nameWidth, rowTop + rowHeight);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
+      doc.setFontSize(8.5);
       doc.setTextColor(17, 24, 39);
-      doc.text(fitText(item.nombre || "", nameWidth - 5), x + 2.5, rowTop + 5.5);
+      doc.text(fitText(item.nombre || "", nameWidth - 4.5), x + 2.2, rowTop + 4.3);
       doc.setDrawColor(107, 114, 128);
       doc.setLineWidth(0.25);
-      doc.line(x + nameWidth + 4.5, rowTop + 5.4, x + tableWidth - 4.5, rowTop + 5.4);
+      doc.line(x + nameWidth + 3.2, rowTop + 4.4, x + tableWidth - 3.2, rowTop + 4.4);
     }
     items.forEach(function(item, index) {
       const indexOnPage = index % rowsPerPage;
@@ -1933,10 +1933,11 @@
       if (index > 0 && indexOnPage === 0) doc.addPage();
       if (indexOnPage === 0) {
         drawHeader();
-        drawTableHeader(margin, tableTop);
-        drawTableHeader(margin + tableWidth + gap, tableTop);
+        for (let table = 0; table < columnCount; table++) {
+          drawTableHeader(margin + table * (tableWidth + gap), tableTop);
+        }
       }
-      const x = tableIndex === 0 ? margin : margin + tableWidth + gap;
+      const x = margin + tableIndex * (tableWidth + gap);
       const y = tableTop + headerHeight + rowIndex * rowHeight;
       drawProductLine(item, x, y, rowIndex);
     });
@@ -9559,7 +9560,16 @@ Solicitado: ${cantidad}`);
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task, model: cfg.model || "gpt-5.5", payload })
     });
-    if (!response.ok) throw new Error("OpenAI no respondio correctamente: " + response.status);
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const data = await response.json();
+        detail = data && data.error ? String(data.error) : "";
+      } catch (err) {
+        detail = "";
+      }
+      throw new Error(detail || "OpenAI no respondio correctamente: " + response.status);
+    }
     return response.json();
   }
   function AiAssistantPage(props) {
@@ -11553,6 +11563,14 @@ Solicitado: ${cantidad}`);
         setOcrStatus(`Lectura IA completada: ${parsed.length} lineas detectadas.`);
         toast(`${parsed.length} lineas detectadas con IA`, "ok");
       } catch (openAiError) {
+        const openAiMessage = String(openAiError && openAiError.message || "");
+        if (/credits|billing|quota|429|api key|model/i.test(openAiMessage)) {
+          setRows([]);
+          setOcrText("");
+          setOcrStatus("");
+          setError(openAiMessage.includes("credits") || openAiMessage.includes("billing") ? "OpenAI no tiene creditos disponibles. Activa creditos/billing en OpenAI para leer la foto con precision; no usare OCR local porque distorsiona esta hoja." : `OpenAI no pudo leer la foto: ${openAiMessage}`);
+          return;
+        }
         try {
           setOcrStatus("OpenAI no pudo completar la lectura. Intentando OCR local...");
           if (!window.Tesseract) {
