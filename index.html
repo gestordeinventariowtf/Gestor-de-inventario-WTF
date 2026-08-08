@@ -11405,6 +11405,54 @@ Solicitado: ${cantidad}`);
       };
     }).filter(Boolean);
   }
+  function extractJsonFromAiText(text) {
+    const raw = String(text || "").trim();
+    if (!raw) return null;
+    const candidates = [raw];
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced && fenced[1]) candidates.push(fenced[1].trim());
+    const arrayStart = raw.indexOf("[");
+    const arrayEnd = raw.lastIndexOf("]");
+    if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(raw.slice(arrayStart, arrayEnd + 1));
+    const objectStart = raw.indexOf("{");
+    const objectEnd = raw.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) candidates.push(raw.slice(objectStart, objectEnd + 1));
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate);
+      } catch (err) {
+      }
+    }
+    return null;
+  }
+  function normalizeAiRecountRows(aiPayload, catalog) {
+    const source = Array.isArray(aiPayload) ? aiPayload : aiPayload && (aiPayload.lineas || aiPayload.items || aiPayload.productos || aiPayload.rows || aiPayload.detalles);
+    return (Array.isArray(source) ? source : []).map(function(item) {
+      const productoDetectado = String(item && (item.productoDetectado || item.producto || item.nombre || item.descripcion || item.name) || "").trim();
+      const productoSugerido = String(item && (item.productoWtf || item.productoRelacionado || item.productoWeb || item.productoSistema || "") || "").trim();
+      const codArticulo = String(item && (item.codArticulo || item.codigo || item.code || "") || "").trim();
+      const cantidadRaw = item && (item.cantidadContada ?? item.cantidad ?? item.conteo ?? item.count ?? item.qty);
+      const cantidad = parseRecountQuantity(cantidadRaw);
+      if (!productoDetectado || !Number.isFinite(cantidad)) return null;
+      const query = productoSugerido || codArticulo || productoDetectado;
+      const best = (catalog || []).map(function(row) {
+        const codeScore = codArticulo && normalizar(row.codArticulo) === normalizar(codArticulo) ? 100 : 0;
+        return { item: row, score: Math.max(codeScore, getRecountMatchScore(query, row), getRecountMatchScore(productoDetectado, row)) };
+      }).sort(function(a, b) {
+        return b.score - a.score;
+      })[0];
+      return {
+        id: `rec-ai-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        raw: item && item.raw ? String(item.raw) : `${productoDetectado} ${cantidad}`,
+        productoDetectado,
+        cantidadContada: Number(cantidad.toFixed(4)),
+        producto: best && best.score >= 45 ? best.item.producto : "",
+        productId: best && best.score >= 45 ? best.item.id : "",
+        score: best ? best.score : 0,
+        selected: Boolean(best && best.score >= 45)
+      };
+    }).filter(Boolean);
+  }
   function RecuentoPage({ moduleLabel = "Cocina", currentUser, inventario = [], setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace = [], setMise, regEntradas = [], setRegEntradas, regSalidas = [], setRegSalidas, regDecomiso = [], histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, histDecomisoCocina = [], setHistDecomisoCocina, regRecuento = [], setRegRecuento }) {
     const toast = useToast();
     const [target, setTarget] = useState("inventario");
@@ -11415,6 +11463,7 @@ Solicitado: ${cantidad}`);
     const [ocrStatus, setOcrStatus] = useState("");
     const [rows, setRows] = useState([]);
     const [error, setError] = useState("");
+    const [analyzingText, setAnalyzingText] = useState(false);
     const catalog = useMemo(function() {
       if (target === "mise") {
         return normalizeMiseItems(miseAnPlace).map(function(item) {
@@ -11467,6 +11516,79 @@ Solicitado: ${cantidad}`);
         setError("Primero selecciona una foto del conteo.");
         return;
       }
+      setAnalyzingText(true);
+      try {
+        setOcrStatus("Analizando hoja con IA. Leyendo productos y conteos...");
+        const result = await callWtfOpenAiAssistant("recuento_lectura_foto_conteo", {
+          imageDataUrl: photoPreview,
+          textoDetectado: ocrText || "",
+          instrucciones: [
+            "Lee una hoja de conteo manual de inventario desde la foto.",
+            "Extrae todas las lineas visibles con producto y cantidad contada.",
+            "La hoja puede tener dos columnas; revisa ambas de arriba hacia abajo.",
+            "Ignora encabezados como Producto, Conteo, Fecha, Hora, Modulo, Responsable y Area.",
+            "Si un producto no tiene numero visible, omitelo.",
+            "Devuelve solo JSON valido, sin explicaciones, con esta forma:",
+            "{\"lineas\":[{\"productoDetectado\":\"Aceite de trufa\",\"cantidadContada\":1,\"codArticulo\":\"\",\"productoWtf\":\"\"}]}",
+            "Usa numeros, no texto, para cantidadContada."
+          ].join("\\n"),
+          catalogo: catalog.map(function(item) {
+            return {
+              id: item.id,
+              producto: item.producto,
+              codArticulo: item.codArticulo || "",
+              medida: item.medida || "",
+              existencia: item.existencia || 0,
+              area: item.source || ""
+            };
+          }).slice(0, 800)
+        });
+        const aiJson = extractJsonFromAiText(result && (result.respuesta || result.summary || result.text || ""));
+        const parsed = normalizeAiRecountRows(aiJson, catalog);
+        if (!parsed.length) throw new Error("La IA no devolvio lineas claras.");
+        setRows(parsed);
+        setOcrText(parsed.map(function(row) {
+          return `${row.productoDetectado} ${row.cantidadContada}`;
+        }).join("\n"));
+        setOcrStatus(`Lectura IA completada: ${parsed.length} lineas detectadas.`);
+        toast(`${parsed.length} lineas detectadas con IA`, "ok");
+      } catch (openAiError) {
+        try {
+          setOcrStatus("OpenAI no pudo completar la lectura. Intentando OCR local...");
+          if (!window.Tesseract) {
+            await new Promise(function(resolve, reject) {
+              const script = document.createElement("script");
+              script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
+            });
+          }
+          setOcrStatus("Leyendo foto con OCR local. Esto puede tardar unos segundos...");
+          const result = await window.Tesseract.recognize(photoPreview, "spa+eng", {
+            logger: function(message) {
+              if (message && message.status) setOcrStatus(`OCR local: ${message.status}${message.progress ? " " + Math.round(message.progress * 100) + "%" : ""}`);
+            }
+          });
+          const text = result && result.data && result.data.text ? result.data.text : "";
+          setOcrText(text);
+          const parsed = parseRecountTextToRows(text, catalog);
+          setRows(parsed);
+          setOcrStatus(parsed.length ? `Lectura OCR completada: ${parsed.length} lineas detectadas.` : "Lectura OCR completada, pero no se detectaron cantidades claras.");
+        } catch (err) {
+          setOcrStatus("");
+          setError("No se pudo leer la foto automaticamente. Puedes escribir o pegar el texto del conteo y pulsar Analizar texto.");
+        }
+      } finally {
+        setAnalyzingText(false);
+      }
+    }
+    async function runLegacyOcrDisabled() {
+      setError("");
+      if (!photoPreview) {
+        setError("Primero selecciona una foto del conteo.");
+        return;
+      }
       try {
         setOcrStatus("Cargando motor de lectura IA/OCR...");
         if (!window.Tesseract) {
@@ -11495,8 +11617,10 @@ Solicitado: ${cantidad}`);
       }
     }
     function analyzeText() {
+      setError("");
       const parsed = parseRecountTextToRows(ocrText, catalog);
       setRows(parsed);
+      setOcrStatus(parsed.length ? `Analisis de texto completado: ${parsed.length} lineas detectadas.` : "");
       toast(parsed.length ? `${parsed.length} lineas detectadas` : "No se detectaron lineas validas", parsed.length ? "ok" : "info");
     }
     function resolveProductByValue(value) {
@@ -11666,7 +11790,7 @@ Solicitado: ${cantidad}`);
           photoPreview && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px, 260px) 1fr", gap: 12, alignItems: "start" } },
             /* @__PURE__ */ React.createElement("img", { src: photoPreview, alt: "Foto del recuento", style: { width: "100%", maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }),
             /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
-              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOcr }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), "Leer foto con IA"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOcr, disabled: analyzingText }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), analyzingText ? "Leyendo foto..." : "Leer foto con IA"),
               ocrStatus && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), ocrStatus)
             )
           ),
