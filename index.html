@@ -9714,15 +9714,60 @@ Solicitado: ${cantidad}`);
         setAiBusy(false);
       }
     }
-    function readAiPhoto(event) {
+    function loadAiImageFromDataUrl(dataUrl) {
+      return new Promise(function(resolve, reject) {
+        const img = new Image();
+        img.onload = function() { resolve(img); };
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
+    function readAiFileAsDataUrl(file) {
+      return new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function() { resolve(String(reader.result || "")); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+    async function prepareAiRecountPhoto(file) {
+      if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Selecciona una imagen valida.");
+      const dataUrl = await readAiFileAsDataUrl(file);
+      const img = await loadAiImageFromDataUrl(dataUrl);
+      const maxSide = 1800;
+      const ratio = Math.min(1, maxSide / Math.max(img.width || maxSide, img.height || maxSide));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((img.width || maxSide) * ratio));
+      canvas.height = Math.max(1, Math.round((img.height || maxSide) * ratio));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      let quality = 0.9;
+      let output = canvas.toDataURL("image/jpeg", quality);
+      const maxBytes = 2 * 1024 * 1024;
+      while (output.length * 0.75 > maxBytes && quality > 0.58) {
+        quality -= 0.08;
+        output = canvas.toDataURL("image/jpeg", quality);
+      }
+      return output;
+    }
+    async function readAiPhoto(event) {
       const file = event.target.files && event.target.files[0];
       if (!file) return;
-      setRecountPhotoName(file.name || "foto-recuento");
-      const reader = new FileReader();
-      reader.onload = function() {
-        setRecountPhotoData(String(reader.result || ""));
-      };
-      reader.readAsDataURL(file);
+      try {
+        setRecountPhotoName(file.name || "foto-recuento");
+        setAnswer("");
+        const dataUrl = await prepareAiRecountPhoto(file);
+        setRecountPhotoData(dataUrl);
+        toast("Foto lista para leer con IA.", "ok");
+      } catch (err) {
+        setRecountPhotoName("");
+        setRecountPhotoData("");
+        toast(err.message || "No se pudo preparar la foto.", "error");
+      } finally {
+        event.target.value = "";
+      }
     }
     async function runOpenAiRecountPhoto() {
       if (!recountPhotoData) {
@@ -9731,9 +9776,9 @@ Solicitado: ${cantidad}`);
       }
       setAiBusy(true);
       try {
-        const result = await callWtfOpenAiAssistant("recuento_inteligente_por_foto", {
+        const result = await callWtfOpenAiAssistant("recuento_lectura_foto_conteo", {
           imageDataUrl: recountPhotoData,
-          instrucciones: "Lee la hoja de conteo, extrae productos y cantidades, compara contra el catalogo y propone ajustes. Devuelve los productos no encontrados por separado.",
+          instrucciones: "Lee la hoja de conteo, extrae productos y cantidades. Devuelve solo JSON valido con lineas.",
           catalogo: products.slice(0, 500)
         });
         setAnswer(result && (result.respuesta || result.summary || result.text) || "La IA respondio sin texto.");
@@ -9772,7 +9817,7 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Bajo stock", value: summary.bajoStock, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Duplicados posibles", value: duplicateRows.length, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mermas alerta", value: mermaRows.filter((r) => r.alerta).length, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Vinculos ICG sugeridos", value: icgLinks.length, color: "azul" })),
         /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resumen diario automatico"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => runOpenAiReport("resumen_diario"), disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Mejorar con IA")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, ["Entradas: " + summary.entradas, "Salidas: " + summary.salidas, "Decomisos: " + summary.decomisos, "Producciones: " + summary.producciones, "Bajo stock: " + summary.bajoStock].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)), summary.topConsumo.length ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Productos mas consumidos"), summary.topConsumo.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.producto, style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, item.producto, " · ", formatMiseQty(item.cantidad)))) : null))
       ),
-      active === "recuento" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Recuento inteligente por foto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--gris)", fontSize: 13 } }, "Sube una foto de la hoja de conteo. La IA leera productos y cantidades, y devolvera una propuesta para revisar antes de aplicar en el modulo Recuento."), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), recountPhotoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: readAiPhoto, style: { display: "none" } })), recountPhotoData && /* @__PURE__ */ React.createElement("img", { src: recountPhotoData, alt: "Foto de recuento", style: { width: "100%", maxWidth: 360, maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOpenAiRecountPhoto, disabled: aiBusy || !recountPhotoData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), aiBusy ? "Analizando..." : "Leer foto con IA"))),
+      active === "recuento" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Recuento inteligente por foto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--gris)", fontSize: 13 } }, "Sube una foto de la hoja de conteo. La IA leera productos y cantidades, y devolvera una propuesta para revisar antes de aplicar en el modulo Recuento."), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), recountPhotoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", onChange: readAiPhoto, style: { display: "none" } })), recountPhotoData && /* @__PURE__ */ React.createElement("img", { src: recountPhotoData, alt: "Foto de recuento", style: { width: "100%", maxWidth: 360, maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOpenAiRecountPhoto, disabled: aiBusy || !recountPhotoData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), aiBusy ? "Analizando..." : "Leer foto con IA"))),
       active === "duplicados" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Detector de productos duplicados", rows: duplicateRows, empty: "No se detectaron duplicados fuertes.", columns: ["Producto A", "Producto B", "Coincidencia", "Motivo"], render: (row) => [row.a.nombre + " · " + row.a.modulo + " / " + row.a.origen, row.b.nombre + " · " + row.b.modulo + " / " + row.b.origen, row.score + "%", row.motivo] }),
       active === "icg" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Vinculos inteligentes ICG hacia productos web", rows: icgLinks, empty: "No hay articulos ICG pendientes con coincidencias claras.", columns: ["Articulo ICG", "Producto sugerido", "Destino WTF", "Coincidencia"], render: (row) => [row.name, row.product.nombre, row.product.modulo + " · " + row.product.origen, row.score + "%"] }),
       active === "mermas" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Auditor de mermas", rows: mermaRows, empty: "No hay mermas con datos suficientes.", columns: ["Fecha", "Produccion", "Insumo", "Resultado"], render: (row) => [formatDatetime(row.fecha), row.produccion, row.insumo, (row.alerta ? "Alerta: " : "Normal: ") + row.real + "% real vs " + row.esperado + "% esperado"] }),
@@ -11688,14 +11733,56 @@ Solicitado: ${cantidad}`);
         reader.readAsDataURL(file);
       });
     }
+    function loadImageFromDataUrl(dataUrl) {
+      return new Promise(function(resolve, reject) {
+        const img = new Image();
+        img.onload = function() { resolve(img); };
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
+    async function prepareRecountImage(file) {
+      if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Selecciona una imagen valida.");
+      const dataUrl = await readFileAsDataUrl(file);
+      const img = await loadImageFromDataUrl(dataUrl);
+      const maxSide = 1800;
+      const ratio = Math.min(1, maxSide / Math.max(img.width || maxSide, img.height || maxSide));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((img.width || maxSide) * ratio));
+      canvas.height = Math.max(1, Math.round((img.height || maxSide) * ratio));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      let quality = 0.9;
+      let output = canvas.toDataURL("image/jpeg", quality);
+      const maxBytes = 2 * 1024 * 1024;
+      while (output.length * 0.75 > maxBytes && quality > 0.58) {
+        quality -= 0.08;
+        output = canvas.toDataURL("image/jpeg", quality);
+      }
+      return output;
+    }
     async function onPhotoChange(event) {
       const file = event.target.files && event.target.files[0];
       if (!file) return;
       setError("");
-      setPhotoName(file.name || "foto-recuento");
-      const dataUrl = await readFileAsDataUrl(file);
-      setPhotoPreview(dataUrl);
-      setOcrStatus("Foto cargada. Puedes ejecutar lectura IA/OCR.");
+      setRows([]);
+      setOcrText("");
+      try {
+        setPhotoName(file.name || "foto-recuento");
+        setOcrStatus("Preparando foto para IA...");
+        const dataUrl = await prepareRecountImage(file);
+        setPhotoPreview(dataUrl);
+        setOcrStatus("Foto cargada y optimizada. Puedes ejecutar lectura IA.");
+      } catch (err) {
+        setPhotoName("");
+        setPhotoPreview("");
+        setOcrStatus("");
+        setError(err.message || "No se pudo preparar la foto.");
+      } finally {
+        event.target.value = "";
+      }
     }
     async function runOcr() {
       setError("");
@@ -11980,7 +12067,7 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "grid-3" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Area del conteo"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: target, onChange: (e) => { setTarget(e.target.value); setRows([]); } }, /* @__PURE__ */ React.createElement("option", { value: "inventario" }, "Inventario"), /* @__PURE__ */ React.createElement("option", { value: "cuartoFrio" }, "Cuarto Frio"), /* @__PURE__ */ React.createElement("option", { value: "mise" }, "Mise an Place"))),
             /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha y hora del conteo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "datetime-local", value: countedAt, onChange: (e) => setCountedAt(e.target.value) })),
-            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Foto de la hoja"), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), photoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: onPhotoChange, style: { display: "none" } })))
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Foto de la hoja"), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), photoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", onChange: onPhotoChange, style: { display: "none" } })))
           ),
           photoPreview && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px, 260px) 1fr", gap: 12, alignItems: "start" } },
             /* @__PURE__ */ React.createElement("img", { src: photoPreview, alt: "Foto del recuento", style: { width: "100%", maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }),
