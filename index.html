@@ -9852,6 +9852,38 @@ Solicitado: ${cantidad}`);
     const type = normalizeAiActionType(action);
     return ["buscar_producto", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento", "preparar_movimiento"].includes(type);
   }
+  function detectAiMovementRequest(text) {
+    const value = String(text || "");
+    const normalized = normalizar(value);
+    let movimiento = "";
+    if (/\bentrada\b|ingres|agrega|sumale|dale entrada/i.test(value)) movimiento = "entrada";
+    else if (/\bsalida\b|sacale|descuent|retira|dale salida/i.test(value)) movimiento = "salida";
+    else if (/decomis|merma|dano|daño|bota/i.test(value)) movimiento = "decomiso";
+    if (!movimiento) return null;
+    const qtyMatch = value.match(/(\d+(?:[.,]\d{1,4})?)/);
+    const cantidad = qtyMatch ? Number(qtyMatch[1].replace(",", ".")) : "";
+    let producto = value.replace(/(\d+(?:[.,]\d{1,4})?)/, " ");
+    producto = producto.replace(/\b(dale|dar|entrada|salida|decomiso|decomisar|ingresar|ingresa|agrega|agregar|sumale|sacale|sacar|retira|retirar|descuenta|descontar|a|al|la|los|las|de|del|en|inventario|cuarto frio|cuarto frío|mise an place|mise|cocina|bar)\b/gi, " ");
+    producto = producto.replace(/\s+/g, " ").trim();
+    return producto ? { movimiento, cantidad, producto, raw: value, normalized } : null;
+  }
+  function getAiProductMatches(products, productText) {
+    const term = normalizar(productText);
+    if (!term) return [];
+    return (Array.isArray(products) ? products : []).map(function(row) {
+      const score = normalizar(row.nombre).includes(term) ? 100 : aiNameScore(productText, row.nombre);
+      return { row, score };
+    }).filter(function(item) {
+      return item.score >= 45;
+    }).sort(function(a, b) {
+      return b.score - a.score;
+    }).slice(0, 8).map(function(item) {
+      return item.row;
+    });
+  }
+  function labelAiProductLocation(row) {
+    return [row && row.nombre, row && row.modulo, row && row.origen, row && row.existencia != null ? `${formatMiseQty(row.existencia)} ${row.medida || ""}` : ""].filter(Boolean).join(" · ");
+  }
   function FloatingAiChat(props) {
     const {
       inventario = [], cuartoFrioInventario = [], miseAnPlace = [], regEntradas = [], regSalidas = [], regDecomiso = [], regProduccion = [],
@@ -9863,7 +9895,12 @@ Solicitado: ${cantidad}`);
     const [busy, setBusy] = useState(false);
     const [listening, setListening] = useState(false);
     const [voiceError, setVoiceError] = useState("");
+    const [voiceMode, setVoiceMode] = useState(false);
+    const [pendingVoiceAction, setPendingVoiceAction] = useState(null);
     const recognitionRef = useRef(null);
+    const voiceModeRef = useRef(false);
+    const busyRef = useRef(false);
+    const speakingRef = useRef(false);
     const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
     const voiceSupported = Boolean(speechRecognitionApi);
     const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
@@ -9874,6 +9911,12 @@ Solicitado: ${cantidad}`);
     const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
     const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
     const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    useEffect(function() {
+      voiceModeRef.current = voiceMode;
+    }, [voiceMode]);
+    useEffect(function() {
+      busyRef.current = busy;
+    }, [busy]);
     function localAnswer(question) {
       const term = normalizar(question);
       const matches = products.filter(function(item) {
@@ -9893,23 +9936,132 @@ Solicitado: ${cantidad}`);
       }
       return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura la IA.`;
     }
-    function speak(text) {
-      if (!window.speechSynthesis || !text) return;
+    function maybeContinueVoice() {
+      if (!voiceModeRef.current || busyRef.current || speakingRef.current) return;
+      window.setTimeout(function() {
+        if (voiceModeRef.current && !busyRef.current && !speakingRef.current) startVoice(true);
+      }, 450);
+    }
+    function stopVoiceSession() {
+      voiceModeRef.current = false;
+      setVoiceMode(false);
+      setListening(false);
       try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(String(text).replace(/Accion ejecutada:[\s\S]*/i, "").slice(0, 500));
-        utterance.lang = "es-DO";
-        utterance.rate = 1;
-        window.speechSynthesis.speak(utterance);
+        if (recognitionRef.current) recognitionRef.current.stop();
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        speakingRef.current = false;
       } catch (err) {
       }
+    }
+    function speak(text, onDone) {
+      if (!window.speechSynthesis || !text) {
+        if (typeof onDone === "function") onDone();
+        return;
+      }
+      try {
+        window.speechSynthesis.cancel();
+        speakingRef.current = true;
+        const cleanText = String(text).replace(/Accion ejecutada:[\s\S]*/i, "").replace(/\s+/g, " ").trim().slice(0, 650);
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = "es-DO";
+        utterance.rate = 1;
+        utterance.onend = function() {
+          speakingRef.current = false;
+          if (typeof onDone === "function") onDone();
+        };
+        utterance.onerror = function() {
+          speakingRef.current = false;
+          if (typeof onDone === "function") onDone();
+        };
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        speakingRef.current = false;
+        if (typeof onDone === "function") onDone();
+      }
+    }
+    function answerAssistant(text, speakReply) {
+      setMessages((prev) => prev.concat([{ role: "assistant", text }]));
+      if (speakReply || voiceModeRef.current) speak(text, maybeContinueVoice);
+    }
+    function addUserMessage(text) {
+      setMessages((prev) => prev.concat([{ role: "user", text }]));
+    }
+    function choosePendingOption(text, pending) {
+      const reply = normalizar(text);
+      const numberMatch = reply.match(/\b(\d{1,2})\b/);
+      if (numberMatch) {
+        const index = Number(numberMatch[1]) - 1;
+        if (pending.options[index]) return pending.options[index];
+      }
+      const words = reply.split(/\s+/).filter(Boolean);
+      return pending.options.find(function(row) {
+        const haystack = normalizar([row.nombre, row.modulo, row.origen, row.medida].join(" "));
+        const strongLocation = (reply.includes("bar") && haystack.includes("bar")) || (reply.includes("cocina") && haystack.includes("cocina")) || (reply.includes("mise") && haystack.includes("mise")) || (reply.includes("cuarto") && haystack.includes("cuarto")) || (reply.includes("inventario") && haystack.includes("inventario"));
+        return strongLocation || words.every(function(word) { return haystack.includes(word); });
+      });
+    }
+    function prepareMovementForRow(request, row, speakReply) {
+      const movimiento = request.movimiento || "entrada";
+      const tipo = movimiento === "salida" ? "salidas" : movimiento === "decomiso" ? "decomiso" : "entradas";
+      const isMise = normalizar(row.origen).includes("mise");
+      if (isMise) {
+        if (typeof onAiAction === "function") onAiAction({ tipo: "abrir_mise", producto: row.nombre });
+        const reply = `Encontré ${row.nombre} en Mise an Place. Te abrí Mise para que uses la opcion rapida correspondiente y confirmes ${request.cantidad || ""}.`;
+        answerAssistant(reply, speakReply);
+        return true;
+      }
+      if (typeof onAiAction === "function") {
+        onAiAction({ tipo: "preparar_movimiento", movimiento: tipo, producto: row.nombre, cantidad: request.cantidad || "", destino: row.origen || row.modulo || "", modulo: row.modulo || "" });
+      }
+      const reply = `Listo. Te deje preparado ${movimiento} de ${request.cantidad || ""} ${row.nombre} en ${row.modulo || ""}, ${row.origen || ""}. Revisa y confirma con el boton.`;
+      answerAssistant(reply, speakReply);
+      return true;
+    }
+    function handleLocalMovementIntent(text, speakReply) {
+      if (pendingVoiceAction) {
+        const chosen = choosePendingOption(text, pendingVoiceAction);
+        if (!chosen) {
+          const retry = "No pude identificar cual opcion deseas. Dime el numero de la opcion, o dime Cocina, Bar, Inventario, Cuarto Frio o Mise.";
+          answerAssistant(retry, speakReply);
+          return true;
+        }
+        const pending = pendingVoiceAction;
+        setPendingVoiceAction(null);
+        prepareMovementForRow(pending.request, chosen, speakReply);
+        return true;
+      }
+      const request = detectAiMovementRequest(text);
+      if (!request) return false;
+      const matches = getAiProductMatches(products, request.producto);
+      if (!matches.length) return false;
+      const uniqueMatches = [];
+      const seen = new Set();
+      matches.forEach(function(row) {
+        const key = normalizar([row.nombre, row.modulo, row.origen].join("|"));
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueMatches.push(row);
+        }
+      });
+      if (uniqueMatches.length > 1) {
+        setPendingVoiceAction({ request, options: uniqueMatches });
+        const reply = "Encontré varias opciones. Dime cual usar:\n" + uniqueMatches.map(function(row, index) {
+          return `${index + 1}. ${labelAiProductLocation(row)}`;
+        }).join("\n");
+        answerAssistant(reply, speakReply);
+        return true;
+      }
+      prepareMovementForRow(request, uniqueMatches[0], speakReply);
+      return true;
     }
     async function sendText(rawText, speakReply) {
       const text = String(rawText || "").trim();
       if (!text || busy) return;
       setInput("");
-      setMessages((prev) => prev.concat([{ role: "user", text }]));
+      addUserMessage(text);
+      if (handleLocalMovementIntent(text, speakReply)) return;
       setBusy(true);
+      busyRef.current = true;
       try {
         const result = await callWtfOpenAiAssistant("chat_flotante", { pregunta: text, usuario: getUserDisplayLabel(currentUser), contexto: { summary, productos: products.slice(0, 220), compras: purchaseRows.slice(0, 70), alertas: alertRows.slice(0, 70), mermas: mermaRows.slice(0, 70), icgLinks: icgLinks.slice(0, 70) } });
         const parsed = parseAiAssistantResponse(result);
@@ -9918,20 +10070,19 @@ Solicitado: ${cantidad}`);
           if (typeof onAiAction === "function" && onAiAction(action)) actionNotes.push(`Accion ejecutada: ${action.tipo || "buscar"}`);
         });
         const responseText = [parsed.respuesta || "La IA respondio sin texto.", actionNotes.join("\n")].filter(Boolean).join("\n\n");
-        setMessages((prev) => prev.concat([{ role: "assistant", text: responseText }]));
-        if (speakReply) speak(responseText);
+        answerAssistant(responseText, speakReply);
       } catch (err) {
         const fallback = localAnswer(text);
-        setMessages((prev) => prev.concat([{ role: "assistant", text: fallback }]));
-        if (speakReply) speak(fallback);
+        answerAssistant(fallback, speakReply);
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     }
     function send() {
       sendText(input, false);
     }
-    function startVoice() {
+    function startVoice(continueSession) {
       setOpen(true);
       setVoiceError("");
       if (!voiceSupported) {
@@ -9939,9 +10090,14 @@ Solicitado: ${cantidad}`);
         return;
       }
       if (listening && recognitionRef.current) {
-        recognitionRef.current.stop();
+        if (!continueSession) stopVoiceSession();
         return;
       }
+      if (!continueSession) {
+        voiceModeRef.current = true;
+        setVoiceMode(true);
+      }
+      if (busyRef.current) return;
       const recognition = new speechRecognitionApi();
       recognition.lang = "es-DO";
       recognition.interimResults = false;
@@ -9955,13 +10111,22 @@ Solicitado: ${cantidad}`);
       };
       recognition.onend = function() {
         setListening(false);
+        if (voiceModeRef.current && !busyRef.current && !speakingRef.current) {
+          window.setTimeout(function() {
+            if (voiceModeRef.current && !busyRef.current && !speakingRef.current) startVoice(true);
+          }, 550);
+        }
       };
       recognition.onresult = function(event) {
         const transcript = event && event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : "";
         if (transcript) sendText(transcript, true);
       };
       recognitionRef.current = recognition;
-      recognition.start();
+      try {
+        recognition.start();
+      } catch (err) {
+        setListening(false);
+      }
     }
     useEffect(function() {
       return function() {
@@ -9973,7 +10138,7 @@ Solicitado: ${cantidad}`);
       };
     }, []);
     const panelStyle = { position: "fixed", right: 18, bottom: 82, width: "min(380px, calc(100vw - 28px))", maxHeight: "min(560px, calc(100vh - 120px))", background: "#fff", border: "1px solid var(--borde)", borderRadius: 12, boxShadow: "0 18px 50px rgba(15,23,42,0.22)", zIndex: 1400, overflow: "hidden", display: "flex", flexDirection: "column" };
-    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: listening ? "linear-gradient(135deg,#dc2626,#f97316)" : "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: listening ? "0 0 0 8px rgba(248,113,113,.18), 0 12px 28px rgba(220,38,38,0.35)" : "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
+    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: listening || voiceMode ? "linear-gradient(135deg,#dc2626,#f97316)" : "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: listening || voiceMode ? "0 0 0 8px rgba(248,113,113,.18), 0 12px 28px rgba(220,38,38,0.35)" : "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
     const listenGif = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "10px 0" } }, [0, 1, 2, 3, 4].map(function(i) {
       return /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", width: 6, height: 10, borderRadius: 999, background: "#2563eb", animation: "aiListenBar .72s ease-in-out infinite", animationDelay: `${i * 0.08}s` } });
     }));
@@ -9983,17 +10148,17 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Asistente IA"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, opacity: 0.72 } }, "Inventario · Produccion · ICG · Mermas")),
           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", onClick: () => setOpen(false), title: "Minimizar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-minus" }))
         ),
-        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, listening && /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "8px 10px", textAlign: "center", fontSize: 12, fontWeight: 700 } }, listenGif, "Escuchando... habla ahora"), voiceError && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "8px 10px", fontSize: 12 } }, voiceError), messages.map(function(message, index) {
+        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, (listening || voiceMode) && /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "8px 10px", textAlign: "center", fontSize: 12, fontWeight: 700 } }, listenGif, listening ? "Escuchando... habla ahora" : "Modo voz activo. Te responderé hablando."), voiceError && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "8px 10px", fontSize: 12 } }, voiceError), messages.map(function(message, index) {
           const mine = message.role === "user";
           return /* @__PURE__ */ React.createElement("div", { key: index, style: { justifySelf: mine ? "end" : "start", maxWidth: "92%", background: mine ? "#dcfce7" : "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827" } }, message.text);
         }), busy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Analizando...")),
         /* @__PURE__ */ React.createElement("div", { style: { padding: 10, borderTop: "1px solid var(--borde)", display: "flex", gap: 8, background: "#fff" } },
           /* @__PURE__ */ React.createElement("input", { className: "form-control", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Hablar con la IA..." }),
-          /* @__PURE__ */ React.createElement("button", { className: listening ? "btn btn-rojo btn-icon" : "btn btn-outline btn-icon", onClick: startVoice, disabled: busy, title: listening ? "Detener escucha" : "Hablar por voz" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${listening ? "fa-ear-listen" : "fa-microphone"}` })),
+          /* @__PURE__ */ React.createElement("button", { className: listening || voiceMode ? "btn btn-rojo btn-icon" : "btn btn-outline btn-icon", onClick: listening || voiceMode ? stopVoiceSession : () => startVoice(false), disabled: busy, title: listening || voiceMode ? "Detener conversación por voz" : "Hablar por voz" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${listening || voiceMode ? "fa-ear-listen" : "fa-microphone"}` })),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde btn-icon", onClick: send, disabled: busy || !input.trim(), title: "Enviar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }))
         )
       ),
-      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening ? startVoice : () => setOpen((value) => !value), onDoubleClick: startVoice, title: listening ? "Escuchando..." : "Hablar con la IA" }, listening ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
+      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening || voiceMode ? stopVoiceSession : () => setOpen((value) => !value), onDoubleClick: () => startVoice(false), title: listening || voiceMode ? "Detener conversación" : "Hablar con la IA" }, listening || voiceMode ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
     );
   }
   function SystemLogsPage({ logs }) {
