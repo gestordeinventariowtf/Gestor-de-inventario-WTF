@@ -5518,6 +5518,53 @@
       }
       if (isMobile()) setSidebarOpen(false);
     }
+    function handleAiAction(action) {
+      if (!isAllowedAiAction(action)) return false;
+      const type = normalizeAiActionType(action);
+      const requestedProduct = String(action.producto || action.product || action.nombre || "").trim();
+      const requestedModule = normalizar(action.modulo || action.module || "");
+      const requestedDest = normalizar(action.destino || action.target || "");
+      let moduleTarget = requestedModule.includes("bar") ? "bar" : requestedModule.includes("cocina") ? "cocina" : modulo || "cocina";
+      let pageTarget = "inventario";
+      if (type === "abrir_cuarto_frio" || requestedDest.includes("cuarto")) pageTarget = "cuartoFrio";
+      else if (type === "abrir_mise" || requestedDest.includes("mise")) pageTarget = "mise";
+      else if (type === "abrir_produccion" || requestedDest.includes("produccion")) pageTarget = "produccion";
+      else if (type === "abrir_recuento" || requestedDest.includes("recuento")) pageTarget = "recuento";
+      else if (type === "abrir_inventario" || requestedDest.includes("inventario")) pageTarget = "inventario";
+      if (requestedProduct) {
+        const catalog = buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace });
+        const term = normalizar(requestedProduct);
+        const scored = catalog.map(function(row) {
+          const score = normalizar(row.nombre).includes(term) ? 100 : aiNameScore(requestedProduct, row.nombre);
+          return { row, score };
+        }).filter(function(item) {
+          return item.score >= 45;
+        }).sort(function(a, b) {
+          return b.score - a.score;
+        })[0];
+        if (scored && scored.row) {
+          moduleTarget = normalizar(scored.row.modulo).includes("bar") ? "bar" : "cocina";
+          if (normalizar(scored.row.origen).includes("cuarto")) pageTarget = "cuartoFrio";
+          else if (normalizar(scored.row.origen).includes("mise")) pageTarget = "mise";
+          else pageTarget = "inventario";
+          if (pageTarget === "inventario" || pageTarget === "cuartoFrio") {
+            navigate(pageTarget, {
+              moduleTarget,
+              inventorySearchTarget: {
+                rowId: scored.row.rowId,
+                query: scored.row.nombre,
+                nombre: scored.row.nombre,
+                codArticulo: scored.row.codArticulo || ""
+              }
+            });
+            return true;
+          }
+        }
+        sessionStorage.setItem("wtf_ai_pending_product_search", requestedProduct);
+      }
+      navigate(pageTarget, { moduleTarget });
+      return true;
+    }
     useEffect(() => {
       if (!currentUser) return;
       if (!hasAccess(page)) {
@@ -6282,7 +6329,7 @@ Solicitado: ${cantidad}`);
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser })), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -9358,7 +9405,7 @@ Solicitado: ${cantidad}`);
     const localConfig = window.WTF_AI_CONFIG || {};
     const firebaseConfig = getFirebaseSyncConfig();
     const cloudAi = firebaseConfig && firebaseConfig.ai ? firebaseConfig.ai : {};
-    return Object.assign({ enabled: false, endpoint: "", model: "gpt-5.5" }, localConfig, cloudAi);
+    return Object.assign({ enabled: false, endpoint: "", provider: "ollama", fallbackProvider: "openai", model: "gpt-5.6", ollamaModel: "gemma4:31b-cloud" }, localConfig, cloudAi);
   }
   function aiWords(text) {
     return normalizar(text).split(/\s+/).filter(function(word) {
@@ -9396,6 +9443,7 @@ Solicitado: ${cantidad}`);
       (Array.isArray(list) ? list : []).filter((item) => item && item.tipo === "producto").forEach(function(item) {
         rows.push({
           id: `${targetKey}-${item.id || aiProductName(item)}`,
+          rowId: item.id,
           targetKey,
           modulo: moduleLabel,
           origen: sourceLabel,
@@ -9412,6 +9460,7 @@ Solicitado: ${cantidad}`);
       normalizeMiseItems(list).forEach(function(item) {
         rows.push({
           id: `${targetKey}-${item.id || aiProductName(item)}`,
+          rowId: item.id,
           targetKey,
           modulo: moduleLabel,
           origen: "Mise an Place",
@@ -9554,11 +9603,18 @@ Solicitado: ${cantidad}`);
   }
   async function callWtfOpenAiAssistant(task, payload) {
     const cfg = getAiAssistantConfig();
-    if (!cfg.enabled || !cfg.endpoint) throw new Error("Configura WTF_AI_CONFIG.endpoint o DEFAULT_FIREBASE_SYNC_CONFIG.ai.endpoint para activar ChatGPT/OpenAI.");
+    if (!cfg.enabled || !cfg.endpoint) throw new Error("Configura WTF_AI_CONFIG.endpoint o DEFAULT_FIREBASE_SYNC_CONFIG.ai.endpoint para activar la IA.");
     const response = await fetch(cfg.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task, model: cfg.model || "gpt-5.5", payload })
+      body: JSON.stringify({
+        task,
+        model: cfg.model || "gpt-5.6",
+        provider: cfg.provider || "ollama",
+        ollamaModel: cfg.ollamaModel || "gemma4:31b-cloud",
+        fallbackProvider: cfg.fallbackProvider || "openai",
+        payload
+      })
     });
     if (!response.ok) {
       let detail = "";
@@ -9568,7 +9624,7 @@ Solicitado: ${cantidad}`);
       } catch (err) {
         detail = "";
       }
-      throw new Error(detail || "OpenAI no respondio correctamente: " + response.status);
+      throw new Error(detail || "La IA no respondio correctamente: " + response.status);
     }
     return response.json();
   }
@@ -9606,7 +9662,7 @@ Solicitado: ${cantidad}`);
       const localHint = `Productos cargados: ${products.length}. Bajo stock: ${purchaseRows.length}. Duplicados posibles: ${duplicateRows.length}. Mermas con alerta: ${mermaRows.filter((r) => r.alerta).length}.`;
       try {
         const result = await callWtfOpenAiAssistant("chat_colaborador", { pregunta: text, usuario: getUserDisplayLabel(currentUser), contexto: { summary, productos: products.slice(0, 250), compras: purchaseRows.slice(0, 80), alertas: alertRows.slice(0, 80), mermas: mermaRows.slice(0, 80), icgLinks: icgLinks.slice(0, 80) } });
-        setAnswer(result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto.");
+        setAnswer(result && (result.respuesta || result.summary || result.text) || "La IA respondio sin texto.");
       } catch (err) {
         const matches = products.filter(function(item) {
           return normalizar([item.nombre, item.modulo, item.origen, item.suplidor].join(" ")).includes(normalizar(text));
@@ -9621,9 +9677,9 @@ Solicitado: ${cantidad}`);
       try {
         const result = await callWtfOpenAiAssistant(task, { summary, productos: products.slice(0, 300), duplicados: duplicateRows.slice(0, 80), compras: purchaseRows.slice(0, 120), alertas: alertRows.slice(0, 120), mermas: mermaRows.slice(0, 120), movimientos: movementRows.slice(0, 120), icgLinks: icgLinks.slice(0, 120) });
         setAnswer(result && (result.resumen || result.summary || result.respuesta || result.text) || JSON.stringify(result, null, 2));
-        toast("Analisis OpenAI generado.", "ok");
+        toast("Analisis IA generado.", "ok");
       } catch (err) {
-        toast(err.message || "OpenAI no esta configurado.", "error");
+        toast(err.message || "La IA no esta configurada.", "error");
       } finally {
         setAiBusy(false);
       }
@@ -9650,10 +9706,10 @@ Solicitado: ${cantidad}`);
           instrucciones: "Lee la hoja de conteo, extrae productos y cantidades, compara contra el catalogo y propone ajustes. Devuelve los productos no encontrados por separado.",
           catalogo: products.slice(0, 500)
         });
-        setAnswer(result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto.");
-        toast("Foto analizada con OpenAI.", "ok");
+        setAnswer(result && (result.respuesta || result.summary || result.text) || "La IA respondio sin texto.");
+        toast("Foto analizada con IA.", "ok");
       } catch (err) {
-        toast(err.message || "OpenAI no esta configurado.", "error");
+        toast(err.message || "La IA no esta configurada.", "error");
       } finally {
         setAiBusy(false);
       }
@@ -9673,7 +9729,7 @@ Solicitado: ${cantidad}`);
       /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" },
           /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain", style: { marginRight: 7, color: "var(--azul)" } }), "Asistente IA"),
-          /* @__PURE__ */ React.createElement("span", { className: `pill ${cfg.enabled && cfg.endpoint ? "pill-verde" : "pill-naranja"}` }, cfg.enabled && cfg.endpoint ? "OpenAI conectado" : "Analisis local")
+          /* @__PURE__ */ React.createElement("span", { className: `pill ${cfg.enabled && cfg.endpoint ? "pill-verde" : "pill-naranja"}` }, cfg.enabled && cfg.endpoint ? "IA conectada" : "Analisis local")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
           /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { overflowX: "auto" } }, tabs.map(function(tab) {
@@ -9684,9 +9740,9 @@ Solicitado: ${cantidad}`);
       ),
       active === "resumen" && /* @__PURE__ */ React.createElement("div", null,
         /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Bajo stock", value: summary.bajoStock, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Duplicados posibles", value: duplicateRows.length, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mermas alerta", value: mermaRows.filter((r) => r.alerta).length, color: "rojo" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Vinculos ICG sugeridos", value: icgLinks.length, color: "azul" })),
-        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resumen diario automatico"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => runOpenAiReport("resumen_diario"), disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Mejorar con OpenAI")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, ["Entradas: " + summary.entradas, "Salidas: " + summary.salidas, "Decomisos: " + summary.decomisos, "Producciones: " + summary.producciones, "Bajo stock: " + summary.bajoStock].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)), summary.topConsumo.length ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Productos mas consumidos"), summary.topConsumo.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.producto, style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, item.producto, " · ", formatMiseQty(item.cantidad)))) : null))
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resumen diario automatico"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: () => runOpenAiReport("resumen_diario"), disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Mejorar con IA")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, ["Entradas: " + summary.entradas, "Salidas: " + summary.salidas, "Decomisos: " + summary.decomisos, "Producciones: " + summary.producciones, "Bajo stock: " + summary.bajoStock].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)), summary.topConsumo.length ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Productos mas consumidos"), summary.topConsumo.map((item) => /* @__PURE__ */ React.createElement("div", { key: item.producto, style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, item.producto, " · ", formatMiseQty(item.cantidad)))) : null))
       ),
-      active === "recuento" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Recuento inteligente por foto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--gris)", fontSize: 13 } }, "Sube una foto de la hoja de conteo. OpenAI leera productos y cantidades, y devolvera una propuesta para revisar antes de aplicar en el modulo Recuento."), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), recountPhotoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: readAiPhoto, style: { display: "none" } })), recountPhotoData && /* @__PURE__ */ React.createElement("img", { src: recountPhotoData, alt: "Foto de recuento", style: { width: "100%", maxWidth: 360, maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOpenAiRecountPhoto, disabled: aiBusy || !recountPhotoData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), aiBusy ? "Analizando..." : "Leer foto con OpenAI"))),
+      active === "recuento" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Recuento inteligente por foto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: 0, color: "var(--gris)", fontSize: 13 } }, "Sube una foto de la hoja de conteo. La IA leera productos y cantidades, y devolvera una propuesta para revisar antes de aplicar en el modulo Recuento."), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), recountPhotoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", onChange: readAiPhoto, style: { display: "none" } })), recountPhotoData && /* @__PURE__ */ React.createElement("img", { src: recountPhotoData, alt: "Foto de recuento", style: { width: "100%", maxWidth: 360, maxHeight: 260, objectFit: "contain", border: "1px solid var(--borde)", borderRadius: 8, background: "#f8fafc" } }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: runOpenAiRecountPhoto, disabled: aiBusy || !recountPhotoData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), aiBusy ? "Analizando..." : "Leer foto con IA"))),
       active === "duplicados" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Detector de productos duplicados", rows: duplicateRows, empty: "No se detectaron duplicados fuertes.", columns: ["Producto A", "Producto B", "Coincidencia", "Motivo"], render: (row) => [row.a.nombre + " · " + row.a.modulo + " / " + row.a.origen, row.b.nombre + " · " + row.b.modulo + " / " + row.b.origen, row.score + "%", row.motivo] }),
       active === "icg" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Vinculos inteligentes ICG hacia productos web", rows: icgLinks, empty: "No hay articulos ICG pendientes con coincidencias claras.", columns: ["Articulo ICG", "Producto sugerido", "Destino WTF", "Coincidencia"], render: (row) => [row.name, row.product.nombre, row.product.modulo + " · " + row.product.origen, row.score + "%"] }),
       active === "mermas" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Auditor de mermas", rows: mermaRows, empty: "No hay mermas con datos suficientes.", columns: ["Fecha", "Produccion", "Insumo", "Resultado"], render: (row) => [formatDatetime(row.fecha), row.produccion, row.insumo, (row.alerta ? "Alerta: " : "Normal: ") + row.real + "% real vs " + row.esperado + "% esperado"] }),
@@ -9694,7 +9750,7 @@ Solicitado: ${cantidad}`);
       active === "alertas" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Alertas inteligentes de inventario", rows: alertRows, empty: "No hay alertas inteligentes.", columns: ["Producto", "Existencia", "Consumo 7 dias", "Estimado"], render: (row) => [row.nombre + " · " + row.modulo + " / " + row.origen, formatMiseQty(row.existencia) + " " + row.medida, formatMiseQty(row.consumo7d), row.diasRestantes == null ? "Sin consumo reciente" : "Se agota en " + row.diasRestantes + " dias"] }),
       active === "movimientos" && /* @__PURE__ */ React.createElement(AiSimpleTable, { title: "Auditor de movimientos", rows: movementRows, empty: "No se detectaron movimientos raros basicos.", columns: ["Fecha", "Producto", "Cantidad", "Origen"], render: (row) => [formatDatetime(row.fecha), row.producto || "-", formatMiseQty(row.cantidad), row.origen || row.usuario || "-"] }),
       active === "chat" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistente para colaboradores")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 4, value: question, onChange: (e) => setQuestion(e.target.value), placeholder: "Ej: Donde esta el ajo? Que productos estan agotados? Cuanto ajo necesito para 20 libras?" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: askAssistant, disabled: aiBusy }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), aiBusy ? "Analizando..." : "Preguntar"), answer && /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", background: "#f8fafc", border: "1px solid var(--borde)", borderRadius: 8, padding: 12, margin: 0, fontFamily: "inherit", fontSize: 13 } }, answer))),
-      answer && active !== "chat" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Respuesta OpenAI")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit", fontSize: 13 } }, answer)))
+      answer && active !== "chat" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Respuesta IA")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit", fontSize: 13 } }, answer)))
     );
   }
   function AiSimpleTable({ title, rows, columns, render, empty }) {
@@ -9703,11 +9759,29 @@ Solicitado: ${cantidad}`);
       return /* @__PURE__ */ React.createElement("tr", { key: index }, cells.map((cell, cellIndex) => /* @__PURE__ */ React.createElement("td", { key: cellIndex, style: { fontSize: 12, whiteSpace: cellIndex === 0 ? "normal" : "nowrap" } }, cell)));
     }), !(rows || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: columns.length, style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, empty || "Sin datos"))))));
   }
+  function parseAiAssistantResponse(result) {
+    const text = String(result && (result.respuesta || result.summary || result.text || "") || "").trim();
+    const parsed = extractJsonFromAiText(text);
+    if (parsed && typeof parsed === "object" && (parsed.respuesta || parsed.acciones)) {
+      return {
+        respuesta: String(parsed.respuesta || "").trim(),
+        acciones: Array.isArray(parsed.acciones) ? parsed.acciones : []
+      };
+    }
+    return { respuesta: text, acciones: [] };
+  }
+  function normalizeAiActionType(action) {
+    return normalizar(action && (action.tipo || action.action || action.type || ""));
+  }
+  function isAllowedAiAction(action) {
+    const type = normalizeAiActionType(action);
+    return ["buscar_producto", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento"].includes(type);
+  }
   function FloatingAiChat(props) {
     const {
       inventario = [], cuartoFrioInventario = [], miseAnPlace = [], regEntradas = [], regSalidas = [], regDecomiso = [], regProduccion = [],
       barInventario = [], barCuartoFrioInventario = [], barMiseAnPlace = [], barRegEntradas = [], barRegSalidas = [], barRegDecomiso = [], barRegProduccion = [],
-      icgFrontRestData = {}, systemLogs = [], currentUser
+      icgFrontRestData = {}, systemLogs = [], currentUser, onAiAction = null
     } = props;
     const [open, setOpen] = useState(false);
     const [input, setInput] = useState("");
@@ -9737,7 +9811,7 @@ Solicitado: ${cantidad}`);
       if (/icg|vincul/i.test(question)) {
         return icgLinks.slice(0, 8).map((m) => `- ${m.name} -> ${m.product.nombre} (${m.score}%)`).join("\n") || "No hay sugerencias ICG claras pendientes.";
       }
-      return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura OpenAI.`;
+      return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura la IA.`;
     }
     async function send() {
       const text = input.trim();
@@ -9747,7 +9821,13 @@ Solicitado: ${cantidad}`);
       setBusy(true);
       try {
         const result = await callWtfOpenAiAssistant("chat_flotante", { pregunta: text, usuario: getUserDisplayLabel(currentUser), contexto: { summary, productos: products.slice(0, 220), compras: purchaseRows.slice(0, 70), alertas: alertRows.slice(0, 70), mermas: mermaRows.slice(0, 70), icgLinks: icgLinks.slice(0, 70) } });
-        setMessages((prev) => prev.concat([{ role: "assistant", text: result && (result.respuesta || result.summary || result.text) || "OpenAI respondio sin texto." }]));
+        const parsed = parseAiAssistantResponse(result);
+        const actionNotes = [];
+        (parsed.acciones || []).filter(isAllowedAiAction).slice(0, 3).forEach(function(action) {
+          if (typeof onAiAction === "function" && onAiAction(action)) actionNotes.push(`Accion ejecutada: ${action.tipo || "buscar"}`);
+        });
+        const responseText = [parsed.respuesta || "La IA respondio sin texto.", actionNotes.join("\n")].filter(Boolean).join("\n\n");
+        setMessages((prev) => prev.concat([{ role: "assistant", text: responseText }]));
       } catch (err) {
         setMessages((prev) => prev.concat([{ role: "assistant", text: localAnswer(text) }]));
       } finally {
@@ -11568,11 +11648,11 @@ Solicitado: ${cantidad}`);
           setRows([]);
           setOcrText("");
           setOcrStatus("");
-          setError(openAiMessage.includes("credits") || openAiMessage.includes("billing") ? "OpenAI no tiene creditos disponibles. Activa creditos/billing en OpenAI para leer la foto con precision; no usare OCR local porque distorsiona esta hoja." : `OpenAI no pudo leer la foto: ${openAiMessage}`);
+          setError(openAiMessage.includes("credits") || openAiMessage.includes("billing") ? "La IA no tiene creditos o cuota disponible. Activa creditos/billing para leer la foto con precision; no usare OCR local porque distorsiona esta hoja." : `La IA no pudo leer la foto: ${openAiMessage}`);
           return;
         }
         try {
-          setOcrStatus("OpenAI no pudo completar la lectura. Intentando OCR local...");
+          setOcrStatus("La IA no pudo completar la lectura. Intentando OCR local...");
           if (!window.Tesseract) {
             await new Promise(function(resolve, reject) {
               const script = document.createElement("script");
@@ -11965,6 +12045,12 @@ Solicitado: ${cantidad}`);
     const miseFiltrada = terminoBusqueda ? miseRows.filter((m) => {
       return normalizar(m.producto).includes(terminoBusqueda) || normalizar(getMiseCodArticulo(m, 0)).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
     }) : miseRows;
+    useEffect(function() {
+      const pending = sessionStorage.getItem("wtf_ai_pending_product_search") || "";
+      if (!pending) return;
+      setBusqueda(pending);
+      sessionStorage.removeItem("wtf_ai_pending_product_search");
+    }, []);
     function addProd() {
       if (!newProd.producto.trim()) {
         toast("Ingrese el nombre", "error");

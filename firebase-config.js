@@ -13,6 +13,9 @@ window.WTF_FIREBASE_CONFIG = {
   ai: {
     enabled: true,
     endpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAiAssistant",
-    model: "gpt-5.6"
+    provider: "ollama",
+    fallbackProvider: "openai",
+    model: "gpt-5.6",
+    ollamaModel: "gemma4:31b-cloud"
   }
 };

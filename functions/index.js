@@ -2,7 +2,9 @@ import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const OLLAMA_CHAT_URL = "https://ollama.com/api/chat";
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
+const OLLAMA_API_KEY = defineSecret("OLLAMA_API_KEY");
 const ALLOWED_ORIGINS = new Set([
   "https://gestor-de-inventario-wtf-prod-2026.web.app",
   "http://localhost:5000",
@@ -51,12 +53,96 @@ function buildInstructions(task) {
     "Trabaja como auditor operativo: claro, conservador y orientado a prevenir perdidas de dinero.",
     "No inventes existencias ni codigos. Si faltan datos, dilo.",
     "Nunca indiques que un ajuste fue aplicado si solo estas recomendando.",
+    "Si el usuario pide abrir, buscar o ir a un producto, puedes sugerir una accion controlada.",
+    "Acciones permitidas: buscar_producto, abrir_inventario, abrir_cuarto_frio, abrir_mise, abrir_produccion, abrir_recuento.",
+    "Cuando uses acciones, responde JSON valido con esta forma: {\"respuesta\":\"texto breve\",\"acciones\":[{\"tipo\":\"buscar_producto\",\"producto\":\"limon\",\"modulo\":\"bar\",\"destino\":\"inventario\"}]}.",
+    "No ejecutes ajustes de inventario, salidas, entradas, decomisos ni borrados automaticamente.",
     "Prioriza respuestas en espanol dominicano claro y accionable.",
     `Tarea solicitada: ${task || "analisis_general"}.`
   ].join("\n");
 }
 
-export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", secrets: [OPENAI_API_KEY], invoker: "public" }, async (req, res) => {
+function extractOllamaText(data) {
+  if (!data) return "";
+  if (data.message && typeof data.message.content === "string") return data.message.content;
+  if (typeof data.response === "string") return data.response;
+  if (typeof data.content === "string") return data.content;
+  return "";
+}
+
+function getImageBase64(imageDataUrl) {
+  const text = String(imageDataUrl || "");
+  const comma = text.indexOf(",");
+  return comma >= 0 ? text.slice(comma + 1) : text;
+}
+
+async function callOllamaCloud({ apiKey, task, model, payload, safePayload, imageDataUrl }) {
+  if (!apiKey) throw new Error("OLLAMA_API_KEY no configurada en Firebase Functions.");
+  const instructions = buildInstructions(task);
+  const isJsonTask = String(task || "").includes("recuento_lectura_foto_conteo") || String(task || "").includes("chat_flotante");
+  const content = (String(task || "").includes("recuento_lectura_foto_conteo") ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload;
+  const message = { role: "user", content };
+  if (imageDataUrl) message.images = [getImageBase64(imageDataUrl)];
+  const body = {
+    model: model || payload?.ollamaModel || "gemma4:31b-cloud",
+    messages: [
+      { role: "system", content: instructions },
+      message
+    ],
+    stream: false
+  };
+  if (isJsonTask) body.format = "json";
+  const response = await fetch(OLLAMA_CHAT_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || data.message || "Ollama no respondio correctamente.");
+  return { respuesta: extractOllamaText(data), rawId: data.id || "", provider: "ollama" };
+}
+
+async function callOpenAi({ apiKey, task, model, safePayload, imageDataUrl }) {
+  if (!apiKey) throw new Error("OPENAI_API_KEY no configurada en Firebase Functions.");
+  const isRecountPhotoTask = String(task || "").includes("recuento_lectura_foto_conteo");
+  const content = [
+    {
+      type: "input_text",
+      text: (isRecountPhotoTask ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload
+    }
+  ];
+  if (imageDataUrl) {
+    content.push({
+      type: "input_image",
+      image_url: imageDataUrl
+    });
+  }
+  const response = await fetch(OPENAI_RESPONSES_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: model || "gpt-5.6",
+      instructions: buildInstructions(task),
+      input: [
+        {
+          role: "user",
+          content
+        }
+      ]
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error && data.error.message || "OpenAI no respondio correctamente.");
+  return { respuesta: extractOutputText(data), rawId: data.id || "", provider: "openai" };
+}
+
+export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", secrets: [OPENAI_API_KEY, OLLAMA_API_KEY], invoker: "public" }, async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") {
     res.status(204).send("");
@@ -66,53 +152,31 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
     res.status(405).json({ error: "Metodo no permitido" });
     return;
   }
-  const apiKey = OPENAI_API_KEY.value();
-  if (!apiKey) {
-    res.status(503).json({ error: "OPENAI_API_KEY no configurada en Firebase Functions." });
-    return;
-  }
   try {
-    const { task, model, payload } = req.body || {};
+    const { task, model, provider, ollamaModel, fallbackProvider, payload } = req.body || {};
     const imageDataUrl = payload && typeof payload.imageDataUrl === "string" && payload.imageDataUrl.startsWith("data:image/") ? payload.imageDataUrl : "";
     const safePayloadObject = Object.assign({}, payload || {});
     delete safePayloadObject.imageDataUrl;
     const safePayload = JSON.stringify(safePayloadObject).slice(0, 120000);
-    const isRecountPhotoTask = String(task || "").includes("recuento_lectura_foto_conteo");
-    const content = [
-      {
-        type: "input_text",
-        text: (isRecountPhotoTask ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload
+    const selectedProvider = String(provider || "ollama").toLowerCase();
+    const openAiKey = OPENAI_API_KEY.value();
+    const ollamaKey = OLLAMA_API_KEY.value();
+    const ollamaRequest = { apiKey: ollamaKey, task, model: ollamaModel || (selectedProvider === "ollama" ? model : ""), payload, safePayload, imageDataUrl };
+    const openAiRequest = { apiKey: openAiKey, task, model, safePayload, imageDataUrl };
+    let result;
+    if (selectedProvider === "openai") {
+      result = await callOpenAi(openAiRequest);
+    } else {
+      try {
+        result = await callOllamaCloud(ollamaRequest);
+      } catch (ollamaError) {
+        if (String(fallbackProvider || "openai").toLowerCase() !== "openai") throw ollamaError;
+        result = await callOpenAi(openAiRequest);
+        result.fallbackFrom = "ollama";
+        result.ollamaError = ollamaError && ollamaError.message || "";
       }
-    ];
-    if (imageDataUrl) {
-      content.push({
-        type: "input_image",
-        image_url: imageDataUrl
-      });
     }
-    const response = await fetch(OPENAI_RESPONSES_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model || "gpt-5.6",
-        instructions: buildInstructions(task),
-        input: [
-          {
-            role: "user",
-            content
-          }
-        ]
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      res.status(response.status).json({ error: data.error && data.error.message || "OpenAI no respondio correctamente." });
-      return;
-    }
-    res.json({ respuesta: extractOutputText(data), rawId: data.id || "" });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error && error.message || "Error interno IA" });
   }
