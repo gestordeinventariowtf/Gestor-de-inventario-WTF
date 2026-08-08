@@ -6778,13 +6778,141 @@ Solicitado: ${cantidad}`);
       const match = findMiseTarget(row.miseProductoId || row.miseProductoTarget || row.transferidoAMiseTarget) || findBestMiseMatch(productoNombre);
       const fechaTransferencia = new Date().toISOString();
       const now = fechaTransferencia;
+      const miseInsumosPendientes = (Array.isArray(row.insumos) ? row.insumos : []).filter(function(entry) {
+        const cantidad = Number(entry && entry.cantidadDescontada || 0);
+        return entry && entry.storageKey === "mise" && !row.miseInsumosTransferidosAt && Number.isFinite(cantidad) && cantidad > 0;
+      });
+      const stockInsumosPendientes = (Array.isArray(row.insumos) ? row.insumos : []).filter(function(entry) {
+        const cantidad = Number(entry && entry.cantidadDescontada || 0);
+        return entry && entry.storageKey !== "mise" && !row.insumosStockTransferidosAt && Number.isFinite(cantidad) && cantidad > 0;
+      });
+      const miseHistorialTransferencia = [];
+      function sameProductionStockItem(item, entry, storageKey) {
+        if (!item || !entry) return false;
+        if (entry.productId != null && item.id != null && String(entry.productId) === String(item.id)) return true;
+        if (entry.productKey && storageKey && entry.productKey === `${storageKey}-${item.id}`) return true;
+        return normalizar(item.nombre || item.producto || "") === normalizar(entry.producto || "");
+      }
+      function findProductionStockItem(entry) {
+        const storageKey = entry && entry.storageKey || "inventario";
+        const sourceRows = storageKey === "cuartoFrio" ? cuartoFrioInventario : storageKey === "otherInventario" ? otherInventario : storageKey === "otherCuartoFrio" ? otherCuartoFrioInventario : inventario;
+        return (Array.isArray(sourceRows) ? sourceRows : []).find(function(item) {
+          return item && item.tipo === "producto" && sameProductionStockItem(item, entry, storageKey);
+        });
+      }
+      function sameMiseTransferItem(item, entry) {
+        if (!item || !entry) return false;
+        if (entry.productId != null && item.id != null && String(entry.productId) === String(item.id)) return true;
+        return normalizar(item.producto || item.nombre || "") === normalizar(entry.producto || "");
+      }
+      function getMiseTransferQty(entry, item) {
+        const cantidad = Number(entry && entry.cantidadDescontada || 0);
+        if (!Number.isFinite(cantidad) || cantidad <= 0) return 0;
+        const fromUnit = normalizarMedidaMise(entry.unidadInventario || entry.unidadUsada || item.medida || "Uni");
+        const toUnit = normalizarMedidaMise(item.medida || fromUnit);
+        const converted = convertirCantidadMise(cantidad, fromUnit, toUnit);
+        return converted == null ? cantidad : converted;
+      }
+      const stockError = stockInsumosPendientes.map(function(entry) {
+        const item = findProductionStockItem(entry);
+        const cantidad = Number(entry.cantidadDescontada || 0);
+        if (!item) return `No se encontro ${entry.producto || "un insumo"} en ${entry.origenLabel || entry.almacenLabel || "inventario"}.`;
+        const existencia = getInventoryExistence(item);
+        if (cantidad - existencia > 1e-9) return `${item.nombre} no tiene existencia suficiente. Disponible: ${Number(existencia.toFixed(4))} ${item.medida || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${entry.unidadInventario || item.medida || ""}.`;
+        return "";
+      }).find(Boolean);
+      if (stockError) {
+        toast(stockError, "error");
+        return;
+      }
+      const miseError = miseInsumosPendientes.map(function(entry) {
+        const item = (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(rowItem) {
+          return sameMiseTransferItem(rowItem, entry);
+        });
+        if (!item) return `No se encontro ${entry.producto || "un insumo"} en Mise an Place.`;
+        const cantidad = getMiseTransferQty(entry, item);
+        const existencia = getMiseSafeNumber(item.existencia, 0);
+        if (cantidad - existencia > 1e-9) return `${item.producto || item.nombre} no tiene existencia suficiente en Mise an Place. Disponible: ${Number(existencia.toFixed(4))} ${item.medida || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${item.medida || ""}.`;
+        return "";
+      }).find(Boolean);
+      if (miseError) {
+        toast(miseError, "error");
+        return;
+      }
+      (Array.isArray(miseAnPlace) ? miseAnPlace : []).forEach(function(item) {
+        const consumos = miseInsumosPendientes.filter(function(entry) {
+          return sameMiseTransferItem(item, entry);
+        });
+        if (!consumos.length) return;
+        const existenciaAnterior = getMiseSafeNumber(item.existencia, 0);
+        const cantidadSalida = consumos.reduce(function(total, entry) {
+          return total + getMiseTransferQty(entry, item);
+        }, 0);
+        if (!Number.isFinite(cantidadSalida) || cantidadSalida <= 0) return;
+        miseHistorialTransferencia.push({
+          id: `prod-mise-transfer-${row.id || Date.now()}-${item.id || normalizar(item.producto)}-${now}`,
+          productionId: row.id || "",
+          fecha: now,
+          producto: item.producto || item.nombre || "",
+          cantidad: Number(cantidadSalida.toFixed(4)),
+          medida: item.medida || "Uni",
+          usuario: getUserDisplayLabel(currentUser),
+          origen: `Transferencia produccion: ${productoNombre}`,
+          existenciaAnterior,
+          existenciaNueva: Math.max(0, Number((existenciaAnterior - cantidadSalida).toFixed(4))),
+          modulo: moduleLabel
+        });
+      });
+      function applyProductionStockConsumption(setter, entries, storageKey) {
+        if (typeof setter !== "function" || !entries.length) return;
+        setter(function(prev) {
+          return (Array.isArray(prev) ? prev : []).map(function(item) {
+            if (item.tipo !== "producto") return item;
+            const consumos = entries.filter(function(entry) {
+              return sameProductionStockItem(item, entry, storageKey);
+            });
+            if (!consumos.length) return item;
+            const cantidadSalida = consumos.reduce(function(total, entry) {
+              return total + Number(entry.cantidadDescontada || 0);
+            }, 0);
+            return Object.assign({}, item, {
+              salida: Number((Number(item.salida || 0) + cantidadSalida).toFixed(4))
+            });
+          });
+        });
+      }
+      if (stockInsumosPendientes.length) {
+        applyProductionStockConsumption(setInventario, stockInsumosPendientes.filter(function(entry) {
+          return (entry.storageKey || "inventario") === "inventario";
+        }), "inventario");
+        applyProductionStockConsumption(setCuartoFrioInventario, stockInsumosPendientes.filter(function(entry) {
+          return entry.storageKey === "cuartoFrio";
+        }), "cuartoFrio");
+        applyProductionStockConsumption(setOtherInventario, stockInsumosPendientes.filter(function(entry) {
+          return entry.storageKey === "otherInventario";
+        }), "otherInventario");
+        applyProductionStockConsumption(setOtherCuartoFrioInventario, stockInsumosPendientes.filter(function(entry) {
+          return entry.storageKey === "otherCuartoFrio";
+        }), "otherCuartoFrio");
+        if (typeof setRegSalidas === "function") {
+          const salidaRecords = stockInsumosPendientes.map(function(entry) {
+            return buildStoredProductionSalidaRecord(entry, now, getUserDisplayLabel(currentUser), productoNombre, row.id);
+          }).filter(Boolean);
+          if (salidaRecords.length) {
+            setRegSalidas(function(prev) {
+              return [...(Array.isArray(prev) ? prev : []), ...salidaRecords];
+            });
+          }
+        }
+      }
       setMise(function(prev) {
         const current = Array.isArray(prev) ? prev : [];
+        let nextRows;
         if (match) {
           const destinoUnidad = normalizarMedidaMise(match.medida || unidadProducida);
           const cantidadConvertida = convertirCantidadMise(cantidad, unidadProducida, destinoUnidad);
           if (cantidadConvertida != null) {
-            return current.map(function(item) {
+            nextRows = current.map(function(item) {
               if (item.id !== match.id) return item;
               return Object.assign({}, item, {
                 existencia: Number(((Number(item.existencia) || 0) + cantidadConvertida).toFixed(4)),
@@ -6794,24 +6922,55 @@ Solicitado: ${cantidad}`);
             });
           }
         }
-        const nextId = Math.max(0, ...current.map(function(item) {
-          return Number(item.id) || 0;
-        })) + 1;
-        return [...current, {
-          id: nextId,
-          codArticulo: String(nextId).padStart(3, "0"),
-          producto: productoNombre,
-          existencia: Number(cantidad.toFixed(4)),
-          medida: unidadProducida,
-          createdAt: now,
-          updatedAt: now
-        }];
+        if (!nextRows) {
+          const nextId = Math.max(0, ...current.map(function(item) {
+            return Number(item.id) || 0;
+          })) + 1;
+          nextRows = [...current, {
+            id: nextId,
+            codArticulo: String(nextId).padStart(3, "0"),
+            producto: productoNombre,
+            existencia: Number(cantidad.toFixed(4)),
+            medida: unidadProducida,
+            createdAt: now,
+            updatedAt: now
+          }];
+        }
+        if (!miseInsumosPendientes.length) return nextRows;
+        return nextRows.map(function(item) {
+          const consumos = miseInsumosPendientes.filter(function(entry) {
+            return sameMiseTransferItem(item, entry);
+          });
+          if (!consumos.length) return item;
+          const existenciaAnterior = getMiseSafeNumber(item.existencia, 0);
+          const cantidadSalida = consumos.reduce(function(total, entry) {
+            return total + getMiseTransferQty(entry, item);
+          }, 0);
+          if (!Number.isFinite(cantidadSalida) || cantidadSalida <= 0) return item;
+          const existenciaNueva = Math.max(0, Number((existenciaAnterior - cantidadSalida).toFixed(4)));
+          return Object.assign({}, item, {
+            existencia: existenciaNueva,
+            updatedAt: now
+          });
+        });
       });
+      if (miseHistorialTransferencia.length && typeof setHistSalidaRapida === "function") {
+        setHistSalidaRapida(function(prev) {
+          const current = Array.isArray(prev) ? prev : [];
+          const existingIds = new Set(current.map(function(item) { return String(item && item.id || ""); }));
+          const nuevos = miseHistorialTransferencia.filter(function(item) {
+            return !existingIds.has(String(item.id));
+          });
+          return nuevos.length ? current.concat(nuevos) : current;
+        });
+      }
       setProducciones(function(prev) {
         return (Array.isArray(prev) ? prev : []).map(function(item) {
           return item.id === row.id ? Object.assign({}, item, {
             transferidoAMiseAt: fechaTransferencia,
             transferidoAMiseTarget: match ? match.producto : productoNombre,
+            miseInsumosTransferidosAt: miseInsumosPendientes.length ? fechaTransferencia : item.miseInsumosTransferidosAt || "",
+            insumosStockTransferidosAt: stockInsumosPendientes.length ? fechaTransferencia : item.insumosStockTransferidosAt || "",
             updatedAt: fechaTransferencia
           }) : item;
         });
@@ -6883,12 +7042,10 @@ Solicitado: ${cantidad}`);
           warnings
         };
       }
-      const productoInventario = productosSoloInventario.find(function(product) {
-        return normalizar(product.nombre) === normalizar(nombreProducido);
-      });
       let cantidadReversaInventario = 0;
       let reverseInventario = false;
-      if (!productoInventario) {
+      const productionInventoryWarningsStart = warnings.length;
+      if (true) {
         warnings.push("No se encontró el producto producido en Inventario para revertir. Se eliminará solo el historial.");
       } else {
         cantidadReversaInventario = convertMeasureQuantity(cantidadProducida, row.medidaProducida, productoInventario.medida);
@@ -6902,6 +7059,7 @@ Solicitado: ${cantidad}`);
           reverseInventario = true;
         }
       }
+      warnings.length = productionInventoryWarningsStart;
       let transferData = null;
       if (row.transferidoAMiseAt) {
         const targetName = String(row.transferidoAMiseTarget || row.productoProducido || "").trim();
@@ -6970,7 +7128,7 @@ Solicitado: ${cantidad}`);
       }
       const row = deleteRequest.row;
       const nombreProducido = deleteRequest.nombreProducido;
-      if (!row.cargaDirecta && deleteRequest.reverseInventario) {
+      if (!row.cargaDirecta && row.insumosStockTransferidosAt) {
         const inventarioInsumos = (row.insumos || []).filter(function(entry) {
           return (entry.storageKey || entry.origen || "inventario") === "inventario";
         });
@@ -6994,12 +7152,6 @@ Solicitado: ${cantidad}`);
               return [Object.assign({}, item, {
                 salida: Math.max(0, Number((item.salida || 0) - Number(insumo.cantidadDescontada || 0)).toFixed(4))
               })];
-            }
-            if (itemNombre === normalizar(nombreProducido)) {
-              const nextEntrada = Math.max(0, Number((item.entrada || 0) - deleteRequest.cantidadReversaInventario).toFixed(4));
-              const shouldRemove = normalizar(item.suplidor || "") === normalizar("Produccion") && nextEntrada <= 0 && Number(item.salida || 0) <= 0 && Number(item.decomiso || 0) <= 0;
-              if (shouldRemove) return [];
-              return [Object.assign({}, item, { entrada: nextEntrada })];
             }
             return [item];
           });
@@ -7046,6 +7198,13 @@ Solicitado: ${cantidad}`);
             });
           });
         }
+        if (typeof setRegSalidas === "function") {
+          setRegSalidas(function(prev) {
+            return (Array.isArray(prev) ? prev : []).filter(function(item) {
+              return String(item && item.productionId || "") !== String(row.id || "");
+            });
+          });
+        }
       }
       if (row.transferidoAMiseAt && deleteRequest.transferData && !deleteRequest.transferData.missingTarget && !deleteRequest.transferData.skipReverse) {
         const targetName = String(deleteRequest.transferData.targetName || row.transferidoAMiseTarget || row.productoProducido || "").trim();
@@ -7058,6 +7217,40 @@ Solicitado: ${cantidad}`);
             });
           });
         });
+      }
+      if (row.miseInsumosTransferidosAt) {
+        const miseInsumos = (row.insumos || []).filter(function(entry) {
+          return entry.storageKey === "mise" && Number(entry.cantidadDescontada || 0) > 0;
+        });
+        if (miseInsumos.length) {
+          setMise(function(prev) {
+            return (Array.isArray(prev) ? prev : []).map(function(item) {
+              const consumos = miseInsumos.filter(function(entry) {
+                if (entry.productId != null && item.id != null && String(entry.productId) === String(item.id)) return true;
+                return normalizar(item.producto || item.nombre || "") === normalizar(entry.producto || "");
+              });
+              if (!consumos.length) return item;
+              const cantidadEntrada = consumos.reduce(function(total, entry) {
+                const cantidad = Number(entry.cantidadDescontada || 0);
+                const fromUnit = normalizarMedidaMise(entry.unidadInventario || entry.unidadUsada || item.medida || "Uni");
+                const toUnit = normalizarMedidaMise(item.medida || fromUnit);
+                const converted = convertirCantidadMise(cantidad, fromUnit, toUnit);
+                return total + (converted == null ? cantidad : converted);
+              }, 0);
+              return Object.assign({}, item, {
+                existencia: Number((getMiseSafeNumber(item.existencia, 0) + cantidadEntrada).toFixed(4)),
+                updatedAt: new Date().toISOString()
+              });
+            });
+          });
+        }
+        if (typeof setHistSalidaRapida === "function") {
+          setHistSalidaRapida(function(prev) {
+            return (Array.isArray(prev) ? prev : []).filter(function(item) {
+              return String(item && item.productionId || "") !== String(row.id || "");
+            });
+          });
+        }
       }
       if (typeof onMarkProductionHistoryDeleted === "function") {
         onMarkProductionHistoryDeleted(productionHistoryStateKey, row);
@@ -7616,6 +7809,33 @@ Solicitado: ${cantidad}`);
         usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque)
       };
     }
+    function buildStoredProductionSalidaRecord(entry, now, usuario, productoProducido, productionId) {
+      const cantidad = Number(entry && entry.cantidadDescontada || 0);
+      if (!entry || !Number.isFinite(cantidad) || cantidad <= 0) return null;
+      return {
+        _id: createMovementId(`prod-${normalizar(entry.storageKey || "inventario") || "stock"}`),
+        productionId: productionId || "",
+        fecha: now,
+        numero: entry.productId,
+        medida: entry.unidadInventario || entry.unidadUsada || "Uni",
+        producto: entry.producto || "",
+        cantidad: Number(cantidad.toFixed(4)),
+        usuario,
+        origen: entry.origenLabel || entry.almacenLabel || "Inventario",
+        modulo: entry.sourceModuleLabel || moduleLabel,
+        motivo: `Produccion: ${productoProducido}`,
+        mermaPorcentaje: Number(entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje || 0),
+        cantidadMerma: Number(entry.cantidadMerma || entry.cantidadMermaEsperada || 0),
+        cantidadNeta: Number(entry.cantidadNeta || Math.max(0, cantidad - Number(entry.mermaRealCantidad || 0)).toFixed(4)),
+        mermaRealCantidad: Number(entry.mermaRealCantidad || 0),
+        mermaRealPorcentaje: Number(entry.mermaRealPorcentaje || 0),
+        mermaAlerta: Boolean(entry.mermaAlerta),
+        cantidadUsadaReceta: Number(entry.cantidadUsada || 0),
+        unidadUsadaReceta: entry.unidadUsada || entry.unidadInventario || "Uni",
+        unidadesPorEmpaque: entry.unidadesPorEmpaque || "",
+        usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque)
+      };
+    }
     function guardarCargaDirecta() {
       setDirectLoadError("");
       const nombre = String(directLoad.nombre || "").trim();
@@ -7779,21 +7999,6 @@ Solicitado: ${cantidad}`);
         }
         resolvedInsumos.push(resolved);
       }
-      const resolvedInventarioInsumos = resolvedInsumos.filter(function(entry) {
-        return (entry.storageKey || "inventario") === "inventario";
-      });
-      const resolvedCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.storageKey === "cuartoFrio";
-      });
-      const resolvedOtherInventarioInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.storageKey === "otherInventario";
-      });
-      const resolvedOtherCuartoFrioInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.storageKey === "otherCuartoFrio";
-      });
-      const resolvedMiseInsumos = resolvedInsumos.filter(function(entry) {
-        return entry.storageKey === "mise";
-      });
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const productionMiseTarget = findMiseTarget(miseProductTarget) || findRecipeMiseMatch(findBestRecipeMatch(nombreProducido));
@@ -7806,90 +8011,6 @@ Solicitado: ${cantidad}`);
         if (comparison.exceedsExpected) acc.alertas += 1;
         return acc;
       }, { cantidadBruta: 0, cantidadMermaEsperada: 0, cantidadMermaReal: 0, cantidadNeta: 0, alertas: 0 });
-      setInventario(function(prev) {
-        return prev.map(function(row) {
-          if (row.tipo !== "producto") return row;
-          const consumo = resolvedInventarioInsumos.find(function(entry) {
-            return entry.product.id === row.id;
-          });
-          if (consumo) {
-            return Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) });
-          }
-          return row;
-        });
-      });
-      if (typeof setCuartoFrioInventario === "function" && resolvedCuartoFrioInsumos.length) {
-        setCuartoFrioInventario(function(prev) {
-          return (Array.isArray(prev) ? prev : []).map(function(row) {
-            if (row.tipo !== "producto") return row;
-            const consumo = resolvedCuartoFrioInsumos.find(function(entry) {
-              return entry.product.id === row.id;
-            });
-            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
-          });
-        });
-      }
-      if (typeof setOtherInventario === "function" && resolvedOtherInventarioInsumos.length) {
-        setOtherInventario(function(prev) {
-          return (Array.isArray(prev) ? prev : []).map(function(row) {
-            if (row.tipo !== "producto") return row;
-            const consumo = resolvedOtherInventarioInsumos.find(function(entry) {
-              return entry.product.id === row.id;
-            });
-            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
-          });
-        });
-      }
-      if (typeof setOtherCuartoFrioInventario === "function" && resolvedOtherCuartoFrioInsumos.length) {
-        setOtherCuartoFrioInventario(function(prev) {
-          return (Array.isArray(prev) ? prev : []).map(function(row) {
-            if (row.tipo !== "producto") return row;
-            const consumo = resolvedOtherCuartoFrioInsumos.find(function(entry) {
-              return entry.product.id === row.id;
-            });
-            return consumo ? Object.assign({}, row, { salida: Number((row.salida || 0) + consumo.convertedQty) }) : row;
-          });
-        });
-      }
-      if (typeof setMise === "function" && resolvedMiseInsumos.length) {
-        setMise(function(prev) {
-          return (Array.isArray(prev) ? prev : []).map(function(row) {
-            const consumo = resolvedMiseInsumos.find(function(entry) {
-              return String(entry.product.id) === String(row.id);
-            });
-            if (!consumo) return row;
-            const existenciaActual = getMiseSafeNumber(row.existencia, 0);
-            return Object.assign({}, row, {
-              existencia: Math.max(0, Number((existenciaActual - consumo.convertedQty).toFixed(4))),
-              updatedAt: now
-            });
-          });
-        });
-      }
-      const salidaRecords = resolvedInsumos.map(function(entry) {
-        return buildProductionSalidaRecord(entry, now, usuario, nombreProducido);
-      }).filter(Boolean);
-      if (salidaRecords.length) {
-        setRegSalidas(function(prev) {
-          return [...(Array.isArray(prev) ? prev : []), ...salidaRecords];
-        });
-      }
-      if (resolvedMiseInsumos.length) {
-        setHistSalidaRapida(function(prev) {
-          return [...(Array.isArray(prev) ? prev : []), ...resolvedMiseInsumos.map(function(entry) {
-            return {
-              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              fecha: now,
-              producto: entry.product.nombre,
-              cantidad: Number(entry.convertedQty.toFixed(4)),
-              medida: entry.product.medida || entry.inputUnit || "Uni",
-              usuario,
-              origen: `Produccion: ${nombreProducido}`,
-              modulo: moduleLabel
-            };
-          })];
-        });
-      }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
