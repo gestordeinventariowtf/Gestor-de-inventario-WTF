@@ -776,6 +776,14 @@
       0%, 100% { box-shadow: 0 0 0 rgba(248, 113, 113, 0); }
       50% { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18); }
     }
+    @keyframes aiListenPulse {
+      0%, 100% { transform: scale(.92); opacity: .55; }
+      50% { transform: scale(1.08); opacity: 1; }
+    }
+    @keyframes aiListenBar {
+      0%, 100% { height: 8px; opacity: .55; }
+      50% { height: 26px; opacity: 1; }
+    }
 
     /* -- Number input fix -- */
     input[type=number] { -moz-appearance: textfield; }
@@ -4850,6 +4858,7 @@
     const [page, setPage] = useState(() => sessionStorage.getItem("wtf_modulo") === "sharp" ? "sharp" : "dashboard");
     const [pageFx, setPageFx] = useState(0);
     const [inventorySearchTarget, setInventorySearchTarget] = useState(null);
+    const [movementDraftTarget, setMovementDraftTarget] = useState(null);
     const [selfAccessModal, setSelfAccessModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
     const initialInventoryDeletedKeys = useMemo(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})), []);
@@ -5531,11 +5540,18 @@
       else if (type === "abrir_produccion" || requestedDest.includes("produccion")) pageTarget = "produccion";
       else if (type === "abrir_recuento" || requestedDest.includes("recuento")) pageTarget = "recuento";
       else if (type === "abrir_inventario" || requestedDest.includes("inventario")) pageTarget = "inventario";
+      if (type === "preparar_movimiento") {
+        const movement = normalizar(action.movimiento || action.tipoMovimiento || action.movement || "");
+        pageTarget = movement.includes("salida") ? "salidas" : movement.includes("decomiso") ? "decomiso" : "entradas";
+      }
       if (requestedProduct) {
         const catalog = buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace });
         const term = normalizar(requestedProduct);
         const scored = catalog.map(function(row) {
-          const score = normalizar(row.nombre).includes(term) ? 100 : aiNameScore(requestedProduct, row.nombre);
+          let score = normalizar(row.nombre).includes(term) ? 100 : aiNameScore(requestedProduct, row.nombre);
+          if (requestedDest.includes("cuarto") && normalizar(row.origen).includes("cuarto")) score += 8;
+          if (requestedDest.includes("inventario") && normalizar(row.origen).includes("inventario")) score += 8;
+          if (requestedDest.includes("mise") && normalizar(row.origen).includes("mise")) score += 8;
           return { row, score };
         }).filter(function(item) {
           return item.score >= 45;
@@ -5544,6 +5560,20 @@
         })[0];
         if (scored && scored.row) {
           moduleTarget = normalizar(scored.row.modulo).includes("bar") ? "bar" : "cocina";
+          if (type === "preparar_movimiento") {
+            const movement = normalizar(action.movimiento || action.tipoMovimiento || action.movement || "");
+            pageTarget = movement.includes("salida") ? "salidas" : movement.includes("decomiso") ? "decomiso" : "entradas";
+            setMovementDraftTarget({
+              tipo: pageTarget === "salidas" ? "salida" : pageTarget === "decomiso" ? "decomiso" : "entrada",
+              producto: scored.row.nombre,
+              cantidad: action.cantidad || action.qty || action.quantity || "",
+              storageKey: scored.row.targetKey || "",
+              storageLabel: [scored.row.modulo, scored.row.origen].filter(Boolean).join(" · "),
+              ts: Date.now()
+            });
+            navigate(pageTarget, { moduleTarget });
+            return true;
+          }
           if (normalizar(scored.row.origen).includes("cuarto")) pageTarget = "cuartoFrio";
           else if (normalizar(scored.row.origen).includes("mise")) pageTarget = "mise";
           else pageTarget = "inventario";
@@ -6140,9 +6170,9 @@ Solicitado: ${cantidad}`);
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
       inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
       cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
-      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
-      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
-      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess }),
+      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
+      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
+      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
       recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
@@ -9775,7 +9805,7 @@ Solicitado: ${cantidad}`);
   }
   function isAllowedAiAction(action) {
     const type = normalizeAiActionType(action);
-    return ["buscar_producto", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento"].includes(type);
+    return ["buscar_producto", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento", "preparar_movimiento"].includes(type);
   }
   function FloatingAiChat(props) {
     const {
@@ -9786,6 +9816,11 @@ Solicitado: ${cantidad}`);
     const [open, setOpen] = useState(false);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
+    const [listening, setListening] = useState(false);
+    const [voiceError, setVoiceError] = useState("");
+    const recognitionRef = useRef(null);
+    const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
+    const voiceSupported = Boolean(speechRecognitionApi);
     const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
     const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
     const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
@@ -9813,8 +9848,19 @@ Solicitado: ${cantidad}`);
       }
       return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura la IA.`;
     }
-    async function send() {
-      const text = input.trim();
+    function speak(text) {
+      if (!window.speechSynthesis || !text) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(String(text).replace(/Accion ejecutada:[\s\S]*/i, "").slice(0, 500));
+        utterance.lang = "es-DO";
+        utterance.rate = 1;
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+      }
+    }
+    async function sendText(rawText, speakReply) {
+      const text = String(rawText || "").trim();
       if (!text || busy) return;
       setInput("");
       setMessages((prev) => prev.concat([{ role: "user", text }]));
@@ -9828,30 +9874,81 @@ Solicitado: ${cantidad}`);
         });
         const responseText = [parsed.respuesta || "La IA respondio sin texto.", actionNotes.join("\n")].filter(Boolean).join("\n\n");
         setMessages((prev) => prev.concat([{ role: "assistant", text: responseText }]));
+        if (speakReply) speak(responseText);
       } catch (err) {
-        setMessages((prev) => prev.concat([{ role: "assistant", text: localAnswer(text) }]));
+        const fallback = localAnswer(text);
+        setMessages((prev) => prev.concat([{ role: "assistant", text: fallback }]));
+        if (speakReply) speak(fallback);
       } finally {
         setBusy(false);
       }
     }
+    function send() {
+      sendText(input, false);
+    }
+    function startVoice() {
+      setOpen(true);
+      setVoiceError("");
+      if (!voiceSupported) {
+        setVoiceError("Este navegador no tiene reconocimiento de voz disponible.");
+        return;
+      }
+      if (listening && recognitionRef.current) {
+        recognitionRef.current.stop();
+        return;
+      }
+      const recognition = new speechRecognitionApi();
+      recognition.lang = "es-DO";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onstart = function() {
+        setListening(true);
+      };
+      recognition.onerror = function(event) {
+        setVoiceError(event && event.error ? `No pude escuchar bien: ${event.error}` : "No pude escuchar bien.");
+        setListening(false);
+      };
+      recognition.onend = function() {
+        setListening(false);
+      };
+      recognition.onresult = function(event) {
+        const transcript = event && event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : "";
+        if (transcript) sendText(transcript, true);
+      };
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+    useEffect(function() {
+      return function() {
+        try {
+          if (recognitionRef.current) recognitionRef.current.stop();
+          if (window.speechSynthesis) window.speechSynthesis.cancel();
+        } catch (err) {
+        }
+      };
+    }, []);
     const panelStyle = { position: "fixed", right: 18, bottom: 82, width: "min(380px, calc(100vw - 28px))", maxHeight: "min(560px, calc(100vh - 120px))", background: "#fff", border: "1px solid var(--borde)", borderRadius: 12, boxShadow: "0 18px 50px rgba(15,23,42,0.22)", zIndex: 1400, overflow: "hidden", display: "flex", flexDirection: "column" };
-    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
+    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: listening ? "linear-gradient(135deg,#dc2626,#f97316)" : "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: listening ? "0 0 0 8px rgba(248,113,113,.18), 0 12px 28px rgba(220,38,38,0.35)" : "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
+    const listenGif = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "10px 0" } }, [0, 1, 2, 3, 4].map(function(i) {
+      return /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", width: 6, height: 10, borderRadius: 999, background: "#2563eb", animation: "aiListenBar .72s ease-in-out infinite", animationDelay: `${i * 0.08}s` } });
+    }));
     return /* @__PURE__ */ React.createElement(React.Fragment, null,
       open && /* @__PURE__ */ React.createElement("div", { style: panelStyle },
         /* @__PURE__ */ React.createElement("div", { style: { padding: "12px 14px", background: "#111827", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 } },
           /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Asistente IA"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, opacity: 0.72 } }, "Inventario · Produccion · ICG · Mermas")),
           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", onClick: () => setOpen(false), title: "Minimizar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-minus" }))
         ),
-        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, messages.map(function(message, index) {
+        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, listening && /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "8px 10px", textAlign: "center", fontSize: 12, fontWeight: 700 } }, listenGif, "Escuchando... habla ahora"), voiceError && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "8px 10px", fontSize: 12 } }, voiceError), messages.map(function(message, index) {
           const mine = message.role === "user";
           return /* @__PURE__ */ React.createElement("div", { key: index, style: { justifySelf: mine ? "end" : "start", maxWidth: "92%", background: mine ? "#dcfce7" : "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827" } }, message.text);
         }), busy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Analizando...")),
         /* @__PURE__ */ React.createElement("div", { style: { padding: 10, borderTop: "1px solid var(--borde)", display: "flex", gap: 8, background: "#fff" } },
           /* @__PURE__ */ React.createElement("input", { className: "form-control", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Hablar con la IA..." }),
+          /* @__PURE__ */ React.createElement("button", { className: listening ? "btn btn-rojo btn-icon" : "btn btn-outline btn-icon", onClick: startVoice, disabled: busy, title: listening ? "Detener escucha" : "Hablar por voz" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${listening ? "fa-ear-listen" : "fa-microphone"}` })),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde btn-icon", onClick: send, disabled: busy || !input.trim(), title: "Enviar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }))
         )
       ),
-      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: () => setOpen((value) => !value), title: "Hablar con la IA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
+      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening ? startVoice : () => setOpen((value) => !value), onDoubleClick: startVoice, title: listening ? "Escuchando..." : "Hablar con la IA" }, listening ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
     );
   }
   function SystemLogsPage({ logs }) {
@@ -11922,7 +12019,7 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [], specialAccess = false }) {
+  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [], specialAccess = false, movementDraftTarget = null }) {
     const toast = useToast();
     const [producto, setProducto] = useState("");
     const [cantidad, setCantidad] = useState("");
@@ -11941,6 +12038,15 @@ Solicitado: ${cantidad}`);
     const cant = parseFloat(String(cantidad).replace(",", "."));
     const excede = existenceInfo && (tipo === "salida" || tipo === "decomiso") && !isNaN(cant) && cant > existenceInfo.existencia;
     const sourcePills = storageSources.length ? storageSources : [{ storageKey: "inventario", label: "Inventario" }, { storageKey: "cuartoFrio", label: "Cuarto Frio" }];
+    useEffect(function() {
+      if (!movementDraftTarget || movementDraftTarget.tipo !== tipo || !movementDraftTarget.ts) return;
+      const draftProduct = String(movementDraftTarget.producto || "").trim();
+      if (draftProduct) setProducto(draftProduct);
+      if (movementDraftTarget.cantidad !== "" && movementDraftTarget.cantidad != null) setCantidad(String(movementDraftTarget.cantidad));
+      if (movementDraftTarget.storageKey) setSelectedStorageKey(String(movementDraftTarget.storageKey));
+      setError("");
+      setSuccess(`IA preparo esta ${cfg.label.toLowerCase()} para revisar y confirmar manualmente.`);
+    }, [movementDraftTarget && movementDraftTarget.ts, tipo]);
     function guardar() {
       setError("");
       setSuccess("");
@@ -11969,6 +12075,7 @@ Solicitado: ${cantidad}`);
           }), specialAccess && /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo", style: { letterSpacing: ".02em" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link", style: { marginRight: 5 } }), "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)"))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "card-body" },
+          movementDraftTarget && movementDraftTarget.tipo === tipo && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), "La IA lleno este formulario. Revisa producto, ubicacion y cantidad antes de confirmar."),
           error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)),
           success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
