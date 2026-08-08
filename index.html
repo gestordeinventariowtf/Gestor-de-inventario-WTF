@@ -9895,10 +9895,8 @@ Solicitado: ${cantidad}`);
     const [busy, setBusy] = useState(false);
     const [listening, setListening] = useState(false);
     const [voiceError, setVoiceError] = useState("");
-    const [voiceMode, setVoiceMode] = useState(false);
     const [pendingVoiceAction, setPendingVoiceAction] = useState(null);
     const recognitionRef = useRef(null);
-    const voiceModeRef = useRef(false);
     const busyRef = useRef(false);
     const speakingRef = useRef(false);
     const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
@@ -9911,9 +9909,6 @@ Solicitado: ${cantidad}`);
     const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
     const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
     const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
-    useEffect(function() {
-      voiceModeRef.current = voiceMode;
-    }, [voiceMode]);
     useEffect(function() {
       busyRef.current = busy;
     }, [busy]);
@@ -9937,14 +9932,8 @@ Solicitado: ${cantidad}`);
       return `Resumen local: ${products.length} productos, ${purchaseRows.length} por comprar, ${alertRows.length} alertas, ${mermaRows.filter((m) => m.alerta).length} mermas con alerta. Para respuestas avanzadas configura la IA.`;
     }
     function maybeContinueVoice() {
-      if (!voiceModeRef.current || busyRef.current || speakingRef.current) return;
-      window.setTimeout(function() {
-        if (voiceModeRef.current && !busyRef.current && !speakingRef.current) startVoice(true);
-      }, 450);
     }
     function stopVoiceSession() {
-      voiceModeRef.current = false;
-      setVoiceMode(false);
       setListening(false);
       try {
         if (recognitionRef.current) recognitionRef.current.stop();
@@ -9981,7 +9970,7 @@ Solicitado: ${cantidad}`);
     }
     function answerAssistant(text, speakReply) {
       setMessages((prev) => prev.concat([{ role: "assistant", text }]));
-      if (speakReply || voiceModeRef.current) speak(text, maybeContinueVoice);
+      if (speakReply) speak(text);
     }
     function addUserMessage(text) {
       setMessages((prev) => prev.concat([{ role: "user", text }]));
@@ -10082,7 +10071,7 @@ Solicitado: ${cantidad}`);
     function send() {
       sendText(input, false);
     }
-    function startVoice(continueSession) {
+    function startVoice() {
       setOpen(true);
       setVoiceError("");
       if (!voiceSupported) {
@@ -10090,12 +10079,8 @@ Solicitado: ${cantidad}`);
         return;
       }
       if (listening && recognitionRef.current) {
-        if (!continueSession) stopVoiceSession();
+        stopVoiceSession();
         return;
-      }
-      if (!continueSession) {
-        voiceModeRef.current = true;
-        setVoiceMode(true);
       }
       if (busyRef.current) return;
       const recognition = new speechRecognitionApi();
@@ -10111,11 +10096,6 @@ Solicitado: ${cantidad}`);
       };
       recognition.onend = function() {
         setListening(false);
-        if (voiceModeRef.current && !busyRef.current && !speakingRef.current) {
-          window.setTimeout(function() {
-            if (voiceModeRef.current && !busyRef.current && !speakingRef.current) startVoice(true);
-          }, 550);
-        }
       };
       recognition.onresult = function(event) {
         const transcript = event && event.results && event.results[0] && event.results[0][0] ? event.results[0][0].transcript : "";
@@ -10138,7 +10118,7 @@ Solicitado: ${cantidad}`);
       };
     }, []);
     const panelStyle = { position: "fixed", right: 18, bottom: 82, width: "min(380px, calc(100vw - 28px))", maxHeight: "min(560px, calc(100vh - 120px))", background: "#fff", border: "1px solid var(--borde)", borderRadius: 12, boxShadow: "0 18px 50px rgba(15,23,42,0.22)", zIndex: 1400, overflow: "hidden", display: "flex", flexDirection: "column" };
-    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: listening || voiceMode ? "linear-gradient(135deg,#dc2626,#f97316)" : "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: listening || voiceMode ? "0 0 0 8px rgba(248,113,113,.18), 0 12px 28px rgba(220,38,38,0.35)" : "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
+    const bubbleStyle = { position: "fixed", right: 18, bottom: 18, width: 58, height: 58, borderRadius: "50%", border: "none", background: listening ? "linear-gradient(135deg,#dc2626,#f97316)" : "linear-gradient(135deg,#15803d,#2563eb)", color: "#fff", boxShadow: listening ? "0 0 0 8px rgba(248,113,113,.18), 0 12px 28px rgba(220,38,38,0.35)" : "0 12px 28px rgba(37,99,235,0.35)", zIndex: 1401, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 };
     const listenGif = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "10px 0" } }, [0, 1, 2, 3, 4].map(function(i) {
       return /* @__PURE__ */ React.createElement("span", { key: i, style: { display: "inline-block", width: 6, height: 10, borderRadius: 999, background: "#2563eb", animation: "aiListenBar .72s ease-in-out infinite", animationDelay: `${i * 0.08}s` } });
     }));
@@ -10148,17 +10128,17 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Asistente IA"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, opacity: 0.72 } }, "Inventario · Produccion · ICG · Mermas")),
           /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", onClick: () => setOpen(false), title: "Minimizar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-minus" }))
         ),
-        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, (listening || voiceMode) && /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "8px 10px", textAlign: "center", fontSize: 12, fontWeight: 700 } }, listenGif, listening ? "Escuchando... habla ahora" : "Modo voz activo. Te responderé hablando."), voiceError && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "8px 10px", fontSize: 12 } }, voiceError), messages.map(function(message, index) {
+        /* @__PURE__ */ React.createElement("div", { style: { padding: 12, overflowY: "auto", display: "grid", gap: 8, flex: 1, background: "#f8fafc" } }, listening && /* @__PURE__ */ React.createElement("div", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "8px 10px", textAlign: "center", fontSize: 12, fontWeight: 700 } }, listenGif, "Escuchando... habla ahora"), voiceError && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 10, padding: "8px 10px", fontSize: 12 } }, voiceError), messages.map(function(message, index) {
           const mine = message.role === "user";
           return /* @__PURE__ */ React.createElement("div", { key: index, style: { justifySelf: mine ? "end" : "start", maxWidth: "92%", background: mine ? "#dcfce7" : "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 10px", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827" } }, message.text);
         }), busy && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Analizando...")),
         /* @__PURE__ */ React.createElement("div", { style: { padding: 10, borderTop: "1px solid var(--borde)", display: "flex", gap: 8, background: "#fff" } },
           /* @__PURE__ */ React.createElement("input", { className: "form-control", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Hablar con la IA..." }),
-          /* @__PURE__ */ React.createElement("button", { className: listening || voiceMode ? "btn btn-rojo btn-icon" : "btn btn-outline btn-icon", onClick: listening || voiceMode ? stopVoiceSession : () => startVoice(false), disabled: busy, title: listening || voiceMode ? "Detener conversación por voz" : "Hablar por voz" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${listening || voiceMode ? "fa-ear-listen" : "fa-microphone"}` })),
+          /* @__PURE__ */ React.createElement("button", { className: listening ? "btn btn-rojo btn-icon" : "btn btn-outline btn-icon", onClick: listening ? stopVoiceSession : startVoice, disabled: busy, title: listening ? "Detener escucha" : "Hablar por voz" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${listening ? "fa-ear-listen" : "fa-microphone"}` })),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde btn-icon", onClick: send, disabled: busy || !input.trim(), title: "Enviar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }))
         )
       ),
-      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening || voiceMode ? stopVoiceSession : () => setOpen((value) => !value), onDoubleClick: () => startVoice(false), title: listening || voiceMode ? "Detener conversación" : "Hablar con la IA" }, listening || voiceMode ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
+      /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening ? stopVoiceSession : () => setOpen((value) => !value), onDoubleClick: startVoice, title: listening ? "Detener escucha" : "Hablar con la IA" }, listening ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
     );
   }
   function SystemLogsPage({ logs }) {
