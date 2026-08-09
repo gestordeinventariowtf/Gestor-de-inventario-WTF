@@ -3582,6 +3582,7 @@
         notes: []
       },
       appliedImports: [],
+      icgLinkGroups: [],
       datasets
     };
   }
@@ -3600,6 +3601,7 @@
     });
     return Object.assign({}, base, input, {
       audit: Object.assign({}, base.audit, input.audit || {}),
+      icgLinkGroups: normalizeIcgLinkGroups(input.icgLinkGroups),
       datasets
     });
   }
@@ -3679,6 +3681,68 @@
       return link.CodArticulo || link.Referencia || link.ProductoICG || String(link.value || "").trim();
     });
   }
+  function getIcgLinkIdentity(link) {
+    return [link && link.CodArticulo || "", link && link.Referencia || "", link && link.ProductoICG || ""].map(function(value) {
+      return normalizar(value);
+    }).join("|");
+  }
+  function normalizeIcgLinkGroups(groups) {
+    return (Array.isArray(groups) ? groups : []).map(function(group) {
+      return {
+        id: group.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        nombre: String(group.nombre || group.name || "").trim(),
+        links: cleanIcgLinkRows(group.links || group.items || [], [], "Uni"),
+        createdAt: group.createdAt || new Date().toISOString(),
+        updatedAt: group.updatedAt || group.createdAt || new Date().toISOString()
+      };
+    }).filter(function(group) {
+      return group.nombre && group.links.length;
+    }).sort(function(a, b) {
+      return String(a.nombre).localeCompare(String(b.nombre));
+    });
+  }
+  function mergeIcgLinksWithoutDuplicates(currentLinks, groupLinks, defaultUnit) {
+    const current = (Array.isArray(currentLinks) ? currentLinks : []).filter(function(link) {
+      return String(link && (link.value || link.CodArticulo || link.Referencia || link.ProductoICG) || "").trim();
+    });
+    const cleanCurrent = cleanIcgLinkRows(current, [], defaultUnit);
+    const cleanIncoming = cleanIcgLinkRows(groupLinks, [], defaultUnit);
+    const seen = new Set(cleanCurrent.map(getIcgLinkIdentity));
+    const additions = cleanIncoming.filter(function(link) {
+      const key = getIcgLinkIdentity(link);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const next = cleanCurrent.concat(additions).map(function(link) {
+      return Object.assign({ value: [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | ") }, link);
+    });
+    return next.length ? next : [createBlankIcgLink(defaultUnit)];
+  }
+  function saveIcgLinkGroup(setIcgFrontRestData, groupName, rawLinks, icgArticles, defaultUnit) {
+    const nombre = String(groupName || "").trim();
+    if (!setIcgFrontRestData || !nombre) return false;
+    const cleanLinks = cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit);
+    if (!cleanLinks.length) return false;
+    setIcgFrontRestData(function(prev) {
+      const normalized = ensureIcgFrontRestData(prev);
+      const now = new Date().toISOString();
+      const groups = normalizeIcgLinkGroups(normalized.icgLinkGroups);
+      const existingIndex = groups.findIndex(function(group) {
+        return normalizar(group.nombre) === normalizar(nombre);
+      });
+      const group = {
+        id: existingIndex >= 0 ? groups[existingIndex].id : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        nombre,
+        links: cleanLinks,
+        createdAt: existingIndex >= 0 ? groups[existingIndex].createdAt : now,
+        updatedAt: now
+      };
+      const nextGroups = existingIndex >= 0 ? groups.map(function(row, index) { return index === existingIndex ? group : row; }) : groups.concat([group]);
+      return ensureIcgFrontRestData(Object.assign({}, normalized, { icgLinkGroups: nextGroups, updatedAt: now }));
+    });
+    return true;
+  }
   function saveIcgLinksForWtfProduct(setIcgFrontRestData, moduleLabel, productName, rawLinks, icgArticles, defaultUnit, method, previousProductName) {
     if (!setIcgFrontRestData || !String(productName || "").trim()) return;
     const cleanLinks = cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit);
@@ -3719,8 +3783,9 @@
       return ensureIcgFrontRestData(Object.assign({}, normalized, { datasets, updatedAt: new Date().toISOString() }));
     });
   }
-  function renderIcgLinksEditor({ idPrefix, links, setLinks, icgArticles, defaultUnit }) {
+  function renderIcgLinksEditor({ idPrefix, links, setLinks, icgArticles, defaultUnit, icgLinkGroups = [], setIcgFrontRestData = null, toast = null }) {
     const safeLinks = Array.isArray(links) && links.length ? links : [createBlankIcgLink(defaultUnit)];
+    const groups = normalizeIcgLinkGroups(icgLinkGroups);
     const updateLink = function(index, patch) {
       setLinks(function(prev) {
         const current = Array.isArray(prev) && prev.length ? prev : [createBlankIcgLink(defaultUnit)];
@@ -3740,8 +3805,36 @@
         return next.length ? next : [createBlankIcgLink(defaultUnit)];
       });
     };
+    const applyGroup = function(groupId) {
+      const group = groups.find(function(row) { return String(row.id) === String(groupId); });
+      if (!group) return;
+      setLinks(function(prev) {
+        return mergeIcgLinksWithoutDuplicates(prev, group.links, defaultUnit);
+      });
+      if (toast) toast(`Grupo aplicado: ${group.nombre}`, "ok");
+    };
+    const saveCurrentAsGroup = function() {
+      const cleanLinks = cleanIcgLinkRows(safeLinks, icgArticles, defaultUnit);
+      if (!cleanLinks.length) {
+        if (toast) toast("Agrega al menos un Articulo ICG antes de guardar el grupo.", "error");
+        return;
+      }
+      const name = window.prompt("Nombre del grupo de Articulos ICG", "");
+      if (!String(name || "").trim()) return;
+      const ok = saveIcgLinkGroup(setIcgFrontRestData, name, safeLinks, icgArticles, defaultUnit);
+      if (toast) toast(ok ? "Grupo ICG guardado" : "No se pudo guardar el grupo ICG", ok ? "ok" : "error");
+    };
     return /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { gridColumn: "1 / -1" } },
       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Articulo ICG relacionado"),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 } },
+        /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: "", onChange: (e) => { applyGroup(e.target.value); e.target.value = ""; }, disabled: !groups.length },
+          /* @__PURE__ */ React.createElement("option", { value: "" }, groups.length ? "Aplicar grupo guardado" : "Sin grupos guardados"),
+          groups.map(function(group) {
+            return /* @__PURE__ */ React.createElement("option", { key: group.id, value: group.id }, group.nombre, " (", group.links.length, ")");
+          })
+        ),
+        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: saveCurrentAsGroup, disabled: !setIcgFrontRestData }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Guardar grupo")
+      ),
       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, safeLinks.map(function(link, index) {
         const inputValue = link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | ");
         const listId = `${idPrefix}-icg-article-list-${index}`;
@@ -11871,7 +11964,7 @@ Solicitado: ${cantidad}`);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const linkedMise = stockStatus.mise;
       if (editingId === r.id) {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg" }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
       }
       const baseRowClass = stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const rowClass = `${baseRowClass} ${Number(focusedSearchResultId) === Number(r.id) ? "tr-search-target" : ""}`.trim();
@@ -11909,7 +12002,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: newProd.miseProducto || "", onChange: (e) => setNewProd((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Selecciona el producto de Mise an Place", autoComplete: "off" }),
             /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente.")
           ),
-          renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: newProd.medida || "kg" }),
+          renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: newProd.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Medida"),
@@ -13015,7 +13108,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newProd.usarEnProduccion === true, onChange: (e) => setNewProd((p) => ({ ...p, usarEnProduccion: e.target.checked })) }),
             "Usar en Produccion"
           ),
-          renderIcgLinksEditor({ idPrefix: "mise-add", links: newProd.icgLinks, setLinks: setNewMiseIcgLinks, icgArticles: icgArticleRows, defaultUnit: "Uni" })
+          renderIcgLinksEditor({ idPrefix: "mise-add", links: newProd.icgLinks, setLinks: setNewMiseIcgLinks, icgArticles: icgArticleRows, defaultUnit: "Uni", icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast })
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalAdd(false) }, "Cancelar"),
@@ -13023,13 +13116,13 @@ Solicitado: ${cantidad}`);
         )
       )
     ) : null;
-    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, icgArticles: icgArticleRows, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
+    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, icgArticles: icgArticleRows, icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
     const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
     const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
     const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
-  function EditMiseItemModal({ item, icgArticles = [], onClose, onSave }) {
+  function EditMiseItemModal({ item, icgArticles = [], icgLinkGroups = [], setIcgFrontRestData = null, toast = null, onClose, onSave }) {
     const [codArticulo, setCodArticulo] = useState(getMiseCodArticulo(item, 0));
     const [producto, setProducto] = useState(item.producto || "");
     const [medida, setMedida] = useState(item.medida || "Uni");
@@ -13124,24 +13217,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: usarEnProduccion, onChange: (e) => setUsarEnProduccion(e.target.checked) }),
             "Usar en Produccion"
           ),
-          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
-            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Articulo ICG relacionado"),
-            /* @__PURE__ */ React.createElement("datalist", { id: `mise-icg-article-list-${item.id}` }, icgArticles.map(function(row, index) {
-              const value = getIcgArticleOptionValue(row);
-              return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${index}`, value }, value) : null;
-            })),
-            !icgArticles.length && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "No hay Articulos ICG cargados. Importa o sincroniza ICG FrontRest para activar esta lista."),
-            /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, icgLinks.map(function(link, index) {
-              return /* @__PURE__ */ React.createElement("div", { key: index, style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
-                /* @__PURE__ */ React.createElement("input", { className: "form-control", list: `mise-icg-article-list-${item.id}`, value: link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | "), onChange: (e) => updateIcgLink(index, { value: e.target.value }), placeholder: "CodArticulo | Referencia | Descripcion ICG", autoComplete: "off" }),
-                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: link.CantidadPorVenta, onChange: (e) => updateIcgLink(index, { CantidadPorVenta: e.target.value }), title: "Cantidad a descontar por cada venta ICG" }),
-                /* @__PURE__ */ React.createElement("input", { className: "form-control", value: link.Unidad || medida || "Uni", onChange: (e) => updateIcgLink(index, { Unidad: e.target.value }), title: "Unidad del descuento" }),
-                /* @__PURE__ */ React.createElement("select", { className: "form-control", value: link.Activo || "Si", onChange: (e) => updateIcgLink(index, { Activo: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "Si" }, "Activo"), /* @__PURE__ */ React.createElement("option", { value: "No" }, "No")),
-                /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: () => removeIcgLink(index), title: "Quitar vinculo ICG" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
-              );
-            })),
-            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", style: { marginTop: 8 }, onClick: addIcgLink }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar otro Articulo ICG")
-          )
+          renderIcgLinksEditor({ idPrefix: `mise-edit-${item.id}`, links: icgLinks, setLinks: setIcgLinks, icgArticles, defaultUnit: medida || "Uni", icgLinkGroups, setIcgFrontRestData, toast })
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"),
