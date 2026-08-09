@@ -479,20 +479,20 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const newConsumption: AnyRecord[] = [];
 
   for (const line of rowsToApply) {
-    const link = links.find((row) => {
+    const matchedLinks = links.filter((row) => {
       const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
       const linkRef = normalizar(row.Referencia || "");
       return linkCode && normalizar(line.codArticulo) === linkCode || linkRef && normalizar(line.referencia) === linkRef;
     });
-    const importKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
-    if (appliedKeys.has(importKey)) {
+    const pendingImportKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+    if (!matchedLinks.length && appliedKeys.has(pendingImportKey)) {
       result.skipped += 1;
-      result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
+      result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
       continue;
     }
-    if (!link) {
+    if (!matchedLinks.length) {
       result.pending += 1;
-      result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF."));
+      result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF."));
       const pendingRow = {
         Fecha: fecha,
         ModuloWTF: "",
@@ -505,79 +505,104 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         CantidadDescontar: line.consumo,
         Unidad: "Uni",
         Archivo: path.basename(config.icgBackupPath),
-        ImportKey: importKey,
+        ImportKey: pendingImportKey,
         Estado: "Sin vinculo",
         CodAlmacen: line.codAlmacen
       };
-      if (!existingConsumptionKeys.has(importKey)) newConsumption.push(pendingRow);
+      if (!existingConsumptionKeys.has(pendingImportKey)) newConsumption.push(pendingRow);
       continue;
     }
-    const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
-    const producto = String(link.ProductoWTF || link.ProductoMise || "").trim();
-    if (!producto) {
-      const message = `Vinculo sin ProductoWTF para CodArticulo ${line.codArticulo}.`;
-      result.errors.push(message);
-      result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message));
-      continue;
-    }
-    const qtyFactor = parseNumber(link.CantidadPorVenta) || 1;
-    const cantidad = Number((line.consumo * qtyFactor).toFixed(4));
-    const list: AnyRecord[] = Array.isArray(appState[target]) ? appState[target] : [];
-    const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
-    const consumoRow: AnyRecord = {
-      Fecha: fecha,
-      ModuloWTF: targetLabel(target),
-      targetKey: target,
-      ProductoWTF: producto,
-      ProductoMise: String(link.ProductoMise || producto),
-      CodArticulo: line.codArticulo,
-      Referencia: line.referencia,
-      ProductoICG: line.descripcion,
-      UnidadesVendidas: line.consumo,
-      CantidadDescontar: cantidad,
-      Unidad: link.Unidad || link.Medida || "Uni",
-      Archivo: path.basename(config.icgBackupPath),
-      ImportKey: importKey,
-      Estado: "Pendiente",
-      CodAlmacen: line.codAlmacen
-    };
-    result.matched += 1;
-    if (!item) {
-      consumoRow.Estado = "Producto WTF no encontrado";
-      const message = `${producto} no existe en ${targetLabel(target)}.`;
-      result.errors.push(message);
-      result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message, producto, cantidad, consumoRow.Unidad));
-      if (!existingConsumptionKeys.has(importKey)) newConsumption.push(consumoRow);
-      continue;
-    }
-    const existenciaAnterior = targetExistence(item, target);
-    applyTargetSalida(item, target, cantidad);
-    const existenciaNueva = targetExistence(item, target);
-    consumoRow.Estado = "Aplicado";
-    consumoRow.ExistenciaActual = existenciaAnterior;
-    consumoRow.ExistenciaNueva = existenciaNueva;
-    appliedKeys.add(importKey);
-    result.applied += 1;
-    result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
-    if (!existingConsumptionKeys.has(importKey)) newConsumption.push(consumoRow);
+    for (const link of matchedLinks) {
+      const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
+      const producto = String(link.ProductoWTF || link.ProductoMise || "").trim();
+      const importKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
+      const alreadyAppliedWithLegacyKey = consumoRows.some((row) => {
+        const rowTarget = targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "");
+        const rowProduct = String(row.ProductoWTF || row.ProductoMise || "").trim();
+        return normalizar(row.Fecha || "") === normalizar(fecha)
+          && normalizar(row.CodArticulo || "") === normalizar(line.codArticulo)
+          && normalizar(row.Referencia || "") === normalizar(line.referencia)
+          && normalizar(row.CodAlmacen || "") === normalizar(line.codAlmacen)
+          && rowTarget === target
+          && normalizar(rowProduct) === normalizar(producto)
+          && normalizar(row.Estado || "") === "aplicado";
+      });
+      if (appliedKeys.has(importKey) || alreadyAppliedWithLegacyKey) {
+        result.skipped += 1;
+        result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente.", producto));
+        continue;
+      }
+      if (!producto) {
+        const message = `Vinculo sin ProductoWTF para CodArticulo ${line.codArticulo}.`;
+        result.errors.push(message);
+        result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message));
+        continue;
+      }
+      const qtyFactor = parseNumber(link.CantidadPorVenta) || 1;
+      const cantidad = Number((line.consumo * qtyFactor).toFixed(4));
+      const list: AnyRecord[] = Array.isArray(appState[target]) ? appState[target] : [];
+      const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
+      const consumoRow: AnyRecord = {
+        Fecha: fecha,
+        ModuloWTF: targetLabel(target),
+        targetKey: target,
+        ProductoWTF: producto,
+        ProductoMise: String(link.ProductoMise || producto),
+        CodArticulo: line.codArticulo,
+        Referencia: line.referencia,
+        ProductoICG: line.descripcion,
+        UnidadesVendidas: line.consumo,
+        CantidadDescontar: cantidad,
+        Unidad: link.Unidad || link.Medida || "Uni",
+        Archivo: path.basename(config.icgBackupPath),
+        ImportKey: importKey,
+        Estado: "Pendiente",
+        CodAlmacen: line.codAlmacen
+      };
+      result.matched += 1;
+      if (!item) {
+        consumoRow.Estado = "Producto WTF no encontrado";
+        const message = `${producto} no existe en ${targetLabel(target)}.`;
+        result.errors.push(message);
+        result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message, producto, cantidad, consumoRow.Unidad));
+        if (!existingConsumptionKeys.has(importKey)) {
+          newConsumption.push(consumoRow);
+          existingConsumptionKeys.add(importKey);
+        }
+        continue;
+      }
+      const existenciaAnterior = targetExistence(item, target);
+      applyTargetSalida(item, target, cantidad);
+      const existenciaNueva = targetExistence(item, target);
+      consumoRow.Estado = "Aplicado";
+      consumoRow.ExistenciaActual = existenciaAnterior;
+      consumoRow.ExistenciaNueva = existenciaNueva;
+      appliedKeys.add(importKey);
+      result.applied += 1;
+      result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
+      if (!existingConsumptionKeys.has(importKey)) {
+        newConsumption.push(consumoRow);
+        existingConsumptionKeys.add(importKey);
+      }
 
-    const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";
-    appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
-    appState[historyKey].push({
-      id: `icg-bak-${importKey}`,
-      fecha: now,
-      producto: targetProductName(item, target),
-      medida: item.medida || consumoRow.Unidad || "Uni",
-      cantidad,
-      existenciaAnterior,
-      existenciaNueva,
-      usuario: "ICG FrontRest Backup",
-      origen: "ICG FrontRest Backup",
-      archivo: path.basename(config.icgBackupPath),
-      codArticulo: line.codArticulo,
-      codAlmacen: line.codAlmacen,
-      importKey
-    });
+      const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";
+      appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
+      appState[historyKey].push({
+        id: `icg-bak-${importKey}`,
+        fecha: now,
+        producto: targetProductName(item, target),
+        medida: item.medida || consumoRow.Unidad || "Uni",
+        cantidad,
+        existenciaAnterior,
+        existenciaNueva,
+        usuario: "ICG FrontRest Backup",
+        origen: "ICG FrontRest Backup",
+        archivo: path.basename(config.icgBackupPath),
+        codArticulo: line.codArticulo,
+        codAlmacen: line.codAlmacen,
+        importKey
+      });
+    }
   }
 
   icg.datasets.ConsumoMiseVentas.rows = newConsumption.concat(consumoRows).slice(0, 8000);

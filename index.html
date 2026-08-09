@@ -3947,22 +3947,23 @@
     const value = normalizar(row && (row.Activo == null ? "Si" : row.Activo));
     return value !== "false" && value !== "no" && value !== "0" && value !== "inactivo";
   }
-  function findIcgBridgeForLine(line, bridges) {
+  function findIcgBridgesForLine(line, bridges) {
     const code = normalizar(getIcgLineCode(line));
     const reference = normalizar(getIcgLineReference(line));
     const description = normalizar(getIcgLineDescription(line));
-    return (bridges || []).find(function(row) {
+    return (bridges || []).filter(function(row) {
       if (!isIcgLinkActive(row)) return false;
       const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
       const linkReference = normalizar(row.Referencia || "");
       const linkName = normalizar(row.ProductoICG || "");
       return linkCode && code && linkCode === code || linkReference && reference && linkReference === reference || linkName && description && linkName === description;
-    }) || null;
+    });
   }
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
     const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas");
-    if (existingConsumption.length) {
+    const lines = icgRows(normalizedData, "TiquetsLin");
+    if (existingConsumption.length && !lines.length) {
       return existingConsumption.map(function(row, index) {
         const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo);
         return Object.assign({
@@ -3984,43 +3985,51 @@
         }, row, { targetKey });
       }).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
     }
-    const lines = icgRows(normalizedData, "TiquetsLin");
     const bridges = icgRows(normalizedData, "VinculosMiseICG");
     const sourceName = normalizedData.sourceName || "ICG FrontRest";
+    const existingByImportKey = existingConsumption.reduce(function(acc, row) {
+      const key = row && row.ImportKey;
+      if (key) acc[key] = row;
+      return acc;
+    }, {});
     const grouped = {};
     lines.forEach(function(line) {
       const units = getIcgLineUnits(line);
       if (!units) return;
-      const bridge = findIcgBridgeForLine(line, bridges);
+      const matchedBridges = findIcgBridgesForLine(line, bridges);
+      const bridgesToApply = matchedBridges.length ? matchedBridges : [null];
       const fecha = icgDateKey(line.Fecha || line.HORA || line._fechaTicket || line._sourceDate || normalizedData.updatedAt || new Date().toISOString());
       const code = getIcgLineCode(line);
       const reference = getIcgLineReference(line);
       const productIcg = getIcgLineDescription(line);
-      const targetKey = normalizeIcgWtfTarget(bridge && (bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
-      const productWtf = bridge && (bridge.ProductoWTF || bridge.ProductoMise) || "";
-      const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta) || 1;
-      const importKey = quickHashText([fecha, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
-      if (!grouped[importKey]) {
-        grouped[importKey] = {
-          _id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          Fecha: fecha || new Date().toISOString().slice(0, 10),
-          ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
-          targetKey,
-          ProductoWTF: productWtf,
-          ProductoMise: bridge && bridge.ProductoMise || productWtf,
-          CodArticulo: code,
-          Referencia: reference,
-          ProductoICG: productIcg,
-          UnidadesVendidas: 0,
-          CantidadDescontar: 0,
-          Unidad: bridge && (bridge.Unidad || bridge.Medida) || "Uni",
-          Archivo: sourceName,
-          ImportKey: importKey,
-          Estado: bridge ? "Pendiente" : "Sin vinculo"
-        };
-      }
-      grouped[importKey].UnidadesVendidas += units;
-      grouped[importKey].CantidadDescontar += units * qtyPerSale;
+      bridgesToApply.forEach(function(bridge) {
+        const targetKey = normalizeIcgWtfTarget(bridge && (bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
+        const productWtf = bridge && (bridge.ProductoWTF || bridge.ProductoMise) || "";
+        const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta) || 1;
+        const importKey = quickHashText([fecha, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
+        if (!grouped[importKey]) {
+          const existing = existingByImportKey[importKey] || {};
+          grouped[importKey] = {
+            _id: existing._id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            Fecha: fecha || new Date().toISOString().slice(0, 10),
+            ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+            targetKey,
+            ProductoWTF: productWtf,
+            ProductoMise: bridge && bridge.ProductoMise || productWtf,
+            CodArticulo: code,
+            Referencia: reference,
+            ProductoICG: productIcg,
+            UnidadesVendidas: 0,
+            CantidadDescontar: 0,
+            Unidad: bridge && (bridge.Unidad || bridge.Medida) || "Uni",
+            Archivo: sourceName,
+            ImportKey: importKey,
+            Estado: existing.Estado || (bridge ? "Pendiente" : "Sin vinculo")
+          };
+        }
+        grouped[importKey].UnidadesVendidas += units;
+        grouped[importKey].CantidadDescontar += units * qtyPerSale;
+      });
     });
     return Object.values(grouped).map(function(row) {
       row.UnidadesVendidas = Number(row.UnidadesVendidas.toFixed(4));
@@ -10760,22 +10769,11 @@ Solicitado: ${cantidad}`);
     function syncConsumptionRowsFromBridge(datasets, bridgeRow) {
       const consumo = datasets.ConsumoMiseVentas;
       if (!consumo || !Array.isArray(consumo.rows)) return datasets;
-      const targetKey = normalizeIcgWtfTarget(bridgeRow.targetKey || bridgeRow.ModuloWTF);
-      const productName = String(bridgeRow.ProductoWTF || bridgeRow.ProductoMise || "").trim();
-      const nextRows = consumo.rows.map(function(row) {
-        if (!sameIcgRelation(row, bridgeRow)) return row;
-        return Object.assign({}, row, {
-          ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || bridgeRow.ModuloWTF || targetKey,
-          targetKey,
-          ProductoWTF: productName,
-          ProductoMise: productName,
-          Estado: getRelationEstado(productName)
-        });
-      });
+      const rebuilt = buildIcgSalesConsumption(Object.assign({}, normalized, { datasets: Object.assign({}, datasets, { ConsumoMiseVentas: consumo }) }));
       return Object.assign({}, datasets, {
         ConsumoMiseVentas: Object.assign({}, consumo, {
           columns: Array.from(new Set([...(consumo.columns || []), ...ICG_TABLE_DEFS.ConsumoMiseVentas.columns])),
-          rows: nextRows
+          rows: rebuilt
         })
       });
     }
@@ -10960,19 +10958,34 @@ Solicitado: ${cantidad}`);
       const blockedRows = salesConsumptionRows.filter((row) => row.Estado !== "Pendiente" && row.Estado !== "Aplicado");
       const appliedRows = salesConsumptionRows.filter((row) => row.Estado === "Aplicado");
       const q = normalizar(salesConsumptionQuery);
-      const filteredSalesRows = salesConsumptionRows.filter(function(row) {
-        if (salesConsumptionFilter === "bloqueadas" && !(row.Estado !== "Pendiente" && row.Estado !== "Aplicado")) return false;
-        if (salesConsumptionFilter === "aplicadas" && row.Estado !== "Aplicado") return false;
+      const groupedSalesRows = Object.values(salesConsumptionRows.reduce(function(acc, row) {
+        const key = [row.Fecha, row.CodArticulo, row.Referencia, row.ProductoICG, row.Archivo].map(function(value) {
+          return normalizar(value);
+        }).join("|");
+        if (!acc[key]) {
+          acc[key] = Object.assign({}, row, { children: [], groupKey: key });
+        }
+        acc[key].children.push(row);
+        acc[key].UnidadesVendidas = Math.max(parseIcgNumber(acc[key].UnidadesVendidas), parseIcgNumber(row.UnidadesVendidas));
+        acc[key].Estado = acc[key].children.some(function(child) { return child.Estado !== "Pendiente" && child.Estado !== "Aplicado"; }) ? "Revisar" : acc[key].children.every(function(child) { return child.Estado === "Aplicado"; }) ? "Aplicado" : "Pendiente";
+        return acc;
+      }, {})).sort(function(a, b) {
+        return String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG));
+      });
+      const filteredSalesRows = groupedSalesRows.filter(function(group) {
+        const children = group.children || [];
+        const hasBlocked = children.some(function(row) { return row.Estado !== "Pendiente" && row.Estado !== "Aplicado"; });
+        const allApplied = children.length && children.every(function(row) { return row.Estado === "Aplicado"; });
+        if (salesConsumptionFilter === "bloqueadas" && !hasBlocked) return false;
+        if (salesConsumptionFilter === "aplicadas" && !allApplied) return false;
         if (!q) return true;
         return [
-          row.Fecha,
-          row.ProductoICG,
-          row.CodArticulo,
-          row.Referencia,
-          row.ModuloWTF,
-          row.ProductoWTF,
-          row.ProductoMise,
-          row.Estado
+          group.Fecha,
+          group.ProductoICG,
+          group.CodArticulo,
+          group.Referencia,
+          group.Estado,
+          children.map(function(row) { return [row.ModuloWTF, row.ProductoWTF, row.ProductoMise, row.Estado].join(" "); }).join(" ")
         ].some(function(value) {
           return normalizar(value).includes(q);
         });
@@ -10980,7 +10993,7 @@ Solicitado: ${cantidad}`);
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
         /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-shield-halved" }), "Importar no modifica inventario. Primero genera esta vista previa, revisa bloqueos y luego aplica con clave administradora."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
-          renderSalesFilterButton("todos", "Lineas consumo", salesConsumptionRows.length, "#4338ca"),
+          renderSalesFilterButton("todos", "Lineas consumo", groupedSalesRows.length, "#4338ca"),
           renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
           renderSalesFilterButton("aplicadas", "Ya aplicadas", appliedRows.length, "#0f766e")
         ),
@@ -10994,18 +11007,25 @@ Solicitado: ${cantidad}`);
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
-          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(row, index) {
-            const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
-            return /* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || index, className: row.Estado === "Sin existencia" ? "tr-out-stock" : "" },
-              /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
-              /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", row.CodArticulo || "-", " / Ref: ", row.Referencia || "-")),
-              /* @__PURE__ */ React.createElement("td", null, row.ModuloWTF || "-"),
-              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, row.ProductoWTF || row.ProductoMise || "-"),
-              /* @__PURE__ */ React.createElement("td", null, row.UnidadesVendidas || 0),
-              /* @__PURE__ */ React.createElement("td", null, row.CantidadDescontar || 0, " ", row.Unidad || ""),
-              /* @__PURE__ */ React.createElement("td", null, row.ExistenciaActual === "" ? "-" : row.ExistenciaActual),
-              /* @__PURE__ */ React.createElement("td", null, row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva),
-              /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, row.Estado || "-"))
+          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(group, index) {
+            const children = group.children || [group];
+            const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
+            const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
+            const renderChildLines = function(fn) {
+              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 190 } }, children.map(function(child, childIndex) {
+                return /* @__PURE__ */ React.createElement("div", { key: child.ImportKey || childIndex, style: { fontSize: 12, borderBottom: childIndex < children.length - 1 ? "1px dashed #e5e7eb" : "none", paddingBottom: childIndex < children.length - 1 ? 4 : 0 } }, fn(child));
+              }));
+            };
+            return /* @__PURE__ */ React.createElement("tr", { key: group.groupKey || group.ImportKey || index, className: blocked ? "tr-out-stock" : "" },
+              /* @__PURE__ */ React.createElement("td", null, group.Fecha || "-"),
+              /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, group.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", group.CodArticulo || "-", " / Ref: ", group.Referencia || "-")),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ModuloWTF || "-"; })),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, renderChildLines(function(child) { return child.ProductoWTF || child.ProductoMise || "-"; })),
+              /* @__PURE__ */ React.createElement("td", null, group.UnidadesVendidas || 0),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return `${child.CantidadDescontar || 0} ${child.Unidad || ""}`; })),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaActual === "" ? "-" : child.ExistenciaActual; })),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaNueva === "" ? "-" : child.ExistenciaNueva; })),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { const childClass = child.Estado === "Pendiente" ? "pill-verde" : child.Estado === "Aplicado" ? "pill-azul" : "pill-rojo"; return /* @__PURE__ */ React.createElement("span", { className: `pill ${childClass}` }, child.Estado || "-"); }), children.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, children.length, " descuentos")))
             );
           }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "9", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "9", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
