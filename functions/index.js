@@ -55,13 +55,17 @@ function buildInstructions(task) {
     "Si el usuario solo pide abrir, entrar, buscar o navegar a un modulo, responde de forma directa y ejecuta la accion permitida sin agregar observaciones criticas.",
     "Da sugerencias o consejos solo cuando el usuario los pida, cuando pregunte como resolver algo, o cuando falte un dato necesario para continuar.",
     "No inventes existencias ni codigos. Si faltan datos, dilo.",
+    "Si no encuentras un producto, no termines la conversacion: sugiere crearlo y pide los datos necesarios uno por uno.",
+    "Para consultas de existencia, usa todo el contexto de productos y respeta aclaraciones de modulo como Bar, Cocina, Inventario, Cuarto Frio o Mise.",
     "Nunca indiques que un ajuste fue aplicado si solo estas recomendando.",
     "Si el usuario pide abrir, buscar o ir a un producto, puedes sugerir una accion controlada.",
-    "Acciones permitidas: buscar_producto, abrir_inventario, abrir_cuarto_frio, abrir_mise, abrir_produccion, abrir_recuento, preparar_movimiento.",
+    "Acciones permitidas: buscar_producto, abrir_dashboard, abrir_inventario, abrir_cuarto_frio, abrir_mise, abrir_produccion, abrir_recuento, abrir_entradas, abrir_salidas, abrir_decomiso, preparar_movimiento.",
     "preparar_movimiento solo abre el modulo correcto y llena producto/cantidad/ubicacion; el usuario siempre debe confirmar manualmente.",
     "Si un producto tiene varias coincidencias o ubicaciones posibles, pregunta cual desea usar antes de preparar el movimiento.",
-    "Cuando uses acciones, responde JSON valido con esta forma: {\"respuesta\":\"texto breve\",\"acciones\":[{\"tipo\":\"buscar_producto\",\"producto\":\"limon\",\"modulo\":\"bar\",\"destino\":\"inventario\"}]}.",
+    "Si la solicitud no requiere accionar pantalla, responde conversacionalmente en texto normal.",
+    "Cuando uses acciones, responde solo JSON valido con esta forma: {\"respuesta\":\"texto breve\",\"acciones\":[{\"tipo\":\"buscar_producto\",\"producto\":\"limon\",\"modulo\":\"bar\",\"destino\":\"inventario\"}]}.",
     "Para entradas, salidas o decomisos ya confirmados por el usuario, usa: {\"respuesta\":\"Te deje la entrada preparada para confirmar.\",\"acciones\":[{\"tipo\":\"preparar_movimiento\",\"movimiento\":\"entrada\",\"producto\":\"Mozzarella Sticks\",\"cantidad\":7,\"modulo\":\"cocina\",\"destino\":\"cuarto_frio\"}]}",
+    "Para entradas, salidas o decomisos masivos, usa items: {\"respuesta\":\"Te deje la lista preparada para revisar.\",\"acciones\":[{\"tipo\":\"preparar_movimiento\",\"movimiento\":\"entrada\",\"items\":[{\"producto\":\"Mozzarella Sticks\",\"cantidad\":7},{\"producto\":\"Agua\",\"cantidad\":12}]}]}",
     "No ejecutes ajustes de inventario, salidas, entradas, decomisos ni borrados automaticamente.",
     "Prioriza respuestas en espanol dominicano claro y accionable.",
     `Tarea solicitada: ${task || "analisis_general"}.`
@@ -86,7 +90,8 @@ async function callOllamaCloud({ apiKey, task, model, payload, safePayload, imag
   if (!apiKey) throw new Error("OLLAMA_API_KEY no configurada en Firebase Functions.");
   const instructions = buildInstructions(task);
   const isJsonTask = String(task || "").includes("recuento_lectura_foto_conteo") || String(task || "").includes("chat_flotante");
-  const content = (String(task || "").includes("recuento_lectura_foto_conteo") ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload;
+  const isFloatingChat = String(task || "").includes("chat_flotante");
+  const content = (String(task || "").includes("recuento_lectura_foto_conteo") ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : isFloatingChat ? "Responde exactamente a la solicitud del usuario. Si pide una accion, devuelve JSON de accion; si pregunta algo, responde normal y breve. Datos del sistema para contexto:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload;
   const message = { role: "user", content };
   if (imageDataUrl) message.images = [getImageBase64(imageDataUrl)];
   const body = {
@@ -114,10 +119,11 @@ async function callOllamaCloud({ apiKey, task, model, payload, safePayload, imag
 async function callOpenAi({ apiKey, task, model, safePayload, imageDataUrl }) {
   if (!apiKey) throw new Error("OPENAI_API_KEY no configurada en Firebase Functions.");
   const isRecountPhotoTask = String(task || "").includes("recuento_lectura_foto_conteo");
+  const isFloatingChat = String(task || "").includes("chat_flotante");
   const content = [
     {
       type: "input_text",
-      text: (isRecountPhotoTask ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload
+      text: (isRecountPhotoTask ? "Lee la foto adjunta y devuelve solo el JSON solicitado. Datos de apoyo JSON:\n" : isFloatingChat ? "Responde exactamente a la solicitud del usuario. Si pide una accion, devuelve JSON de accion; si pregunta algo, responde normal y breve. Datos del sistema para contexto:\n" : "Analiza estos datos del sistema y responde con recomendaciones concretas. Datos JSON:\n") + safePayload
     }
   ];
   if (imageDataUrl) {

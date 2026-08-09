@@ -5535,7 +5535,11 @@
       const requestedDest = normalizar(action.destino || action.target || "");
       let moduleTarget = requestedModule.includes("bar") ? "bar" : requestedModule.includes("cocina") ? "cocina" : modulo || "cocina";
       let pageTarget = "inventario";
-      if (type === "abrir_cuarto_frio" || requestedDest.includes("cuarto")) pageTarget = "cuartoFrio";
+      if (type === "abrir_dashboard") pageTarget = "dashboard";
+      else if (type === "abrir_entradas") pageTarget = "entradas";
+      else if (type === "abrir_salidas") pageTarget = "salidas";
+      else if (type === "abrir_decomiso") pageTarget = "decomiso";
+      else if (type === "abrir_cuarto_frio" || requestedDest.includes("cuarto")) pageTarget = "cuartoFrio";
       else if (type === "abrir_mise" || requestedDest.includes("mise")) pageTarget = "mise";
       else if (type === "abrir_produccion" || requestedDest.includes("produccion")) pageTarget = "produccion";
       else if (type === "abrir_recuento" || requestedDest.includes("recuento")) pageTarget = "recuento";
@@ -5591,6 +5595,23 @@
           }
         }
         sessionStorage.setItem("wtf_ai_pending_product_search", requestedProduct);
+      }
+      if (type === "preparar_movimiento" && Array.isArray(action.items) && action.items.length) {
+        const movement = normalizar(action.movimiento || action.tipoMovimiento || action.movement || "");
+        pageTarget = movement.includes("salida") ? "salidas" : movement.includes("decomiso") ? "decomiso" : "entradas";
+        setMovementDraftTarget({
+          tipo: pageTarget === "salidas" ? "salida" : pageTarget === "decomiso" ? "decomiso" : "entrada",
+          items: action.items.map(function(item) {
+            return {
+              producto: item.producto || item.product || item.nombre || "",
+              cantidad: item.cantidad || item.qty || item.quantity || "",
+              storageKey: item.storageKey || item.destino || item.targetKey || ""
+            };
+          }).filter(function(item) { return item.producto || item.cantidad; }),
+          ts: Date.now()
+        });
+        navigate(pageTarget, { moduleTarget });
+        return true;
       }
       navigate(pageTarget, { moduleTarget });
       return true;
@@ -9456,6 +9477,21 @@ Solicitado: ${cantidad}`);
     const lengthPenalty = Math.abs(aw.length - bw.length) * 3;
     return Math.max(0, Math.min(100, Math.round(common / Math.max(aset.size, bset.size) * 100 + includesBoost - lengthPenalty)));
   }
+  function aiProductSearchScore(query, row, hints) {
+    const cleanQuery = normalizar(query);
+    const hayName = normalizar(row && row.nombre);
+    const hayAll = normalizar([row && row.nombre, row && row.modulo, row && row.origen, row && row.suplidor, row && row.codArticulo].join(" "));
+    const stop = new Set(["cuanto", "cuanta", "cuantos", "cuantas", "cantidad", "disponible", "tenemos", "tengo", "hay", "existencia", "stock", "del", "de", "la", "el", "los", "las", "bar", "cocina", "inventario", "cuarto", "frio", "mise", "place", "producto", "articulo"]);
+    const queryWords = cleanQuery.split(/\s+/).filter(function(word) { return word && !stop.has(word); });
+    let score = aiNameScore(queryWords.join(" "), row && row.nombre);
+    if (hayName === queryWords.join(" ")) score += 35;
+    if (queryWords.length && queryWords.every(function(word) { return hayName.includes(word); })) score += 20;
+    if (queryWords.length && queryWords.some(function(word) { return hayName.split(/\s+/).includes(word); })) score += 12;
+    if (hints && hints.module && normalizar(row && row.modulo).includes(hints.module)) score += 35;
+    if (hints && hints.source && normalizar(row && row.origen).includes(hints.source)) score += 20;
+    if (cleanQuery && hayAll.includes(cleanQuery)) score += 8;
+    return score;
+  }
   function aiProductName(item) {
     return String(item && (item.nombre || item.producto || item.Descripcion || item.DescripcionArticulo || item.Articulo || "") || "").trim();
   }
@@ -9850,7 +9886,57 @@ Solicitado: ${cantidad}`);
   }
   function isAllowedAiAction(action) {
     const type = normalizeAiActionType(action);
-    return ["buscar_producto", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento", "preparar_movimiento"].includes(type);
+    return ["buscar_producto", "abrir_dashboard", "abrir_inventario", "abrir_cuarto_frio", "abrir_mise", "abrir_produccion", "abrir_recuento", "abrir_entradas", "abrir_salidas", "abrir_decomiso", "preparar_movimiento"].includes(type);
+  }
+  function detectAiNavigationRequest(text) {
+    const value = String(text || "").trim();
+    const normalized = normalizar(value);
+    const isOpenIntent = /\b(abre|abrir|entra|entrar|ve|ir|llevame|llévame|muestrame|muéstrame)\b/i.test(value);
+    if (!isOpenIntent) return null;
+    const moduleTarget = normalized.includes("bar") ? "bar" : normalized.includes("cocina") ? "cocina" : "";
+    if (normalized.includes("dashboard general")) return { tipo: "abrir_dashboard", modulo: moduleTarget };
+    if (normalized.includes("dashboard")) return { tipo: "abrir_dashboard", modulo: moduleTarget };
+    if (normalized.includes("entrada")) return { tipo: "abrir_entradas", modulo: moduleTarget };
+    if (normalized.includes("salida")) return { tipo: "abrir_salidas", modulo: moduleTarget };
+    if (normalized.includes("decomiso")) return { tipo: "abrir_decomiso", modulo: moduleTarget };
+    if (normalized.includes("cuarto")) return { tipo: "abrir_cuarto_frio", modulo: moduleTarget };
+    if (normalized.includes("mise")) return { tipo: "abrir_mise", modulo: moduleTarget };
+    if (normalized.includes("produccion")) return { tipo: "abrir_produccion", modulo: moduleTarget };
+    if (normalized.includes("recuento")) return { tipo: "abrir_recuento", modulo: moduleTarget };
+    if (normalized.includes("inventario")) return { tipo: "abrir_inventario", modulo: moduleTarget };
+    return null;
+  }
+  function detectAiProductSearchRequest(text) {
+    const value = String(text || "").trim();
+    if (!/\b(busca|buscar|buscame|búscame|encuentra|localiza|donde esta|dónde está|ver producto)\b/i.test(value)) return null;
+    let producto = value.replace(/\b(busca|buscar|buscame|búscame|encuentra|localiza|donde esta|dónde está|ver producto|producto|articulo|artículo|en|el|la|los|las|un|una)\b/gi, " ");
+    producto = producto.replace(/\s+/g, " ").trim();
+    return producto ? { tipo: "buscar_producto", producto } : null;
+  }
+  function extractAiLocationHints(text) {
+    const normalized = normalizar(text);
+    return {
+      module: normalized.includes("bar") ? "bar" : normalized.includes("cocina") ? "cocina" : "",
+      source: normalized.includes("cuarto") ? "cuarto" : normalized.includes("mise") ? "mise" : normalized.includes("inventario") ? "inventario" : ""
+    };
+  }
+  function cleanAiProductQuestionText(text) {
+    return String(text || "").replace(/\b(cuanto|cuanta|cuantos|cuantas|cantidad|disponible|tenemos|tengo|hay|queda|quedan|existencia|stock|del|de|la|el|los|las|en|producto|articulo|artículo|bar|cocina|inventario|cuarto frio|cuarto frío|mise an place|mise|place|era|es)\b/gi, " ").replace(/[?¿]/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function detectAiAvailabilityQuestion(text) {
+    const value = String(text || "").trim();
+    if (!/\b(cuanto|cuanta|cuantos|cuantas|cantidad|disponible|tenemos|tengo|hay|queda|quedan|existencia|stock)\b/i.test(value)) return null;
+    const hints = extractAiLocationHints(value);
+    const producto = cleanAiProductQuestionText(value);
+    return producto || hints.module || hints.source ? { producto, hints, raw: value } : null;
+  }
+  function detectAiClarification(text) {
+    const value = String(text || "").trim();
+    const hints = extractAiLocationHints(value);
+    const producto = cleanAiProductQuestionText(value);
+    if (!hints.module && !hints.source && !producto) return null;
+    if (!/\b(era|es|quise decir|me refiero|del|de la|en el|en la)\b/i.test(value) && !(hints.module || hints.source)) return null;
+    return { producto, hints, raw: value };
   }
   function detectAiMovementRequest(text) {
     const value = String(text || "");
@@ -9867,11 +9953,37 @@ Solicitado: ${cantidad}`);
     producto = producto.replace(/\s+/g, " ").trim();
     return producto ? { movimiento, cantidad, producto, raw: value, normalized } : null;
   }
-  function getAiProductMatches(products, productText) {
+  function cleanAiMovementProductText(text) {
+    return String(text || "").replace(/\b(dale|dar|entrada|entradas|salida|salidas|decomiso|decomisos|decomisar|ingresar|ingresa|agrega|agregar|sumale|sacale|sacar|retira|retirar|descuenta|descontar|masiva|masivas|varios|varias|lista|a|al|la|los|las|de|del|en|para|inventario|cuarto frio|cuarto frío|mise an place|mise|cocina|bar)\b/gi, " ").replace(/\s+/g, " ").trim();
+  }
+  function detectAiBulkMovementRequest(text) {
+    const value = String(text || "").trim();
+    const normalized = normalizar(value);
+    let movimiento = "";
+    if (/\bentrada(s)?\b|ingres|agrega|sumale|dale entrada/i.test(value)) movimiento = "entrada";
+    else if (/\bsalida(s)?\b|sacale|descuent|retira|dale salida/i.test(value)) movimiento = "salida";
+    else if (/decomis|merma|dano|daño|bota/i.test(value)) movimiento = "decomiso";
+    if (!movimiento) return null;
+    const chunks = value.split(/\n|;|,(?=\s*\d)/).map(function(part) { return part.trim(); }).filter(Boolean);
+    const items = [];
+    chunks.forEach(function(chunk) {
+      let part = chunk.replace(/\b(entrada(s)?|salida(s)?|decomiso(s)?|masiva(s)?|varios|varias|lista)\b\s*:?/gi, " ").trim();
+      let match = part.match(/(\d+(?:[.,]\d{1,4})?)\s+(.+)/);
+      if (!match) match = part.match(/(.+?)\s+(\d+(?:[.,]\d{1,4})?)$/);
+      if (!match) return;
+      const firstIsQty = /^\d/.test(match[1]);
+      const cantidad = Number((firstIsQty ? match[1] : match[2]).replace(",", "."));
+      const producto = cleanAiMovementProductText(firstIsQty ? match[2] : match[1]);
+      if (Number.isFinite(cantidad) && cantidad > 0 && producto) items.push({ producto, cantidad });
+    });
+    if (items.length < 2 && !normalized.includes("masiva") && !normalized.includes("varios") && !normalized.includes("lista")) return null;
+    return items.length ? { movimiento, items, raw: value } : null;
+  }
+  function getAiProductMatches(products, productText, hints) {
     const term = normalizar(productText);
     if (!term) return [];
     return (Array.isArray(products) ? products : []).map(function(row) {
-      const score = normalizar(row.nombre).includes(term) ? 100 : aiNameScore(productText, row.nombre);
+      const score = aiProductSearchScore(productText, row, hints || {});
       return { row, score };
     }).filter(function(item) {
       return item.score >= 45;
@@ -9896,6 +10008,8 @@ Solicitado: ${cantidad}`);
     const [listening, setListening] = useState(false);
     const [voiceError, setVoiceError] = useState("");
     const [pendingVoiceAction, setPendingVoiceAction] = useState(null);
+    const [lastAvailabilityQuery, setLastAvailabilityQuery] = useState(null);
+    const [pendingCreateProduct, setPendingCreateProduct] = useState(null);
     const recognitionRef = useRef(null);
     const busyRef = useRef(false);
     const speakingRef = useRef(false);
@@ -9975,6 +10089,109 @@ Solicitado: ${cantidad}`);
     function addUserMessage(text) {
       setMessages((prev) => prev.concat([{ role: "user", text }]));
     }
+    function formatAvailabilityRows(rows) {
+      const total = rows.reduce(function(sum, row) { return sum + Number(row.existencia || 0); }, 0);
+      const unit = rows.find(function(row) { return row.medida; })?.medida || "Uni";
+      const detail = rows.map(function(row) {
+        return `- ${row.nombre} · ${row.modulo} · ${row.origen}: ${formatMiseQty(row.existencia)} ${row.medida || unit}`;
+      }).join("\n");
+      return { total, unit, detail };
+    }
+    function answerAvailabilityQuestion(request, speakReply) {
+      const productText = request.producto || (lastAvailabilityQuery && lastAvailabilityQuery.producto) || "";
+      const hints = Object.assign({}, lastAvailabilityQuery && lastAvailabilityQuery.hints || {}, request.hints || {});
+      if (!productText && !(hints.module || hints.source)) return false;
+      const matches = getAiProductMatches(products, productText || "producto", hints).filter(function(row) {
+        if (hints.module && !normalizar(row.modulo).includes(hints.module)) return false;
+        if (hints.source && !normalizar(row.origen).includes(hints.source)) return false;
+        return true;
+      });
+      setLastAvailabilityQuery({ producto: productText, hints });
+      if (matches.length) {
+        const topScoreRows = matches.slice(0, Math.min(6, matches.length));
+        const exactRows = topScoreRows.filter(function(row) {
+          return normalizar(row.nombre) === normalizar(productText) || normalizar(row.nombre).split(/\s+/).includes(normalizar(productText));
+        });
+        const rows = exactRows.length ? exactRows : topScoreRows;
+        const data = formatAvailabilityRows(rows);
+        const area = [hints.module ? hints.module === "bar" ? "Bar" : "Cocina" : "", hints.source ? hints.source === "cuarto" ? "Cuarto Frio" : hints.source === "mise" ? "Mise an Place" : "Inventario" : ""].filter(Boolean).join(" / ");
+        answerAssistant(`Disponible${area ? " en " + area : ""}: ${formatMiseQty(data.total)} ${data.unit}\n${data.detail}`, speakReply);
+        return true;
+      }
+      const cleanName = productText || cleanAiProductQuestionText(request.raw);
+      setPendingCreateProduct({ nombre: cleanName, modulo: hints.module || "", area: hints.source || "", step: "modulo" });
+      answerAssistant(`No encontre "${cleanName || "ese producto"}" en la base actual. Si quieres, puedo ayudarte a crearlo. Primero dime si pertenece a Cocina o Bar.`, speakReply);
+      return true;
+    }
+    function handleCreateProductConversation(text, speakReply) {
+      if (!pendingCreateProduct) return false;
+      const value = String(text || "").trim();
+      const normalized = normalizar(value);
+      let next = Object.assign({}, pendingCreateProduct);
+      if (!next.modulo) {
+        if (normalized.includes("bar")) next.modulo = "bar";
+        else if (normalized.includes("cocina")) next.modulo = "cocina";
+      }
+      if (!next.modulo) {
+        answerAssistant("Perfecto. Dime si el producto sera de Cocina o Bar.", speakReply);
+        return true;
+      }
+      if (!next.area) {
+        if (normalized.includes("cuarto")) next.area = "cuarto";
+        else if (normalized.includes("mise")) next.area = "mise";
+        else if (normalized.includes("inventario")) next.area = "inventario";
+      }
+      if (!next.area) {
+        setPendingCreateProduct(next);
+        answerAssistant("Ahora dime donde va: Inventario, Cuarto Frio o Mise an Place.", speakReply);
+        return true;
+      }
+      if (!next.medida) {
+        const unitMatch = value.match(/\b(kg|g|gr|lb|lbs|oz|uni|unidad|unidades|paq|paquete|galon|medio galon|litro|lt)\b/i);
+        if (unitMatch) next.medida = normalizeProductionUnitLabel(unitMatch[1]);
+      }
+      if (!next.medida) {
+        setPendingCreateProduct(next);
+        answerAssistant("Indícame la unidad de medida. Por ejemplo: Uni, Lb, kg, g, Paq o Galon.", speakReply);
+        return true;
+      }
+      if (!next.suplidor && next.area !== "mise") {
+        const supplier = value.replace(/\b(suplidor|proveedor|es|sera|será|de)\b/gi, " ").trim();
+        if (supplier && !/\b(kg|g|gr|lb|lbs|oz|uni|paq|galon|litro|lt)\b/i.test(supplier)) next.suplidor = supplier;
+      }
+      if (!next.suplidor && next.area !== "mise") {
+        setPendingCreateProduct(next);
+        answerAssistant("Dime el suplidor. Si no tiene, puedes decir: Sin suplidor.", speakReply);
+        return true;
+      }
+      if (next.suplidor && normalizar(next.suplidor).includes("sin suplidor")) next.suplidor = "";
+      if (next.stockLunesJueves == null) {
+        const qty = value.match(/(\d+(?:[.,]\d{1,4})?)/);
+        if (qty) next.stockLunesJueves = Number(qty[1].replace(",", "."));
+      }
+      if (next.stockLunesJueves == null) {
+        setPendingCreateProduct(next);
+        answerAssistant("Coloca el stock minimo de lunes a jueves.", speakReply);
+        return true;
+      }
+      if (next.stockViernesDomingo == null) {
+        const qty = value.match(/(\d+(?:[.,]\d{1,4})?)/);
+        if (qty) next.stockViernesDomingo = Number(qty[1].replace(",", "."));
+      }
+      if (next.stockViernesDomingo == null) {
+        setPendingCreateProduct(next);
+        answerAssistant("Y ahora el stock minimo de viernes a domingo.", speakReply);
+        return true;
+      }
+      const targetKey = next.modulo === "bar" ? next.area === "cuarto" ? "cuartoFrioBar" : next.area === "mise" ? "miseBar" : "inventarioBar" : next.area === "cuarto" ? "cuartoFrioCocina" : next.area === "mise" ? "miseCocina" : "inventarioCocina";
+      sessionStorage.setItem("wtf_ai_pending_new_product", JSON.stringify(Object.assign({}, next, { targetKey, ts: Date.now() })));
+      setPendingCreateProduct(null);
+      if (typeof onAiAction === "function") {
+        onAiAction({ tipo: next.area === "mise" ? "abrir_mise" : next.area === "cuarto" ? "abrir_cuarto_frio" : "abrir_inventario", modulo: next.modulo });
+      }
+      answerAssistant(`Listo. Te abri el formulario para agregar ${next.nombre}. Revisa los datos y confirma con el boton Agregar.`, speakReply);
+      return true;
+    }
     function choosePendingOption(text, pending) {
       const reply = normalizar(text);
       const numberMatch = reply.match(/\b(\d{1,2})\b/);
@@ -10019,6 +10236,26 @@ Solicitado: ${cantidad}`);
         prepareMovementForRow(pending.request, chosen, speakReply);
         return true;
       }
+      const bulkRequest = detectAiBulkMovementRequest(text);
+      if (bulkRequest && bulkRequest.items.length) {
+        const tipo = bulkRequest.movimiento || "entrada";
+        const pageType = tipo === "salida" ? "salidas" : tipo === "decomiso" ? "decomiso" : "entradas";
+        const preparedItems = bulkRequest.items.map(function(item) {
+          const matches = getAiProductMatches(products, item.producto);
+          const best = matches[0];
+          return {
+            producto: best && best.nombre || item.producto,
+            cantidad: item.cantidad,
+            storageKey: best && best.targetKey || "",
+            original: item.producto
+          };
+        });
+        if (typeof onAiAction === "function") {
+          onAiAction({ tipo: "preparar_movimiento", movimiento: pageType, items: preparedItems });
+        }
+        answerAssistant(`Listo. Prepare ${preparedItems.length} ${tipo === "entrada" ? "entradas" : tipo === "salida" ? "salidas" : "decomisos"} para que las revises y las confirmes en una sola accion.`, speakReply);
+        return true;
+      }
       const request = detectAiMovementRequest(text);
       if (!request) return false;
       const matches = getAiProductMatches(products, request.producto);
@@ -10043,12 +10280,55 @@ Solicitado: ${cantidad}`);
       prepareMovementForRow(request, uniqueMatches[0], speakReply);
       return true;
     }
+    function handleLocalNavigationIntent(text, speakReply) {
+      const action = detectAiNavigationRequest(text);
+      if (!action) return false;
+      if (typeof onAiAction === "function") onAiAction(action);
+      const pageLabel = {
+        abrir_dashboard: "Dashboard",
+        abrir_inventario: "Inventario",
+        abrir_cuarto_frio: "Cuarto Frio",
+        abrir_mise: "Mise an Place",
+        abrir_produccion: "Produccion",
+        abrir_recuento: "Recuento",
+        abrir_entradas: "Entradas",
+        abrir_salidas: "Salidas",
+        abrir_decomiso: "Decomiso"
+      }[action.tipo] || "el modulo";
+      answerAssistant(`Listo, te abri ${pageLabel}.`, speakReply);
+      return true;
+    }
+    function handleLocalSearchIntent(text, speakReply) {
+      const action = detectAiProductSearchRequest(text);
+      if (!action) return false;
+      const matches = getAiProductMatches(products, action.producto);
+      if (matches.length > 1) {
+        const reply = "Encontré varias coincidencias. Te muestro las principales:\n" + matches.slice(0, 5).map(function(row, index) {
+          return `${index + 1}. ${labelAiProductLocation(row)}`;
+        }).join("\n");
+        answerAssistant(reply, speakReply);
+      }
+      if (typeof onAiAction === "function") onAiAction(action);
+      if (matches.length <= 1) answerAssistant(matches.length ? `Listo, te lleve a ${matches[0].nombre}.` : `Voy a buscar ${action.producto}.`, speakReply);
+      return true;
+    }
     async function sendText(rawText, speakReply) {
       const text = String(rawText || "").trim();
       if (!text || busy) return;
       setInput("");
       addUserMessage(text);
+      if (handleCreateProductConversation(text, speakReply)) return;
+      const availabilityClarification = lastAvailabilityQuery ? detectAiClarification(text) : null;
+      const availabilityQuestion = detectAiAvailabilityQuestion(text);
+      if (availabilityQuestion && answerAvailabilityQuestion(availabilityQuestion, speakReply)) return;
+      if (availabilityClarification && answerAvailabilityQuestion({
+        producto: availabilityClarification.producto || (lastAvailabilityQuery && lastAvailabilityQuery.producto) || "",
+        hints: Object.assign({}, lastAvailabilityQuery && lastAvailabilityQuery.hints || {}, availabilityClarification.hints || {}),
+        raw: text
+      }, speakReply)) return;
       if (handleLocalMovementIntent(text, speakReply)) return;
+      if (handleLocalNavigationIntent(text, speakReply)) return;
+      if (handleLocalSearchIntent(text, speakReply)) return;
       setBusy(true);
       busyRef.current = true;
       try {
@@ -11376,6 +11656,27 @@ Solicitado: ${cantidad}`);
       setNewProd((prev) => ({ ...prev, codArticulo: String(prev.codArticulo || "").trim() || suggestedCodArticulo }));
       setModalAdd(true);
     }
+    useEffect(function() {
+      const raw = sessionStorage.getItem("wtf_ai_pending_new_product") || "";
+      if (!raw) return;
+      try {
+        const pending = JSON.parse(raw);
+        if (!pending || pending.targetKey !== sourceKey) return;
+        sessionStorage.removeItem("wtf_ai_pending_new_product");
+        setNewProd(function(prev) {
+          return Object.assign({}, prev, {
+            codArticulo: String(prev.codArticulo || "").trim() || suggestedCodArticulo,
+            nombre: pending.nombre || "",
+            medida: pending.medida || prev.medida || "kg",
+            suplidor: pending.suplidor || "",
+            stockLunesJueves: Number(pending.stockLunesJueves || 0),
+            stockViernesDomingo: Number(pending.stockViernesDomingo || 0)
+          });
+        });
+        setModalAdd(true);
+      } catch (err) {
+      }
+    }, [sourceKey, suggestedCodArticulo]);
     function saveEdit() {
       const linkedMise = hasMiseLinkOptions ? findMiseForInventoryProduct(editData, miseAnPlace) : null;
       const codArticulo = String(editData.codArticulo || "").trim() || getNextInventoryCodArticulo(codArticuloSources);
@@ -12258,6 +12559,7 @@ Solicitado: ${cantidad}`);
     const [selectedStorageKey, setSelectedStorageKey] = useState("");
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
+    const [bulkRows, setBulkRows] = useState([]);
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
       salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
@@ -12272,13 +12574,75 @@ Solicitado: ${cantidad}`);
     const sourcePills = storageSources.length ? storageSources : [{ storageKey: "inventario", label: "Inventario" }, { storageKey: "cuartoFrio", label: "Cuarto Frio" }];
     useEffect(function() {
       if (!movementDraftTarget || movementDraftTarget.tipo !== tipo || !movementDraftTarget.ts) return;
+      if (Array.isArray(movementDraftTarget.items) && movementDraftTarget.items.length) {
+        setBulkRows(movementDraftTarget.items.map(function(item, index) {
+          return {
+            id: `${movementDraftTarget.ts}-${index}`,
+            producto: String(item.producto || "").trim(),
+            cantidad: item.cantidad !== "" && item.cantidad != null ? String(item.cantidad) : "",
+            storageKey: String(item.storageKey || "")
+          };
+        }));
+        setProducto("");
+        setCantidad("");
+        setSelectedStorageKey("");
+        setError("");
+        setSuccess(`IA preparo ${movementDraftTarget.items.length} ${cfg.label.toLowerCase()}s para revisar y confirmar.`);
+        return;
+      }
       const draftProduct = String(movementDraftTarget.producto || "").trim();
       if (draftProduct) setProducto(draftProduct);
       if (movementDraftTarget.cantidad !== "" && movementDraftTarget.cantidad != null) setCantidad(String(movementDraftTarget.cantidad));
       if (movementDraftTarget.storageKey) setSelectedStorageKey(String(movementDraftTarget.storageKey));
+      setBulkRows([]);
       setError("");
       setSuccess(`IA preparo esta ${cfg.label.toLowerCase()} para revisar y confirmar manualmente.`);
     }, [movementDraftTarget && movementDraftTarget.ts, tipo]);
+    function updateBulkRow(id, patch) {
+      setBulkRows(function(prev) {
+        return prev.map(function(row) {
+          return row.id === id ? Object.assign({}, row, patch) : row;
+        });
+      });
+      setError("");
+      setSuccess("");
+    }
+    function getBulkProductInfo(row) {
+      const info = productos.find((p) => normalizar(p.nombre) === normalizar(row.producto));
+      const locations = Array.isArray(info && info.locations) ? info.locations : info ? [info] : [];
+      const selected = locations.find(function(loc) { return loc.storageKey === row.storageKey; }) || (locations.length === 1 ? locations[0] : null);
+      return { info, locations, selected };
+    }
+    function guardarMasivo() {
+      setError("");
+      setSuccess("");
+      const rows = bulkRows.filter(function(row) { return String(row.producto || "").trim() || String(row.cantidad || "").trim(); });
+      if (!rows.length) return setError("No hay movimientos masivos para guardar.");
+      const errors = [];
+      rows.forEach(function(row, index) {
+        const line = index + 1;
+        const qty = parseFloat(String(row.cantidad || "").replace(",", "."));
+        const resolved = getBulkProductInfo(row);
+        if (!String(row.producto || "").trim()) errors.push(`Linea ${line}: seleccione un producto.`);
+        else if (!resolved.info) errors.push(`Linea ${line}: producto "${row.producto}" no encontrado.`);
+        if (isNaN(qty) || qty <= 0) errors.push(`Linea ${line}: cantidad invalida.`);
+        if (resolved.locations.length > 1 && !resolved.selected) errors.push(`Linea ${line}: seleccione ubicacion exacta para ${row.producto}.`);
+        if (resolved.selected && (tipo === "salida" || tipo === "decomiso") && qty > Number(resolved.selected.existencia || 0)) errors.push(`Linea ${line}: ${row.producto} excede existencia (${Number(resolved.selected.existencia || 0).toFixed(2)}).`);
+      });
+      if (errors.length) return setError(errors.join("\n"));
+      try {
+        rows.forEach(function(row) {
+          const qty = parseFloat(String(row.cantidad || "").replace(",", "."));
+          const resolved = getBulkProductInfo(row);
+          addMovimiento(tipo, row.producto, qty, resolved.selected ? resolved.selected.storageKey : resolved.info && resolved.info.storageKey);
+        });
+        setSuccess(`${cfg.label} masiva registrada.\n\nMovimientos aplicados: ${rows.length}`);
+        setBulkRows([]);
+        toast(`${cfg.label} masiva guardada: ${rows.length} productos`);
+      } catch (e) {
+        setError(e.message);
+      }
+    }
     function guardar() {
       setError("");
       setSuccess("");
@@ -12296,7 +12660,7 @@ Solicitado: ${cantidad}`);
         setError(e.message);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 560 } },
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: bulkRows.length ? 920 : 560 } },
       /* @__PURE__ */ React.createElement("div", { className: "card" },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" },
           /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label),
@@ -12310,6 +12674,30 @@ Solicitado: ${cantidad}`);
           movementDraftTarget && movementDraftTarget.tipo === tipo && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), "La IA lleno este formulario. Revisa producto, ubicacion y cantidad antes de confirmar."),
           error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)),
           success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)),
+          bulkRows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, overflow: "hidden", marginBottom: 16, background: "#fff" } },
+            /* @__PURE__ */ React.createElement("div", { style: { padding: "10px 12px", borderBottom: "1px solid var(--borde)", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-check", style: { marginRight: 7, color: `var(--${cfg.color})` } }), cfg.label, " masiva preparada"),
+              /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, bulkRows.length, " lineas")
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { margin: 0, border: "none", borderRadius: 0 } },
+              /* @__PURE__ */ React.createElement("table", null,
+                /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Ubicacion"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, ""))),
+                /* @__PURE__ */ React.createElement("tbody", null, bulkRows.map(function(row) {
+                  const resolved = getBulkProductInfo(row);
+                  return /* @__PURE__ */ React.createElement("tr", { key: row.id },
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "prod-list", value: row.producto, onChange: (e) => updateBulkRow(row.id, { producto: e.target.value, storageKey: "" }), placeholder: "Producto" })),
+                    /* @__PURE__ */ React.createElement("td", null, resolved.locations.length > 1 ? /* @__PURE__ */ React.createElement("select", { className: "form-control", value: row.storageKey, onChange: (e) => updateBulkRow(row.id, { storageKey: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar"), resolved.locations.map(function(loc) { return /* @__PURE__ */ React.createElement("option", { key: loc.storageKey, value: loc.storageKey }, loc.storageLabel, " - ", Number(loc.existencia || 0).toFixed(2), " ", loc.medida || ""); })) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, resolved.selected ? resolved.selected.storageLabel : "Sin vinculo")),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.0001", value: row.cantidad, onChange: (e) => updateBulkRow(row.id, { cantidad: e.target.value }), placeholder: "0.00" })),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", title: "Quitar linea", onClick: () => setBulkRows((prev) => prev.filter((item) => item.id !== row.id)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))
+                  );
+                }))
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { padding: 12, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris", onClick: () => { setBulkRows([]); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar lista"),
+              /* @__PURE__ */ React.createElement("button", { type: "button", className: `btn btn-${cfg.color}`, onClick: guardarMasivo }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), "Guardar ", cfg.label.toLowerCase(), " masiva")
+            )
+          ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
             /* @__PURE__ */ React.createElement("input", {
@@ -12390,6 +12778,26 @@ Solicitado: ${cantidad}`);
       setBusqueda(pending);
       sessionStorage.removeItem("wtf_ai_pending_product_search");
     }, []);
+    useEffect(function() {
+      const raw = sessionStorage.getItem("wtf_ai_pending_new_product") || "";
+      if (!raw) return;
+      try {
+        const pending = JSON.parse(raw);
+        const targetKey = moduleLabel === "Bar" ? "miseBar" : "miseCocina";
+        if (!pending || pending.targetKey !== targetKey) return;
+        sessionStorage.removeItem("wtf_ai_pending_new_product");
+        setNewProd(function(prev) {
+          return Object.assign({}, prev, {
+            producto: pending.nombre || "",
+            existencia: 0,
+            stockMinimoLunesJueves: Number(pending.stockLunesJueves || 0),
+            stockMinimoViernesDomingo: Number(pending.stockViernesDomingo || 0)
+          });
+        });
+        setModalAdd(true);
+      } catch (err) {
+      }
+    }, [moduleLabel]);
     function addProd() {
       if (!newProd.producto.trim()) {
         toast("Ingrese el nombre", "error");
