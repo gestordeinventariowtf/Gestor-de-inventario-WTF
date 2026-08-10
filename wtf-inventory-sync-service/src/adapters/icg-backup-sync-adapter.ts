@@ -86,12 +86,16 @@ function targetExistence(row: AnyRecord, key: string): number {
   return parseNumber(row.existencia);
 }
 
-function applyTargetSalida(row: AnyRecord, key: string, cantidad: number): void {
+function applyTargetSalida(row: AnyRecord, key: string, cantidad: number, updatedAt = new Date().toISOString(), importKey = ""): void {
   if (key === "inventario" || key === "cuartoFrioInventario" || key === "barInventario" || key === "barCuartoFrioInventario") {
     row.salida = Number((parseNumber(row.salida) + cantidad).toFixed(4));
+    row.updatedAt = updatedAt;
+    row.icgLastImportKey = importKey || row.icgLastImportKey || "";
     return;
   }
   row.existencia = Number((parseNumber(row.existencia) - cantidad).toFixed(4));
+  row.updatedAt = updatedAt;
+  row.icgLastImportKey = importKey || row.icgLastImportKey || "";
 }
 
 function rows(appState: AnyRecord, tableKey: string): AnyRecord[] {
@@ -572,7 +576,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         continue;
       }
       const existenciaAnterior = targetExistence(item, target);
-      applyTargetSalida(item, target, cantidad);
+      applyTargetSalida(item, target, cantidad, now, importKey);
       const existenciaNueva = targetExistence(item, target);
       consumoRow.Estado = "Aplicado";
       consumoRow.ExistenciaActual = existenciaAnterior;
