@@ -12012,6 +12012,9 @@ Solicitado: ${cantidad}`);
         return Object.assign({}, prev, { icgLinks: nextLinks });
       });
     }
+    function renderPackageContentFields(data, setData, productUnit) {
+      return renderPackageContentEditor(data || {}, setData, productUnit || (data && data.medida) || "kg");
+    }
     function deleteRow(id) {
       if (!confirm("\xBFEliminar esta fila?")) return;
       const target = inventario.find((r) => r.id === id);
