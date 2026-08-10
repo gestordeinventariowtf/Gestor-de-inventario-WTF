@@ -6959,9 +6959,41 @@ Solicitado: ${cantidad}`);
       return Math.round(sharedTokens.length / Math.max(sourceTokens.length, targetTokens.length) * 70);
     }
     function getSearchTokens(value) {
-      return normalizar(value).split(/\s+/).filter(function(token) {
+      return normalizar(value).replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter(function(token) {
         return token.length >= 3;
       });
+    }
+    const PRODUCTION_MATCH_STOPWORDS = new Set(["con", "del", "los", "las", "para", "por", "una", "uno", "sin", "serv", "servicio", "servicios", "uds", "unidad", "unidades", "gramo", "gramos", "litro", "litros", "libra", "libras", "medio", "cuarto", "galon", "galones"]);
+    function getProductionNameTokens(value) {
+      return getSearchTokens(value).filter(function(token) {
+        return !PRODUCTION_MATCH_STOPWORDS.has(token) && !/^\d+$/.test(token);
+      });
+    }
+    function getStrictProductionNameScore(sourceName, targetName) {
+      const source = normalizar(sourceName).replace(/[^a-z0-9]+/g, " ").trim();
+      const target = normalizar(targetName).replace(/[^a-z0-9]+/g, " ").trim();
+      if (!source || !target) return 0;
+      if (source === target) return 100;
+      const sourceTokens = getProductionNameTokens(source);
+      const targetTokens = getProductionNameTokens(target);
+      if (!sourceTokens.length || !targetTokens.length) return 0;
+      const targetSet = new Set(targetTokens);
+      const sharedTokens = sourceTokens.filter(function(token) {
+        return targetSet.has(token);
+      });
+      if (!sharedTokens.length) return 0;
+      const shorter = source.length <= target.length ? source : target;
+      const longer = source.length > target.length ? source : target;
+      const shorterTokens = sourceTokens.length <= targetTokens.length ? sourceTokens : targetTokens;
+      const longerTokens = sourceTokens.length > targetTokens.length ? sourceTokens : targetTokens;
+      if (longer.includes(shorter) && (shorterTokens.length >= 2 || shorter.length >= 5 && longerTokens.length <= 2)) {
+        return 88;
+      }
+      const sourceCoverage = sharedTokens.length / sourceTokens.length;
+      const targetCoverage = sharedTokens.length / targetTokens.length;
+      if (sourceCoverage === 1 && targetCoverage >= 0.75) return 86;
+      if (sourceCoverage >= 0.75 && targetCoverage >= 0.75 && sharedTokens.length >= 2) return 82;
+      return Math.round(Math.min(sourceCoverage, targetCoverage) * 70);
     }
     function getLooseNameMatchScore(sourceName, targetName) {
       const source = normalizar(sourceName);
@@ -6977,6 +7009,18 @@ Solicitado: ${cantidad}`);
         })) score = Math.max(score, 62);
       });
       return score;
+    }
+    function findBestMiseMatchForProductionSuggestion(productoProducido) {
+      let bestMatch = null;
+      let bestScore = 0;
+      for (const item of Array.isArray(miseAnPlace) ? miseAnPlace : []) {
+        const score = getStrictProductionNameScore(productoProducido, item.producto);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+        }
+      }
+      return bestScore >= 82 ? bestMatch : null;
     }
     function findBestMiseMatch(productoProducido) {
       let bestMatch = null;
@@ -7012,6 +7056,10 @@ Solicitado: ${cantidad}`);
       const linked = findMiseTarget(receta && receta.miseProductoId || getRecipeMiseTargetName(receta));
       return linked || findBestMiseMatch(receta && receta.nombre);
     }
+    function findRecipeMiseMatchForSuggestion(receta) {
+      const linked = findMiseTarget(receta && receta.miseProductoId || getRecipeMiseTargetName(receta));
+      return linked || findBestMiseMatchForProductionSuggestion(receta && receta.nombre);
+    }
     function findBestInventoryProductionMatch(productoProducido) {
       let bestMatch = null;
       let bestScore = 0;
@@ -7028,20 +7076,20 @@ Solicitado: ${cantidad}`);
       let bestMatch = null;
       let bestScore = 0;
       for (const item of recetasOrdenadas) {
-        const score = getNameSimilarityScore(productoProducido, item.nombre);
+        const score = getStrictProductionNameScore(productoProducido, item.nombre);
         if (score > bestScore) {
           bestScore = score;
           bestMatch = item;
         }
       }
-      return bestScore >= 55 ? bestMatch : null;
+      return bestScore >= 82 ? bestMatch : null;
     }
     function buildProduccionProgramadaItem(entry, index) {
       const source = typeof entry === "string" ? { nombre: entry } : entry || {};
       const nombre = source.nombre || "";
       const inventarioMatch = findBestInventoryProductionMatch(nombre);
       const recetaMatch = source.receta || findBestRecipeMatch(nombre);
-      const miseMatch = recetaMatch ? findRecipeMiseMatch(recetaMatch) : findBestMiseMatch(nombre);
+      const miseMatch = recetaMatch ? findRecipeMiseMatchForSuggestion(recetaMatch) : findBestMiseMatchForProductionSuggestion(nombre);
       const stockAlert = getMiseStockAlert(miseMatch);
       return {
         id: source.id || `prod-pend-${index}`,
@@ -7055,10 +7103,16 @@ Solicitado: ${cantidad}`);
     function getPendingProductionSearchScore(query, item) {
       if (!query || !item) return 0;
       return Math.max(
-        getLooseNameMatchScore(query, item.nombre),
-        getLooseNameMatchScore(query, item.inventarioMatch && item.inventarioMatch.nombre),
-        getLooseNameMatchScore(query, item.miseMatch && item.miseMatch.producto),
-        getLooseNameMatchScore(query, item.recetaMatch && item.recetaMatch.nombre)
+        getStrictProductionNameScore(query, item.nombre),
+        getStrictProductionNameScore(query, item.miseMatch && item.miseMatch.producto),
+        getStrictProductionNameScore(query, item.recetaMatch && item.recetaMatch.nombre)
+      );
+    }
+    function getRecipeProductionNameSearchScore(query, receta) {
+      if (!query || !receta) return 0;
+      return Math.max(
+        getStrictProductionNameScore(query, receta.nombre),
+        getStrictProductionNameScore(query, getRecipeMiseTargetName(receta))
       );
     }
     function getRecipeSearchScore(query, receta) {
@@ -7133,7 +7187,7 @@ Solicitado: ${cantidad}`);
       return produccionProgramadaCatalogo.map(buildProduccionProgramadaItem).map(function(item) {
         return Object.assign({}, item, { searchScore: getPendingProductionSearchScore(q, item) });
       }).filter(function(item) {
-        return item.searchScore >= 45;
+        return item.searchScore >= 82 && (item.recetaMatch || item.miseMatch);
       }).sort(function(a, b) {
         return b.searchScore - a.searchScore || a.nombre.localeCompare(b.nombre);
       }).slice(0, 5);
@@ -7142,14 +7196,21 @@ Solicitado: ${cantidad}`);
       const q = String(resultado.nombre || "").trim();
       if (normalizar(q).length < 3) return [];
       if (hiddenRecipeMatchName && normalizar(q) === normalizar(hiddenRecipeMatchName)) return [];
+      const seenRecipeNames = new Set();
       return recetasOrdenadas.map(function(receta) {
         return Object.assign({}, receta, {
-          searchScore: getRecipeSearchScore(q, receta),
+          searchScore: getRecipeProductionNameSearchScore(q, receta),
           inventarioMatch: findBestInventoryProductionMatch(receta.nombre),
-          miseMatch: findRecipeMiseMatch(receta)
+          miseMatch: findRecipeMiseMatchForSuggestion(receta)
         });
       }).filter(function(receta) {
-        return receta.searchScore >= 45;
+        return receta.searchScore >= 82;
+      }).filter(function(receta) {
+        const key = normalizar(receta.nombre);
+        if (!key) return false;
+        if (seenRecipeNames.has(key)) return false;
+        seenRecipeNames.add(key);
+        return true;
       }).sort(function(a, b) {
         return b.searchScore - a.searchScore || String(a.nombre || "").localeCompare(String(b.nombre || ""));
       }).slice(0, 5);
