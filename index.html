@@ -1641,6 +1641,7 @@
     { key: "histDecomiso", label: "Historial Decomiso" },
     { key: "historialMermas", label: "Historial de Mermas" },
     { key: "produccion", label: "Produccion" },
+    { key: "costeoPlatos", label: "Costeo de Platos" },
     { key: "autorizacionRecetas", label: "Autorizacion a Recetas" },
     { key: "icg", label: "ICG FrontRest" },
     { key: "icgHost", label: "ICG Host" },
@@ -6171,6 +6172,7 @@ Solicitado: ${cantidad}`);
       { key: "inventario", icon: "fa-boxes-stacked", label: "Inventario", section: null },
       { key: "cuartoFrio", icon: "fa-snowflake", label: "Cuarto Frio", section: null },
       { key: "produccion", icon: "fa-industry", label: "Producción", section: "PRODUCCIÓN Y CONTROL" },
+      { key: "costeoPlatos", icon: "fa-calculator", label: "Costeo de Platos", section: null },
       { key: "historialMermas", icon: "fa-scale-balanced", label: "Historial de Mermas", section: null },
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
@@ -6203,6 +6205,7 @@ Solicitado: ${cantidad}`);
       registros: "Registros de Movimientos",
       histDecomiso: "Historial Decomiso Cocina",
       historialMermas: "Historial de Mermas",
+      costeoPlatos: "Costeo de Platos",
       activosOperativos: "Activos Operativos",
       employeeCenter: "Centro del Colaborador",
       usuarios: "Administrar Usuarios",
@@ -6506,6 +6509,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       historialMermas: /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData }),
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, onSystemLog: addSystemLog }),
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
@@ -9788,6 +9792,507 @@ Solicitado: ${cantidad}`);
       )
     );
   }
+  function parseCostNumber(value) {
+    const number = Number(String(value == null ? "" : value).replace(/[$,\s]/g, ""));
+    return Number.isFinite(number) && number > 0 ? number : 0;
+  }
+  function getInventoryPurchaseCost(product) {
+    return parseCostNumber(product && (product.costoCompra ?? product.precioCompra ?? product.ultimoCosto ?? product.costo ?? product.coste));
+  }
+  function buildCostProductRows(inventario = [], cuartoFrioInventario = [], miseAnPlace = [], moduleLabel = "Cocina") {
+    const invRows = normalizeInventoryRowsForDisplay(inventario).filter(function(row) { return row && row.tipo === "producto"; }).map(function(row) {
+      return Object.assign({}, row, {
+        productKey: `inventario-${row.id}`,
+        storageKey: "inventario",
+        origenLabel: `${moduleLabel} - Inventario`,
+        displayName: row.nombre || ""
+      });
+    });
+    const coldRows = normalizeInventoryRowsForDisplay(cuartoFrioInventario).filter(function(row) { return row && row.tipo === "producto"; }).map(function(row) {
+      return Object.assign({}, row, {
+        productKey: `cuartoFrio-${row.id}`,
+        storageKey: "cuartoFrio",
+        origenLabel: `${moduleLabel} - Cuarto Frio`,
+        displayName: row.nombre || ""
+      });
+    });
+    const miseRows = (Array.isArray(miseAnPlace) ? miseAnPlace : []).filter(function(row) {
+      return row && String(row.producto || row.nombre || "").trim();
+    }).map(function(row) {
+      const nombre = row.producto || row.nombre || "";
+      return Object.assign({}, row, {
+        nombre,
+        productKey: `mise-${row.id}`,
+        storageKey: "mise",
+        origenLabel: `${moduleLabel} - Mise an Place`,
+        displayName: nombre,
+        medida: normalizeProductionUnitLabel(row.medida || "Uni")
+      });
+    });
+    return invRows.concat(coldRows, miseRows);
+  }
+  function buildCostProductMaps(products) {
+    const maps = { byKey: {}, byLegacyKey: {}, byName: {} };
+    (Array.isArray(products) ? products : []).forEach(function(product) {
+      if (!product) return;
+      if (product.productKey) maps.byKey[product.productKey] = product;
+      if (product.storageKey && product.id != null) maps.byLegacyKey[`${product.storageKey}-${product.id}`] = product;
+      if (product.storageKey === "inventario" && product.id != null) maps.byLegacyKey[`inventario-${product.id}`] = product;
+      if (product.storageKey === "cuartoFrio" && product.id != null) maps.byLegacyKey[`cuartoFrio-${product.id}`] = product;
+      if (product.storageKey === "mise" && product.id != null) maps.byLegacyKey[`mise-${product.id}`] = product;
+      const nameKey = normalizar(product.displayName || product.nombre || product.producto || "");
+      if (nameKey && !maps.byName[nameKey]) maps.byName[nameKey] = product;
+    });
+    return maps;
+  }
+  function resolveCostIngredientProduct(item, productMaps) {
+    if (!item || !productMaps) return null;
+    const keys = [
+      item.productKey,
+      item.storageKey && item.productId != null ? `${item.storageKey}-${item.productId}` : "",
+      item.origen && item.productId != null ? `${item.origen}-${item.productId}` : "",
+      item.productId != null ? `inventario-${item.productId}` : ""
+    ].filter(Boolean);
+    for (const key of keys) {
+      if (productMaps.byKey[key]) return productMaps.byKey[key];
+      if (productMaps.byLegacyKey[key]) return productMaps.byLegacyKey[key];
+    }
+    const nameKey = normalizar(item.producto || item.nombre || item.productName || "");
+    return nameKey ? productMaps.byName[nameKey] || null : null;
+  }
+  function getProductCostInfo(product) {
+    const purchaseCost = getInventoryPurchaseCost(product);
+    const baseUnit = normalizeProductionUnitLabel(product && product.medida || "Uni");
+    const unitsPerPack = getPackageUnitsPerPack(product, null);
+    const internalUnit = getPackageInternalUnit(product, null);
+    const outerUnit = getPackageOuterUnit(product, null);
+    const innerQty = getPackageInnerContentQty(product, null);
+    const innerUnit = getPackageInnerContentUnit(product, null);
+    if (!(purchaseCost > 0)) {
+      return { ok: false, reason: "Falta costo de compra", purchaseCost: 0, baseUnit, costPerBase: 0, usableUnit: baseUnit, costPerUsable: 0, detail: "Registra el costo del producto comprado." };
+    }
+    let costPerBase = purchaseCost;
+    let usableUnit = baseUnit;
+    let costPerUsable = purchaseCost;
+    let detail = `Costo por ${baseUnit}`;
+    if (unitsPerPack > 0 && normalizeUnit(baseUnit) === normalizeUnit(internalUnit) && normalizeUnit(outerUnit) !== normalizeUnit(baseUnit)) {
+      costPerBase = purchaseCost / unitsPerPack;
+      usableUnit = internalUnit;
+      costPerUsable = costPerBase;
+      detail = `1 ${outerUnit} = ${unitsPerPack} ${internalUnit}`;
+    } else if (isPackageInventoryUnit(baseUnit) && unitsPerPack > 0) {
+      usableUnit = internalUnit;
+      costPerUsable = purchaseCost / unitsPerPack;
+      detail = `1 ${baseUnit} = ${unitsPerPack} ${internalUnit}`;
+    }
+    if (innerQty > 0 && innerUnit && unitsPerPack > 0) {
+      const totalInner = unitsPerPack * innerQty;
+      if (totalInner > 0) {
+        usableUnit = innerUnit;
+        costPerUsable = purchaseCost / totalInner;
+        const totalBaseQty = normalizeUnit(baseUnit) === normalizeUnit(innerUnit) ? totalInner : convertMeasureQuantity(totalInner, innerUnit, baseUnit);
+        if (totalBaseQty != null && totalBaseQty > 0) costPerBase = purchaseCost / totalBaseQty;
+        detail += ` - ${totalInner} ${innerUnit}`;
+      }
+    }
+    return {
+      ok: true,
+      reason: "",
+      purchaseCost,
+      baseUnit,
+      costPerBase,
+      usableUnit,
+      costPerUsable,
+      detail
+    };
+  }
+  function calculateCostIngredient(item, productMaps) {
+    const product = resolveCostIngredientProduct(item, productMaps);
+    const name = item && (item.producto || item.nombre || item.productName) || "Insumo";
+    if (!product) {
+      return { ok: false, name, product: null, cost: 0, problem: "Producto no encontrado en el modulo actual", qtyText: "" };
+    }
+    const qty = Number(String(item.cantidad || item.cantidadUsada || item.cantidadBaseReceta || "").replace(",", "."));
+    const unit = getStoredRecipeIngredientUnit(item) || product.medida || "Uni";
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return { ok: false, name, product, cost: 0, problem: "Cantidad de receta invalida", qtyText: "" };
+    }
+    const costInfo = getProductCostInfo(product);
+    if (!costInfo.ok) {
+      return { ok: false, name, product, cost: 0, problem: costInfo.reason, qtyText: `${formatMiseQty(qty)} ${unit}` };
+    }
+    const stockQty = convertInsumoQtyToStock(product, Object.assign({}, item, { unidad: unit }), qty, unit);
+    if (stockQty == null) {
+      return { ok: false, name, product, cost: 0, problem: `No convierte ${unit} a ${costInfo.baseUnit}`, qtyText: `${formatMiseQty(qty)} ${unit}` };
+    }
+    const cost = Number((Number(stockQty || 0) * Number(costInfo.costPerBase || 0)).toFixed(4));
+    return {
+      ok: true,
+      name,
+      product,
+      cost,
+      problem: "",
+      qtyText: `${formatMiseQty(qty)} ${unit}`,
+      stockQty,
+      stockUnit: costInfo.baseUnit,
+      costInfo
+    };
+  }
+  function calculateRecipeCost(receta, productMaps) {
+    const insumos = Array.isArray(receta && receta.insumos) ? receta.insumos : [];
+    const details = insumos.map(function(item) { return calculateCostIngredient(item, productMaps); });
+    const total = Number(details.reduce(function(sum, row) { return sum + Number(row.cost || 0); }, 0).toFixed(4));
+    const missing = details.filter(function(row) { return !row.ok; });
+    const rendimiento = Number(receta && (receta.cantidadObjetivo || receta.rendimiento || receta.cantidadProducida) || 0);
+    const costPerUnit = rendimiento > 0 ? Number((total / rendimiento).toFixed(4)) : null;
+    return { total, details, missing, rendimiento, costPerUnit };
+  }
+  function getCostIcgArticleKey(row) {
+    return [getIcgArticleCode(row), getIcgArticleReference(row), getIcgArticleDescription(row)].map(function(value) {
+      return normalizar(value);
+    }).filter(Boolean).join("|");
+  }
+  function getCostIcgArticleCategory(row) {
+    const dpto = String(row && (row.Dpto || row.Departamento || row.Familia || row.Categoria || "") || "").trim();
+    const seccion = String(row && (row.Seccion || row.SECCION || row.SubCategoria || row.Subcategoria || "") || "").trim();
+    return [dpto, seccion].filter(Boolean).join(" / ") || "Sin categoria";
+  }
+  function isCostIcgArticleVisible(row) {
+    const descatalogado = normalizar(row && (row.Descatalogado || row.DescatalogadoCosteo || row._costeoHidden || ""));
+    const eliminado = normalizar(row && (row.EliminadoCosteo || row._costeoDeleted || ""));
+    return !["si", "sí", "true", "1"].includes(descatalogado) && !["si", "sí", "true", "1"].includes(eliminado);
+  }
+  function getIcgArticleSalePrice(row) {
+    return parseCostNumber(row && (row.PrecioIva ?? row.Precio ?? row.PVP ?? row.PVenta ?? row.Valor ?? row.PrecioVenta));
+  }
+  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel) {
+    const code = normalizar(getIcgArticleCode(article));
+    const reference = normalizar(getIcgArticleReference(article));
+    const description = normalizar(getIcgArticleDescription(article));
+    const moduleIsBar = normalizar(moduleLabel).includes("bar");
+    const links = (Array.isArray(bridgeRows) ? bridgeRows : []).filter(function(row) {
+      if (!isIcgLinkActive(row)) return false;
+      const targetKey = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo || "");
+      const rowIsBar = targetKey.includes("Bar");
+      if (moduleIsBar !== rowIsBar) return false;
+      const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
+      const linkReference = normalizar(row.Referencia || "");
+      const linkName = normalizar(row.ProductoICG || "");
+      return linkCode && code && linkCode === code || linkReference && reference && linkReference === reference || linkName && description && linkName === description;
+    });
+    const details = links.map(function(link) {
+      const item = {
+        producto: link.ProductoWTF || link.ProductoMise || "",
+        nombre: link.ProductoWTF || link.ProductoMise || "",
+        cantidad: link.CantidadPorVenta || link.CantidadDescontar || 1,
+        unidad: link.Unidad || "Uni"
+      };
+      return Object.assign({ link }, calculateCostIngredient(item, productMaps));
+    });
+    const total = Number(details.reduce(function(sum, row) { return sum + Number(row.cost || 0); }, 0).toFixed(4));
+    const missing = details.filter(function(row) { return !row.ok; });
+    const salePrice = getIcgArticleSalePrice(article);
+    const margin = salePrice > 0 ? Number((salePrice - total).toFixed(2)) : null;
+    const marginPercent = salePrice > 0 ? Number(((salePrice - total) / salePrice * 100).toFixed(2)) : null;
+    return { links, details, total, missing, salePrice, margin, marginPercent };
+  }
+  function CosteoPlatosPage({ moduleLabel = "Cocina", inventario = [], cuartoFrioInventario = [], miseAnPlace = [], recetas = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
+    const [activeTab, setActiveTab] = useState("recetas");
+    const [busqueda, setBusqueda] = useState("");
+    const [busquedaIcg, setBusquedaIcg] = useState("");
+    const [selectedRecipeId, setSelectedRecipeId] = useState("");
+    const [selectedIcgKey, setSelectedIcgKey] = useState("");
+    const [precioVenta, setPrecioVenta] = useState("");
+    const toast = useToast();
+    const products = useMemo(function() {
+      return buildCostProductRows(inventario, cuartoFrioInventario, miseAnPlace, moduleLabel);
+    }, [inventario, cuartoFrioInventario, miseAnPlace, moduleLabel]);
+    const productMaps = useMemo(function() {
+      return buildCostProductMaps(products);
+    }, [products]);
+    const recipeCosts = useMemo(function() {
+      return (Array.isArray(recetas) ? recetas : []).filter(function(receta) {
+        return receta && String(receta.nombre || "").trim();
+      }).map(function(receta) {
+        return Object.assign({}, receta, { costeo: calculateRecipeCost(receta, productMaps) });
+      }).sort(function(a, b) {
+        return String(a.nombre || "").localeCompare(String(b.nombre || ""));
+      });
+    }, [recetas, productMaps]);
+    const filteredRecipes = useMemo(function() {
+      const q = normalizar(busqueda);
+      if (!q) return recipeCosts;
+      return recipeCosts.filter(function(row) {
+        return normalizar(row.nombre).includes(q) || (row.costeo.details || []).some(function(item) { return normalizar(item.name).includes(q); });
+      });
+    }, [recipeCosts, busqueda]);
+    const missingCostRows = useMemo(function() {
+      return products.map(function(product) {
+        const costInfo = getProductCostInfo(product);
+        const missingPackage = isPackageInventoryUnit(product.medida) && getPackageUnitsPerPack(product, null) <= 0;
+        return { product, costInfo, missingPackage };
+      }).filter(function(row) {
+        if (row.product.storageKey === "mise") return false;
+        return !row.costInfo.ok || row.missingPackage;
+      }).sort(function(a, b) {
+        return a.product.origenLabel.localeCompare(b.product.origenLabel) || String(a.product.displayName || a.product.nombre || "").localeCompare(String(b.product.displayName || b.product.nombre || ""));
+      });
+    }, [products]);
+    const normalizedIcgData = useMemo(function() {
+      return ensureIcgFrontRestData(icgFrontRestData);
+    }, [icgFrontRestData]);
+    const bridgeRows = useMemo(function() {
+      return icgRows(normalizedIcgData, "VinculosMiseICG");
+    }, [normalizedIcgData]);
+    const icgArticleCards = useMemo(function() {
+      const q = normalizar(busquedaIcg);
+      return icgRows(normalizedIcgData, "Articulos").filter(function(row) {
+        if (!row || !getIcgArticleDescription(row) || !isCostIcgArticleVisible(row)) return false;
+        if (!q) return true;
+        return normalizar(getIcgArticleCode(row)).includes(q) || normalizar(getIcgArticleReference(row)).includes(q) || normalizar(getIcgArticleDescription(row)).includes(q) || normalizar(getCostIcgArticleCategory(row)).includes(q);
+      }).map(function(row) {
+        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel) });
+      }).sort(function(a, b) {
+        return a._category.localeCompare(b._category) || getIcgArticleDescription(a).localeCompare(getIcgArticleDescription(b));
+      });
+    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg]);
+    const icgGroups = useMemo(function() {
+      return icgArticleCards.reduce(function(groups, row) {
+        const category = row._category || "Sin categoria";
+        if (!groups[category]) groups[category] = [];
+        groups[category].push(row);
+        return groups;
+      }, {});
+    }, [icgArticleCards]);
+    const selectedIcgArticle = icgArticleCards.find(function(row) { return row._costKey === selectedIcgKey; }) || icgArticleCards[0] || null;
+    const selectedRecipe = recipeCosts.find(function(row) { return String(row.id) === String(selectedRecipeId); }) || recipeCosts[0] || null;
+    const selectedCost = selectedRecipe ? selectedRecipe.costeo : null;
+    const salePrice = parseCostNumber(precioVenta);
+    const marginAmount = selectedCost && salePrice > 0 ? Number((salePrice - selectedCost.total).toFixed(2)) : null;
+    const marginPercent = selectedCost && salePrice > 0 ? Number(((salePrice - selectedCost.total) / salePrice * 100).toFixed(2)) : null;
+    const totalCosted = recipeCosts.filter(function(row) { return row.costeo.missing.length === 0; }).length;
+    const totalWithIssues = recipeCosts.length - totalCosted;
+    const avgRecipeCost = recipeCosts.length ? Number((recipeCosts.reduce(function(sum, row) { return sum + Number(row.costeo.total || 0); }, 0) / recipeCosts.length).toFixed(2)) : 0;
+    function statCard(label, value, color) {
+      return /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 5 } },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, label),
+        /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 22, color } }, value)
+      );
+    }
+    function updateIcgArticles(updater) {
+      if (typeof setIcgFrontRestData !== "function") return;
+      setIcgFrontRestData(function(prev) {
+        const normalized = ensureIcgFrontRestData(prev);
+        const datasets = Object.assign({}, normalized.datasets);
+        const current = datasets.Articulos || { key: "Articulos", label: ICG_TABLE_DEFS.Articulos.label, columns: ICG_TABLE_DEFS.Articulos.columns, rows: [] };
+        datasets.Articulos = Object.assign({}, current, {
+          columns: Array.from(new Set([...(current.columns || []), ...ICG_TABLE_DEFS.Articulos.columns, "DescatalogadoCosteo"])),
+          rows: updater(Array.isArray(current.rows) ? current.rows : [])
+        });
+        return ensureIcgFrontRestData(Object.assign({}, normalized, { datasets, updatedAt: new Date().toISOString() }));
+      });
+    }
+    function deleteIcgArticle(article) {
+      if (!article || !confirm("Eliminar este articulo ICG del catalogo local?")) return;
+      const key = getCostIcgArticleKey(article);
+      updateIcgArticles(function(rows) {
+        return rows.filter(function(row) { return getCostIcgArticleKey(row) !== key; });
+      });
+      if (selectedIcgKey === key) setSelectedIcgKey("");
+      toast("Articulo ICG eliminado del catalogo local.", "info");
+    }
+    function hideIcgArticle(article) {
+      if (!article) return;
+      const key = getCostIcgArticleKey(article);
+      updateIcgArticles(function(rows) {
+        return rows.map(function(row) {
+          return getCostIcgArticleKey(row) === key ? Object.assign({}, row, { DescatalogadoCosteo: "Si", Descatalogado: row.Descatalogado || "Si" }) : row;
+        });
+      });
+      if (selectedIcgKey === key) setSelectedIcgKey("");
+      toast("Articulo ICG descatalogado en Costeo.", "ok");
+    }
+    return /* @__PURE__ */ React.createElement("div", null,
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
+          /* @__PURE__ */ React.createElement("div", null,
+            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18, color: "#111827", marginBottom: 4 } }, "Costeo de Platos - ", moduleLabel),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Calcula costos desde Inventario y Cuarto Frio del modulo activo. Cocina y Bar se mantienen separados.")
+          ),
+          /* @__PURE__ */ React.createElement("span", { className: moduleLabel === "Bar" ? "pill pill-naranja" : "pill pill-verde" }, moduleLabel)
+        )
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "grid-4" },
+        statCard("Recetas", recipeCosts.length, "#4338ca"),
+        statCard("Completas", totalCosted, "#15803d"),
+        statCard("Por revisar", totalWithIssues, "#b91c1c"),
+        statCard("Costo promedio", formatAssetCurrency(avgRecipeCost), "#0f766e")
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { marginTop: 12 } },
+        [["recetas", "Recetas costeadas"], ["icgProductos", "Productos ICG"], ["faltantes", "Auditoria de costos"], ["simulador", "Simulador"]].map(function(tab) {
+          return /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${activeTab === tab[0] ? "active" : ""}`, onClick: function() { setActiveTab(tab[0]); } }, tab[1]);
+        })
+      ),
+      activeTab === "recetas" && /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "var(--azul)" } }), "Recetas costeadas"),
+          /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: 280, maxWidth: "100%" } },
+            /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar receta o insumo...", value: busqueda, onChange: function(e) { setBusqueda(e.target.value); } })
+          )
+        ),
+        filteredRecipes.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", padding: 30 } }, "No hay recetas para costear en este modulo.") : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+          /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Receta", "Insumos", "Costo total", "Rendimiento", "Costo por unidad", "Estado"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+            /* @__PURE__ */ React.createElement("tbody", null, filteredRecipes.map(function(row) {
+              const cost = row.costeo;
+              return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.nombre, className: cost.missing.length ? "tr-out-stock" : "" },
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.nombre || "-"),
+                /* @__PURE__ */ React.createElement("td", null, (cost.details || []).slice(0, 4).map(function(item) {
+                  return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${item.name}-${item.qtyText}`, style: { fontSize: 12 } }, item.name, " - ", item.qtyText || "-", item.ok ? ` - ${formatAssetCurrency(item.cost)}` : ` - ${item.problem}`);
+                }), cost.details.length > 4 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "+", cost.details.length - 4, " insumos mas")),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: cost.missing.length ? "var(--rojo)" : "var(--verde)" } }, formatAssetCurrency(cost.total)),
+                /* @__PURE__ */ React.createElement("td", null, cost.rendimiento > 0 ? `${formatMiseQty(cost.rendimiento)} ${row.medidaObjetivo || "Uni"}` : "Sin rendimiento"),
+                /* @__PURE__ */ React.createElement("td", null, cost.costPerUnit != null ? formatAssetCurrency(cost.costPerUnit) : "-"),
+                /* @__PURE__ */ React.createElement("td", null, cost.missing.length ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, cost.missing.length, " pendiente", cost.missing.length === 1 ? "" : "s") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Costeo completo"))
+              );
+            }))
+          )
+        )
+      ),
+      activeTab === "faltantes" && /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 7, color: "#f59e0b" } }), "Auditoria de costos"),
+          /* @__PURE__ */ React.createElement("span", { className: missingCostRows.length ? "pill pill-rojo" : "pill pill-verde" }, missingCostRows.length, " por revisar")
+        ),
+        missingCostRows.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { color: "var(--verde)", fontWeight: 800, textAlign: "center", padding: 30 } }, "Todos los productos comprados tienen datos suficientes para costeo basico.") : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+          /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Producto", "Area", "Costo", "Contenido", "Accion requerida"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+            /* @__PURE__ */ React.createElement("tbody", null, missingCostRows.map(function(row) {
+              const product = row.product;
+              const content = getPackageUnitsPerPack(product, null) > 0 ? `${getPackageUnitsPerPack(product, null)} ${getPackageInternalUnit(product, null)}` : "Sin contenido";
+              return /* @__PURE__ */ React.createElement("tr", { key: row.product.productKey, className: "tr-out-stock" },
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, product.displayName || product.nombre || "-"),
+                /* @__PURE__ */ React.createElement("td", null, product.origenLabel),
+                /* @__PURE__ */ React.createElement("td", null, getInventoryPurchaseCost(product) > 0 ? formatAssetCurrency(getInventoryPurchaseCost(product)) : "Falta costo"),
+                /* @__PURE__ */ React.createElement("td", null, isPackageInventoryUnit(product.medida) || getPackageUnitsPerPack(product, null) > 0 ? content : "No aplica"),
+                /* @__PURE__ */ React.createElement("td", null, !row.costInfo.ok ? row.costInfo.detail : row.missingPackage ? "Configura cuantas unidades/gramos trae el paquete o caja." : "-")
+              );
+            }))
+          )
+        )
+      ),
+      activeTab === "icgProductos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-cash-register", style: { marginRight: 7, color: "#6366f1" } }), "Productos ICG por categoria"),
+            /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, icgArticleCards.length, " visibles")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+            /* @__PURE__ */ React.createElement("div", { className: "search-wrap" },
+              /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, referencia, producto o categoria...", value: busquedaIcg, onChange: function(e) { setBusquedaIcg(e.target.value); } })
+            ),
+            icgArticleCards.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No hay articulos ICG visibles. Actualiza la Base de Datos ICG Local o revisa los articulos descatalogados.") : Object.keys(icgGroups).map(function(category) {
+              return /* @__PURE__ */ React.createElement("div", { key: category, style: { display: "grid", gap: 8 } },
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+                  /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827" } }, category),
+                  /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, icgGroups[category].length, " articulo", icgGroups[category].length === 1 ? "" : "s")
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 } },
+                  icgGroups[category].map(function(article) {
+                    const cost = article._costeo;
+                    const selected = selectedIcgArticle && selectedIcgArticle._costKey === article._costKey;
+                    return /* @__PURE__ */ React.createElement("div", { key: article._costKey, onClick: function() { setSelectedIcgKey(article._costKey); }, style: { position: "relative", border: `1px solid ${selected ? "#2563eb" : "var(--borde)"}`, borderRadius: 8, padding: "34px 10px 10px", background: selected ? "#eff6ff" : "#fff", cursor: "pointer", minHeight: 118, boxShadow: selected ? "0 0 0 2px rgba(37,99,235,.12)" : "none" } },
+                      /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", top: 6, right: 6, display: "flex", gap: 4 } },
+                        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Descatalogar", onClick: function(e) { e.stopPropagation(); hideIcgArticle(article); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye-slash" })),
+                        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Eliminar", onClick: function(e) { e.stopPropagation(); deleteIcgArticle(article); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                      ),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: "#111827", fontSize: 13, lineHeight: 1.25 } }, getIcgArticleDescription(article) || "-"),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 5 } }, "Cod: ", getIcgArticleCode(article) || "-", " · Ref: ", getIcgArticleReference(article) || "-"),
+                      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 } },
+                        /* @__PURE__ */ React.createElement("span", { className: cost.missing.length ? "pill pill-rojo" : "pill pill-verde" }, cost.links.length, " vinculo", cost.links.length === 1 ? "" : "s"),
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, formatAssetCurrency(cost.total))
+                      )
+                    );
+                  })
+                )
+              );
+            })
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "var(--verde)" } }), "Costeo ICG seleccionado")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+            selectedIcgArticle ? /* @__PURE__ */ React.createElement(React.Fragment, null,
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, fontSize: 17, color: "#111827" } }, getIcgArticleDescription(selectedIcgArticle)),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, selectedIcgArticle._category, " · Cod ", getIcgArticleCode(selectedIcgArticle) || "-", " · Ref ", getIcgArticleReference(selectedIcgArticle) || "-")
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Costo WTF", formatAssetCurrency(selectedIcgArticle._costeo.total), selectedIcgArticle._costeo.missing.length ? "#b91c1c" : "#15803d"),
+                statCard("Precio ICG", selectedIcgArticle._costeo.salePrice > 0 ? formatAssetCurrency(selectedIcgArticle._costeo.salePrice) : "Sin precio", "#4338ca")
+              ),
+              selectedIcgArticle._costeo.salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Margen bruto", formatAssetCurrency(selectedIcgArticle._costeo.margin), selectedIcgArticle._costeo.margin >= 0 ? "#15803d" : "#b91c1c"),
+                statCard("Margen %", `${selectedIcgArticle._costeo.marginPercent}%`, selectedIcgArticle._costeo.marginPercent >= 0 ? "#15803d" : "#b91c1c")
+              ),
+              selectedIcgArticle._costeo.details.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+                /* @__PURE__ */ React.createElement("table", null,
+                  /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Producto WTF", "Cantidad", "Costo", "Estado"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+                  /* @__PURE__ */ React.createElement("tbody", null, selectedIcgArticle._costeo.details.map(function(row, idx) {
+                    return /* @__PURE__ */ React.createElement("tr", { key: `${selectedIcgArticle._costKey}-${idx}`, className: row.ok ? "" : "tr-out-stock" },
+                      /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.name || row.link.ProductoWTF || row.link.ProductoMise || "-"),
+                      /* @__PURE__ */ React.createElement("td", null, row.qtyText || `${row.link.CantidadPorVenta || 1} ${row.link.Unidad || "Uni"}`),
+                      /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: row.ok ? "var(--verde)" : "var(--rojo)" } }, row.ok ? formatAssetCurrency(row.cost) : "-"),
+                      /* @__PURE__ */ React.createElement("td", null, row.ok ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "OK") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, row.problem || "Pendiente"))
+                    );
+                  }))
+                )
+              ) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Este articulo ICG no tiene productos WTF relacionados para ", moduleLabel, ". Vinculalo desde Inventario, Cuarto Frio o Mise an Place."),
+              selectedIcgArticle._costeo.missing.length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, "El costeo no esta completo porque hay productos WTF sin costo, sin contenido o sin conversion valida.") : null
+            ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Selecciona un producto ICG para ver su costeo.")
+          )
+        )
+      ),
+      activeTab === "simulador" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calculator", style: { marginRight: 7, color: "var(--azul)" } }), "Simular plato")),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Receta"),
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: selectedRecipe ? String(selectedRecipe.id) : "", onChange: function(e) { setSelectedRecipeId(e.target.value); } },
+                recipeCosts.map(function(row) { return /* @__PURE__ */ React.createElement("option", { key: row.id || row.nombre, value: row.id }, row.nombre); })
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Precio de venta estimado"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: precioVenta, onChange: function(e) { setPrecioVenta(e.target.value); }, placeholder: "Ej: 850.00" })
+            )
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resultado")),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+            selectedRecipe ? /* @__PURE__ */ React.createElement(React.Fragment, null,
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18 } }, selectedRecipe.nombre),
+              /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Costo receta", formatAssetCurrency(selectedCost.total), selectedCost.missing.length ? "#b91c1c" : "#15803d"),
+                statCard("Costo por unidad", selectedCost.costPerUnit != null ? formatAssetCurrency(selectedCost.costPerUnit) : "Sin rendimiento", "#4338ca")
+              ),
+              salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Margen bruto", formatAssetCurrency(marginAmount), marginAmount >= 0 ? "#15803d" : "#b91c1c"),
+                statCard("Margen %", `${marginPercent}%`, marginPercent >= 0 ? "#15803d" : "#b91c1c")
+              ),
+              selectedCost.missing.length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, "Este costo no esta completo. Corrige los productos pendientes antes de usarlo para decision de precio.") : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Costo calculado con los precios y contenidos registrados actualmente.")
+            ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No hay recetas disponibles.")
+          )
+        )
+      )
+    );
+  }
   function LoginScreen({ onLogin, toast }) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -11883,7 +12388,7 @@ Solicitado: ${cantidad}`);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
     const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
-    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
+    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
@@ -12150,7 +12655,7 @@ Solicitado: ${cantidad}`);
           detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
         }, currentUser);
       }
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -12246,7 +12751,7 @@ Solicitado: ${cantidad}`);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const linkedMise = stockStatus.mise;
       if (editingId === r.id) {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" })), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
       }
       const baseRowClass = stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const rowClass = `${baseRowClass} ${Number(focusedSearchResultId) === Number(r.id) ? "tr-search-target" : ""}`.trim();
@@ -12294,6 +12799,11 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Suplidor"),
               /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.suplidor, onChange: (e) => setNewProd((p) => ({ ...p, suplidor: e.target.value })) })
             )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.costoCompra || "", onChange: (e) => setNewProd((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" }),
+            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Indica el costo del producto comprado completo. Ej: 1 pote de ajo en polvo = 680.4 G y cuesta 625.")
           ),
           renderPackageContentFields(newProd, setNewProd, newProd.medida),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
