@@ -1403,6 +1403,89 @@
   function getInventoryExistence(item) {
     return roundQty4((item && item.entrada || 0) - (item && item.salida || 0) - (item && item.decomiso || 0));
   }
+  function normalizeInventoryStorageKey(value, fallback) {
+    const raw = normalizar(value || "");
+    if (["inventario", "inventariococina", "cocinainv", "cocina-inv"].includes(raw)) return "inventario";
+    if (["cuartofrio", "cuartofrioinventario", "cuartofriococina", "cocinafrio", "cocina-frio"].includes(raw)) return "cuartoFrioInventario";
+    if (["barinventario", "inventariobar", "barinv", "bar-inv"].includes(raw)) return "barInventario";
+    if (["barcuartofrio", "barcuartofrioinventario", "cuartofriobar", "barfrio", "bar-frio"].includes(raw)) return "barCuartoFrioInventario";
+    if (["otherinventario"].includes(raw)) return normalizar(fallback) === "bar" ? "inventario" : "barInventario";
+    if (["othercuartofrio"].includes(raw)) return normalizar(fallback) === "bar" ? "cuartoFrioInventario" : "barCuartoFrioInventario";
+    return "";
+  }
+  function inferMovementInventoryStateKey(row, fallbackModule) {
+    if (!row || typeof row !== "object") return "";
+    const direct = normalizeInventoryStorageKey(row.storageKey || row.targetKey || row.inventoryStateKey || row.origenKey || row.sourceKey, row.modulo || fallbackModule);
+    if (direct) return direct;
+    const id = normalizar(row._id || row.id || "");
+    if (id.startsWith("cocina-inv-")) return "inventario";
+    if (id.startsWith("cocina-frio-")) return "cuartoFrioInventario";
+    if (id.startsWith("bar-inv-")) return "barInventario";
+    if (id.startsWith("bar-frio-")) return "barCuartoFrioInventario";
+    if (id.startsWith("prod-inventario-")) return normalizar(row.modulo || fallbackModule) === "bar" ? "barInventario" : "inventario";
+    if (id.startsWith("prod-cuartofrio-")) return normalizar(row.modulo || fallbackModule) === "bar" ? "barCuartoFrioInventario" : "cuartoFrioInventario";
+    if (id.startsWith("prod-otherinventario-")) return normalizar(row.modulo || fallbackModule) === "bar" ? "inventario" : "barInventario";
+    if (id.startsWith("prod-othercuartofrio-")) return normalizar(row.modulo || fallbackModule) === "bar" ? "cuartoFrioInventario" : "barCuartoFrioInventario";
+    const originText = normalizar([row.origen, row.almacen, row.almacenLabel, row.origenLabel, row.modulo].filter(Boolean).join(" "));
+    const isBar = /\bbar\b/.test(originText);
+    const isFrio = originText.includes("cuarto frio") || originText.includes("cuartofrio") || originText.includes("frio");
+    if (isBar && isFrio) return "barCuartoFrioInventario";
+    if (isBar) return "barInventario";
+    if (isFrio) return "cuartoFrioInventario";
+    return "";
+  }
+  function movementLogKeyById(row) {
+    const id = String(row && (row.numero ?? row.productId ?? row.rowId ?? "")).trim();
+    if (!id) return "";
+    return ["id", id, normalizar(row && row.medida || "")].join("|");
+  }
+  function movementLogKeyByName(row) {
+    const name = normalizar(row && (row.producto || row.nombre || ""));
+    if (!name) return "";
+    return ["name", name, normalizar(row && row.medida || "")].join("|");
+  }
+  function buildMovementTotalsForInventoryState(rows, stateKey, field) {
+    const totals = { byId: {}, byName: {} };
+    (Array.isArray(rows) ? rows : []).forEach(function(row) {
+      if (!row) return;
+      const movementStateKey = inferMovementInventoryStateKey(row);
+      if (movementStateKey && movementStateKey !== stateKey) return;
+      if (!movementStateKey && stateKey !== "inventario") return;
+      const amount = roundQty4(row.cantidad);
+      if (!(amount > 0)) return;
+      const idKey = movementLogKeyById(row);
+      const nameKey = movementLogKeyByName(row);
+      if (idKey) totals.byId[idKey] = roundQty4((totals.byId[idKey] || 0) + amount);
+      if (nameKey) totals.byName[nameKey] = roundQty4((totals.byName[nameKey] || 0) + amount);
+    });
+    return totals;
+  }
+  function reconcileInventoryRowsWithMovementLogs(rows, stateKey, movementSets) {
+    const currentRows = Array.isArray(rows) ? rows : [];
+    if (!currentRows.length) return currentRows;
+    const fields = {
+      entrada: buildMovementTotalsForInventoryState(movementSets && movementSets.entradas, stateKey, "entrada"),
+      salida: buildMovementTotalsForInventoryState(movementSets && movementSets.salidas, stateKey, "salida"),
+      decomiso: buildMovementTotalsForInventoryState(movementSets && movementSets.decomiso, stateKey, "decomiso")
+    };
+    return currentRows.map(function(row) {
+      if (!row || row.tipo !== "producto") return row;
+      const idKey = movementLogKeyById({ numero: row.id, medida: row.medida });
+      const nameKey = movementLogKeyByName({ producto: row.nombre || row.producto, medida: row.medida });
+      let changed = false;
+      const next = Object.assign({}, row);
+      ["entrada", "salida", "decomiso"].forEach(function(field) {
+        const totals = fields[field] || {};
+        const logged = Math.max(Number(totals.byId[idKey] || 0), Number(totals.byName[nameKey] || 0));
+        if (logged > Number(next[field] || 0) + 1e-9) {
+          next[field] = roundQty4(logged);
+          changed = true;
+        }
+      });
+      if (changed) next.updatedAt = next.updatedAt || new Date().toISOString();
+      return changed ? next : row;
+    });
+  }
   function getInventoryCodArticulo(item, fallback) {
     const raw = item && (item.codArticulo ?? item.CodArticulo ?? item.codarticulo ?? item.codigo ?? item.referencia ?? "");
     const value = String(raw == null ? "" : raw).trim();
@@ -2827,6 +2910,10 @@
       next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
+    next.inventario = reconcileInventoryRowsWithMovementLogs(next.inventario, "inventario", { entradas: next.regEntradas, salidas: next.regSalidas, decomiso: next.regDecomiso });
+    next.cuartoFrioInventario = reconcileInventoryRowsWithMovementLogs(next.cuartoFrioInventario, "cuartoFrioInventario", { entradas: next.regEntradas, salidas: next.regSalidas, decomiso: next.regDecomiso });
+    next.barInventario = reconcileInventoryRowsWithMovementLogs(next.barInventario, "barInventario", { entradas: next.barRegEntradas, salidas: next.barRegSalidas, decomiso: next.barRegDecomiso });
+    next.barCuartoFrioInventario = reconcileInventoryRowsWithMovementLogs(next.barCuartoFrioInventario, "barCuartoFrioInventario", { entradas: next.barRegEntradas, salidas: next.barRegSalidas, decomiso: next.barRegDecomiso });
     next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
     next.miseAnPlace = mergeMiseRows(localState && localState.miseAnPlace, remoteState && remoteState.miseAnPlace, next.miseDeletedKeys.miseAnPlace);
     next.barMiseAnPlace = mergeMiseRows(localState && localState.barMiseAnPlace, remoteState && remoteState.barMiseAnPlace, next.miseDeletedKeys.barMiseAnPlace);
@@ -2877,8 +2964,8 @@
     const productionHoldDeletedKeys = normalizeProductionHoldDeletedKeys(state.productionHoldDeletedKeys);
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
-      inventario: normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario),
-      cuartoFrioInventario: normalizeInventoryRowsForDisplay(state.cuartoFrioInventario || [], deletedKeys.cuartoFrioInventario),
+      inventario: reconcileInventoryRowsWithMovementLogs(normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario), "inventario", { entradas: state.regEntradas, salidas: state.regSalidas, decomiso: state.regDecomiso }),
+      cuartoFrioInventario: reconcileInventoryRowsWithMovementLogs(normalizeInventoryRowsForDisplay(state.cuartoFrioInventario || [], deletedKeys.cuartoFrioInventario), "cuartoFrioInventario", { entradas: state.regEntradas, salidas: state.regSalidas, decomiso: state.regDecomiso }),
       miseAnPlace: normalizeMiseItems((state.miseAnPlace || []).filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.miseAnPlace); })),
       regEntradas: state.regEntradas || [],
       regSalidas: state.regSalidas || [],
@@ -2903,8 +2990,8 @@
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
       systemLogs: normalizeSystemLogs(state.systemLogs || []),
-      barInventario: normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario),
-      barCuartoFrioInventario: normalizeInventoryRowsForDisplay(state.barCuartoFrioInventario || [], deletedKeys.barCuartoFrioInventario),
+      barInventario: reconcileInventoryRowsWithMovementLogs(normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario), "barInventario", { entradas: state.barRegEntradas, salidas: state.barRegSalidas, decomiso: state.barRegDecomiso }),
+      barCuartoFrioInventario: reconcileInventoryRowsWithMovementLogs(normalizeInventoryRowsForDisplay(state.barCuartoFrioInventario || [], deletedKeys.barCuartoFrioInventario), "barCuartoFrioInventario", { entradas: state.barRegEntradas, salidas: state.barRegSalidas, decomiso: state.barRegDecomiso }),
       barMiseAnPlace: normalizeMiseItems((state.barMiseAnPlace || []).filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.barMiseAnPlace); })),
       barRegEntradas: state.barRegEntradas || [],
       barRegSalidas: state.barRegSalidas || [],
@@ -2965,6 +3052,13 @@
   }
   function prepareFirebaseAppStateForWrite(state) {
     return JSON.parse(serializeAppState(state || {}));
+  }
+  function needsInventoryReconcileState(rawState, canonicalState) {
+    const raw = rawState || {};
+    const canonical = canonicalState || {};
+    return ["inventario", "cuartoFrioInventario", "barInventario", "barCuartoFrioInventario"].some(function(key) {
+      return JSON.stringify(raw[key] || []) !== JSON.stringify(canonical[key] || []);
+    });
   }
   function bytesToBase64(bytes) {
     let binary = "";
@@ -5748,11 +5842,19 @@
               setLastSyncedAt(formatDatetime(date));
             }
             if (remoteSignature === currentSignature) {
+              const currentState = getCurrentAppState();
+              const canonicalState = prepareFirebaseAppStateForWrite(currentState);
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
               hasSessionLocalChangeRef.current = false;
+              if (needsInventoryReconcileState(currentState, canonicalState)) {
+                applyRemoteState(canonicalState);
+                scheduleFirebaseWrite(canonicalState, serializeAppState(canonicalState), 250, "web-client-inventory-reconcile");
+                setFirebaseMessage("Corrigiendo existencias desde historiales...");
+                return;
+              }
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
               setFirebaseMessage("Protegiendo cambios locales...");
@@ -6091,7 +6193,7 @@
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: createMovementId("bar-inv"), fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); }
       if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -6110,6 +6212,9 @@ Existencia: ${exist}
 Solicitado: ${cantidad}`);
       const reg = {
         _id: createMovementId("cocina-inv"),
+        storageKey: "inventario",
+        origen: "Inventario Cocina",
+        modulo: "Cocina",
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
@@ -6139,7 +6244,7 @@ Solicitado: ${cantidad}`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: createMovementId("bar-frio"), fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); }
       if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -6154,6 +6259,9 @@ Solicitado: ${cantidad}`);
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = {
         _id: createMovementId("cocina-frio"),
+        storageKey: "cuartoFrioInventario",
+        origen: "Cuarto Frio Cocina",
+        modulo: "Cocina",
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
@@ -8326,6 +8434,7 @@ Solicitado: ${cantidad}`);
       if (!Number.isFinite(cantidad) || cantidad <= 0) return null;
       return {
         _id: createMovementId(`prod-${normalizar(entry.storageKey || "inventario") || "stock"}`),
+        storageKey: entry.storageKey || "inventario",
         fecha: now,
         numero: entry.product.id,
         medida: entry.product.medida,
@@ -8357,6 +8466,7 @@ Solicitado: ${cantidad}`);
       if (!entry || !Number.isFinite(cantidad) || cantidad <= 0) return null;
       return {
         _id: createMovementId(`prod-${normalizar(entry.storageKey || "inventario") || "stock"}`),
+        storageKey: entry.storageKey || "inventario",
         productionId: productionId || "",
         fecha: now,
         numero: entry.productId,
