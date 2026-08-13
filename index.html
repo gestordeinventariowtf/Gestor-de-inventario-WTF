@@ -6843,11 +6843,11 @@ Solicitado: ${cantidad}`);
     const productosFiltrados = useMemo(function() {
       const q = normalizar(busqueda);
       return productosInventario.filter(function(product) {
-        if (insumos.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return false;
+        if (insumos.some(function(item) { return item.rowId !== replaceInsumoRowId && (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return false;
         if (!q) return true;
         return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q) || normalizar(product.origenLabel || "").includes(q);
       });
-    }, [productosInventario, busqueda, insumos]);
+    }, [productosInventario, busqueda, insumos, replaceInsumoRowId]);
     const historial = useMemo(function() {
       return Array.isArray(producciones) ? [...producciones].reverse() : [];
     }, [producciones]);
@@ -8129,17 +8129,20 @@ Solicitado: ${cantidad}`);
     }
     function addInsumo(product) {
       setInsumos(function(prev) {
-        if (replaceInsumoRowId) {
+        if (replaceInsumoRowId && recipeModalOpen) {
           const target = prev.find(function(item) { return item.rowId === replaceInsumoRowId; });
           const replacement = buildInsumoFromProduct(product, target);
-          return [replacement].concat(prev.filter(function(item) {
-            return item.rowId !== replaceInsumoRowId && (item.productKey || `inventario-${item.productId}`) !== product.productKey;
-          }));
+          const replacementKey = replacement.productKey || `inventario-${replacement.productId}`;
+          return prev.map(function(item) {
+            return item.rowId === replaceInsumoRowId ? replacement : item;
+          }).filter(function(item) {
+            return item.rowId === replaceInsumoRowId || (item.productKey || `inventario-${item.productId}`) !== replacementKey;
+          });
         }
         if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
         return [...prev, buildInsumoFromProduct(product, { rowId: `ins-${Date.now()}-${Math.random()}` })];
       });
-      if (replaceInsumoRowId) {
+      if (replaceInsumoRowId && recipeModalOpen) {
         toast(`Insumo modificado: ${product.nombre}`, "ok");
         setReplaceInsumoRowId(null);
       }
@@ -9400,10 +9403,6 @@ Solicitado: ${cantidad}`);
                     /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
                     /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busqueda, onChange: function(e) { setBusqueda(e.target.value); } })
                   ),
-                  replaceInsumoRowId && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { alignItems: "center", justifyContent: "space-between", gap: 10 } },
-                    /* @__PURE__ */ React.createElement("span", null, "Selecciona un producto para modificar el insumo eliminado. Se colocara al inicio de la receta."),
-                    /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris", onClick: function() { setReplaceInsumoRowId(null); } }, "Cancelar")
-                  ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
                     productosFiltrados.map(function(product) {
                       return /* @__PURE__ */ React.createElement("button", {
@@ -9417,7 +9416,7 @@ Solicitado: ${cantidad}`);
                           /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" } }, product.nombre),
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · ", product.suplidor || "Sin suplidor", " · ", formatQty4(product.existencia), " ", product.medida)
                         ),
-                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, replaceInsumoRowId ? "Usar para modificar" : "Agregar")
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Agregar")
                       );
                     }),
                     productosFiltrados.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: "var(--gris)", padding: "20px 12px", fontSize: 13 } }, "No hay productos disponibles para esa busqueda.")
@@ -9447,10 +9446,7 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
                             product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", formatQty4(product.existencia), " ", product.medida, getPackageEquivalentText(product, product.existencia) ? ` · Equiv.: ${getPackageEquivalentText(product, product.existencia)}` : "")
                           ),
-                          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexShrink: 0 } },
-                            !product && /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-azul", onClick: function() { setReplaceInsumoRowId(item.rowId); setBusqueda(item.producto || ""); }, title: "Modificar insumo eliminado" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Modificar"),
-                            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
-                          )
+                          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                         ),
                         product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 5 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque configurado"),
@@ -9608,7 +9604,7 @@ Solicitado: ${cantidad}`);
                     /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busqueda, onChange: function(e) { setBusqueda(e.target.value); } })
                   ),
                   replaceInsumoRowId && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { alignItems: "center", justifyContent: "space-between", gap: 10 } },
-                    /* @__PURE__ */ React.createElement("span", null, "Selecciona un producto para modificar el insumo eliminado. Se colocara al inicio de la receta."),
+                    /* @__PURE__ */ React.createElement("span", null, "Selecciona el nuevo producto para reemplazar este insumo. Se quedara en la misma posicion de la receta."),
                     /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris", onClick: function() { setReplaceInsumoRowId(null); } }, "Cancelar")
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, maxHeight: "46vh", overflowY: "auto" } },
@@ -9651,7 +9647,7 @@ Solicitado: ${cantidad}`);
                             product && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, product.origenLabel || "Inventario", " · Disponible: ", formatQty4(product.existencia), " ", product.medida, getPackageEquivalentText(product, product.existencia) ? ` · Equiv.: ${getPackageEquivalentText(product, product.existencia)}` : "")
                           ),
                           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexShrink: 0 } },
-                            !product && /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-azul", onClick: function() { setReplaceInsumoRowId(item.rowId); setBusqueda(item.producto || ""); }, title: "Modificar insumo eliminado" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Modificar"),
+                            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-azul", onClick: function() { setReplaceInsumoRowId(item.rowId); setBusqueda(product ? product.nombre : item.producto || ""); }, title: "Modificar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Modificar"),
                             /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                           )
                         ),
