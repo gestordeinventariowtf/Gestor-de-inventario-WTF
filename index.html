@@ -2555,11 +2555,11 @@
   }
   function getMiseMergeKey(row) {
     if (!row || typeof row !== "object") return "";
-    const name = normalizar(row.producto || row.nombre || "");
-    if (name) return `name:${name}`;
     const cod = String(row.codArticulo || row.codigo || "").trim();
     if (cod) return `cod:${normalizar(cod)}`;
     if (row.id != null) return `id:${row.id}`;
+    const name = normalizar(row.producto || row.nombre || "");
+    if (name) return `name:${name}`;
     return "";
   }
   function normalizeMiseDeletedKeys(input) {
@@ -3313,7 +3313,8 @@
         usarEnProduccion: item && item.usarEnProduccion === true,
         __sourceIndex: index
       });
-      const key = normalizar(producto);
+      const stableKey = getMiseMergeKey(clean);
+      const key = stableKey || `name:${normalizar(producto)}`;
       const existing = map.get(key);
       if (!existing) {
         map.set(key, clean);
@@ -3325,7 +3326,21 @@
       const merged = Object.assign({}, preferClean ? existing : clean, preferClean ? clean : existing, { __sourceIndex: index });
       map.set(key, merged);
     });
-    const rows = Array.from(map.values()).map(function(item) {
+    const byName = new Map();
+    Array.from(map.values()).forEach(function(item) {
+      const key = normalizar(item.producto || item.nombre || "");
+      if (!key) return;
+      const existing = byName.get(key);
+      if (!existing) {
+        byName.set(key, item);
+        return;
+      }
+      const existingTime = getRowUpdateTime(existing);
+      const itemTime = getRowUpdateTime(item);
+      const preferItem = itemTime > existingTime || (itemTime === existingTime && Number(item.__sourceIndex || 0) > Number(existing.__sourceIndex || 0));
+      byName.set(key, Object.assign({}, preferItem ? existing : item, preferItem ? item : existing, { __sourceIndex: Math.max(Number(existing.__sourceIndex || 0), Number(item.__sourceIndex || 0)) }));
+    });
+    const rows = Array.from(byName.values()).map(function(item) {
       const copy = Object.assign({}, item);
       delete copy.__sourceIndex;
       return copy;
@@ -13848,9 +13863,26 @@ Solicitado: ${cantidad}`);
       toast("Eliminado", "info");
     }
     function saveEditProd(nextItem) {
-      saveMiseIcgLinks(nextItem);
+      const previousName = String(editItem && editItem.producto || nextItem.previousProducto || "").trim();
+      saveMiseIcgLinks(nextItem, previousName);
       const now = new Date().toISOString();
-      setMise((prev) => prev.map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: normalizarMedidaMise(nextItem.medida), unidadEmpaque: nextItem.unidadEmpaque || "", unidadesPorEmpaque: nextItem.unidadesPorEmpaque || "", unidadInternaEmpaque: nextItem.unidadInternaEmpaque || "", cantidadPorUnidadInterna: nextItem.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: nextItem.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem), usarEnProduccion: nextItem.usarEnProduccion === true, updatedAt: now } : m));
+      if (previousName && normalizar(previousName) !== normalizar(nextItem.producto) && typeof onMarkDeleted === "function") {
+        onMarkDeleted(miseStateKey, { producto: previousName, updatedAt: now });
+      }
+      setMise((prev) => {
+        const previousKey = normalizar(previousName);
+        const nextKey = normalizar(nextItem.producto);
+        const nextCod = normalizar(getMiseCodArticulo(nextItem, 0));
+        const editedRows = (Array.isArray(prev) ? prev : []).map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: normalizarMedidaMise(nextItem.medida), unidadEmpaque: nextItem.unidadEmpaque || "", unidadesPorEmpaque: nextItem.unidadesPorEmpaque || "", unidadInternaEmpaque: nextItem.unidadInternaEmpaque || "", cantidadPorUnidadInterna: nextItem.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: nextItem.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem), usarEnProduccion: nextItem.usarEnProduccion === true, updatedAt: now } : m);
+        return normalizeMiseItems(editedRows.filter(function(row) {
+          if (!row || row.id === nextItem.id) return true;
+          const rowName = normalizar(row.producto || row.nombre || "");
+          const rowCod = normalizar(getMiseCodArticulo(row, 0));
+          if (previousKey && previousKey !== nextKey && rowName === previousKey) return false;
+          if (nextCod && rowCod === nextCod && rowName !== nextKey) return false;
+          return true;
+        }));
+      });
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `Mise an Place ${moduleLabel}`,
@@ -13891,7 +13923,7 @@ Solicitado: ${cantidad}`);
       const localRows = Array.isArray(item && item.icgLinks) ? item.icgLinks : [];
       return (rows.length ? rows : localRows).length ? (rows.length ? rows : localRows) : [{ value: "", CantidadPorVenta: 1, Unidad: item && item.medida || "Uni", Activo: "Si", Notas: "" }];
     }
-    function saveMiseIcgLinks(item) {
+    function saveMiseIcgLinks(item, previousProductName) {
       if (!setIcgFrontRestData || !Array.isArray(item.icgLinks)) return;
       const cleanLinks = item.icgLinks.map(function(link) {
         const article = resolveIcgArticleSelection(link.value || link.ProductoICG || link.CodArticulo || link.Referencia, icgArticleRows);
@@ -13917,10 +13949,12 @@ Solicitado: ${cantidad}`);
         const existingRows = Array.isArray(current.rows) ? current.rows : [];
         const targetModule = normalizeIcgWtfTarget(miseIcgModuleLabel);
         const productName = normalizar(item.producto);
+        const previousName = normalizar(previousProductName);
         const keptRows = existingRows.filter(function(row) {
           const sameModule = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === targetModule;
           const sameProduct = normalizar(row.ProductoMise || row.ProductoWTF) === productName;
-          return !(sameModule && sameProduct);
+          const samePreviousProduct = previousName && normalizar(row.ProductoMise || row.ProductoWTF) === previousName;
+          return !(sameModule && (sameProduct || samePreviousProduct));
         });
         const nextRows = cleanLinks.map(function(link) {
           return {
