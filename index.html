@@ -1068,7 +1068,8 @@
     authUser: "wtf_auth_user",
     systemLogs: "wtf_system_logs",
     assetManagement: "wtf_asset_management",
-    employeeCenter: "wtf_employee_center"
+    employeeCenter: "wtf_employee_center",
+    financial: "wtf_financial_admin"
   };
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
   const MISE_DELETED_KEYS_STORAGE = "wtf_mise_deleted_keys";
@@ -1650,6 +1651,9 @@
     { key: "historialMermas", label: "Historial de Mermas" },
     { key: "produccion", label: "Produccion" },
     { key: "costeoPlatos", label: "Costeo de Platos" },
+    { key: "finanzas", label: "Finanzas" },
+    { key: "nominaFinanzas", label: "Nomina Finanzas" },
+    { key: "asistenciaFinanzas", label: "Asistencia / Control Horario" },
     { key: "autorizacionRecetas", label: "Autorizacion a Recetas" },
     { key: "icg", label: "ICG FrontRest" },
     { key: "icgHost", label: "ICG Host" },
@@ -2853,6 +2857,7 @@
     next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
     next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
     next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
+    next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -2904,6 +2909,7 @@
       icgFrontRestData: getFirebaseComparableIcgData(state.icgFrontRestData),
       assetManagementData: ensureAssetManagementData(state.assetManagementData),
       employeeCenterData: ensureEmployeeCenterData(state.employeeCenterData),
+      financialData: ensureFinancialData(state.financialData),
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
@@ -5027,6 +5033,212 @@
     const days = Number((ensureEmployeeCenterData(data).settings || {}).welcomeDays || 7);
     return Date.now() - dt.getTime() < days * 864e5;
   }
+  function buildDefaultFinancialData() {
+    return {
+      movements: [],
+      sales: [],
+      expenses: [],
+      payrollRuns: [],
+      commitments: [],
+      attendance: [],
+      closings: [],
+      imports: [],
+      settings: {
+        currency: "RD$",
+        defaultAccount: "Caja",
+        accounts: ["Caja", "Banco", "Tarjeta", "Transferencia", "Delivery", "Caja chica"],
+        salesChannels: ["Efectivo", "Tarjeta", "Transferencia", "PedidosYa", "Uber Eats", "Credito empleados", "Dolares", "Otros"],
+        expenseCategories: ["Alquiler", "Electricidad", "Agua", "Internet", "Contador", "Marketing", "Verifone", "TSS", "INFOTEP", "DGII", "Ayuntamiento", "Software", "Mantenimiento", "Transporte", "Limpieza", "Reparaciones", "Retiro propietario", "Otro"],
+        payrollConcepts: [
+          { id: "nom-sfs", nombre: "SFS colaborador", porcentaje: 0, paga: "colaborador", activo: true },
+          { id: "nom-afp", nombre: "AFP colaborador", porcentaje: 0, paga: "colaborador", activo: true },
+          { id: "nom-empresa", nombre: "Aportes empresa", porcentaje: 0, paga: "empresa", activo: true }
+        ],
+        attendanceToleranceMinutes: 10,
+        closingLocked: true
+      }
+    };
+  }
+  function ensureFinancialData(data) {
+    const base = buildDefaultFinancialData();
+    const input = data && typeof data === "object" ? data : {};
+    const settings = input.settings && typeof input.settings === "object" ? input.settings : {};
+    return Object.assign({}, base, input, {
+      movements: Array.isArray(input.movements) ? input.movements : [],
+      sales: Array.isArray(input.sales) ? input.sales : [],
+      expenses: Array.isArray(input.expenses) ? input.expenses : [],
+      payrollRuns: Array.isArray(input.payrollRuns) ? input.payrollRuns : [],
+      commitments: Array.isArray(input.commitments) ? input.commitments : [],
+      attendance: Array.isArray(input.attendance) ? input.attendance : [],
+      closings: Array.isArray(input.closings) ? input.closings : [],
+      imports: Array.isArray(input.imports) ? input.imports : [],
+      settings: Object.assign({}, base.settings, settings, {
+        accounts: Array.isArray(settings.accounts) && settings.accounts.length ? settings.accounts : base.settings.accounts,
+        salesChannels: Array.isArray(settings.salesChannels) && settings.salesChannels.length ? settings.salesChannels : base.settings.salesChannels,
+        expenseCategories: Array.isArray(settings.expenseCategories) && settings.expenseCategories.length ? settings.expenseCategories : base.settings.expenseCategories,
+        payrollConcepts: Array.isArray(settings.payrollConcepts) ? settings.payrollConcepts : base.settings.payrollConcepts
+      })
+    });
+  }
+  function mergeFinancialRows(localRows, remoteRows) {
+    const map = new Map();
+    function add(rows) {
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        if (!row) return;
+        const key = String(row.id || [row.fecha, row.descripcion, row.producto, row.empleado, row.monto, row.ventaBruta].filter(Boolean).join("|"));
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing || getRowUpdateTime(row) >= getRowUpdateTime(existing)) map.set(key, Object.assign({}, existing || {}, row));
+      });
+    }
+    add(remoteRows);
+    add(localRows);
+    return Array.from(map.values()).sort(function(a, b) {
+      return getRowUpdateTime(b) - getRowUpdateTime(a);
+    });
+  }
+  function mergeFinancialData(localData, remoteData) {
+    const local = ensureFinancialData(localData);
+    const remote = ensureFinancialData(remoteData);
+    return ensureFinancialData(Object.assign({}, remote, local, {
+      movements: mergeFinancialRows(local.movements, remote.movements),
+      sales: mergeFinancialRows(local.sales, remote.sales),
+      expenses: mergeFinancialRows(local.expenses, remote.expenses),
+      payrollRuns: mergeFinancialRows(local.payrollRuns, remote.payrollRuns),
+      commitments: mergeFinancialRows(local.commitments, remote.commitments),
+      attendance: mergeFinancialRows(local.attendance, remote.attendance),
+      closings: mergeFinancialRows(local.closings, remote.closings),
+      imports: mergeFinancialRows(local.imports, remote.imports),
+      settings: Object.assign({}, remote.settings || {}, local.settings || {})
+    }));
+  }
+  function getFinancialMonthRange(dateValue) {
+    const date = dateValue ? new Date(dateValue) : new Date();
+    const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+    const start = new Date(safe.getFullYear(), safe.getMonth(), 1);
+    const end = new Date(safe.getFullYear(), safe.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), label: start.toLocaleDateString("es-DO", { month: "long", year: "numeric" }) };
+  }
+  function parseFinancialDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  function isFinancialDateInRange(value, range) {
+    const date = parseFinancialDate(value);
+    if (!date || !range) return false;
+    return date >= new Date(`${range.start}T00:00:00`) && date <= new Date(`${range.end}T23:59:59`);
+  }
+  function sumFinancial(rows, getter) {
+    return Number((Array.isArray(rows) ? rows : []).reduce(function(total, row) {
+      return total + Number(typeof getter === "function" ? getter(row) : row && row[getter] || 0);
+    }, 0).toFixed(2));
+  }
+  function buildFinancialProductMap(inventario = [], cuartoFrioInventario = [], barInventario = [], barCuartoFrioInventario = []) {
+    const rows = []
+      .concat(normalizeInventoryRowsForDisplay(inventario).filter((r) => r.tipo === "producto").map((r) => Object.assign({}, r, { areaFinanciera: "Cocina", ubicacionFinanciera: "Inventario Cocina" })))
+      .concat(normalizeInventoryRowsForDisplay(cuartoFrioInventario).filter((r) => r.tipo === "producto").map((r) => Object.assign({}, r, { areaFinanciera: "Cocina", ubicacionFinanciera: "Cuarto Frio Cocina" })))
+      .concat(normalizeInventoryRowsForDisplay(barInventario).filter((r) => r.tipo === "producto").map((r) => Object.assign({}, r, { areaFinanciera: "Bar", ubicacionFinanciera: "Inventario Bar" })))
+      .concat(normalizeInventoryRowsForDisplay(barCuartoFrioInventario).filter((r) => r.tipo === "producto").map((r) => Object.assign({}, r, { areaFinanciera: "Bar", ubicacionFinanciera: "Cuarto Frio Bar" })));
+    const byName = {};
+    rows.forEach(function(row) {
+      const key = normalizar(row.nombre || row.producto || "");
+      if (key && !byName[key]) byName[key] = row;
+    });
+    return { rows, byName };
+  }
+  function calculateFinancialInventoryValue(productRows) {
+    const details = (Array.isArray(productRows) ? productRows : []).map(function(product) {
+      const info = getProductCostInfo(product);
+      const existencia = getInventoryExistence(product);
+      const value = info.ok ? Number((existencia * Number(info.costPerBase || 0)).toFixed(2)) : 0;
+      return { product, existencia, value, ok: info.ok, costInfo: info, area: product.areaFinanciera || "", ubicacion: product.ubicacionFinanciera || "" };
+    });
+    const total = sumFinancial(details, "value");
+    const byArea = details.reduce(function(acc, row) {
+      const key = row.area || "Sin area";
+      acc[key] = Number(((acc[key] || 0) + row.value).toFixed(2));
+      return acc;
+    }, {});
+    return { total, byArea, details };
+  }
+  function inferFinancialPurchaseRows(registros, productMap, sourceLabel) {
+    return (Array.isArray(registros) ? registros : []).map(function(row, index) {
+      const product = productMap.byName[normalizar(row.producto || row.nombre || "")];
+      const costInfo = product ? getProductCostInfo(product) : null;
+      const qty = Number(row.cantidad || row.cant || row.entrada || 0);
+      const amount = product && costInfo && costInfo.ok ? Number((qty * Number(costInfo.costPerBase || 0)).toFixed(2)) : parseCostNumber(row.monto || row.total || row.costo || 0);
+      return { id: row.id || `${sourceLabel}-${index}`, fecha: row.fecha || row.createdAt || "", producto: row.producto || row.nombre || "", cantidad: qty, monto: amount, source: sourceLabel, product };
+    });
+  }
+  function getIcgFinancialSalesRows(icgFrontRestData) {
+    const normalized = ensureIcgFrontRestData(icgFrontRestData);
+    const source = icgRows(normalized, "CierresDiarios").length ? icgRows(normalized, "CierresDiarios") : icgRows(normalized, "TiquetsCab");
+    return source.map(function(row, index) {
+      const fecha = row.Fecha || row.FECHA || row.FechaCierre || row.fecha || row.Data || row.DATA || "";
+      const gross = parseCostNumber(row.VentaBruta ?? row.Bruto ?? row.Total ?? row.Importe ?? row.Ventas ?? row.VENTA ?? row.TotalVenta);
+      const net = parseCostNumber(row.VentaNeta ?? row.Neto ?? row.NetSales ?? row.TotalNeto ?? row.Total);
+      return { id: `icg-${row.Id || row.ID || row.Numero || index}`, fecha, canal: "ICG", ventaBruta: gross || net, descuentos: parseCostNumber(row.Descuentos ?? row.Descuento), devoluciones: parseCostNumber(row.Devoluciones ?? row.Anulaciones), comisiones: 0, retenciones: 0, netoRecibido: net || gross, fuente: "ICG", observacion: "Venta importada desde Base de Datos ICG Local" };
+    }).filter((row) => row.fecha && (row.ventaBruta > 0 || row.netoRecibido > 0));
+  }
+  function calculateFinancialSales(rows) {
+    const ventaBruta = sumFinancial(rows, "ventaBruta");
+    const descuentos = sumFinancial(rows, "descuentos");
+    const devoluciones = sumFinancial(rows, "devoluciones");
+    const comisiones = sumFinancial(rows, "comisiones");
+    const retenciones = sumFinancial(rows, "retenciones");
+    const ventasNetas = Number((ventaBruta - descuentos - devoluciones).toFixed(2));
+    const netoRecibido = sumFinancial(rows, function(row) {
+      const explicit = parseCostNumber(row.netoRecibido);
+      return explicit > 0 ? explicit : Number(row.ventaBruta || 0) - Number(row.descuentos || 0) - Number(row.devoluciones || 0) - Number(row.comisiones || 0) - Number(row.retenciones || 0);
+    });
+    return { ventaBruta, descuentos, devoluciones, comisiones, retenciones, ventasNetas, netoRecibido };
+  }
+  function calculateFinancialPayroll(rows) {
+    const gross = sumFinancial(rows, "salarioBruto");
+    const deductions = sumFinancial(rows, "deducciones");
+    const company = sumFinancial(rows, "aportesEmpresa");
+    const net = sumFinancial(rows, (row) => Number(row.netoPagar || 0) || Number(row.salarioBruto || 0) - Number(row.deducciones || 0));
+    return { gross, deductions, company, net, totalCost: Number((net + company).toFixed(2)) };
+  }
+  function calculateFinancialCommitments(rows, range) {
+    const active = (Array.isArray(rows) ? rows : []).filter((row) => row.estado !== "Cancelado");
+    const inRange = active.filter((row) => isFinancialDateInRange(row.fechaVencimiento || row.fecha, range));
+    const today = new Date();
+    const pending = active.filter((row) => !["Pagado", "Cancelado"].includes(row.estado));
+    const overdue = pending.filter(function(row) {
+      const date = parseFinancialDate(row.fechaVencimiento || row.fecha);
+      return date && date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    });
+    const balance = (row) => Math.max(0, Number(row.montoReal || row.montoEstimado || 0) - Number(row.pagado || 0));
+    return { pendingTotal: sumFinancial(pending, balance), monthTotal: sumFinancial(inRange, balance), overdueTotal: sumFinancial(overdue, balance), overdueCount: overdue.length, pending, inRange };
+  }
+  function calculateFinancialStatement({ financialData, range, icgFrontRestData, productMap, inventoryValue, regEntradas = [], barRegEntradas = [] }) {
+    const data = ensureFinancialData(financialData);
+    const manualSales = data.sales.filter((row) => isFinancialDateInRange(row.fecha, range));
+    const icgSales = getIcgFinancialSalesRows(icgFrontRestData).filter((row) => isFinancialDateInRange(row.fecha, range));
+    const salesRows = manualSales.concat(icgSales);
+    const sales = calculateFinancialSales(salesRows);
+    const manualExpenses = data.expenses.filter((row) => isFinancialDateInRange(row.fecha, range) && row.estado !== "Anulado");
+    const gastosOperativos = sumFinancial(manualExpenses.filter((row) => !["Compra de inventario", "Nomina", "Transferencia interna", "Aporte propietario"].includes(row.tipo)), "monto");
+    const comprasManual = sumFinancial(manualExpenses.filter((row) => row.tipo === "Compra de inventario"), "monto");
+    const purchaseRows = [].concat(inferFinancialPurchaseRows(regEntradas, productMap, "Entradas Cocina"), inferFinancialPurchaseRows(barRegEntradas, productMap, "Entradas Bar")).filter((row) => isFinancialDateInRange(row.fecha, range));
+    const comprasInventario = Number((comprasManual + sumFinancial(purchaseRows, "monto")).toFixed(2));
+    const previousClosing = data.closings.slice().reverse().find((row) => row.estado === "Cerrado" && row.periodEnd < range.start);
+    const inventarioInicial = Number(previousClosing && previousClosing.inventarioFinal || 0);
+    const inventarioFinal = Number(inventoryValue && inventoryValue.total || 0);
+    const costoMercancia = Math.max(0, Number((inventarioInicial + comprasInventario - inventarioFinal).toFixed(2)));
+    const payrollRows = data.payrollRuns.filter((row) => isFinancialDateInRange(row.fechaPago || row.periodEnd || row.fecha, range) && row.estado !== "Anulado");
+    const payroll = calculateFinancialPayroll(payrollRows);
+    const utilidadBruta = Number((sales.ventasNetas - costoMercancia).toFixed(2));
+    const resultadoOperativo = Number((utilidadBruta - gastosOperativos - payroll.totalCost).toFixed(2));
+    const margenNeto = sales.ventasNetas > 0 ? Number((resultadoOperativo / sales.ventasNetas * 100).toFixed(2)) : 0;
+    const flujoEntradas = Number((sales.netoRecibido + sumFinancial(manualExpenses.filter((row) => row.tipo === "Aporte propietario"), "monto")).toFixed(2));
+    const flujoSalidas = Number((sumFinancial(manualExpenses.filter((row) => row.tipo !== "Transferencia interna" && row.tipo !== "Aporte propietario"), "monto") + payroll.net + payroll.company).toFixed(2));
+    const flujoNeto = Number((flujoEntradas - flujoSalidas).toFixed(2));
+    const commitments = calculateFinancialCommitments(data.commitments, range);
+    return { salesRows, sales, manualExpenses, purchaseRows, comprasInventario, inventarioInicial, inventarioFinal, costoMercancia, payrollRows, payroll, gastosOperativos, utilidadBruta, resultadoOperativo, margenNeto, flujoEntradas, flujoSalidas, flujoNeto, commitments };
+  }
   function addEmployeeAuditLog(data, currentUser, payload) {
     const normalized = ensureEmployeeCenterData(data);
     const entry = Object.assign({
@@ -5230,6 +5442,7 @@
     const [icgFrontRestData, setIcgFrontRestData] = useState(() => ensureIcgFrontRestData(load(KEYS.icgFrontRest, null)));
     const [assetManagementData, setAssetManagementData] = useState(() => ensureAssetManagementData(load(KEYS.assetManagement, null)));
     const [employeeCenterData, setEmployeeCenterData] = useState(() => ensureEmployeeCenterData(load(KEYS.employeeCenter, null)));
+    const [financialData, setFinancialData] = useState(() => ensureFinancialData(load(KEYS.financial, null)));
     const [neveras, setNeveras] = useState(() => load("wtf_neveras", [
       { nombre: "NEVERA 1", items: [] },
       { nombre: "NEVERA 2", items: [] },
@@ -5345,6 +5558,7 @@
       icgFrontRestData,
       assetManagementData,
       employeeCenterData,
+      financialData,
       neveras,
       correos,
       usuarios,
@@ -5473,6 +5687,7 @@
       if (nextState.icgFrontRestData && typeof nextState.icgFrontRestData === "object") setIcgFrontRestData(ensureIcgFrontRestData(nextState.icgFrontRestData));
       if (nextState.assetManagementData && typeof nextState.assetManagementData === "object") setAssetManagementData(ensureAssetManagementData(nextState.assetManagementData));
       if (nextState.employeeCenterData && typeof nextState.employeeCenterData === "object") setEmployeeCenterData(ensureEmployeeCenterData(nextState.employeeCenterData));
+      if (nextState.financialData && typeof nextState.financialData === "object") setFinancialData(ensureFinancialData(nextState.financialData));
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
@@ -5535,6 +5750,7 @@
     useEffect(() => save(KEYS.icgFrontRest, ensureIcgFrontRestData(icgFrontRestData)), [icgFrontRestData]);
     useEffect(() => save(KEYS.assetManagement, ensureAssetManagementData(assetManagementData)), [assetManagementData]);
     useEffect(() => save(KEYS.employeeCenter, ensureEmployeeCenterData(employeeCenterData)), [employeeCenterData]);
+    useEffect(() => save(KEYS.financial, ensureFinancialData(financialData)), [financialData]);
     useEffect(() => save(BAR_KEYS.inventario, barInventario), [barInventario]);
     useEffect(() => save(BAR_KEYS.cuartoFrioInventario, barCuartoFrioInventario), [barCuartoFrioInventario]);
     useEffect(() => save(BAR_KEYS.miseAnPlace, normalizeMiseItems(barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.barMiseAnPlace); }))), [barMiseAnPlace, miseDeletedKeys]);
@@ -5848,7 +6064,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -6223,6 +6439,7 @@ Solicitado: ${cantidad}`);
       { key: "cuartoFrio", icon: "fa-snowflake", label: "Cuarto Frio", section: null },
       { key: "produccion", icon: "fa-industry", label: "Producción", section: "PRODUCCIÓN Y CONTROL" },
       { key: "costeoPlatos", icon: "fa-calculator", label: "Costeo de Platos", section: null },
+      { key: "finanzas", icon: "fa-sack-dollar", label: "Finanzas", section: "ADMINISTRACION" },
       { key: "historialMermas", icon: "fa-scale-balanced", label: "Historial de Mermas", section: null },
       { key: "entradas", icon: "fa-arrow-right-to-bracket", label: "Entradas", section: "MOVIMIENTOS" },
       { key: "salidas", icon: "fa-arrow-right-from-bracket", label: "Salidas", section: null },
@@ -6256,6 +6473,7 @@ Solicitado: ${cantidad}`);
       histDecomiso: "Historial Decomiso Cocina",
       historialMermas: "Historial de Mermas",
       costeoPlatos: "Costeo de Platos",
+      finanzas: "Finanzas",
       activosOperativos: "Activos Operativos",
       employeeCenter: "Centro del Colaborador",
       usuarios: "Administrar Usuarios",
@@ -6560,6 +6778,7 @@ Solicitado: ${cantidad}`);
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       historialMermas: /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
       costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData }),
+      finanzas: /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, onSystemLog: addSystemLog }),
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios }),
@@ -10704,6 +10923,192 @@ Solicitado: ${cantidad}`);
         )
       )
     );
+  }
+  function FinanzasPage({ data, setData, currentUser, usuarios = [], employeeCenterData = null, icgFrontRestData = null, inventario = [], cuartoFrioInventario = [], barInventario = [], barCuartoFrioInventario = [], regEntradas = [], barRegEntradas = [], onSystemLog = null }) {
+    const toast = useToast();
+    const normalized = ensureFinancialData(data);
+    const [active, setActive] = useState("dashboard");
+    const [period, setPeriod] = useState(() => getFinancialMonthRange(new Date()));
+    const [saleForm, setSaleForm] = useState({ fecha: new Date().toISOString().slice(0, 10), canal: "Efectivo", ventaBruta: "", descuentos: "", devoluciones: "", comisiones: "", retenciones: "", netoRecibido: "", observacion: "" });
+    const [expenseForm, setExpenseForm] = useState({ fecha: new Date().toISOString().slice(0, 10), tipo: "Gasto", categoria: "Alquiler", monto: "", cuenta: normalized.settings.defaultAccount || "Caja", proveedor: "", metodoPago: "", observacion: "" });
+    const [payrollForm, setPayrollForm] = useState({ empleadoId: "", fechaPago: new Date().toISOString().slice(0, 10), periodStart: period.start, periodEnd: period.end, salarioBruto: "", deducciones: "", aportesEmpresa: "", estado: "Borrador", observacion: "" });
+    const [commitmentForm, setCommitmentForm] = useState({ descripcion: "", categoria: "Alquiler", beneficiario: "", montoEstimado: "", montoReal: "", fechaVencimiento: new Date().toISOString().slice(0, 10), frecuencia: "Mensual", cuenta: normalized.settings.defaultAccount || "Caja", estado: "Pendiente", observacion: "" });
+    const [attendanceForm, setAttendanceForm] = useState({ empleadoId: "", fecha: new Date().toISOString().slice(0, 10), entradaProgramada: "", entradaReal: "", salidaProgramada: "", salidaReal: "", dispositivo: "", observacion: "" });
+    const productMap = useMemo(function() {
+      return buildFinancialProductMap(inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario);
+    }, [inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario]);
+    const inventoryValue = useMemo(function() {
+      return calculateFinancialInventoryValue(productMap.rows);
+    }, [productMap]);
+    const statement = useMemo(function() {
+      return calculateFinancialStatement({ financialData: normalized, range: period, icgFrontRestData, productMap, inventoryValue, regEntradas, barRegEntradas });
+    }, [normalized, period, icgFrontRestData, productMap, inventoryValue, regEntradas, barRegEntradas]);
+    const activeUsers = (Array.isArray(usuarios) ? usuarios : []).filter(function(user) { return user && user.activo !== false; });
+    const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
+    function updateData(updater, logPayload) {
+      if (typeof setData !== "function") return;
+      setData(function(prev) {
+        const current = ensureFinancialData(prev);
+        const next = ensureFinancialData(typeof updater === "function" ? updater(current) : updater);
+        return next;
+      });
+      if (typeof onSystemLog === "function" && logPayload) onSystemLog(Object.assign({ modulo: "Finanzas" }, logPayload));
+    }
+    function addSale() {
+      const gross = parseCostNumber(saleForm.ventaBruta);
+      if (!(gross > 0)) return toast("Indica la venta bruta.", "error");
+      const row = Object.assign({}, saleForm, {
+        id: `sale-${Date.now()}`,
+        ventaBruta: gross,
+        descuentos: parseCostNumber(saleForm.descuentos),
+        devoluciones: parseCostNumber(saleForm.devoluciones),
+        comisiones: parseCostNumber(saleForm.comisiones),
+        retenciones: parseCostNumber(saleForm.retenciones),
+        netoRecibido: parseCostNumber(saleForm.netoRecibido),
+        fuente: "Manual",
+        usuario: getUserDisplayLabel(currentUser),
+        createdAt: new Date().toISOString()
+      });
+      updateData((prev) => Object.assign({}, prev, { sales: [row].concat(prev.sales || []) }), { accion: "Registrar venta financiera", detalle: `${row.canal} ${formatAssetCurrency(row.ventaBruta)}` });
+      setSaleForm((p) => Object.assign({}, p, { ventaBruta: "", descuentos: "", devoluciones: "", comisiones: "", retenciones: "", netoRecibido: "", observacion: "" }));
+      toast("Venta registrada.", "ok");
+    }
+    function addExpense() {
+      const amount = parseCostNumber(expenseForm.monto);
+      if (!(amount > 0)) return toast("Indica el monto.", "error");
+      const row = Object.assign({}, expenseForm, { id: `expense-${Date.now()}`, monto: amount, fuente: "Manual", estado: "Registrado", usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString() });
+      updateData((prev) => Object.assign({}, prev, { expenses: [row].concat(prev.expenses || []) }), { accion: "Registrar movimiento financiero", detalle: `${row.tipo} ${row.categoria} ${formatAssetCurrency(row.monto)}` });
+      setExpenseForm((p) => Object.assign({}, p, { monto: "", proveedor: "", metodoPago: "", observacion: "" }));
+      toast("Movimiento registrado.", "ok");
+    }
+    function addPayroll() {
+      const gross = parseCostNumber(payrollForm.salarioBruto);
+      if (!(gross > 0)) return toast("Indica el salario bruto.", "error");
+      const user = activeUsers.find((u) => String(u.id || u.email) === String(payrollForm.empleadoId));
+      const deductions = parseCostNumber(payrollForm.deducciones);
+      const company = parseCostNumber(payrollForm.aportesEmpresa);
+      const row = Object.assign({}, payrollForm, { id: `payroll-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", salarioBruto: gross, deducciones: deductions, aportesEmpresa: company, netoPagar: Number((gross - deductions).toFixed(2)), usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString() });
+      updateData((prev) => Object.assign({}, prev, { payrollRuns: [row].concat(prev.payrollRuns || []) }), { accion: "Registrar nomina", detalle: `${row.empleado} ${formatAssetCurrency(row.netoPagar)}` });
+      setPayrollForm((p) => Object.assign({}, p, { salarioBruto: "", deducciones: "", aportesEmpresa: "", observacion: "" }));
+      toast("Nómina registrada.", "ok");
+    }
+    function addCommitment() {
+      const amount = parseCostNumber(commitmentForm.montoReal) || parseCostNumber(commitmentForm.montoEstimado);
+      if (!(amount > 0) || !commitmentForm.descripcion.trim()) return toast("Indica descripcion y monto.", "error");
+      const row = Object.assign({}, commitmentForm, { id: `commit-${Date.now()}`, montoEstimado: parseCostNumber(commitmentForm.montoEstimado), montoReal: parseCostNumber(commitmentForm.montoReal), pagado: 0, usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString() });
+      updateData((prev) => Object.assign({}, prev, { commitments: [row].concat(prev.commitments || []) }), { accion: "Registrar compromiso", detalle: `${row.descripcion} ${formatAssetCurrency(amount)}` });
+      setCommitmentForm((p) => Object.assign({}, p, { descripcion: "", beneficiario: "", montoEstimado: "", montoReal: "", observacion: "" }));
+      toast("Compromiso registrado.", "ok");
+    }
+    function payCommitment(row) {
+      const balance = Math.max(0, Number(row.montoReal || row.montoEstimado || 0) - Number(row.pagado || 0));
+      const raw = prompt(`Monto a pagar para ${row.descripcion}`, String(balance));
+      if (raw == null) return;
+      const amount = parseCostNumber(raw);
+      if (!(amount > 0)) return toast("Monto invalido.", "error");
+      const now = new Date().toISOString();
+      updateData(function(prev) {
+        const commitments = prev.commitments.map(function(item) {
+          if (item.id !== row.id) return item;
+          const pagado = Number((Number(item.pagado || 0) + amount).toFixed(2));
+          const total = Number(item.montoReal || item.montoEstimado || 0);
+          return Object.assign({}, item, { pagado, estado: pagado >= total ? "Pagado" : "Parcial", updatedAt: now });
+        });
+        const expense = { id: `expense-${Date.now()}`, fecha: now.slice(0, 10), tipo: "Gasto", categoria: row.categoria || "Compromiso", monto: amount, cuenta: row.cuenta || normalized.settings.defaultAccount, proveedor: row.beneficiario || "", metodoPago: row.metodoPago || "", observacion: `Pago compromiso: ${row.descripcion}`, fuente: "Compromisos", estado: "Registrado", usuario: getUserDisplayLabel(currentUser), createdAt: now };
+        return Object.assign({}, prev, { commitments, expenses: [expense].concat(prev.expenses || []) });
+      }, { accion: "Pagar compromiso", detalle: `${row.descripcion} ${formatAssetCurrency(amount)}` });
+      toast("Pago registrado y gasto creado.", "ok");
+    }
+    function addAttendance() {
+      if (!attendanceForm.empleadoId || !attendanceForm.fecha) return toast("Selecciona colaborador y fecha.", "error");
+      const user = activeUsers.find((u) => String(u.id || u.email) === String(attendanceForm.empleadoId));
+      const toMinutes = (text) => {
+        const parts = String(text || "").split(":").map(Number);
+        return parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) ? parts[0] * 60 + parts[1] : null;
+      };
+      const ep = toMinutes(attendanceForm.entradaProgramada);
+      const er = toMinutes(attendanceForm.entradaReal);
+      const sp = toMinutes(attendanceForm.salidaProgramada);
+      const sr = toMinutes(attendanceForm.salidaReal);
+      const late = ep != null && er != null ? Math.max(0, er - ep - Number(normalized.settings.attendanceToleranceMinutes || 0)) : 0;
+      const worked = er != null && sr != null ? Number(((sr - er) / 60).toFixed(2)) : 0;
+      const extra = sp != null && sr != null ? Math.max(0, sr - sp) : 0;
+      const row = Object.assign({}, attendanceForm, { id: `att-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", minutosTarde: late, horasTrabajadas: worked, minutosAdicionales: extra, estado: er == null || sr == null ? "Incompleto" : late > 0 ? "Tardanza" : "OK", createdAt: new Date().toISOString() });
+      updateData((prev) => Object.assign({}, prev, { attendance: [row].concat(prev.attendance || []) }), { accion: "Registrar asistencia", detalle: `${row.empleado} ${row.estado}` });
+      toast("Asistencia registrada.", "ok");
+    }
+    function closePeriod() {
+      if (!confirm(`Cerrar periodo ${period.start} al ${period.end}? Se guardara un snapshot administrativo.`)) return;
+      const row = { id: `closing-${Date.now()}`, periodStart: period.start, periodEnd: period.end, label: period.label, estado: "Cerrado", fecha: new Date().toISOString(), usuario: getUserDisplayLabel(currentUser), ventasNetas: statement.sales.ventasNetas, costoMercancia: statement.costoMercancia, utilidadBruta: statement.utilidadBruta, gastosOperativos: statement.gastosOperativos, nominaTotal: statement.payroll.totalCost, resultadoOperativo: statement.resultadoOperativo, margenNeto: statement.margenNeto, inventarioInicial: statement.inventarioInicial, inventarioFinal: statement.inventarioFinal, flujoNeto: statement.flujoNeto, compromisosPendientes: statement.commitments.pendingTotal };
+      updateData((prev) => Object.assign({}, prev, { closings: [row].concat(prev.closings || []) }), { accion: "Cerrar periodo financiero", detalle: `${period.label} ${formatAssetCurrency(row.resultadoOperativo)}` });
+      toast("Periodo cerrado.", "ok");
+    }
+    function stat(label, value, color, title) {
+      return /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 5 }, title },
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, label),
+        /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 21, color: color || "#111827" } }, value)
+      );
+    }
+    function field(label, value, setValue, props) {
+      return /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+        /* @__PURE__ */ React.createElement("label", { className: "form-label" }, label),
+        /* @__PURE__ */ React.createElement("input", Object.assign({ className: "form-control", value, onChange: (e) => setValue(e.target.value) }, props || {}))
+      );
+    }
+    const tabs = [["dashboard", "Dashboard"], ["estado", "Estado de Resultados"], ["ventas", "Ventas"], ["gastos", "Compras y Gastos"], ["inventario", "Inventario Valorado"], ["flujo", "Flujo de Caja"], ["nomina", "Nomina"], ["compromisos", "Compromisos"], ["asistencia", "Control Horario"], ["cierres", "Historial / Cierres"], ["config", "Configuracion"]];
+    return /* @__PURE__ */ React.createElement("div", null,
+      /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" } },
+        /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: "#111827" } }, "Finanzas"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Control financiero administrativo: utilidad, flujo de caja, compromisos, nomina e inventario valorizado.")),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: period.start, onChange: (e) => setPeriod((p) => Object.assign({}, p, { start: e.target.value })), style: { width: 150 } }),
+          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: period.end, onChange: (e) => setPeriod((p) => Object.assign({}, p, { end: e.target.value })), style: { width: 150 } }),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setPeriod(getFinancialMonthRange(new Date())) }, "Mes actual")
+        )
+      )),
+      /* @__PURE__ */ React.createElement("div", { className: "grid-4" },
+        stat("Ventas netas", formatAssetCurrency(statement.sales.ventasNetas), "#15803d", "Ventas brutas menos descuentos y devoluciones."),
+        stat("Costo mercancia", formatAssetCurrency(statement.costoMercancia), "#b45309", "Inventario inicial + compras - inventario final."),
+        stat("Resultado operativo", formatAssetCurrency(statement.resultadoOperativo), statement.resultadoOperativo >= 0 ? "#15803d" : "#b91c1c"),
+        stat("Flujo neto caja", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#4338ca" : "#b91c1c", "Dinero real entrado menos salidas reales.")
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { marginTop: 12 } }, tabs.map((tab) => /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${active === tab[0] ? "active" : ""}`, onClick: () => setActive(tab[0]) }, tab[1]))),
+      active === "dashboard" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Lectura del periodo")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } },
+          ["Ventas netas: " + formatAssetCurrency(statement.sales.ventasNetas), "Utilidad bruta: " + formatAssetCurrency(statement.utilidadBruta), "Gastos operativos: " + formatAssetCurrency(statement.gastosOperativos), "Nomina total: " + formatAssetCurrency(statement.payroll.totalCost), "Margen administrativo: " + statement.margenNeto + "%", "Inventario disponible: " + formatAssetCurrency(statement.inventarioFinal), "Compromisos pendientes: " + formatAssetCurrency(statement.commitments.pendingTotal)].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)),
+          /* @__PURE__ */ React.createElement("div", { className: statement.resultadoOperativo >= 0 ? "alert alert-info" : "alert alert-danger" }, statement.resultadoOperativo >= 0 ? "El periodo muestra ganancia administrativa provisional. Recuerda: utilidad no es lo mismo que efectivo." : "El periodo muestra perdida administrativa provisional. Revisa costo de mercancia, gastos y nomina.")
+        )),
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Alertas")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } },
+          statement.commitments.overdueCount ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, statement.commitments.overdueCount, " compromiso(s) vencido(s).") : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "No hay compromisos vencidos."),
+          statement.sales.ventasNetas > 0 && statement.payroll.totalCost / statement.sales.ventasNetas > 0.25 ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "La nomina supera el 25% de las ventas netas.") : null,
+          inventoryValue.details.filter((row) => !row.ok).length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, inventoryValue.details.filter((row) => !row.ok).length, " producto(s) no se pudieron valorizar por falta de costo.") : null
+        ))
+      ),
+      active === "estado" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Estado de Resultados")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("tbody", null, [["Ventas brutas", statement.sales.ventaBruta], ["Descuentos / devoluciones", -(statement.sales.descuentos + statement.sales.devoluciones)], ["Ventas netas", statement.sales.ventasNetas], ["Costo mercancia consumida", -statement.costoMercancia], ["Utilidad bruta", statement.utilidadBruta], ["Gastos operativos", -statement.gastosOperativos], ["Nomina", -statement.payroll.totalCost], ["Resultado del periodo", statement.resultadoOperativo]].map((row) => /* @__PURE__ */ React.createElement("tr", { key: row[0] }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row[0]), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontWeight: 800, color: row[1] >= 0 ? "#15803d" : "#b91c1c" } }, formatAssetCurrency(row[1])))))))),
+      active === "ventas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar venta manual")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", saleForm.fecha, (v) => setSaleForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: saleForm.canal, onChange: (e) => setSaleForm((p) => Object.assign({}, p, { canal: e.target.value })) }, normalized.settings.salesChannels.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Venta bruta", saleForm.ventaBruta, (v) => setSaleForm((p) => Object.assign({}, p, { ventaBruta: v })), { type: "number" }), field("Descuentos", saleForm.descuentos, (v) => setSaleForm((p) => Object.assign({}, p, { descuentos: v })), { type: "number" }), field("Comisiones / retenciones", saleForm.comisiones, (v) => setSaleForm((p) => Object.assign({}, p, { comisiones: v })), { type: "number" }), field("Neto recibido", saleForm.netoRecibido, (v) => setSaleForm((p) => Object.assign({}, p, { netoRecibido: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSale }, "Guardar venta"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Ventas del periodo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, statement.salesRows.length)), renderSimpleFinanceTable(statement.salesRows.slice(0, 80), ["fecha", "canal", "ventaBruta", "netoRecibido", "fuente"]))),
+      active === "gastos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar compra o gasto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", expenseForm.fecha, (v) => setExpenseForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.tipo, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Gasto", "Compra de inventario", "Nomina", "Impuesto", "Retiro propietario", "Aporte propietario", "Transferencia interna", "Otro"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.categoria, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { categoria: e.target.value })) }, normalized.settings.expenseCategories.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Monto", expenseForm.monto, (v) => setExpenseForm((p) => Object.assign({}, p, { monto: v })), { type: "number" }), field("Proveedor / beneficiario", expenseForm.proveedor, (v) => setExpenseForm((p) => Object.assign({}, p, { proveedor: v }))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addExpense }, "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Gastos del periodo")), renderSimpleFinanceTable(statement.manualExpenses.slice(0, 80), ["fecha", "tipo", "categoria", "monto", "proveedor"]))),
+      active === "inventario" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Inventario Valorado"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, formatAssetCurrency(inventoryValue.total))), renderSimpleFinanceTable(inventoryValue.details.slice(0, 160).map((row) => ({ producto: row.product.nombre, area: row.area, ubicacion: row.ubicacion, existencia: row.existencia, valor: row.value, estado: row.ok ? "OK" : row.costInfo.reason })), ["producto", "area", "ubicacion", "existencia", "valor", "estado"])),
+      active === "flujo" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, stat("Entradas de efectivo", formatAssetCurrency(statement.flujoEntradas), "#15803d"), stat("Salidas de efectivo", formatAssetCurrency(statement.flujoSalidas), "#b91c1c"), stat("Flujo neto", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#15803d" : "#b91c1c"), stat("Diferencia utilidad vs caja", formatAssetCurrency(statement.resultadoOperativo - statement.flujoNeto), "#4338ca")),
+      active === "nomina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar nomina")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: payrollForm.empleadoId, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Salario bruto", payrollForm.salarioBruto, (v) => setPayrollForm((p) => Object.assign({}, p, { salarioBruto: v })), { type: "number" }), field("Deducciones", payrollForm.deducciones, (v) => setPayrollForm((p) => Object.assign({}, p, { deducciones: v })), { type: "number" }), field("Aportes empresa", payrollForm.aportesEmpresa, (v) => setPayrollForm((p) => Object.assign({}, p, { aportesEmpresa: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addPayroll }, "Guardar nomina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nomina del periodo")), renderSimpleFinanceTable(statement.payrollRows.slice(0, 80), ["fechaPago", "empleado", "salarioBruto", "deducciones", "netoPagar", "aportesEmpresa", "estado"]))),
+      active === "compromisos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nuevo compromiso")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Descripcion", commitmentForm.descripcion, (v) => setCommitmentForm((p) => Object.assign({}, p, { descripcion: v }))), field("Beneficiario", commitmentForm.beneficiario, (v) => setCommitmentForm((p) => Object.assign({}, p, { beneficiario: v }))), field("Monto estimado", commitmentForm.montoEstimado, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoEstimado: v })), { type: "number" }), field("Vencimiento", commitmentForm.fechaVencimiento, (v) => setCommitmentForm((p) => Object.assign({}, p, { fechaVencimiento: v })), { type: "date" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addCommitment }, "Guardar compromiso"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Pendientes"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, formatAssetCurrency(statement.commitments.pendingTotal))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Descripcion", "Vence", "Monto", "Pagado", "Estado", "Accion"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, statement.commitments.pending.slice(0, 80).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.descripcion), /* @__PURE__ */ React.createElement("td", null, row.fechaVencimiento), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoReal || row.montoEstimado)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.pagado || 0)), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => payCommitment(row) }, "Pagar"))))))))),
+      active === "asistencia" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar marcacion")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: attendanceForm.empleadoId, onChange: (e) => setAttendanceForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Fecha", attendanceForm.fecha, (v) => setAttendanceForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), field("Entrada programada", attendanceForm.entradaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaProgramada: v })), { type: "time" }), field("Entrada real", attendanceForm.entradaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaReal: v })), { type: "time" }), field("Salida programada", attendanceForm.salidaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaProgramada: v })), { type: "time" }), field("Salida real", attendanceForm.salidaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaReal: v })), { type: "time" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addAttendance }, "Guardar marcacion"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistencia reciente")), renderSimpleFinanceTable(normalized.attendance.slice(0, 100), ["fecha", "empleado", "entradaReal", "salidaReal", "horasTrabajadas", "minutosTarde", "estado"]))),
+      active === "cierres" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Cierres financieros"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: closePeriod }, "Cerrar periodo")), renderSimpleFinanceTable(normalized.closings.slice(0, 80), ["label", "periodStart", "periodEnd", "ventasNetas", "resultadoOperativo", "inventarioFinal", "flujoNeto", "estado"])),
+      active === "config" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion financiera")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Las tasas de nomina, cuentas y categorias quedan configurables. No se guardan credenciales NGTeco en el navegador ni en Git."), /* @__PURE__ */ React.createElement("div", null, "Perfiles RRHH disponibles: ", employeeProfiles.length), /* @__PURE__ */ React.createElement("div", null, "Cuentas: ", normalized.settings.accounts.join(", ")), /* @__PURE__ */ React.createElement("div", null, "Canales venta: ", normalized.settings.salesChannels.join(", "))))
+    );
+  }
+  function renderSimpleFinanceTable(rows, columns) {
+    const dataRows = Array.isArray(rows) ? rows : [];
+    return dataRows.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+      /* @__PURE__ */ React.createElement("table", null,
+        /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, col)))),
+        /* @__PURE__ */ React.createElement("tbody", null, dataRows.map(function(row, index) {
+          return /* @__PURE__ */ React.createElement("tr", { key: row.id || index }, columns.map(function(col) {
+            const value = row[col];
+            const formatted = typeof value === "number" && /monto|venta|neto|salario|deducciones|aportes|valor|costo|flujo|resultado|inventario/i.test(col) ? formatAssetCurrency(value) : value == null || value === "" ? "-" : String(value);
+            return /* @__PURE__ */ React.createElement("td", { key: col }, formatted);
+          }));
+        }))
+      )
+    ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
   }
   function LoginScreen({ onLogin, toast }) {
     const [email, setEmail] = useState("");
