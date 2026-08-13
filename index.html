@@ -3876,21 +3876,34 @@
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return row && (getIcgArticleCode(row) || getIcgArticleReference(row) || getIcgArticleDescription(row));
+    }).map(function(row) {
+      const optionValue = getIcgArticleOptionValue(row);
+      return Object.assign({}, row, {
+        _icgOptionValue: optionValue,
+        _icgSearchText: normalizar([
+          optionValue,
+          getIcgArticleCode(row),
+          getIcgArticleReference(row),
+          getIcgArticleDescription(row)
+        ].join(" "))
+      });
     });
   }
   function filterIcgArticleRowsForInput(icgArticles, query, limit) {
     const rows = Array.isArray(icgArticles) ? icgArticles : [];
-    const max = limit || 90;
+    const max = limit || 35;
     const text = normalizar(query);
-    if (!text) return rows.slice(0, max);
+    if (!text || text.length < 2 && !/^\d+$/.test(text)) return [];
     const matches = [];
     for (let i = 0; i < rows.length && matches.length < max; i += 1) {
       const row = rows[i];
-      const optionText = normalizar(getIcgArticleOptionValue(row));
-      const code = normalizar(getIcgArticleCode(row));
-      const reference = normalizar(getIcgArticleReference(row));
-      const description = normalizar(getIcgArticleDescription(row));
-      if (optionText.includes(text) || code.includes(text) || reference.includes(text) || description.includes(text)) {
+      const searchText = row._icgSearchText || normalizar([
+        getIcgArticleOptionValue(row),
+        getIcgArticleCode(row),
+        getIcgArticleReference(row),
+        getIcgArticleDescription(row)
+      ].join(" "));
+      if (searchText.includes(text)) {
         matches.push(row);
       }
     }
@@ -4070,10 +4083,10 @@
       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, safeLinks.map(function(link, index) {
         const inputValue = link.value || [link.CodArticulo, link.Referencia, link.ProductoICG].filter(Boolean).join(" | ");
         const listId = `${idPrefix}-icg-article-list-${index}`;
-        const filteredArticles = filterIcgArticleRowsForInput(icgArticles, inputValue, 90);
+        const filteredArticles = filterIcgArticleRowsForInput(icgArticles, inputValue, 35);
         return /* @__PURE__ */ React.createElement(React.Fragment, { key: index },
-          /* @__PURE__ */ React.createElement("datalist", { id: listId }, filteredArticles.map(function(row, articleIndex) {
-            const value = getIcgArticleOptionValue(row);
+          filteredArticles.length > 0 && /* @__PURE__ */ React.createElement("datalist", { id: listId }, filteredArticles.map(function(row, articleIndex) {
+            const value = row._icgOptionValue || getIcgArticleOptionValue(row);
             return value ? /* @__PURE__ */ React.createElement("option", { key: `${value}-${articleIndex}`, value }, value) : null;
           })),
           /* @__PURE__ */ React.createElement("div", { className: "icg-link-row", style: { display: "grid", gap: 8, gridTemplateColumns: "minmax(180px, 1fr) 95px 90px 72px 36px", alignItems: "center" } },
