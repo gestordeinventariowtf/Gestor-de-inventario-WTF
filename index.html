@@ -10048,10 +10048,130 @@ Solicitado: ${cantidad}`);
     const insumos = Array.isArray(receta && receta.insumos) ? receta.insumos : [];
     const details = insumos.map(function(item) { return calculateCostIngredient(item, productMaps); });
     const total = Number(details.reduce(function(sum, row) { return sum + Number(row.cost || 0); }, 0).toFixed(4));
-    const missing = details.filter(function(row) { return !row.ok; });
+    const enrichedDetails = details.map(function(row) {
+      return Object.assign({}, row, { percentOfTotal: total > 0 ? Number((Number(row.cost || 0) / total * 100).toFixed(2)) : 0 });
+    });
+    const missing = enrichedDetails.filter(function(row) { return !row.ok; });
     const rendimiento = Number(receta && (receta.cantidadObjetivo || receta.rendimiento || receta.cantidadProducida) || 0);
     const costPerUnit = rendimiento > 0 ? Number((total / rendimiento).toFixed(4)) : null;
-    return { total, details, missing, rendimiento, costPerUnit };
+    return { total, details: enrichedDetails, missing, rendimiento, costPerUnit };
+  }
+  const DEFAULT_COSTEO_CONFIG = {
+    targetFoodCostPercent: 35,
+    minContributionMargin: 0,
+    reviewFoodCostPercent: 38,
+    lowMarginFoodCostPercent: 45,
+    criticalFoodCostPercent: 55,
+    commercialRoundTo: 5,
+    staleCostDays: 45,
+    snapshotVariancePercent: 5
+  };
+  function normalizeCosteoConfig(config) {
+    const raw = config && typeof config === "object" ? config : {};
+    const normalized = Object.assign({}, DEFAULT_COSTEO_CONFIG);
+    Object.keys(normalized).forEach(function(key) {
+      const value = Number(raw[key]);
+      if (Number.isFinite(value) && value >= 0) normalized[key] = value;
+    });
+    normalized.reviewFoodCostPercent = Math.max(normalized.targetFoodCostPercent, normalized.reviewFoodCostPercent);
+    normalized.lowMarginFoodCostPercent = Math.max(normalized.reviewFoodCostPercent, normalized.lowMarginFoodCostPercent);
+    normalized.criticalFoodCostPercent = Math.max(normalized.lowMarginFoodCostPercent, normalized.criticalFoodCostPercent);
+    normalized.commercialRoundTo = normalized.commercialRoundTo > 0 ? normalized.commercialRoundTo : 5;
+    return normalized;
+  }
+  function getCosteoConfigStorageKey(moduleLabel) {
+    return `wtf_costeo_platos_config_${normalizar(moduleLabel || "cocina") || "cocina"}`;
+  }
+  function getCosteoSnapshotStorageKey(moduleLabel) {
+    return `wtf_costeo_platos_snapshots_${normalizar(moduleLabel || "cocina") || "cocina"}`;
+  }
+  function getRecipeSalePrice(receta) {
+    return parseCostNumber(receta && (receta.precioVenta ?? receta.PrecioVenta ?? receta.precio ?? receta.Precio ?? receta.pvp ?? receta.PVP));
+  }
+  function roundCommercialPrice(value, step) {
+    const amount = Number(value);
+    const increment = Number(step) || 5;
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+    return Number((Math.ceil(amount / increment) * increment).toFixed(2));
+  }
+  function calculateCosteoFinancials(cost, salePrice, config) {
+    const cfg = normalizeCosteoConfig(config);
+    const total = Number(cost && cost.total || 0);
+    const price = Number(salePrice || 0);
+    const complete = cost && Array.isArray(cost.missing) ? cost.missing.length === 0 : true;
+    const foodCostPercent = price > 0 ? Number((total / price * 100).toFixed(2)) : null;
+    const contributionMargin = price > 0 ? Number((price - total).toFixed(2)) : null;
+    const contributionMarginPercent = price > 0 ? Number(((price - total) / price * 100).toFixed(2)) : null;
+    const targetPrice = cfg.targetFoodCostPercent > 0 && total > 0 ? Number((total / (cfg.targetFoodCostPercent / 100)).toFixed(2)) : 0;
+    const suggestedPrice = roundCommercialPrice(targetPrice, cfg.commercialRoundTo);
+    let status = "sinPrecio";
+    let label = "Sin precio";
+    let pillClass = "pill-gris";
+    let color = "#6b7280";
+    let reason = price > 0 ? "Costo calculado con datos actuales." : "Falta precio de venta para calcular Food Cost y margen.";
+    if (!complete) {
+      status = "incompleto";
+      label = "Incompleto";
+      pillClass = "pill-rojo";
+      color = "#b91c1c";
+      reason = "Hay insumos sin costo, cantidad valida o conversion.";
+    } else if (price > 0) {
+      if (foodCostPercent >= cfg.criticalFoodCostPercent || contributionMargin < cfg.minContributionMargin) {
+        status = "critico";
+        label = "Critico";
+        pillClass = "pill-rojo";
+        color = "#b91c1c";
+        reason = contributionMargin < cfg.minContributionMargin ? "Margen RD$ por debajo del minimo configurado." : "Food Cost muy por encima del objetivo.";
+      } else if (foodCostPercent >= cfg.lowMarginFoodCostPercent) {
+        status = "margenBajo";
+        label = "Margen bajo";
+        pillClass = "pill-naranja";
+        color = "#c2410c";
+        reason = "Food Cost alto; conviene revisar precio o insumos.";
+      } else if (foodCostPercent > cfg.targetFoodCostPercent || foodCostPercent >= cfg.reviewFoodCostPercent) {
+        status = "revisar";
+        label = "Revisar";
+        pillClass = "pill-naranja";
+        color = "#b45309";
+        reason = "Food Cost por encima del objetivo configurado.";
+      } else {
+        status = "saludable";
+        label = "Saludable";
+        pillClass = "pill-verde";
+        color = "#15803d";
+        reason = "Dentro del objetivo de Food Cost.";
+      }
+    }
+    return { price, foodCostPercent, contributionMargin, contributionMarginPercent, targetPrice, suggestedPrice, status, label, pillClass, color, reason };
+  }
+  function getTopCostDriver(cost) {
+    const rows = Array.isArray(cost && cost.details) ? cost.details.filter(function(row) { return row.ok && Number(row.cost || 0) > 0; }) : [];
+    if (!rows.length) return null;
+    return rows.slice().sort(function(a, b) { return Number(b.cost || 0) - Number(a.cost || 0); })[0];
+  }
+  function buildCosteoExplanation(name, financials, driver) {
+    if (!financials) return "Sin analisis disponible.";
+    if (financials.status === "incompleto") return `${name} tiene costeo incompleto. Corrige los insumos pendientes antes de tomar decisiones de precio.`;
+    if (financials.price <= 0) return `${name} ya tiene costo calculado, pero necesita precio de venta para evaluar Food Cost y margen.`;
+    const driverText = driver ? ` El mayor componente del costo es ${driver.name} con ${driver.percentOfTotal || 0}%.` : "";
+    return `${name} tiene Food Cost de ${financials.foodCostPercent}% y margen de contribucion de ${formatAssetCurrency(financials.contributionMargin)}.${driverText}`;
+  }
+  function buildCosteoAlerts(rows, config) {
+    const alerts = [];
+    (Array.isArray(rows) ? rows : []).forEach(function(row) {
+      const cost = row.costeo || row._costeo;
+      const financials = row.financials || calculateCosteoFinancials(cost, row.salePrice || (cost && cost.salePrice), config);
+      if (!cost) return;
+      const name = row.nombre || getIcgArticleDescription(row) || "Producto";
+      if (cost.missing && cost.missing.length) {
+        alerts.push({ severity: "critica", pillClass: "pill-rojo", name, message: `${cost.missing.length} insumo(s) sin costo completo.` });
+      } else if (financials.status === "critico" || financials.status === "margenBajo" || financials.status === "revisar") {
+        alerts.push({ severity: financials.status === "critico" ? "critica" : "advertencia", pillClass: financials.status === "critico" ? "pill-rojo" : "pill-naranja", name, message: `${financials.label}: ${financials.reason}` });
+      } else if (financials.status === "sinPrecio") {
+        alerts.push({ severity: "info", pillClass: "pill-gris", name, message: "Sin precio de venta para evaluar rentabilidad." });
+      }
+    });
+    return alerts.slice(0, 80);
   }
   function getCostIcgArticleKey(row) {
     return [getIcgArticleCode(row), getIcgArticleReference(row), getIcgArticleDescription(row)].map(function(value) {
@@ -10071,7 +10191,7 @@ Solicitado: ${cantidad}`);
   function getIcgArticleSalePrice(row) {
     return parseCostNumber(row && (row.PrecioIva ?? row.Precio ?? row.PVP ?? row.PVenta ?? row.Valor ?? row.PrecioVenta));
   }
-  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel) {
+  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel, costeoConfig) {
     const code = normalizar(getIcgArticleCode(article));
     const reference = normalizar(getIcgArticleReference(article));
     const description = normalizar(getIcgArticleDescription(article));
@@ -10100,7 +10220,8 @@ Solicitado: ${cantidad}`);
     const salePrice = getIcgArticleSalePrice(article);
     const margin = salePrice > 0 ? Number((salePrice - total).toFixed(2)) : null;
     const marginPercent = salePrice > 0 ? Number(((salePrice - total) / salePrice * 100).toFixed(2)) : null;
-    return { links, details, total, missing, salePrice, margin, marginPercent };
+    const financials = calculateCosteoFinancials({ total, missing, details: enrichedDetails }, salePrice, costeoConfig);
+    return { links, details: enrichedDetails, total, missing, salePrice, margin, marginPercent, financials };
   }
   function CosteoPlatosPage({ moduleLabel = "Cocina", inventario = [], cuartoFrioInventario = [], miseAnPlace = [], recetas = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
     const [activeTab, setActiveTab] = useState("recetas");
@@ -10109,7 +10230,25 @@ Solicitado: ${cantidad}`);
     const [selectedRecipeId, setSelectedRecipeId] = useState("");
     const [selectedIcgKey, setSelectedIcgKey] = useState("");
     const [precioVenta, setPrecioVenta] = useState("");
+    const [costeoConfig, setCosteoConfig] = useState(function() {
+      return normalizeCosteoConfig(load(getCosteoConfigStorageKey(moduleLabel), DEFAULT_COSTEO_CONFIG));
+    });
+    const [costeoSnapshots, setCosteoSnapshots] = useState(function() {
+      const saved = load(getCosteoSnapshotStorageKey(moduleLabel), []);
+      return Array.isArray(saved) ? saved : [];
+    });
     const toast = useToast();
+    useEffect(function() {
+      setCosteoConfig(normalizeCosteoConfig(load(getCosteoConfigStorageKey(moduleLabel), DEFAULT_COSTEO_CONFIG)));
+      const saved = load(getCosteoSnapshotStorageKey(moduleLabel), []);
+      setCosteoSnapshots(Array.isArray(saved) ? saved : []);
+    }, [moduleLabel]);
+    useEffect(function() {
+      save(getCosteoConfigStorageKey(moduleLabel), normalizeCosteoConfig(costeoConfig));
+    }, [costeoConfig, moduleLabel]);
+    useEffect(function() {
+      save(getCosteoSnapshotStorageKey(moduleLabel), Array.isArray(costeoSnapshots) ? costeoSnapshots.slice(0, 250) : []);
+    }, [costeoSnapshots, moduleLabel]);
     const products = useMemo(function() {
       return buildCostProductRows(inventario, cuartoFrioInventario, miseAnPlace, moduleLabel);
     }, [inventario, cuartoFrioInventario, miseAnPlace, moduleLabel]);
@@ -10120,11 +10259,21 @@ Solicitado: ${cantidad}`);
       return (Array.isArray(recetas) ? recetas : []).filter(function(receta) {
         return receta && String(receta.nombre || "").trim();
       }).map(function(receta) {
-        return Object.assign({}, receta, { costeo: calculateRecipeCost(receta, productMaps) });
+        const costeo = calculateRecipeCost(receta, productMaps);
+        const salePrice = getRecipeSalePrice(receta);
+        const financials = calculateCosteoFinancials(costeo, salePrice, costeoConfig);
+        const topDriver = getTopCostDriver(costeo);
+        return Object.assign({}, receta, {
+          costeo,
+          salePrice,
+          financials,
+          topDriver,
+          costeoExplanation: buildCosteoExplanation(receta.nombre || "Receta", financials, topDriver)
+        });
       }).sort(function(a, b) {
         return String(a.nombre || "").localeCompare(String(b.nombre || ""));
       });
-    }, [recetas, productMaps]);
+    }, [recetas, productMaps, costeoConfig]);
     const filteredRecipes = useMemo(function() {
       const q = normalizar(busqueda);
       if (!q) return recipeCosts;
@@ -10157,11 +10306,11 @@ Solicitado: ${cantidad}`);
         if (!q) return true;
         return normalizar(getIcgArticleCode(row)).includes(q) || normalizar(getIcgArticleReference(row)).includes(q) || normalizar(getIcgArticleDescription(row)).includes(q) || normalizar(getCostIcgArticleCategory(row)).includes(q);
       }).map(function(row) {
-        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel) });
+        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel, costeoConfig) });
       }).sort(function(a, b) {
         return a._category.localeCompare(b._category) || getIcgArticleDescription(a).localeCompare(getIcgArticleDescription(b));
       });
-    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg]);
+    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg, costeoConfig]);
     const icgGroups = useMemo(function() {
       return icgArticleCards.reduce(function(groups, row) {
         const category = row._category || "Sin categoria";
@@ -10179,11 +10328,47 @@ Solicitado: ${cantidad}`);
     const totalCosted = recipeCosts.filter(function(row) { return row.costeo.missing.length === 0; }).length;
     const totalWithIssues = recipeCosts.length - totalCosted;
     const avgRecipeCost = recipeCosts.length ? Number((recipeCosts.reduce(function(sum, row) { return sum + Number(row.costeo.total || 0); }, 0) / recipeCosts.length).toFixed(2)) : 0;
+    const financialRecipeRows = recipeCosts.filter(function(row) { return row.salePrice > 0 && row.costeo.missing.length === 0; });
+    const healthyRows = financialRecipeRows.filter(function(row) { return row.financials.status === "saludable"; }).length;
+    const criticalRows = recipeCosts.filter(function(row) { return ["critico", "margenBajo"].includes(row.financials.status); }).length;
+    const avgFoodCost = financialRecipeRows.length ? Number((financialRecipeRows.reduce(function(sum, row) { return sum + Number(row.financials.foodCostPercent || 0); }, 0) / financialRecipeRows.length).toFixed(2)) : null;
+    const worstFoodCostRow = financialRecipeRows.slice().sort(function(a, b) { return Number(b.financials.foodCostPercent || 0) - Number(a.financials.foodCostPercent || 0); })[0] || null;
+    const bestMarginRow = financialRecipeRows.slice().sort(function(a, b) { return Number(b.financials.contributionMargin || 0) - Number(a.financials.contributionMargin || 0); })[0] || null;
+    const costeoAlerts = useMemo(function() {
+      return buildCosteoAlerts(recipeCosts, costeoConfig);
+    }, [recipeCosts, costeoConfig]);
+    const selectedFinancials = selectedRecipe ? selectedRecipe.financials : null;
+    const selectedDriver = selectedRecipe ? selectedRecipe.topDriver : null;
+    const selectedSimFinancials = selectedCost ? calculateCosteoFinancials(selectedCost, salePrice, costeoConfig) : null;
     function statCard(label, value, color) {
       return /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 5 } },
         /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, label),
         /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 22, color } }, value)
       );
+    }
+    function updateCosteoConfigField(key, value) {
+      setCosteoConfig(function(prev) {
+        return normalizeCosteoConfig(Object.assign({}, prev, { [key]: value }));
+      });
+    }
+    function createCosteoSnapshot() {
+      const now = new Date().toISOString();
+      const rows = recipeCosts.map(function(row) {
+        return {
+          id: row.id || row.nombre,
+          nombre: row.nombre || "",
+          costo: row.costeo.total,
+          precio: row.salePrice,
+          foodCost: row.financials.foodCostPercent,
+          margen: row.financials.contributionMargin,
+          estado: row.financials.label,
+          incompleto: row.costeo.missing.length
+        };
+      });
+      setCosteoSnapshots(function(prev) {
+        return [{ id: `${Date.now()}`, fecha: now, modulo: moduleLabel, totalRecetas: rows.length, rows }].concat(Array.isArray(prev) ? prev : []).slice(0, 250);
+      });
+      toast("Snapshot de costeo guardado localmente.", "ok");
     }
     function updateIcgArticles(updater) {
       if (typeof setIcgFrontRestData !== "function") return;
@@ -10231,11 +10416,17 @@ Solicitado: ${cantidad}`);
       /* @__PURE__ */ React.createElement("div", { className: "grid-4" },
         statCard("Recetas", recipeCosts.length, "#4338ca"),
         statCard("Completas", totalCosted, "#15803d"),
-        statCard("Por revisar", totalWithIssues, "#b91c1c"),
-        statCard("Costo promedio", formatAssetCurrency(avgRecipeCost), "#0f766e")
+        statCard("Por revisar", totalWithIssues + criticalRows, "#b91c1c"),
+        statCard("Food Cost prom.", avgFoodCost == null ? "Sin precios" : `${avgFoodCost}%`, "#0f766e")
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "grid-4", style: { marginTop: 12 } },
+        statCard("Saludables", healthyRows, "#15803d"),
+        statCard("Costo promedio", formatAssetCurrency(avgRecipeCost), "#0f766e"),
+        statCard("Peor Food Cost", worstFoodCostRow ? `${worstFoodCostRow.nombre}: ${worstFoodCostRow.financials.foodCostPercent}%` : "Sin datos", "#b45309"),
+        statCard("Mayor margen", bestMarginRow ? `${bestMarginRow.nombre}: ${formatAssetCurrency(bestMarginRow.financials.contributionMargin)}` : "Sin datos", "#4338ca")
       ),
       /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { marginTop: 12 } },
-        [["recetas", "Recetas costeadas"], ["icgProductos", "Productos ICG"], ["faltantes", "Auditoria de costos"], ["simulador", "Simulador"]].map(function(tab) {
+        [["recetas", "Recetas costeadas"], ["alertas", "Alertas"], ["icgProductos", "Productos ICG"], ["faltantes", "Auditoria de costos"], ["simulador", "Simulador"], ["historial", "Historial"], ["config", "Configuracion"]].map(function(tab) {
           return /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${activeTab === tab[0] ? "active" : ""}`, onClick: function() { setActiveTab(tab[0]); } }, tab[1]);
         })
       ),
@@ -10249,20 +10440,51 @@ Solicitado: ${cantidad}`);
         ),
         filteredRecipes.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", padding: 30 } }, "No hay recetas para costear en este modulo.") : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
           /* @__PURE__ */ React.createElement("table", null,
-            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Receta", "Insumos", "Costo total", "Rendimiento", "Costo por unidad", "Estado"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Receta", "Insumos", "Costo", "Precio", "Food Cost", "Margen RD$", "Estado", "Principal costo"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
             /* @__PURE__ */ React.createElement("tbody", null, filteredRecipes.map(function(row) {
               const cost = row.costeo;
+              const financials = row.financials;
+              const driver = row.topDriver;
               return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.nombre, className: cost.missing.length ? "tr-out-stock" : "" },
-                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.nombre || "-"),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.nombre || "-", /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3, fontWeight: 600 } }, row.costeoExplanation)),
                 /* @__PURE__ */ React.createElement("td", null, (cost.details || []).slice(0, 4).map(function(item) {
-                  return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${item.name}-${item.qtyText}`, style: { fontSize: 12 } }, item.name, " - ", item.qtyText || "-", item.ok ? ` - ${formatAssetCurrency(item.cost)}` : ` - ${item.problem}`);
+                  return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${item.name}-${item.qtyText}`, style: { fontSize: 12 } }, item.name, " - ", item.qtyText || "-", item.ok ? ` - ${formatAssetCurrency(item.cost)} (${item.percentOfTotal}%)` : ` - ${item.problem}`);
                 }), cost.details.length > 4 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "+", cost.details.length - 4, " insumos mas")),
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: cost.missing.length ? "var(--rojo)" : "var(--verde)" } }, formatAssetCurrency(cost.total)),
-                /* @__PURE__ */ React.createElement("td", null, cost.rendimiento > 0 ? `${formatMiseQty(cost.rendimiento)} ${row.medidaObjetivo || "Uni"}` : "Sin rendimiento"),
-                /* @__PURE__ */ React.createElement("td", null, cost.costPerUnit != null ? formatAssetCurrency(cost.costPerUnit) : "-"),
-                /* @__PURE__ */ React.createElement("td", null, cost.missing.length ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, cost.missing.length, " pendiente", cost.missing.length === 1 ? "" : "s") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Costeo completo"))
+                /* @__PURE__ */ React.createElement("td", null, row.salePrice > 0 ? formatAssetCurrency(row.salePrice) : "Sin precio"),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: financials.color } }, financials.foodCostPercent == null ? "-" : `${financials.foodCostPercent}%`),
+                /* @__PURE__ */ React.createElement("td", null, financials.contributionMargin == null ? "-" : formatAssetCurrency(financials.contributionMargin)),
+                /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${financials.pillClass}` }, financials.label)),
+                /* @__PURE__ */ React.createElement("td", null, driver ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, /* @__PURE__ */ React.createElement("strong", null, driver.name), /* @__PURE__ */ React.createElement("div", { style: { color: "var(--gris)" } }, formatAssetCurrency(driver.cost), " - ", driver.percentOfTotal, "%")) : "-")
               );
             }))
+          )
+        )
+      ),
+      activeTab === "alertas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+            /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bell", style: { marginRight: 7, color: "#b45309" } }), "Alertas financieras"),
+            /* @__PURE__ */ React.createElement("span", { className: costeoAlerts.length ? "pill pill-naranja" : "pill pill-verde" }, costeoAlerts.length, " alerta", costeoAlerts.length === 1 ? "" : "s")
+          ),
+          costeoAlerts.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { color: "var(--verde)", fontWeight: 800, textAlign: "center", padding: 30 } }, "No hay alertas de costeo con la configuracion actual.") : /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } },
+            costeoAlerts.map(function(alert, index) {
+              return /* @__PURE__ */ React.createElement("div", { key: `${alert.name}-${index}`, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "grid", gap: 4, background: "#fff" } },
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } },
+                  /* @__PURE__ */ React.createElement("strong", null, alert.name),
+                  /* @__PURE__ */ React.createElement("span", { className: `pill ${alert.pillClass}` }, alert.severity)
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, alert.message)
+              );
+            })
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Lectura ejecutiva")),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+            /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "El modulo calcula el costo actual desde recetas, inventario, cuarto frio y Mise an Place. No modifica precios automaticamente."),
+            worstFoodCostRow && /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 10, fontSize: 13 } }, "Producto con mayor Food Cost: ", /* @__PURE__ */ React.createElement("strong", null, worstFoodCostRow.nombre), " (", worstFoodCostRow.financials.foodCostPercent, "%)."),
+            bestMarginRow && /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #bbf7d0", background: "#f0fdf4", borderRadius: 8, padding: 10, fontSize: 13 } }, "Producto con mayor margen RD$: ", /* @__PURE__ */ React.createElement("strong", null, bestMarginRow.nombre), " (", formatAssetCurrency(bestMarginRow.financials.contributionMargin), ").")
           )
         )
       ),
@@ -10318,7 +10540,8 @@ Solicitado: ${cantidad}`);
                       /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 5 } }, "Cod: ", getIcgArticleCode(article) || "-", " · Ref: ", getIcgArticleReference(article) || "-"),
                       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 } },
                         /* @__PURE__ */ React.createElement("span", { className: cost.missing.length ? "pill pill-rojo" : "pill pill-verde" }, cost.links.length, " vinculo", cost.links.length === 1 ? "" : "s"),
-                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, formatAssetCurrency(cost.total))
+                        /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, formatAssetCurrency(cost.total)),
+                        /* @__PURE__ */ React.createElement("span", { className: `pill ${cost.financials.pillClass}` }, cost.financials.foodCostPercent == null ? cost.financials.label : `${cost.financials.foodCostPercent}%`)
                       )
                     );
                   })
@@ -10342,17 +10565,22 @@ Solicitado: ${cantidad}`);
                 statCard("Precio ICG", selectedIcgArticle._costeo.salePrice > 0 ? formatAssetCurrency(selectedIcgArticle._costeo.salePrice) : "Sin precio", "#4338ca")
               ),
               selectedIcgArticle._costeo.salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-                statCard("Margen bruto", formatAssetCurrency(selectedIcgArticle._costeo.margin), selectedIcgArticle._costeo.margin >= 0 ? "#15803d" : "#b91c1c"),
-                statCard("Margen %", `${selectedIcgArticle._costeo.marginPercent}%`, selectedIcgArticle._costeo.marginPercent >= 0 ? "#15803d" : "#b91c1c")
+                statCard("Food Cost", `${selectedIcgArticle._costeo.financials.foodCostPercent}%`, selectedIcgArticle._costeo.financials.color),
+                statCard("Margen contribucion", formatAssetCurrency(selectedIcgArticle._costeo.financials.contributionMargin), selectedIcgArticle._costeo.financials.contributionMargin >= 0 ? "#15803d" : "#b91c1c")
+              ),
+              selectedIcgArticle._costeo.salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Precio requerido", formatAssetCurrency(selectedIcgArticle._costeo.financials.targetPrice), "#b45309"),
+                statCard("Sugerido comercial", formatAssetCurrency(selectedIcgArticle._costeo.financials.suggestedPrice), "#4338ca")
               ),
               selectedIcgArticle._costeo.details.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
                 /* @__PURE__ */ React.createElement("table", null,
-                  /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Producto WTF", "Cantidad", "Costo", "Estado"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+                  /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Producto WTF", "Cantidad", "Costo", "% costo", "Estado"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
                   /* @__PURE__ */ React.createElement("tbody", null, selectedIcgArticle._costeo.details.map(function(row, idx) {
                     return /* @__PURE__ */ React.createElement("tr", { key: `${selectedIcgArticle._costKey}-${idx}`, className: row.ok ? "" : "tr-out-stock" },
                       /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.name || row.link.ProductoWTF || row.link.ProductoMise || "-"),
                       /* @__PURE__ */ React.createElement("td", null, row.qtyText || `${row.link.CantidadPorVenta || 1} ${row.link.Unidad || "Uni"}`),
                       /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: row.ok ? "var(--verde)" : "var(--rojo)" } }, row.ok ? formatAssetCurrency(row.cost) : "-"),
+                      /* @__PURE__ */ React.createElement("td", null, row.ok ? `${row.percentOfTotal || 0}%` : "-"),
                       /* @__PURE__ */ React.createElement("td", null, row.ok ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "OK") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, row.problem || "Pendiente"))
                     );
                   }))
@@ -10360,6 +10588,63 @@ Solicitado: ${cantidad}`);
               ) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Este articulo ICG no tiene productos WTF relacionados para ", moduleLabel, ". Vinculalo desde Inventario, Cuarto Frio o Mise an Place."),
               selectedIcgArticle._costeo.missing.length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, "El costeo no esta completo porque hay productos WTF sin costo, sin contenido o sin conversion valida.") : null
             ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Selecciona un producto ICG para ver su costeo.")
+          )
+        )
+      ),
+      activeTab === "historial" && /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clock-rotate-left", style: { marginRight: 7, color: "#4338ca" } }), "Historial de snapshots"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: createCosteoSnapshot }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Guardar snapshot")
+        ),
+        costeoSnapshots.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { textAlign: "center", color: "var(--gris)", padding: 30 } }, "Aun no hay snapshots guardados. Guarda uno cuando quieras conservar el corte financiero actual.") : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+          /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Modulo", "Recetas", "Costo total", "Food Cost prom.", "Pendientes"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+            /* @__PURE__ */ React.createElement("tbody", null, costeoSnapshots.slice(0, 80).map(function(snapshot) {
+              const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+              const total = rows.reduce(function(sum, row) { return sum + Number(row.costo || 0); }, 0);
+              const priced = rows.filter(function(row) { return Number(row.foodCost || 0) > 0; });
+              const avg = priced.length ? Number((priced.reduce(function(sum, row) { return sum + Number(row.foodCost || 0); }, 0) / priced.length).toFixed(2)) : null;
+              const pending = rows.reduce(function(sum, row) { return sum + Number(row.incompleto || 0); }, 0);
+              return /* @__PURE__ */ React.createElement("tr", { key: snapshot.id || snapshot.fecha },
+                /* @__PURE__ */ React.createElement("td", null, formatDatetime(snapshot.fecha)),
+                /* @__PURE__ */ React.createElement("td", null, snapshot.modulo || moduleLabel),
+                /* @__PURE__ */ React.createElement("td", null, rows.length || snapshot.totalRecetas || 0),
+                /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(total)),
+                /* @__PURE__ */ React.createElement("td", null, avg == null ? "-" : `${avg}%`),
+                /* @__PURE__ */ React.createElement("td", null, pending ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, pending) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "0"))
+              );
+            }))
+          )
+        )
+      ),
+      activeTab === "config" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sliders", style: { marginRight: 7, color: "#0f766e" } }), "Configuracion financiera")),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+            [
+              ["targetFoodCostPercent", "Food Cost objetivo %"],
+              ["reviewFoodCostPercent", "Revisar desde %"],
+              ["lowMarginFoodCostPercent", "Margen bajo desde %"],
+              ["criticalFoodCostPercent", "Critico desde %"],
+              ["minContributionMargin", "Margen minimo RD$"],
+              ["commercialRoundTo", "Redondeo comercial RD$"],
+              ["snapshotVariancePercent", "Variacion para snapshot %"]
+            ].map(function(field) {
+              return /* @__PURE__ */ React.createElement("div", { key: field[0], className: "form-group", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("label", { className: "form-label" }, field[1]),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: costeoConfig[field[0]], onChange: function(e) { updateCosteoConfigField(field[0], e.target.value); } })
+              );
+            })
+          )
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card" },
+          /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reglas aplicadas")),
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8, fontSize: 13, color: "#374151" } },
+            /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "El costeo usa los costos de compra registrados en Inventario, Cuarto Frio y contenido interno de empaques. No crea recetas paralelas ni modifica precios."),
+            /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Precio objetivo: "), "Costo / Food Cost objetivo."),
+            /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Precio comercial sugerido: "), "precio objetivo redondeado segun la configuracion."),
+            /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Costeo incompleto: "), "nunca se toma como saludable aunque tenga precio."),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: function() { setCosteoConfig(DEFAULT_COSTEO_CONFIG); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate-left" }), "Restaurar valores recomendados")
           )
         )
       ),
@@ -10389,8 +10674,26 @@ Solicitado: ${cantidad}`);
                 statCard("Costo por unidad", selectedCost.costPerUnit != null ? formatAssetCurrency(selectedCost.costPerUnit) : "Sin rendimiento", "#4338ca")
               ),
               salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-                statCard("Margen bruto", formatAssetCurrency(marginAmount), marginAmount >= 0 ? "#15803d" : "#b91c1c"),
-                statCard("Margen %", `${marginPercent}%`, marginPercent >= 0 ? "#15803d" : "#b91c1c")
+                statCard("Food Cost", `${selectedSimFinancials.foodCostPercent}%`, selectedSimFinancials.color),
+                statCard("Margen contribucion", formatAssetCurrency(marginAmount), marginAmount >= 0 ? "#15803d" : "#b91c1c")
+              ),
+              salePrice > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                statCard("Precio requerido", formatAssetCurrency(selectedSimFinancials.targetPrice), "#b45309"),
+                statCard("Sugerido comercial", formatAssetCurrency(selectedSimFinancials.suggestedPrice), "#4338ca")
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+                /* @__PURE__ */ React.createElement("table", null,
+                  /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Insumo", "Cantidad", "Costo", "% costo", "Origen"].map(function(h) { return /* @__PURE__ */ React.createElement("th", { key: h }, h); }))),
+                  /* @__PURE__ */ React.createElement("tbody", null, (selectedCost.details || []).map(function(row, idx) {
+                    return /* @__PURE__ */ React.createElement("tr", { key: `${selectedRecipe.id || selectedRecipe.nombre}-${idx}`, className: row.ok ? "" : "tr-out-stock" },
+                      /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.name),
+                      /* @__PURE__ */ React.createElement("td", null, row.qtyText || "-"),
+                      /* @__PURE__ */ React.createElement("td", null, row.ok ? formatAssetCurrency(row.cost) : row.problem),
+                      /* @__PURE__ */ React.createElement("td", null, row.ok ? `${row.percentOfTotal || 0}%` : "-"),
+                      /* @__PURE__ */ React.createElement("td", null, row.costInfo ? row.costInfo.detail : "-")
+                    );
+                  }))
+                )
               ),
               selectedCost.missing.length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, "Este costo no esta completo. Corrige los productos pendientes antes de usarlo para decision de precio.") : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Costo calculado con los precios y contenidos registrados actualmente.")
             ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No hay recetas disponibles.")
