@@ -10216,7 +10216,10 @@ Solicitado: ${cantidad}`);
       return Object.assign({ link }, calculateCostIngredient(item, productMaps));
     });
     const total = Number(details.reduce(function(sum, row) { return sum + Number(row.cost || 0); }, 0).toFixed(4));
-    const missing = details.filter(function(row) { return !row.ok; });
+    const enrichedDetails = details.map(function(row) {
+      return Object.assign({}, row, { percentOfTotal: total > 0 ? Number((Number(row.cost || 0) / total * 100).toFixed(2)) : 0 });
+    });
+    const missing = enrichedDetails.filter(function(row) { return !row.ok; });
     const salePrice = getIcgArticleSalePrice(article);
     const margin = salePrice > 0 ? Number((salePrice - total).toFixed(2)) : null;
     const marginPercent = salePrice > 0 ? Number(((salePrice - total) / salePrice * 100).toFixed(2)) : null;
