@@ -1267,6 +1267,8 @@
     const unit = normalizeProductionUnitLabel(inputUnit || baseUnit);
     const numericQty = Number(qty || 0);
     if (normalizeUnit(unit) === normalizeUnit(baseUnit)) return Number(numericQty.toFixed(4));
+    if (normalizeUnit(unit) === "uni" && normalizeUnit(baseUnit) === "g") return Number(numericQty.toFixed(4));
+    if (normalizeUnit(unit) === "uni" && normalizeUnit(baseUnit) === "lb") return Number((numericQty / 453.59237).toFixed(4));
     const unitsPerPack = getPackageUnitsPerPack(product, null);
     const outerUnit = getPackageOuterUnit(product, null);
     const internalUnit = getPackageInternalUnit(product, null);
@@ -6588,12 +6590,12 @@ Solicitado: ${cantidad}`);
       { key: "cuartoFrioBar", pageKey: "cuartoFrio", moduleTarget: "bar", label: "Cuarto Frio Bar", inventario: barCuartoFrioInventario }
     ] : [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }];
     const icgInventoryTargets = [
-      ...inventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p) })),
-      ...cuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p) })),
-      ...miseAnPlace.map((p) => ({ targetKey: "miseCocina", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0) })),
-      ...barInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p) })),
-      ...barCuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p) })),
-      ...barMiseAnPlace.map((p) => ({ targetKey: "miseBar", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0) }))
+      ...inventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+      ...cuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+      ...miseAnPlace.map((p) => ({ targetKey: "miseCocina", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p })),
+      ...barInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+      ...barCuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+      ...barMiseAnPlace.map((p) => ({ targetKey: "miseBar", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p }))
     ];
     function applyIcgInventoryImpact(rows) {
       const candidates = (Array.isArray(rows) ? rows : []).filter(function(row) {
@@ -6610,13 +6612,24 @@ Solicitado: ${cantidad}`);
         grouped[key].rows.push(row);
       });
       const movements = Object.values(grouped).map(function(item) {
-        item.cantidad = Number(item.cantidad.toFixed(4));
         const target = icgInventoryTargets.find(function(candidate) {
           return candidate.targetKey === item.targetKey && normalizar(candidate.producto) === normalizar(item.producto);
         });
         if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey} / ${item.producto}`);
+        const convertedParts = (Array.isArray(item.rows) && item.rows.length ? item.rows : [item]).map(function(row) {
+          return convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar || item.cantidad), row.Unidad || item.unidad || "Uni");
+        });
+        if (convertedParts.some(function(value) { return value == null; })) {
+          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${item.unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
+        }
+        item.cantidadOriginal = Number(item.cantidad.toFixed(4));
+        item.unidadOriginal = item.unidad || "Uni";
+        item.cantidad = Number(convertedParts.reduce(function(total, value) {
+          return total + Number(value || 0);
+        }, 0).toFixed(4));
+        item.unidad = target.medida || item.unidad || "Uni";
         if (item.cantidad > getMiseSafeNumber(target.existencia, 0)) {
-          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey}\nExistencia: ${target.existencia}\nSolicitado: ${item.cantidad}`);
+          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey}\nExistencia: ${target.existencia} ${target.medida || ""}\nSolicitado: ${item.cantidad} ${target.medida || ""}`);
         }
         return Object.assign({}, item, { target });
       });
@@ -7222,9 +7235,14 @@ Solicitado: ${cantidad}`);
     }, [hiddenPendingProductionKeys]);
     function resolveProducedMiseUnit(unit) {
       const normalized = normalizeUnit(unit);
+      if (normalized === "g") return "G";
       if (normalized === "lb") return "Lb";
       if (normalized === "oz") return "Oz";
       return "Uni";
+    }
+    function resolveProductionTransferUnit(row, miseTarget) {
+      if (miseTarget && miseTarget.medida) return normalizarMedidaMise(miseTarget.medida);
+      return resolveProducedMiseUnit(row && row.medidaProducida);
     }
     function getNameSimilarityScore(sourceName, targetName) {
       const source = normalizar(sourceName);
@@ -7516,10 +7534,16 @@ Solicitado: ${cantidad}`);
         toast("La producción no tiene nombre de producto.", "error");
         return;
       }
-      const unidadProducida = resolveProducedMiseUnit(row.medidaProducida);
       const match = findMiseTarget(row.miseProductoId || row.miseProductoTarget || row.transferidoAMiseTarget) || findBestMiseMatch(productoNombre);
       if (!match) {
         toast(`No se transfirio "${productoNombre}" porque no existe en Mise an Place. Crealo manualmente en Mise y luego vuelve a transferir.`, "error", 6500);
+        return;
+      }
+      const unidadProducida = resolveProductionTransferUnit(row, match);
+      const unidadDestinoTransferencia = normalizarMedidaMise(match.medida || unidadProducida);
+      const cantidadDestinoTransferencia = convertirCantidadMise(cantidad, unidadProducida, unidadDestinoTransferencia);
+      if (cantidadDestinoTransferencia == null) {
+        toast(`No se pudo transferir "${productoNombre}" porque no hay una conversion valida hacia ${match.producto}.`, "error", 6500);
         return;
       }
       const fechaTransferencia = new Date().toISOString();
@@ -7656,18 +7680,14 @@ Solicitado: ${cantidad}`);
         const current = Array.isArray(prev) ? prev : [];
         let nextRows;
         if (match) {
-          const destinoUnidad = normalizarMedidaMise(match.medida || unidadProducida);
-          const cantidadConvertida = convertirCantidadMise(cantidad, unidadProducida, destinoUnidad);
-          if (cantidadConvertida != null) {
-            nextRows = current.map(function(item) {
-              if (item.id !== match.id) return item;
-              return Object.assign({}, item, {
-                existencia: Number(((Number(item.existencia) || 0) + cantidadConvertida).toFixed(4)),
-                medida: destinoUnidad,
-                updatedAt: now
-              });
+          nextRows = current.map(function(item) {
+            if (item.id !== match.id) return item;
+            return Object.assign({}, item, {
+              existencia: Number(((Number(item.existencia) || 0) + cantidadDestinoTransferencia).toFixed(4)),
+              medida: unidadDestinoTransferencia,
+              updatedAt: now
             });
-          }
+          });
         }
         if (!nextRows) return current;
         if (!miseInsumosPendientes.length) return nextRows;
@@ -7703,19 +7723,16 @@ Solicitado: ${cantidad}`);
           return item.id === row.id ? Object.assign({}, item, {
             transferidoAMiseAt: fechaTransferencia,
             transferidoAMiseTarget: match ? match.producto : productoNombre,
+            miseProductoTarget: match ? match.producto : item.miseProductoTarget || "",
+            miseProductoId: match ? match.id : item.miseProductoId || null,
+            medidaProducida: unidadDestinoTransferencia,
             miseInsumosTransferidosAt: miseInsumosPendientes.length ? fechaTransferencia : item.miseInsumosTransferidosAt || "",
             insumosStockTransferidosAt: stockInsumosPendientes.length ? fechaTransferencia : item.insumosStockTransferidosAt || "",
             updatedAt: fechaTransferencia
           }) : item;
         });
       });
-      const unidadDestino = normalizarMedidaMise(match.medida || unidadProducida);
-      const cantidadDestino = convertirCantidadMise(cantidad, unidadProducida, unidadDestino);
-      if (cantidadDestino != null) {
-        toast(`Produccion transferida a Mise an Place: ${match.producto}`, "ok");
-        return;
-      }
-      toast(`No se pudo transferir "${productoNombre}" porque no hay una conversion valida hacia ${match.producto}.`, "error", 6500);
+      toast(`Produccion transferida a Mise an Place: ${match.producto}`, "ok");
     }
     function prepararEliminacionProduccion(row) {
       if (!row) return { error: "Producción no válida." };
@@ -8800,6 +8817,7 @@ Solicitado: ${cantidad}`);
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const productionMiseTarget = findMiseTarget(miseProductTarget) || findRecipeMiseMatch(findBestRecipeMatch(nombreProducido));
+      const producedUnitForRecord = productionMiseTarget ? normalizarMedidaMise(productionMiseTarget.medida || resultado.medida) : normalizeProductionUnitLabel(resultado.medida);
       const mermaResumen = resolvedInsumos.reduce(function(acc, entry) {
         const baseQty = Number(entry.cantidadUsadaConvertida ?? entry.convertedQty ?? 0);
         const comparison = calculateRealMermaComparison(baseQty, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.cantidadMermaStock || 0);
@@ -8819,7 +8837,7 @@ Solicitado: ${cantidad}`);
           productoProducido: nombreProducido,
           cantidadProducida: Number(cantidadProducidaInput.toFixed(4)),
           cantidadProducidaOriginal: Number(cantidadProducidaInput.toFixed(4)),
-          medidaProducida: resultado.medida,
+          medidaProducida: producedUnitForRecord,
           miseProductoTarget: productionMiseTarget ? productionMiseTarget.producto : "",
           miseProductoId: productionMiseTarget ? productionMiseTarget.id : null,
           insumos: resolvedInsumos.map(function(entry) {
@@ -8938,7 +8956,7 @@ Solicitado: ${cantidad}`);
         usuario: getUserDisplayLabel(currentUser),
         nombre: nombreReceta,
         cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
-        medidaObjetivo: normalizeProductionUnitLabel(resultado.medida),
+        medidaObjetivo: selectedMiseProductTarget ? normalizarMedidaMise(selectedMiseProductTarget.medida || resultado.medida || "Uni") : normalizeProductionUnitLabel(resultado.medida),
         instruccionesPreparacion: String(recipeInstructions || "").trim(),
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
