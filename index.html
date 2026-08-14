@@ -3575,6 +3575,10 @@
     const from = normalizarMedidaMise(desde);
     const to = normalizarMedidaMise(hacia);
     if (from === to) return cantidad;
+    if (from === "G" && to === "Lb") return cantidad / 453.59237;
+    if (from === "Lb" && to === "G") return cantidad * 453.59237;
+    if (from === "G" && to === "Oz") return cantidad / 28.349523125;
+    if (from === "Oz" && to === "G") return cantidad * 28.349523125;
     if (from === "Lb" && to === "Oz") return cantidad * 16;
     if (from === "Oz" && to === "Lb") return cantidad / 16;
     return null;
@@ -5910,6 +5914,7 @@
       if (targetModulo === "employeeCenter") return hasAccess("employeeCenter");
       if (targetModulo === "sharp") return assigned === "sharp" || assigned === "ambos" || assigned === "cocina_bar" || hasAccess("sharp");
       if (targetModulo === "icg" || targetModulo === "icgHost") return hasAccess(targetModulo);
+      if (targetModulo === "finanzas") return hasAccess("finanzas");
       if (assigned === "ambos" || assigned === "cocina_bar") return targetModulo === "cocina" || targetModulo === "bar" || targetModulo === "sharp";
       return assigned === targetModulo;
     }
@@ -6217,6 +6222,9 @@
       if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios") {
         setPage("icgHost");
       }
+      if (modulo === "finanzas" && page !== "finanzas" && page !== "usuarios") {
+        setPage("finanzas");
+      }
       if (modulo === "employeeCenter" && page !== "employeeCenter" && page !== "usuarios") {
         setPage("employeeCenter");
       }
@@ -6487,10 +6495,11 @@ Solicitado: ${cantidad}`);
     const esSharp = modulo === "sharp";
     const esIcg = modulo === "icg";
     const esIcgHost = modulo === "icgHost";
+    const esFinanzas = modulo === "finanzas";
     const esEmployeeCenter = modulo === "employeeCenter";
     const isAdminUtilityPage = page === "usuarios" || page === "systemLogs" || page === "aiAssistant";
     const showFloatingAiChat = isAdminUser(currentUser) || Boolean(currentUser && Array.isArray(currentUser.permisos) && currentUser.permisos.includes("aiAssistant"));
-    const activePage = esSharp && !isAdminUtilityPage ? "sharp" : esIcg && !isAdminUtilityPage ? "icg" : esIcgHost && !isAdminUtilityPage ? "icgHost" : esEmployeeCenter && !isAdminUtilityPage ? "employeeCenter" : page;
+    const activePage = esSharp && !isAdminUtilityPage ? "sharp" : esIcg && !isAdminUtilityPage ? "icg" : esIcgHost && !isAdminUtilityPage ? "icgHost" : esFinanzas && !isAdminUtilityPage ? "finanzas" : esEmployeeCenter && !isAdminUtilityPage ? "employeeCenter" : page;
     const activeInv = esBar ? barInventario : inventario;
     const setActiveInv = esBar ? setBarInventario : setInventario;
     const activeCuartoFrio = esBar ? barCuartoFrioInventario : cuartoFrioInventario;
@@ -6821,6 +6830,7 @@ Solicitado: ${cantidad}`);
           .modulo-card-sharp > div > div:first-child > i,
           .modulo-card-icg > div > div:first-child > i,
           .modulo-card-icg-host > div > div:first-child > i,
+          .modulo-card-finanzas > div > div:first-child > i,
           .modulo-card-employee > div > div:first-child > i { transform: scale(1.08); }
           .modulo-card > div > div:last-child { min-height: 78px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
           .modulo-card > div > div:last-child > div:first-child { min-height: 32px; display: flex; align-items: center; justify-content: center; text-align: center; }
@@ -6833,6 +6843,7 @@ Solicitado: ${cantidad}`);
           .modulo-card-sharp:hover { border-color: #38bdf8; }
           .modulo-card-icg:hover { border-color: #6366f1; }
           .modulo-card-icg-host:hover { border-color: #14b8a6; }
+          .modulo-card-finanzas:hover { border-color: #22c55e; }
           .modulo-card-employee:hover { border-color: #f43f5e; }
         `),
         /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px", gap: 32 } },
@@ -6914,6 +6925,20 @@ Solicitado: ${cantidad}`);
                 )
               )
             ),
+            !onlyAssignedSharp && canUseModulo("finanzas") && /* @__PURE__ */ React.createElement("button", {
+              className: "modulo-card modulo-card-finanzas",
+              onClick: () => { sessionStorage.setItem("wtf_modulo", "finanzas"); setModulo("finanzas"); setPage("finanzas"); }
+            },
+              /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "28px 20px" } },
+                /* @__PURE__ */ React.createElement("div", { style: { width: 72, height: 72, borderRadius: "50%", background: "linear-gradient(135deg,#047857,#2563eb)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(37,99,235,0.32)" } },
+                  /* @__PURE__ */ React.createElement("i", { className: "fas fa-sack-dollar", style: { fontSize: 30, color: "#fff" } })
+                ),
+                /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } },
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: "clamp(18px,3vw,24px)", fontWeight: 800, color: "#fff", marginBottom: 6 } }, "Finanzas"),
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 } }, "Gastos · Nomina", /* @__PURE__ */ React.createElement("br"), "Resultados · Reportes")
+                )
+              )
+            ),
             !onlyAssignedSharp && canUseModulo("employeeCenter") && /* @__PURE__ */ React.createElement("button", {
               className: "modulo-card modulo-card-employee",
               onClick: () => { sessionStorage.setItem("wtf_modulo", "employeeCenter"); setModulo("employeeCenter"); setPage("employeeCenter"); }
@@ -6941,10 +6966,12 @@ Solicitado: ${cantidad}`);
       if (!esSharp && item.key === "sharp") return false;
       if (!esIcg && item.key === "icg") return false;
       if (modulo !== "icgHost" && item.key === "icgHost") return false;
+      if (!esFinanzas && item.key === "finanzas") return false;
       if (!esEmployeeCenter && item.key === "employeeCenter") return false;
       if (esSharp && item.key !== "sharp" && item.key !== "usuarios") return false;
       if (esIcg && item.key !== "icg" && item.key !== "usuarios") return false;
       if (modulo === "icgHost" && item.key !== "icgHost" && item.key !== "usuarios") return false;
+      if (esFinanzas && item.key !== "finanzas" && item.key !== "usuarios") return false;
       if (esEmployeeCenter && item.key !== "employeeCenter" && item.key !== "usuarios") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
@@ -6953,15 +6980,15 @@ Solicitado: ${cantidad}`);
       return hasAccess(item.key);
     });
     let lastSection = null;
-    const moduleIconClass = esEmployeeCenter ? "fas fa-people-group logo-icon" : esIcgHost ? "fas fa-network-wired logo-icon" : esIcg ? "fas fa-cash-register logo-icon" : esSharp ? "fas fa-soap logo-icon" : esBar ? "fas fa-martini-glass logo-icon" : "fas fa-utensils logo-icon";
-    const moduleSmallLabel = esEmployeeCenter ? "Centro Colaborador" : esIcgHost ? "Módulo ICG Host" : esIcg ? "Módulo ICG" : esSharp ? "Módulo Sharp" : esBar ? "Módulo Bar" : "Módulo Cocina";
+    const moduleIconClass = esEmployeeCenter ? "fas fa-people-group logo-icon" : esFinanzas ? "fas fa-sack-dollar logo-icon" : esIcgHost ? "fas fa-network-wired logo-icon" : esIcg ? "fas fa-cash-register logo-icon" : esSharp ? "fas fa-soap logo-icon" : esBar ? "fas fa-martini-glass logo-icon" : "fas fa-utensils logo-icon";
+    const moduleSmallLabel = esEmployeeCenter ? "Centro Colaborador" : esFinanzas ? "Módulo Finanzas" : esIcgHost ? "Módulo ICG Host" : esIcg ? "Módulo ICG" : esSharp ? "Módulo Sharp" : esBar ? "Módulo Bar" : "Módulo Cocina";
     const moduleButtonTheme = {
-      background: esEmployeeCenter ? "rgba(244,63,94,0.12)" : esIcgHost ? "rgba(20,184,166,0.12)" : esIcg ? "rgba(99,102,241,0.12)" : esSharp ? "rgba(14,116,144,0.12)" : esBar ? "rgba(245,158,11,0.12)" : "rgba(21,128,61,0.12)",
-      borderColor: esEmployeeCenter ? "#f43f5e" : esIcgHost ? "#14b8a6" : esIcg ? "#6366f1" : esSharp ? "#0ea5e9" : esBar ? "#f59e0b" : "#15803d",
-      color: esEmployeeCenter ? "#be123c" : esIcgHost ? "#0f766e" : esIcg ? "#4338ca" : esSharp ? "#0f766e" : esBar ? "#b45309" : "#15803d"
+      background: esEmployeeCenter ? "rgba(244,63,94,0.12)" : esFinanzas ? "rgba(37,99,235,0.12)" : esIcgHost ? "rgba(20,184,166,0.12)" : esIcg ? "rgba(99,102,241,0.12)" : esSharp ? "rgba(14,116,144,0.12)" : esBar ? "rgba(245,158,11,0.12)" : "rgba(21,128,61,0.12)",
+      borderColor: esEmployeeCenter ? "#f43f5e" : esFinanzas ? "#2563eb" : esIcgHost ? "#14b8a6" : esIcg ? "#6366f1" : esSharp ? "#0ea5e9" : esBar ? "#f59e0b" : "#15803d",
+      color: esEmployeeCenter ? "#be123c" : esFinanzas ? "#1d4ed8" : esIcgHost ? "#0f766e" : esIcg ? "#4338ca" : esSharp ? "#0f766e" : esBar ? "#b45309" : "#15803d"
     };
-    const moduleButtonIcon = esEmployeeCenter ? "fas fa-people-group" : esIcgHost ? "fas fa-network-wired" : esIcg ? "fas fa-cash-register" : esSharp ? "fas fa-soap" : esBar ? "fas fa-martini-glass" : "fas fa-fire-burner";
-    const moduleButtonLabel = esEmployeeCenter ? "Centro del Colaborador" : esIcgHost ? "ICG Host" : esIcg ? "ICG FrontRest" : esSharp ? "Sharp de Limpieza" : esBar ? "Bar" : "Cocina";
+    const moduleButtonIcon = esEmployeeCenter ? "fas fa-people-group" : esFinanzas ? "fas fa-sack-dollar" : esIcgHost ? "fas fa-network-wired" : esIcg ? "fas fa-cash-register" : esSharp ? "fas fa-soap" : esBar ? "fas fa-martini-glass" : "fas fa-fire-burner";
+    const moduleButtonLabel = esEmployeeCenter ? "Centro del Colaborador" : esFinanzas ? "Finanzas" : esIcgHost ? "ICG Host" : esIcg ? "ICG FrontRest" : esSharp ? "Sharp de Limpieza" : esBar ? "Bar" : "Cocina";
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -7241,7 +7268,6 @@ Solicitado: ${cantidad}`);
       return "Uni";
     }
     function resolveProductionTransferUnit(row, miseTarget) {
-      if (miseTarget && miseTarget.medida) return normalizarMedidaMise(miseTarget.medida);
       return resolveProducedMiseUnit(row && row.medidaProducida);
     }
     function getNameSimilarityScore(sourceName, targetName) {
@@ -7725,7 +7751,8 @@ Solicitado: ${cantidad}`);
             transferidoAMiseTarget: match ? match.producto : productoNombre,
             miseProductoTarget: match ? match.producto : item.miseProductoTarget || "",
             miseProductoId: match ? match.id : item.miseProductoId || null,
-            medidaProducida: unidadDestinoTransferencia,
+            cantidadTransferidaAMise: Number(cantidadDestinoTransferencia.toFixed(4)),
+            unidadTransferidaAMise: unidadDestinoTransferencia,
             miseInsumosTransferidosAt: miseInsumosPendientes.length ? fechaTransferencia : item.miseInsumosTransferidosAt || "",
             insumosStockTransferidosAt: stockInsumosPendientes.length ? fechaTransferencia : item.insumosStockTransferidosAt || "",
             updatedAt: fechaTransferencia
@@ -7757,7 +7784,8 @@ Solicitado: ${cantidad}`);
           };
           warnings.push(transferData.warningMessage);
         } else {
-          const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
+          const cantidadTransferidaGuardada = Number(row.cantidadTransferidaAMise);
+          const cantidadReversaMise = Number.isFinite(cantidadTransferidaGuardada) && cantidadTransferidaGuardada > 0 ? cantidadTransferidaGuardada : convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
           if (cantidadReversaMise == null) {
             transferData = {
               targetName,
@@ -7824,7 +7852,8 @@ Solicitado: ${cantidad}`);
           };
           warnings.push(transferData.warningMessage);
         } else {
-          const cantidadReversaMise = convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
+          const cantidadTransferidaGuardada = Number(row.cantidadTransferidaAMise);
+          const cantidadReversaMise = Number.isFinite(cantidadTransferidaGuardada) && cantidadTransferidaGuardada > 0 ? cantidadTransferidaGuardada : convertirCantidadMise(cantidadProducida, resolveProducedMiseUnit(row.medidaProducida), miseTarget.medida || "Uni");
           if (cantidadReversaMise == null) {
             transferData = {
               targetName,
@@ -8744,31 +8773,26 @@ Solicitado: ${cantidad}`);
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const targetName = existingMise ? existingMise.producto : nombre;
+      const directLoadTargetUnit = normalizarMedidaMise(existingMise.medida || unidad);
+      const directLoadConvertedQty = convertirCantidadMise(cantidad, unidad, directLoadTargetUnit);
+      if (directLoadConvertedQty == null) {
+        setDirectLoadError(`No se puede convertir ${unidad} hacia ${directLoadTargetUnit} en ${existingMise.producto}.`);
+        return;
+      }
       setMise(function(prev) {
         const current = Array.isArray(prev) ? prev : [];
         if (existingMise) {
-          const targetUnit = normalizarMedidaMise(existingMise.medida || unidad);
-          const converted = convertirCantidadMise(cantidad, unidad, targetUnit);
-          if (converted == null) {
-            setDirectLoadError(`No se puede convertir ${unidad} hacia ${targetUnit} en ${existingMise.producto}.`);
-            return current;
-          }
           return current.map(function(item) {
             if (item.id !== existingMise.id) return item;
             return Object.assign({}, item, {
-              existencia: Number(((Number(item.existencia) || 0) + converted).toFixed(4)),
-              medida: targetUnit,
+              existencia: Number(((Number(item.existencia) || 0) + directLoadConvertedQty).toFixed(4)),
+              medida: directLoadTargetUnit,
               updatedAt: now
             });
           });
         }
         return current;
       });
-      if (existingMise) {
-        const targetUnit = normalizarMedidaMise(existingMise.medida || unidad);
-        const converted = convertirCantidadMise(cantidad, unidad, targetUnit);
-        if (converted == null) return;
-      }
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
           id: `prod-${Date.now()}-${Math.random()}`,
@@ -8782,7 +8806,9 @@ Solicitado: ${cantidad}`);
           insumos: [],
           cargaDirecta: true,
           transferidoAMiseAt: now,
-          transferidoAMiseTarget: targetName
+          transferidoAMiseTarget: targetName,
+          cantidadTransferidaAMise: Number(directLoadConvertedQty.toFixed(4)),
+          unidadTransferidaAMise: directLoadTargetUnit
         }];
       });
       toast(`Carga rapida aplicada a Mise an Place: ${targetName}`, "ok");
@@ -8817,7 +8843,6 @@ Solicitado: ${cantidad}`);
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const productionMiseTarget = findMiseTarget(miseProductTarget) || findRecipeMiseMatch(findBestRecipeMatch(nombreProducido));
-      const producedUnitForRecord = productionMiseTarget ? normalizarMedidaMise(productionMiseTarget.medida || resultado.medida) : normalizeProductionUnitLabel(resultado.medida);
       const mermaResumen = resolvedInsumos.reduce(function(acc, entry) {
         const baseQty = Number(entry.cantidadUsadaConvertida ?? entry.convertedQty ?? 0);
         const comparison = calculateRealMermaComparison(baseQty, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.cantidadMermaStock || 0);
@@ -8837,7 +8862,7 @@ Solicitado: ${cantidad}`);
           productoProducido: nombreProducido,
           cantidadProducida: Number(cantidadProducidaInput.toFixed(4)),
           cantidadProducidaOriginal: Number(cantidadProducidaInput.toFixed(4)),
-          medidaProducida: producedUnitForRecord,
+          medidaProducida: normalizeProductionUnitLabel(resultado.medida),
           miseProductoTarget: productionMiseTarget ? productionMiseTarget.producto : "",
           miseProductoId: productionMiseTarget ? productionMiseTarget.id : null,
           insumos: resolvedInsumos.map(function(entry) {
@@ -8956,7 +8981,7 @@ Solicitado: ${cantidad}`);
         usuario: getUserDisplayLabel(currentUser),
         nombre: nombreReceta,
         cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
-        medidaObjetivo: selectedMiseProductTarget ? normalizarMedidaMise(selectedMiseProductTarget.medida || resultado.medida || "Uni") : normalizeProductionUnitLabel(resultado.medida),
+        medidaObjetivo: normalizeProductionUnitLabel(resultado.medida),
         instruccionesPreparacion: String(recipeInstructions || "").trim(),
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
