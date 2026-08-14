@@ -11,7 +11,9 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
@@ -3086,6 +3088,26 @@
     if (isRootAdmin(user)) return user.nombre || "Administrador";
     return user.nombre || user.email || "Usuario";
   }
+  function getUserWelcomeConfig(user) {
+    if (!user || isRootAdmin(user)) return { active: false, days: 0, startAt: 0, expiresAt: 0 };
+    const active = user.bienvenidaActiva === true;
+    const days = Math.max(1, Math.min(365, Number(user.bienvenidaDias || 7) || 7));
+    const startSource = user.bienvenidaDesde || user.createdAt || user.updatedAt || "";
+    const startAt = startSource ? new Date(startSource).getTime() : 0;
+    const safeStartAt = Number.isFinite(startAt) && startAt > 0 ? startAt : Date.now();
+    return { active, days, startAt: safeStartAt, expiresAt: safeStartAt + days * 864e5 };
+  }
+  function shouldShowUserWelcomeCover(user) {
+    const cfg = getUserWelcomeConfig(user);
+    if (!cfg.active || Date.now() > cfg.expiresAt) return false;
+    const key = `wtf_welcome_cover_seen_${user.id || user.email || "user"}_${cfg.startAt}_${cfg.days}`;
+    return sessionStorage.getItem(key) !== "1";
+  }
+  function markUserWelcomeCoverSeen(user) {
+    const cfg = getUserWelcomeConfig(user);
+    const key = `wtf_welcome_cover_seen_${user.id || user.email || "user"}_${cfg.startAt}_${cfg.days}`;
+    sessionStorage.setItem(key, "1");
+  }
   function isAdminUser(user) {
     return Boolean(user) && user.role === "admin";
   }
@@ -4629,6 +4651,8 @@
     const [countForm, setCountForm] = useState({ itemId: "", cantidadFisica: "", causa: "", observaciones: "", foto: "" });
     const [incidentForm, setIncidentForm] = useState({ itemId: "", tipo: "Rotura", cantidad: "", area: "Cocina", turno: "", descripcion: "", reportadoPor: "", responsable: "", testigos: "", gravedad: "Media", estado: "Reportada", accion: "", resolucion: "" });
     const [documentForm, setDocumentForm] = useState({ incidentId: "", tipo: "Informe de incidencia", colaborador: "", contenido: "" });
+    const [assetPhotoBusy, setAssetPhotoBusy] = useState(false);
+    const [assetPhotoViewer, setAssetPhotoViewer] = useState(null);
     const activeItems = normalized.items.filter((item) => item && item.deleted !== true);
     const filteredItems = activeItems.filter(function(item) {
       const q = normalizar(search);
@@ -4646,17 +4670,37 @@
         onSystemLog({ modulo: "Activos Operativos", accion: logPayload.accion || "Cambio", detalle: logPayload.detalle || "" }, currentUser);
       }
     }
-    function readAssetFile(file, cb) {
+    async function readAssetFile(file, cb, options) {
       if (!file) return;
       if (!String(file.type || "").startsWith("image/")) {
         toast("Solo se permiten imagenes para evidencias.", "error");
         return;
       }
-      const reader = new FileReader();
-      reader.onload = function() {
-        cb(String(reader.result || ""));
-      };
-      reader.readAsDataURL(file);
+      const maxMb = Number(options && options.maxMb || 1);
+      const shouldUpload = Boolean(options && options.uploadAssetPhoto);
+      setAssetPhotoBusy(true);
+      try {
+        const compressed = await compressImageToJpeg(file, maxMb, { maxSide: 1400, quality: 0.84 });
+        let payload = { foto: compressed.dataUrl, fotoMime: compressed.mime, fotoSize: compressed.size, fotoStoragePath: "", fotoOriginalName: compressed.originalName };
+        if (shouldUpload) {
+          const categoryFolder = sanitizeStorageName(itemForm.categoria || "Otros");
+          const baseName = sanitizeStorageName([itemForm.codigo, itemForm.nombre, compressed.originalName].filter(Boolean).join("-"));
+          const path = `activo-operativo/${categoryFolder}/${Date.now()}-${baseName}.jpg`;
+          try {
+            const url = await uploadJpegToFirebaseStorage(path, compressed.blob);
+            payload = Object.assign({}, payload, { foto: url, fotoUrl: url, fotoStoragePath: path, fotoStatus: "Storage" });
+          } catch (storageError) {
+            payload = Object.assign({}, payload, { fotoStatus: "Respaldo local", fotoStorageError: storageError && storageError.message ? storageError.message : "Storage no disponible" });
+            toast("Storage no acepto la foto; se dejo respaldo local comprimido.", "info");
+          }
+        }
+        cb(payload);
+        toast(`Foto comprimida a ${Math.max(1, Math.round(compressed.size / 1024))} KB.`, "success");
+      } catch (error) {
+        toast(error.message || "No se pudo procesar la foto.", "error");
+      } finally {
+        setAssetPhotoBusy(false);
+      }
     }
     function addItem() {
       const nombre = String(itemForm.nombre || "").trim();
@@ -4685,7 +4729,7 @@
         updatedBy: getUserDisplayLabel(currentUser)
       });
       updateData((prev) => Object.assign({}, prev, { items: editingItem ? prev.items.map((row) => row.id === editingItem.id ? item : row) : [item].concat(prev.items || []) }), { accion: editingItem ? "Editar activo" : "Crear activo", registro: item.codigo, detalle: `${editingItem ? "Activo actualizado" : "Activo creado"}: ${item.nombre}` });
-      setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", marca: "", modelo: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", proveedor: "", notas: "", foto: "" }));
+      setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", marca: "", modelo: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", proveedor: "", notas: "", foto: "", fotoUrl: "", fotoStoragePath: "", fotoStatus: "", fotoSize: 0 }));
       setEditingAssetId("");
       toast(editingItem ? "Activo actualizado." : "Activo registrado.", "success");
     }
@@ -4869,6 +4913,13 @@
       const values = String(value || "").split(",").map((v) => v.trim()).filter(Boolean);
       updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { [field]: values }) }), { accion: "Configuracion", registro: field, detalle: `Actualizada configuracion ${field}` });
     }
+    function renderAssetPhotoThumb(item) {
+      const src = item && (item.fotoUrl || item.foto);
+      if (!src) return /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Sin foto");
+      return /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setAssetPhotoViewer({ src, title: item.nombre || "Foto del activo" }), title: "Ampliar foto", style: { width: 48, height: 48, border: "1px solid var(--borde)", background: "#fff", borderRadius: 8, padding: 0, overflow: "hidden", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" } },
+        /* @__PURE__ */ React.createElement("img", { src, alt: item.nombre || "Foto del activo", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
+      );
+    }
     const itemOptions = activeItems.map((item) => /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.id }, `${item.codigo || ""} - ${item.nombre || ""}`));
     const summaryCards = [
       ["Valor total", formatAssetCurrency(stats.totalValue), "fa-sack-dollar", "#15803d"],
@@ -4918,13 +4969,17 @@
             /* @__PURE__ */ React.createElement("select", { className: "form-control", value: itemForm.nivelRiesgo, onChange: (e) => setItemForm((p) => Object.assign({}, p, { nivelRiesgo: e.target.value })) }, ASSET_RISK_LEVELS.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))
           ),
           /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion, notas, marca, modelo, material o cuidado especial", value: itemForm.descripcion, onChange: (e) => setItemForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }),
-          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Foto del activo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (foto) => setItemForm((p) => Object.assign({}, p, { foto }))) })),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            (itemForm.fotoUrl || itemForm.foto) && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setAssetPhotoViewer({ src: itemForm.fotoUrl || itemForm.foto, title: itemForm.nombre || "Foto del activo" }), style: { border: "1px solid var(--borde)", background: "#fff", borderRadius: 8, padding: 0, width: 58, height: 58, overflow: "hidden", cursor: "pointer" }, title: "Ver foto" }, /* @__PURE__ */ React.createElement("img", { src: itemForm.fotoUrl || itemForm.foto, alt: "Foto del activo", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })),
+            /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: assetPhotoBusy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${assetPhotoBusy ? "fa-spinner fa-spin" : "fa-camera"}` }), assetPhotoBusy ? "Comprimiendo foto..." : "Foto del activo", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, disabled: assetPhotoBusy, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (payload) => setItemForm((p) => Object.assign({}, p, payload)), { uploadAssetPhoto: true, maxMb: 1 }) })),
+            (itemForm.fotoSize || itemForm.fotoStatus) && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, itemForm.fotoStatus || "Comprimida", itemForm.fotoSize ? ` · ${Math.max(1, Math.round(Number(itemForm.fotoSize || 0) / 1024))} KB` : "")
+          ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addItem }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingAssetId ? "Guardar cambios" : "Guardar activo"),
-            editingAssetId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setEditingAssetId(""); setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", foto: "" })); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-xmark" }), "Cancelar")
+            editingAssetId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setEditingAssetId(""); setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", foto: "", fotoUrl: "", fotoStoragePath: "", fotoStatus: "", fotoSize: 0 })); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-xmark" }), "Cancelar")
           )
         )),
-        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Catalogo maestro"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredItems.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, nombre, categoria o area...", value: search, onChange: (e) => setSearch(e.target.value), style: { marginBottom: 10 } }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Codigo", "Activo", "Area", "Exist.", "Min.", "Valor", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filteredItems.map((item) => /* @__PURE__ */ React.createElement("tr", { key: item.id }, /* @__PURE__ */ React.createElement("td", null, item.codigo), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, item.nombre, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, item.categoria, " · ", item.control)), /* @__PURE__ */ React.createElement("td", null, item.area), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadTeorica || 0), " ", item.unidad), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadMinima || 0)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(getAssetValue(item))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.estado === "Disponible" ? "pill-verde" : item.estado === "En reparacion" ? "pill-naranja" : "pill-gris"}` }, item.estado)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: () => softDeleteItem(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-box-archive" }), "Inactivar")))))))))
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Catalogo maestro"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredItems.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, nombre, categoria o area...", value: search, onChange: (e) => setSearch(e.target.value), style: { marginBottom: 10 } }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Foto", "Codigo", "Activo", "Area", "Exist.", "Min.", "Valor", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filteredItems.map((item) => /* @__PURE__ */ React.createElement("tr", { key: item.id }, /* @__PURE__ */ React.createElement("td", null, renderAssetPhotoThumb(item)), /* @__PURE__ */ React.createElement("td", null, item.codigo), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, item.nombre, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, item.categoria, " · ", item.control)), /* @__PURE__ */ React.createElement("td", null, item.area), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadTeorica || 0), " ", item.unidad), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadMinima || 0)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(getAssetValue(item))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.estado === "Disponible" ? "pill-verde" : item.estado === "En reparacion" ? "pill-naranja" : "pill-gris"}` }, item.estado)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: () => softDeleteItem(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-box-archive" }), "Inactivar")))))))))
       ),
       tab === "movimientos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar movimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.itemId, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.tipo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ASSET_MOVEMENT_TYPES.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad", value: movementForm.cantidad, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { cantidad: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Motivo", value: movementForm.motivo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { motivo: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones", value: movementForm.observaciones, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: registerMovement }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de movimientos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Cant.", "Antes", "Despues"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.movements.slice(0, 120).map((mov) => /* @__PURE__ */ React.createElement("tr", { key: mov.id }, /* @__PURE__ */ React.createElement("td", null, mov.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(mov.fecha)), /* @__PURE__ */ React.createElement("td", null, mov.articulo), /* @__PURE__ */ React.createElement("td", null, mov.tipo), /* @__PURE__ */ React.createElement("td", null, mov.cantidad), /* @__PURE__ */ React.createElement("td", null, mov.cantidadAnterior), /* @__PURE__ */ React.createElement("td", null, mov.cantidadPosterior)))))))),
       tab === "conteos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Conteo fisico")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.itemId, onChange: (e) => setCountForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad fisica contada", value: countForm.cantidadFisica, onChange: (e) => setCountForm((p) => Object.assign({}, p, { cantidadFisica: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.causa, onChange: (e) => setCountForm((p) => Object.assign({}, p, { causa: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Causa probable si hay diferencia"), ["Rotura reportada", "Rotura no reportada", "Perdida", "Dano por calor", "Mal almacenamiento", "Uso incorrecto", "Desgaste normal", "En reparacion", "Transferencia no registrada", "Error de conteo anterior", "Error de registro", "Responsable no determinado", "Otra causa"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones del conteo", value: countForm.observaciones, onChange: (e) => setCountForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Adjuntar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (foto) => setCountForm((p) => Object.assign({}, p, { foto }))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: registerCount }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-check" }), "Cerrar conteo"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de conteos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Teorica", "Fisica", "Dif.", "Estado"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.counts.slice(0, 120).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.articulo), /* @__PURE__ */ React.createElement("td", null, row.cantidadTeorica), /* @__PURE__ */ React.createElement("td", null, row.cantidadFisica), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: Number(row.diferencia || 0) === 0 ? "#15803d" : "#b91c1c" } }, row.diferencia), /* @__PURE__ */ React.createElement("td", null, row.estado)))))))),
@@ -4932,7 +4987,14 @@
       tab === "documentos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Generar documento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Toda carta, amonestacion o medida administrativa debe ser revisada por una persona autorizada antes de utilizarse. El sistema no sanciona automaticamente."), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: documentForm.incidentId, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { incidentId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar incidencia"), normalized.incidents.map((inc) => /* @__PURE__ */ React.createElement("option", { key: inc.id, value: inc.id }, `${inc.numero} - ${inc.articulo}`))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: documentForm.tipo, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Registro de retroalimentacion verbal", "Constancia de capacitacion", "Compromiso de mejora", "Carta de amonestacion", "Advertencia final", "Solicitud de declaracion", "Acta de investigacion", "Informe de incidencia", "Informe de responsable no determinado", "Acta de baja de activo"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Colaborador relacionado", value: documentForm.colaborador, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { colaborador: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 6, placeholder: "Contenido editable antes de emitir", value: documentForm.contenido, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { contenido: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: createDocument }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-signature" }), "Crear borrador"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Documentos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Tipo", "Incidencia", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.documents.map((docRow) => /* @__PURE__ */ React.createElement("tr", { key: docRow.id }, /* @__PURE__ */ React.createElement("td", null, docRow.numero), /* @__PURE__ */ React.createElement("td", null, docRow.tipo), /* @__PURE__ */ React.createElement("td", null, docRow.incidencia), /* @__PURE__ */ React.createElement("td", null, docRow.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => printDocument(docRow) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-print" }), "PDF"))))))))),
       tab === "reportes" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reportes y patrones")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, ["Inventario general", "Incidencias por articulo", "Costos por categoria", "Equipos en reparacion", "Bajas", "Conteos con diferencias"].map((label) => /* @__PURE__ */ React.createElement("button", { key: label, className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(label.includes("Incidencias") ? normalized.incidents : label.includes("Conteos") ? normalized.counts : activeItems, `${label.replace(/\\s+/g, "_")}.xlsx`, label.slice(0, 28), toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-download" }), label))), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Analisis preventivo: revise articulos con incidencias repetidas, diferencias de conteo y costos altos. Estas alertas son sugerencias operativas, no pruebas automaticas de responsabilidad."))),
       tab === "configuracion" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion")), /* @__PURE__ */ React.createElement("div", { className: "card-body grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Categorias (separadas por coma)"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: normalized.settings.categories.join(", "), onChange: (e) => updateSettingsField("categories", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tipos de incidencia"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: normalized.settings.incidentTypes.join(", "), onChange: (e) => updateSettingsField("incidentTypes", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Limite de diferencia que requiere revision"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: normalized.settings.differenceLimit, onChange: (e) => updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { differenceLimit: Number(e.target.value || 0) }) }), { accion: "Configuracion", registro: "differenceLimit", detalle: "Actualizado limite de diferencia" }) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo alto para alerta"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: normalized.settings.highCostLimit, onChange: (e) => updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { highCostLimit: Number(e.target.value || 0) }) }), { accion: "Configuracion", registro: "highCostLimit", detalle: "Actualizado limite de costo alto" }) })))),
-      tab === "bitacora" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Bitacora de activos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Usuario", "Accion", "Registro", "Detalle"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.auditLogs.slice(0, 250).map((log) => /* @__PURE__ */ React.createElement("tr", { key: log.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(log.fecha)), /* @__PURE__ */ React.createElement("td", null, log.usuario), /* @__PURE__ */ React.createElement("td", null, log.accion), /* @__PURE__ */ React.createElement("td", null, log.registro), /* @__PURE__ */ React.createElement("td", null, log.detalle)))))))
+      tab === "bitacora" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Bitacora de activos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Usuario", "Accion", "Registro", "Detalle"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.auditLogs.slice(0, 250).map((log) => /* @__PURE__ */ React.createElement("tr", { key: log.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(log.fecha)), /* @__PURE__ */ React.createElement("td", null, log.usuario), /* @__PURE__ */ React.createElement("td", null, log.accion), /* @__PURE__ */ React.createElement("td", null, log.registro), /* @__PURE__ */ React.createElement("td", null, log.detalle))))))),
+      assetPhotoViewer && /* @__PURE__ */ React.createElement("div", { onClick: () => setAssetPhotoViewer(null), style: { position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.86)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 } },
+        /* @__PURE__ */ React.createElement("button", { type: "button", onClick: (event) => { event.stopPropagation(); setAssetPhotoViewer(null); }, style: { position: "fixed", top: 14, right: 16, width: 42, height: 42, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.25)", background: "rgba(17,24,39,0.92)", color: "#fff", fontSize: 22, fontWeight: 800, cursor: "pointer", zIndex: 10000 }, title: "Cerrar foto" }, "x"),
+        /* @__PURE__ */ React.createElement("div", { onClick: (event) => event.stopPropagation(), style: { maxWidth: "96vw", maxHeight: "90dvh", display: "grid", gap: 10, justifyItems: "center" } },
+          assetPhotoViewer.title && /* @__PURE__ */ React.createElement("div", { style: { color: "#fff", fontWeight: 800, textAlign: "center", fontSize: 14 } }, assetPhotoViewer.title),
+          /* @__PURE__ */ React.createElement("img", { src: assetPhotoViewer.src, alt: assetPhotoViewer.title || "Foto del activo", style: { maxWidth: "96vw", maxHeight: "84dvh", objectFit: "contain", borderRadius: 10, background: "#111827", boxShadow: "0 18px 60px rgba(0,0,0,0.45)" } })
+        )
+      )
     );
   }
   const EMPLOYEE_PROFILE_SEED = [
@@ -5284,6 +5346,67 @@
     }
     return { dataUrl: output, mime: "image/jpeg", size: Math.round(output.length * 0.75), originalName: file.name || "evidencia.jpg" };
   }
+  function dataUrlToBlob(dataUrl) {
+    const parts = String(dataUrl || "").split(",");
+    const meta = parts[0] || "";
+    const binary = atob(parts[1] || "");
+    const mime = (meta.match(/data:([^;]+)/) || [])[1] || "image/jpeg";
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+  function sanitizeStorageName(value) {
+    return String(value || "archivo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "archivo";
+  }
+  async function ensureFirebaseAnonymousAuth() {
+    if (!window.firebase || !window.firebase.auth) return null;
+    const auth = window.firebase.auth();
+    if (auth.currentUser) return auth.currentUser;
+    try {
+      const credential = await auth.signInAnonymously();
+      return credential && credential.user || auth.currentUser;
+    } catch (error) {
+      return null;
+    }
+  }
+  async function compressImageToJpeg(file, maxMb, options) {
+    if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Solo se permiten imagenes.");
+    const dataUrl = await new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise(function(resolve, reject) {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Imagen invalida."));
+      image.src = dataUrl;
+    });
+    const maxBytes = Math.max(1, Number(maxMb || 1)) * 1024 * 1024;
+    let maxSide = Number(options && options.maxSide || 1600);
+    let quality = Number(options && options.quality || 0.84);
+    let output = "";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      output = canvas.toDataURL("image/jpeg", Math.max(0.35, quality));
+      if (output.length * 0.75 <= maxBytes) break;
+      if (quality > 0.48) quality -= 0.1;
+      else maxSide = Math.max(720, Math.round(maxSide * 0.82));
+    }
+    return { dataUrl: output, blob: dataUrlToBlob(output), mime: "image/jpeg", size: Math.round(output.length * 0.75), originalName: file.name || "foto.jpg" };
+  }
+  async function uploadJpegToFirebaseStorage(path, blob) {
+    if (!window.firebase || !window.firebase.storage) throw new Error("Firebase Storage no esta disponible.");
+    await ensureFirebaseAnonymousAuth();
+    const storageRef = window.firebase.storage().ref(path);
+    const snapshot = await storageRef.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
+    return snapshot.ref.getDownloadURL();
+  }
   function EmployeeCenterPage({ data, setData, usuarios = [], setUsuarios, currentUser, onSystemLog, onExitToModules }) {
     const toast = useToast();
     const normalized = ensureEmployeeCenterData(data);
@@ -5457,6 +5580,7 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
+    const [, setWelcomeCoverTick] = useState(0);
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [barInventario, setBarInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.inventario, []), initialInventoryDeletedKeys.barInventario));
     const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.barCuartoFrioInventario));
@@ -6810,6 +6934,12 @@ Solicitado: ${cantidad}`);
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
+    }
+    if (shouldShowUserWelcomeCover(currentUser)) {
+      return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
+        markUserWelcomeCoverSeen(currentUser);
+        setWelcomeCoverTick((v) => v + 1);
+      } });
     }
     const onlyAssignedSharp = currentAssignedModulo() === "sharp";
     if (!modulo) {
@@ -12193,9 +12323,38 @@ Solicitado: ${cantidad}`);
       return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.usuario || "Sistema"), row.email ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.email) : null), /* @__PURE__ */ React.createElement("td", null, row.modulo || "Sistema"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${pillClass}` }, accion)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, row.producto || "-"), /* @__PURE__ */ React.createElement("td", { style: { maxWidth: 360, whiteSpace: "normal" } }, row.detalle || "-"));
     }), filtered.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin eventos registrados")))))));
   }
+  function WelcomeCoverScreen({ user, onStart }) {
+    const cfg = getUserWelcomeConfig(user);
+    const remainingDays = Math.max(0, Math.ceil((cfg.expiresAt - Date.now()) / 864e5));
+    return /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 3000, display: "flex", flexDirection: "column", background: "linear-gradient(160deg,#0f2027 0%,#1a3a2e 50%,#0f2027 100%)", overflow: "hidden" } },
+      /* @__PURE__ */ React.createElement("style", null, `
+        .welcome-cover-action:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(34,197,94,.32); }
+        .welcome-cover-action:active { transform: scale(.98); }
+        .welcome-cover-pulse { animation: welcomeCoverPulse 1.8s ease-in-out infinite; }
+        @keyframes welcomeCoverPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.04); opacity: .88; } }
+      `),
+      /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "28px 18px", textAlign: "center", color: "#fff", gap: 26 } },
+        /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.08)", borderRadius: 999, padding: "7px 18px", color: "#fff", fontSize: 12, fontWeight: 700, letterSpacing: "0.05em" } },
+          /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF SISTEMA"
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "welcome-cover-pulse", style: { width: 96, height: 96, borderRadius: "50%", background: "linear-gradient(135deg,#15803d,#22c55e)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 34px rgba(34,197,94,.38)" } },
+          /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand-sparkles", style: { fontSize: 38, color: "#fff" } })
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, maxWidth: 760 } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: "clamp(16px,2.6vw,22px)", color: "rgba(255,255,255,.72)", fontWeight: 700 } }, "Bienvenido/a"),
+          /* @__PURE__ */ React.createElement("h1", { style: { color: "#fff", fontSize: "clamp(34px,8vw,68px)", lineHeight: 1.02, fontWeight: 900, margin: 0 } }, getUserDisplayLabel(user)),
+          /* @__PURE__ */ React.createElement("p", { style: { color: "rgba(255,255,255,.62)", fontSize: "clamp(14px,2.2vw,18px)", lineHeight: 1.6, margin: "4px auto 0", maxWidth: 620 } }, "Gracias por ser parte del equipo. Este sistema te acompaña para trabajar con orden, control y claridad en cada modulo.")
+        ),
+        /* @__PURE__ */ React.createElement("button", { className: "welcome-cover-action", onClick: onStart, style: { border: "none", borderRadius: 12, padding: "14px 30px", background: "linear-gradient(135deg,#16a34a,#2563eb)", color: "#fff", fontSize: 15, fontWeight: 900, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10, transition: "transform .18s, box-shadow .18s", boxShadow: "0 12px 28px rgba(37,99,235,.26)" } },
+          /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-right" }), "Comenzar"
+        ),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,.42)", fontWeight: 700 } }, remainingDays > 0 ? `Portada activa por ${remainingDays} dia${remainingDays === 1 ? "" : "s"} mas` : "Portada activa hasta hoy")
+      )
+    );
+  }
   function UsuariosPage({ usuarios, setUsuarios }) {
     const toast = useToast();
-    const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos" };
+    const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", bienvenidaActiva: true, bienvenidaDias: 7 };
     const [form, setForm] = useState(emptyForm);
     const [editingId, setEditingId] = useState("");
     const usuariosVisibles = useMemo(function() {
@@ -12229,7 +12388,9 @@ Solicitado: ${cantidad}`);
         role: user.role || "user",
         permisos: Array.from(permisos),
         activo: user.activo !== false,
-        modulo: legacyModulo === "cocina" || legacyModulo === "bar" || legacyModulo === "sharp" || legacyModulo === "employeeCenter" ? legacyModulo : "ambos"
+        modulo: legacyModulo === "cocina" || legacyModulo === "bar" || legacyModulo === "sharp" || legacyModulo === "employeeCenter" ? legacyModulo : "ambos",
+        bienvenidaActiva: user.bienvenidaActiva === true,
+        bienvenidaDias: Math.max(1, Math.min(365, Number(user.bienvenidaDias || 7) || 7))
       });
     }
     function guardarUsuario() {
@@ -12239,6 +12400,8 @@ Solicitado: ${cantidad}`);
       const permisosSet = new Set(form.permisos || []);
       const baseModulo = form.modulo === "cocina" || form.modulo === "bar" || form.modulo === "sharp" || form.modulo === "employeeCenter" ? form.modulo : "ambos";
       const permisos = Array.from(permisosSet);
+      const bienvenidaDias = Math.max(1, Math.min(365, Number(form.bienvenidaDias || 7) || 7));
+      const bienvenidaActiva = form.bienvenidaActiva === true;
       if (!nombre) {
         toast("Ingrese el nombre del usuario.", "error");
         return;
@@ -12275,6 +12438,9 @@ Solicitado: ${cantidad}`);
               permisos,
               activo: form.activo !== false,
               modulo: baseModulo,
+              bienvenidaActiva,
+              bienvenidaDias,
+              bienvenidaDesde: bienvenidaActiva && (u.bienvenidaActiva !== true || Number(u.bienvenidaDias || 7) !== bienvenidaDias) ? now : u.bienvenidaDesde || now,
               updatedAt: now
             });
           }));
@@ -12292,6 +12458,9 @@ Solicitado: ${cantidad}`);
             permisos,
             activo: form.activo !== false,
             modulo: baseModulo,
+            bienvenidaActiva,
+            bienvenidaDias,
+            bienvenidaDesde: bienvenidaActiva ? now : "",
             createdAt: now,
             updatedAt: now
           }]));
@@ -12319,7 +12488,7 @@ Solicitado: ${cantidad}`);
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
