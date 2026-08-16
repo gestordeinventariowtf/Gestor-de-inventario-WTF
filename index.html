@@ -3097,16 +3097,17 @@
     const safeStartAt = Number.isFinite(startAt) && startAt > 0 ? startAt : Date.now();
     return { active, days, startAt: safeStartAt, expiresAt: safeStartAt + days * 864e5 };
   }
-  function shouldShowUserWelcomeCover(user) {
+  function getUserWelcomeCoverKey(user) {
+    const cfg = getUserWelcomeConfig(user);
+    return `wtf_welcome_cover_seen_${user && (user.id || user.email) || "user"}_${cfg.startAt}_${cfg.days}`;
+  }
+  function shouldShowUserWelcomeCover(user, dismissedKey) {
     const cfg = getUserWelcomeConfig(user);
     if (!cfg.active || Date.now() > cfg.expiresAt) return false;
-    const key = `wtf_welcome_cover_seen_${user.id || user.email || "user"}_${cfg.startAt}_${cfg.days}`;
-    return sessionStorage.getItem(key) !== "1";
+    return dismissedKey !== getUserWelcomeCoverKey(user);
   }
   function markUserWelcomeCoverSeen(user) {
-    const cfg = getUserWelcomeConfig(user);
-    const key = `wtf_welcome_cover_seen_${user.id || user.email || "user"}_${cfg.startAt}_${cfg.days}`;
-    sessionStorage.setItem(key, "1");
+    return getUserWelcomeCoverKey(user);
   }
   function isAdminUser(user) {
     return Boolean(user) && user.role === "admin";
@@ -3757,7 +3758,7 @@
     CierresDiarios: {
       label: "Cierres diarios",
       icon: "fa-calendar-check",
-      columns: ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"]
+      columns: ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Propina", "Estado", "Observacion"]
     },
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
@@ -4224,7 +4225,13 @@
       });
     };
     const explicit = icgRows(data, "CierresDiarios");
-    if (explicit.length) return sortRecentFirst(explicit);
+    if (explicit.length) {
+      return sortRecentFirst(explicit).map(function(row) {
+        const pagos = parseIcgNumber(row && row.Pagos);
+        const ventaNeta = pagos || parseIcgNumber(row && row.VentaNeta);
+        return Object.assign({}, row, { VentaNeta: Number(ventaNeta.toFixed(2)) });
+      });
+    }
     const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
       return !(row.FechaAnulacion || row.Anulado || row.Cancelado);
     });
@@ -4253,7 +4260,7 @@
       const row = groups[key];
       return Object.assign({}, row, {
         VentaBruta: Number(row.VentaBruta.toFixed(2)),
-        VentaNeta: Number(row.VentaNeta.toFixed(2)),
+        VentaNeta: Number((row.Pagos || row.VentaNeta).toFixed(2)),
         Pagos: Number(row.Pagos.toFixed(2)),
         Propina: Number(row.Propina.toFixed(2))
       });
@@ -4981,7 +4988,7 @@
             editingAssetId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setEditingAssetId(""); setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", foto: "", fotoUrl: "", fotoStoragePath: "", fotoStatus: "", fotoSize: 0 })); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-xmark" }), "Cancelar")
           )
         )),
-        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Catalogo maestro"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredItems.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, nombre, categoria o area...", value: search, onChange: (e) => setSearch(e.target.value), style: { marginBottom: 10 } }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Codigo", "Foto", "Activo", "Area", "Exist.", "Min.", "Valor", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filteredItems.map((item) => /* @__PURE__ */ React.createElement("tr", { key: item.id }, /* @__PURE__ */ React.createElement("td", null, item.codigo), /* @__PURE__ */ React.createElement("td", null, renderAssetPhotoThumb(item)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, item.nombre, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, item.categoria, " - ", item.control)), /* @__PURE__ */ React.createElement("td", null, item.area), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadTeorica || 0), " ", item.unidad), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadMinima || 0)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(getAssetValue(item))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.estado === "Disponible" ? "pill-verde" : item.estado === "En reparacion" ? "pill-naranja" : "pill-gris"}` }, item.estado)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar activo", onClick: () => setAssetDeleteTarget(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))
+        /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Catalogo maestro"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredItems.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, nombre, categoria o area...", value: search, onChange: (e) => setSearch(e.target.value), style: { marginBottom: 10 } }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Codigo", "Foto", "Activo", "Area", "Exist.", "Min.", "Valor", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filteredItems.map((item) => /* @__PURE__ */ React.createElement("tr", { key: item.id }, /* @__PURE__ */ React.createElement("td", null, item.codigo), /* @__PURE__ */ React.createElement("td", null, renderAssetPhotoThumb(item)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, item.nombre, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, item.categoria, " - ", item.control)), /* @__PURE__ */ React.createElement("td", null, item.area), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadTeorica || 0), " ", item.unidad), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadMinima || 0)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(getAssetValue(item))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.estado === "Disponible" ? "pill-verde" : item.estado === "En reparacion" ? "pill-naranja" : "pill-gris"}` }, item.estado)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar activo", onClick: () => startEditItem(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar activo", onClick: () => setAssetDeleteTarget(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))))))))))
       ),
       tab === "movimientos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar movimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.itemId, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.tipo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ASSET_MOVEMENT_TYPES.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad", value: movementForm.cantidad, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { cantidad: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Motivo", value: movementForm.motivo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { motivo: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones", value: movementForm.observaciones, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: registerMovement }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de movimientos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Cant.", "Antes", "Despues"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.movements.slice(0, 120).map((mov) => /* @__PURE__ */ React.createElement("tr", { key: mov.id }, /* @__PURE__ */ React.createElement("td", null, mov.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(mov.fecha)), /* @__PURE__ */ React.createElement("td", null, mov.articulo), /* @__PURE__ */ React.createElement("td", null, mov.tipo), /* @__PURE__ */ React.createElement("td", null, mov.cantidad), /* @__PURE__ */ React.createElement("td", null, mov.cantidadAnterior), /* @__PURE__ */ React.createElement("td", null, mov.cantidadPosterior)))))))),
       tab === "conteos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Conteo fisico")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.itemId, onChange: (e) => setCountForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad fisica contada", value: countForm.cantidadFisica, onChange: (e) => setCountForm((p) => Object.assign({}, p, { cantidadFisica: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.causa, onChange: (e) => setCountForm((p) => Object.assign({}, p, { causa: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Causa probable si hay diferencia"), ["Rotura reportada", "Rotura no reportada", "Perdida", "Dano por calor", "Mal almacenamiento", "Uso incorrecto", "Desgaste normal", "En reparacion", "Transferencia no registrada", "Error de conteo anterior", "Error de registro", "Responsable no determinado", "Otra causa"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones del conteo", value: countForm.observaciones, onChange: (e) => setCountForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Adjuntar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (foto) => setCountForm((p) => Object.assign({}, p, { foto }))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: registerCount }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-check" }), "Cerrar conteo"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de conteos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Teorica", "Fisica", "Dif.", "Estado"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.counts.slice(0, 120).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.articulo), /* @__PURE__ */ React.createElement("td", null, row.cantidadTeorica), /* @__PURE__ */ React.createElement("td", null, row.cantidadFisica), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: Number(row.diferencia || 0) === 0 ? "#15803d" : "#b91c1c" } }, row.diferencia), /* @__PURE__ */ React.createElement("td", null, row.estado)))))))),
@@ -5588,7 +5595,7 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
-    const [, setWelcomeCoverTick] = useState(0);
+    const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState("");
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [barInventario, setBarInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.inventario, []), initialInventoryDeletedKeys.barInventario));
     const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.barCuartoFrioInventario));
@@ -6474,7 +6481,59 @@
         }));
       });
     }
-    function addMovimientoBar(tipo, productoNombre, cantidad) {
+    function transferInventorySalidaToMise(prod, cantidad, sourceUnit, targetMiseRows, setTargetMiseRows, areaLabel, now) {
+      if (!prod || prod.autoTransferirAMise !== true || typeof setTargetMiseRows !== "function") return;
+      const target = findMiseForInventoryProduct(prod, targetMiseRows);
+      if (!target) return;
+      const fromUnit = sourceUnit || prod.medida || "Uni";
+      const converted = convertInventorySalidaQtyToMiseQty(prod, cantidad, fromUnit, target);
+      if (converted == null || !(converted > 0)) return;
+      const qty = roundQty4(converted);
+      const prevExist = getMiseSafeNumber(target.existencia, 0);
+      setTargetMiseRows(function(prev) {
+        return normalizeMiseItems(prev).map(function(item) {
+          return item.id === target.id ? Object.assign({}, item, {
+            existencia: roundQty4(getMiseSafeNumber(item.existencia, 0) + qty),
+            updatedAt: now
+          }) : item;
+        });
+      });
+      setHistEntradaRapida(function(prev) {
+        return (Array.isArray(prev) ? prev : []).concat({
+          id: `ent-auto-mise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          fecha: now,
+          producto: target.producto,
+          medida: target.medida || fromUnit,
+          cantidad: qty,
+          cantidadOriginal: `${cantidad} ${fromUnit}`,
+          existenciaAnterior: prevExist,
+          existenciaNueva: roundQty4(prevExist + qty),
+          usuario: getUserDisplayLabel(currentUser),
+          origen: `Salida automatica desde ${areaLabel}: ${prod.nombre}`
+        });
+      });
+    }
+    function convertInventorySalidaQtyToMiseQty(prod, cantidad, sourceUnit, target) {
+      const qty = Number(cantidad || 0);
+      if (!(qty > 0)) return null;
+      const fromUnit = normalizeProductionUnitLabel(sourceUnit || prod && prod.medida || "Uni");
+      const targetUnit = normalizeProductionUnitLabel(target && target.medida || fromUnit);
+      const outerUnit = getPackageOuterUnit(prod, null);
+      const internalUnit = getPackageInternalUnit(prod, null);
+      const unitsPerPack = getPackageUnitsPerPack(prod, null);
+      const innerQty = getPackageInnerContentQty(prod, null);
+      const innerUnit = getPackageInnerContentUnit(prod, null);
+      if (unitsPerPack > 0 && normalizeUnit(fromUnit) === normalizeUnit(outerUnit)) {
+        if (normalizeUnit(targetUnit) === normalizeUnit(internalUnit)) return roundQty4(qty * unitsPerPack);
+        if (innerQty > 0 && innerUnit && normalizeUnit(targetUnit) === normalizeUnit(innerUnit)) return roundQty4(qty * unitsPerPack * innerQty);
+      }
+      if (innerQty > 0 && innerUnit && normalizeUnit(fromUnit) === normalizeUnit(internalUnit) && normalizeUnit(targetUnit) === normalizeUnit(innerUnit)) {
+        return roundQty4(qty * innerQty);
+      }
+      const converted = convertMeasureQuantity(qty, fromUnit, targetUnit);
+      return converted == null ? null : roundQty4(converted);
+    }
+    function addMovimientoBar(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const prod = barInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -6484,10 +6543,10 @@
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
-      if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); }
+      if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
       if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
-    function addMovimiento(tipo, productoNombre, cantidad) {
+    function addMovimiento(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const prod = inventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -6518,6 +6577,7 @@ Solicitado: ${cantidad}`);
       if (tipo === "salida") {
         setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r));
         setRegSalidas((p) => [...p, reg]);
+        if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Inventario Cocina", now);
       }
       if (tipo === "decomiso") {
         setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r));
@@ -6525,7 +6585,7 @@ Solicitado: ${cantidad}`);
       }
       syncNeveras({ nombre: prod.nombre, delta: tipo === "entrada" ? cantidad : -cantidad, existenciaAntes: exist });
     }
-    function addMovimientoBarCuartoFrio(tipo, productoNombre, cantidad) {
+    function addMovimientoBarCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const prod = barCuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -6535,10 +6595,10 @@ Solicitado: ${cantidad}`);
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
-      if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); }
+      if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
       if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
-    function addMovimientoCuartoFrio(tipo, productoNombre, cantidad) {
+    function addMovimientoCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const prod = cuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -6565,6 +6625,7 @@ Solicitado: ${cantidad}`);
       if (tipo === "salida") {
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r));
         setRegSalidas((p) => [...p, reg]);
+        if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Cuarto Frio Cocina", now);
       }
       if (tipo === "decomiso") {
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r));
@@ -6709,7 +6770,7 @@ Solicitado: ${cantidad}`);
       }
       return acc;
     }, []);
-    function activeAddMovimiento(tipo, productoNombre, cantidad, storageKey) {
+    function activeAddMovimiento(tipo, productoNombre, cantidad, storageKey, options = {}) {
       const matches = activeMovementProductosRaw.filter(function(item) {
         return normalizar(item.nombre) === normalizar(productoNombre) && (!storageKey || item.storageKey === storageKey);
       });
@@ -6717,12 +6778,12 @@ Solicitado: ${cantidad}`);
       const selected = matches.length === 1 ? matches[0] : matches.find(function(item) {
         return Number(item.existencia || 0) > 0;
       }) || matches[0];
-      if (selected.storageKey === "inventarioCocina") return addMovimiento(tipo, selected.nombre, cantidad);
-      if (selected.storageKey === "cuartoFrioCocina") return addMovimientoCuartoFrio(tipo, selected.nombre, cantidad);
-      if (selected.storageKey === "inventarioBar") return addMovimientoBar(tipo, selected.nombre, cantidad);
-      if (selected.storageKey === "cuartoFrioBar") return addMovimientoBarCuartoFrio(tipo, selected.nombre, cantidad);
-      if (selected.storageKey === "cuartoFrio") return (esBar ? addMovimientoBarCuartoFrio : addMovimientoCuartoFrio)(tipo, selected.nombre, cantidad);
-      return (esBar ? addMovimientoBar : addMovimiento)(tipo, selected.nombre, cantidad);
+      if (selected.storageKey === "inventarioCocina") return addMovimiento(tipo, selected.nombre, cantidad, options);
+      if (selected.storageKey === "cuartoFrioCocina") return addMovimientoCuartoFrio(tipo, selected.nombre, cantidad, options);
+      if (selected.storageKey === "inventarioBar") return addMovimientoBar(tipo, selected.nombre, cantidad, options);
+      if (selected.storageKey === "cuartoFrioBar") return addMovimientoBarCuartoFrio(tipo, selected.nombre, cantidad, options);
+      if (selected.storageKey === "cuartoFrio") return (esBar ? addMovimientoBarCuartoFrio : addMovimientoCuartoFrio)(tipo, selected.nombre, cantidad, options);
+      return (esBar ? addMovimientoBar : addMovimiento)(tipo, selected.nombre, cantidad, options);
     }
     const inventorySearchSourcesForPage = hasCocinaBarLinkAccess ? [
       { key: "inventarioCocina", pageKey: "inventario", moduleTarget: "cocina", label: "Inventario Cocina", inventario },
@@ -6943,10 +7004,9 @@ Solicitado: ${cantidad}`);
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
     }
-    if (shouldShowUserWelcomeCover(currentUser)) {
+    if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
-        markUserWelcomeCoverSeen(currentUser);
-        setWelcomeCoverTick((v) => v + 1);
+        setWelcomeCoverDismissedKey(markUserWelcomeCoverSeen(currentUser));
       } });
     }
     const onlyAssignedSharp = currentAssignedModulo() === "sharp";
@@ -7189,6 +7249,8 @@ Solicitado: ${cantidad}`);
     const [insumos, setInsumos] = useState([]);
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [recipeInstructions, setRecipeInstructions] = useState("");
+    const [recipeMainInstruction, setRecipeMainInstruction] = useState("");
+    const [recipeAllowedUserIds, setRecipeAllowedUserIds] = useState([]);
     const [productionRuns, setProductionRuns] = useState("1");
     const [miseProductTarget, setMiseProductTarget] = useState("");
     const [hiddenRecipeMatchName, setHiddenRecipeMatchName] = useState("");
@@ -7284,12 +7346,26 @@ Solicitado: ${cantidad}`);
         return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q) || normalizar(product.origenLabel || "").includes(q);
       });
     }, [productosInventario, busqueda, insumos, replaceInsumoRowId]);
+    const usingSavedRecipeProduction = Boolean(String(resultado.sourceRecipeId || "").trim());
     const historial = useMemo(function() {
       return Array.isArray(producciones) ? [...producciones].reverse() : [];
     }, [producciones]);
+    const recipesAuthorizedByPermission = Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas");
+    const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
+    function getRecipeAllowedUserIds(receta) {
+      const rows = Array.isArray(receta && receta.usuariosAutorizados) ? receta.usuariosAutorizados : Array.isArray(receta && receta.allowedUserIds) ? receta.allowedUserIds : [];
+      return rows.map(function(value) { return String(value || "").trim(); }).filter(Boolean);
+    }
+    function canUserViewRecipe(receta) {
+      if (isAdminUser(currentUser) || recipesAuthorized) return true;
+      const allowed = getRecipeAllowedUserIds(receta);
+      if (!allowed.length) return true;
+      const currentIds = [currentUser && currentUser.id, currentUser && currentUser.email].map(function(value) { return String(value || "").trim(); }).filter(Boolean);
+      return allowed.some(function(id) { return currentIds.includes(id); });
+    }
     const recetasOrdenadas = useMemo(function() {
-      return Array.isArray(recetas) ? [...recetas].reverse() : [];
-    }, [recetas]);
+      return (Array.isArray(recetas) ? [...recetas].reverse() : []).filter(canUserViewRecipe);
+    }, [recetas, currentUser, recipesAuthorized]);
     const recetasFiltradas = useMemo(function() {
       const q = normalizar(recipeSearch);
       if (!q) return recetasOrdenadas;
@@ -7299,6 +7375,23 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [recetasOrdenadas, recipeSearch]);
+    const recipeUserOptions = useMemo(function() {
+      return (Array.isArray(usuarios) ? usuarios : []).filter(function(user) {
+        return user && !isRootAdmin(user) && user.activo !== false;
+      }).map(function(user) {
+        const id = String(user.id || user.email || "").trim();
+        return { id, label: getUserDisplayLabel(user) };
+      }).filter(function(user) { return user.id; });
+    }, [usuarios]);
+    function toggleRecipeAllowedUser(userId, checked) {
+      const id = String(userId || "").trim();
+      if (!id) return;
+      setRecipeAllowedUserIds(function(prev) {
+        const current = Array.isArray(prev) ? prev.map(String) : [];
+        if (checked) return current.includes(id) ? current : current.concat(id);
+        return current.filter(function(value) { return value !== id; });
+      });
+    }
     useEffect(function() {
       if (typeof setRecetas !== "function") return;
       const normalized = normalizeRecipeRows(recetas);
@@ -7350,8 +7443,6 @@ Solicitado: ${cantidad}`);
         return String(a.producto || "").localeCompare(String(b.producto || ""));
       });
     }, [moduleLabel, recetas, producciones, miseAnPlace]);
-    const recipesAuthorizedByPermission = Array.isArray(currentUser && currentUser.permisos) && currentUser.permisos.includes("autorizacionRecetas");
-    const recipesAuthorized = recipesUnlocked || recipesAuthorizedByPermission;
     useEffect(function() {
       function handleBlur() {
         if (recetarioOpen || recipeSheet) setSecureRecipeHidden(true);
@@ -8183,7 +8274,9 @@ Solicitado: ${cantidad}`);
       setBusqueda("");
       setInsumos([]);
       setResultado({ nombre: "", cantidad: "", medida: "Uni" });
+      setRecipeMainInstruction("");
       setRecipeInstructions("");
+      setRecipeAllowedUserIds([]);
       setProductionRuns("1");
       setMiseProductTarget("");
       setHiddenRecipeMatchName("");
@@ -8199,6 +8292,7 @@ Solicitado: ${cantidad}`);
       if (String(snapshot.resultado && snapshot.resultado.nombre || "").trim()) return true;
       if (String(snapshot.resultado && snapshot.resultado.cantidad || "").trim()) return true;
       if (String(snapshot.miseProductTarget || "").trim()) return true;
+      if (String(snapshot.recipeMainInstruction || "").trim()) return true;
       if (String(snapshot.recipeInstructions || "").trim()) return true;
       return Array.isArray(snapshot.insumos) && snapshot.insumos.length > 0;
     }
@@ -8228,6 +8322,7 @@ Solicitado: ${cantidad}`);
         titulo: String(resultado.nombre || "").trim() || "Produccion en espera",
         resultado: Object.assign({}, resultado),
         insumos: (Array.isArray(insumos) ? insumos : []).map(function(item) { return Object.assign({}, item); }),
+        recipeMainInstruction,
         recipeInstructions,
         productionRuns,
         miseProductTarget,
@@ -8282,6 +8377,7 @@ Solicitado: ${cantidad}`);
       setActiveProductionHoldId(hold.id);
       setResultado(Object.assign({ nombre: "", cantidad: "", medida: "Uni" }, hold.resultado || {}));
       setInsumos(Array.isArray(hold.insumos) ? hold.insumos.map(function(item) { return Object.assign({}, item, { rowId: item.rowId || `ins-${Date.now()}-${Math.random()}` }); }) : []);
+      setRecipeMainInstruction(hold.recipeMainInstruction || "");
       setRecipeInstructions(hold.recipeInstructions || "");
       setProductionRuns(hold.productionRuns || "1");
       setMiseProductTarget(hold.miseProductTarget || "");
@@ -8409,7 +8505,7 @@ Solicitado: ${cantidad}`);
       setRecipeAccessModal(true);
     }
     function openRecetarioCompleto() {
-      if (!recipesAuthorized) {
+      if (!recipesAuthorized && !recetasOrdenadas.length) {
         requestRecipeAccess("recetario");
         return;
       }
@@ -8423,7 +8519,7 @@ Solicitado: ${cantidad}`);
     }
     function openRecipeSheet(receta, mode) {
       if (!receta) return;
-      if (!recipesAuthorized) {
+      if (!canUserViewRecipe(receta)) {
         requestRecipeAccess(mode === "production" ? `sheet-production:${receta.id}` : `sheet:${receta.id}`);
         return;
       }
@@ -8505,7 +8601,9 @@ Solicitado: ${cantidad}`);
         cantidad: targetRecipe.cantidadObjetivo ? String(targetRecipe.cantidadObjetivo) : "",
         medida: normalizeProductionUnitLabel(targetRecipe.medidaObjetivo || "Uni")
       });
+      setRecipeMainInstruction(String(targetRecipe.instruccionPrincipal || targetRecipe.instruccionLlamativa || targetRecipe.primerosPasos || ""));
       setRecipeInstructions(String(targetRecipe.instruccionesPreparacion || targetRecipe.instrucciones || ""));
+      setRecipeAllowedUserIds(getRecipeAllowedUserIds(targetRecipe));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
       setBusqueda("");
@@ -8653,6 +8751,10 @@ Solicitado: ${cantidad}`);
       applyProductionRunMultiplier(value);
     }
     function removeInsumo(rowId) {
+      const target = insumos.find(function(item) { return item.rowId === rowId; });
+      const product = findProductForInsumo(target);
+      const nombre = product && product.nombre || target && (target.producto || target.nombre) || "este insumo";
+      if (!window.confirm(`¿Eliminar el insumo "${nombre}" de esta receta?`)) return;
       setInsumos(function(prev) {
         return prev.filter(function(item) {
           return item.rowId !== rowId;
@@ -9120,7 +9222,9 @@ Solicitado: ${cantidad}`);
         nombre: nombreReceta,
         cantidadObjetivo: Number(cantidadObjetivo.toFixed(4)),
         medidaObjetivo: normalizeProductionUnitLabel(resultado.medida),
+        instruccionPrincipal: String(recipeMainInstruction || "").trim(),
         instruccionesPreparacion: String(recipeInstructions || "").trim(),
+        usuariosAutorizados: Array.isArray(recipeAllowedUserIds) ? recipeAllowedUserIds.map(function(value) { return String(value || "").trim(); }).filter(Boolean) : [],
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
@@ -9218,6 +9322,7 @@ Solicitado: ${cantidad}`);
         sourceRecipeId: receta.id || "",
         sourceRecipeName: receta.nombre || ""
       });
+      setRecipeMainInstruction(String(receta.instruccionPrincipal || receta.instruccionLlamativa || receta.primerosPasos || ""));
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
@@ -9323,6 +9428,10 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Cantidad producida: ", resultado.cantidad || "0", " ", resultado.medida || "Uni")
               )
             ),
+            recipeMainInstruction ? /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #f59e0b", borderRadius: 8, padding: 12, background: "#fffbeb", color: "#92400e" } },
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, marginBottom: 6 } }, "Instruccion principal"),
+              /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.5, fontWeight: 700 } }, recipeMainInstruction)
+            ) : null,
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
               /* @__PURE__ */ React.createElement("table", null,
                 /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
@@ -9389,6 +9498,7 @@ Solicitado: ${cantidad}`);
       if (!recipeSheet || !recipeSheet.receta) return null;
       const receta = recipeSheet.receta;
       const instrucciones = getRecipeInstructions(receta);
+      const instruccionPrincipal = String(receta.instruccionPrincipal || receta.instruccionLlamativa || receta.primerosPasos || "").trim();
       const hasGramBaseMultiplier = Boolean(receta.recetaProporcionalPorGramos || receta.notaOperacion) || (receta.insumos || []).some(function(item) {
         return Boolean(item.conversionComoMultiplicador || item.convertirLibrasAGramos);
       });
@@ -9405,6 +9515,10 @@ Solicitado: ${cantidad}`);
         hasGramBaseMultiplier && /* @__PURE__ */ React.createElement("section", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: 14, color: "#1e3a8a", fontSize: 13, fontWeight: 700, lineHeight: 1.5 } },
           /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info", style: { marginRight: 7 } }),
           receta.notaOperacion || "Receta proporcional por gramos: coloca las libras reales de la proteina, pulsa Convertir a gramos y el sistema multiplicara los demas insumos segun ese peso convertido. Las cantidades guardadas no deben interpretarse como por cada libra."
+        ),
+        instruccionPrincipal && /* @__PURE__ */ React.createElement("section", { style: { background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: 8, padding: 14, color: "#92400e", fontSize: 14, fontWeight: 800, lineHeight: 1.5 } },
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 900, textTransform: "uppercase", marginBottom: 6 } }, "Instruccion principal"),
+          /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap" } }, instruccionPrincipal)
         ),
         /* @__PURE__ */ React.createElement("section", null,
           /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 16, margin: "0 0 10px", color: "#111827" } }, "Ingredientes"),
@@ -9836,8 +9950,12 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 16 } },
             error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
-            /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
-              /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
+            recipeMainInstruction && /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #f59e0b", borderRadius: 8, padding: 12, background: "#fffbeb", color: "#92400e" } },
+              /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, marginBottom: 6 } }, "Instruccion principal"),
+              /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.5, fontWeight: 700 } }, recipeMainInstruction)
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: usingSavedRecipeProduction ? "" : "grid-2", style: { alignItems: "start", display: "grid", gap: 16 } },
+              !usingSavedRecipeProduction && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 0 } },
                 /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "1. Buscar insumos")),
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
                   /* @__PURE__ */ React.createElement("div", { className: "search-wrap" },
@@ -10142,6 +10260,10 @@ Solicitado: ${cantidad}`);
                       /* @__PURE__ */ React.createElement("input", { className: "form-control", value: resultado.nombre, onChange: function(e) { setResultado(function(prev) { return Object.assign({}, prev, { nombre: e.target.value }); }); setError(""); }, placeholder: "Ej: Salsa burger, base alfredo, costillas marinadas..." })
                     ),
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Instruccion principal al usar receta"),
+                      /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: recipeMainInstruction, onChange: function(e) { setRecipeMainInstruction(e.target.value); setError(""); }, placeholder: "Ej: Pesar la proteina real, convertir a gramos y luego iniciar el mezclado.", rows: 3, style: { resize: "vertical", lineHeight: 1.5, fontWeight: 700 } })
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Instrucciones de preparacion"),
                       /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: recipeInstructions, onChange: function(e) { setRecipeInstructions(e.target.value); setError(""); }, placeholder: "Describe el procedimiento, tiempos, temperatura, reposo, empaque o notas de cocina...", rows: 5, style: { resize: "vertical", lineHeight: 1.5 } })
                     ),
@@ -10152,6 +10274,19 @@ Solicitado: ${cantidad}`);
                         return /* @__PURE__ */ React.createElement("option", { key: item.id, value: item.producto }, getMiseCodArticulo(item, 0), " · ", formatMiseQty(item.existencia), " ", item.medida || "Uni");
                       })),
                       selectedMiseProductTarget ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Vinculado a: ", /* @__PURE__ */ React.createElement("strong", null, selectedMiseProductTarget.producto), " · Existencia ", formatMiseQty(selectedMiseProductTarget.existencia), " ", selectedMiseProductTarget.medida || "Uni", " · Min. activo ", formatMiseQty(getMiseStockAlert(selectedMiseProductTarget).minimo), " ", getMiseStockAlert(selectedMiseProductTarget).periodo) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", marginTop: 4 } }, "Sin vínculo guardado: se intentará hacer coincidencia por nombre.")
+                    ),
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Usuarios autorizados para ver esta receta"),
+                      /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 8, border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, background: "#f9fafb" } },
+                        recipeUserOptions.map(function(user) {
+                          return /* @__PURE__ */ React.createElement("label", { key: user.id, style: { display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 700, color: "#374151" } },
+                            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeAllowedUserIds.map(String).includes(user.id), onChange: function(e) { toggleRecipeAllowedUser(user.id, e.target.checked); } }),
+                            user.label
+                          );
+                        }),
+                        recipeUserOptions.length === 0 && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, "No hay usuarios activos para asignar.")
+                      ),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Si no seleccionas usuarios, la receta queda visible como antes para quienes tengan acceso a Produccion.")
                     ),
                     /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                       /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
@@ -12956,17 +13091,16 @@ Solicitado: ${cantidad}`);
           renderLabMetric("Compras netas", formatIcgMoney(compraNetaTotal), "#111827")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Archivo"), /* @__PURE__ */ React.createElement("th", null, "Tickets"), /* @__PURE__ */ React.createElement("th", null, "Venta neta"), /* @__PURE__ */ React.createElement("th", null, "Pagos"), /* @__PURE__ */ React.createElement("th", null, "Estado"))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Archivo"), /* @__PURE__ */ React.createElement("th", null, "Tickets"), /* @__PURE__ */ React.createElement("th", null, "Venta neta"), /* @__PURE__ */ React.createElement("th", null, "Estado"))),
           /* @__PURE__ */ React.createElement("tbody", null, closureRows.map(function(row, index) {
             return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.Archivo || "cierre"}-${row.FechaCierre || index}` },
               /* @__PURE__ */ React.createElement("td", null, row.FechaCierre || row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.Archivo || "-"),
               /* @__PURE__ */ React.createElement("td", null, row.Tickets || 0),
               /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: "#15803d" } }, formatIcgMoney(row.VentaNeta)),
-              /* @__PURE__ */ React.createElement("td", null, formatIcgMoney(row.Pagos)),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${parseIcgNumber(row.Tickets) > 0 ? "pill-verde" : "pill-gris"}` }, row.Estado || "-"))
             );
-          }), closureRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", color: "var(--gris)", padding: 22 } }, "Sin cierres diarios importados.")))
+          }), closureRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", color: "var(--gris)", padding: 22 } }, "Sin cierres diarios importados.")))
         )),
         purchaseRows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
           /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-truck-ramp-box", style: { marginRight: 7, color: "#15803d" } }), "Entradas / compras detectadas"),
@@ -13425,7 +13559,7 @@ Solicitado: ${cantidad}`);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
     const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
-    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
+    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
@@ -13692,7 +13826,7 @@ Solicitado: ${cantidad}`);
           detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
         }, currentUser);
       }
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", icgLinks: [createBlankIcgLink("kg")] });
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -13788,7 +13922,7 @@ Solicitado: ${cantidad}`);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const linkedMise = stockStatus.mise;
       if (editingId === r.id) {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" })), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", hasMiseLinkOptions && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: editData.autoTransferirAMise ? "var(--verde)" : "var(--gris)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editData.autoTransferirAMise === true, onChange: (e) => setEditData((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente"), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" })), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
       }
       const baseRowClass = stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const rowClass = `${baseRowClass} ${Number(focusedSearchResultId) === Number(r.id) ? "tr-search-target" : ""}`.trim();
@@ -13824,7 +13958,8 @@ Solicitado: ${cantidad}`);
           hasMiseLinkOptions && /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto Mise relacionado"),
             /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: newProd.miseProducto || "", onChange: (e) => setNewProd((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Selecciona el producto de Mise an Place", autoComplete: "off" }),
-            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente.")
+            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente."),
+            /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: newProd.autoTransferirAMise ? "var(--verde)" : "var(--gris)", marginTop: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newProd.autoTransferirAMise === true, onChange: (e) => setNewProd((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente")
           ),
           renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: newProd.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
@@ -14504,6 +14639,7 @@ Solicitado: ${cantidad}`);
     const [cantidad, setCantidad] = useState("");
     const [cantidadUnidad, setCantidadUnidad] = useState("");
     const [selectedStorageKey, setSelectedStorageKey] = useState("");
+    const [transferToMise, setTransferToMise] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
     const [bulkRows, setBulkRows] = useState([]);
@@ -14516,6 +14652,7 @@ Solicitado: ${cantidad}`);
     const productLocations = Array.isArray(prodInfo && prodInfo.locations) ? prodInfo.locations : prodInfo ? [prodInfo] : [];
     const selectedLocation = productLocations.find(function(loc) { return loc.storageKey === selectedStorageKey; }) || (productLocations.length === 1 ? productLocations[0] : null);
     const existenceInfo = selectedLocation || prodInfo;
+    const transferibleToMise = tipo === "salida" && existenceInfo && existenceInfo.autoTransferirAMise === true;
     const cant = parseFloat(String(cantidad).replace(",", "."));
     const movementUnitOptions = getMovementUnitOptions(existenceInfo);
     const selectedCantidadUnidad = cantidadUnidad || (movementUnitOptions[0] || (existenceInfo && existenceInfo.medida) || "Uni");
@@ -14533,6 +14670,9 @@ Solicitado: ${cantidad}`);
         return options.some(function(option) { return normalizeUnit(option) === normalizeUnit(prev); }) ? prev : options[0];
       });
     }, [existenceInfo && existenceInfo.id, existenceInfo && existenceInfo.storageKey, existenceInfo && existenceInfo.medida, existenceInfo && existenceInfo.unidadesPorEmpaque, existenceInfo && existenceInfo.unidadInternaEmpaque, existenceInfo && existenceInfo.cantidadPorUnidadInterna, existenceInfo && existenceInfo.unidadPorUnidadInterna]);
+    useEffect(function() {
+      setTransferToMise(Boolean(transferibleToMise));
+    }, [tipo, existenceInfo && existenceInfo.id, existenceInfo && existenceInfo.storageKey, transferibleToMise]);
     useEffect(function() {
       if (!movementDraftTarget || movementDraftTarget.tipo !== tipo || !movementDraftTarget.ts) return;
       if (Array.isArray(movementDraftTarget.items) && movementDraftTarget.items.length) {
@@ -14595,7 +14735,7 @@ Solicitado: ${cantidad}`);
         rows.forEach(function(row) {
           const qty = parseFloat(String(row.cantidad || "").replace(",", "."));
           const resolved = getBulkProductInfo(row);
-          addMovimiento(tipo, row.producto, qty, resolved.selected ? resolved.selected.storageKey : resolved.info && resolved.info.storageKey);
+          addMovimiento(tipo, row.producto, qty, resolved.selected ? resolved.selected.storageKey : resolved.info && resolved.info.storageKey, { transferToMise: false });
         });
         setSuccess(`${cfg.label} masiva registrada.\n\nMovimientos aplicados: ${rows.length}`);
         setBulkRows([]);
@@ -14612,12 +14752,13 @@ Solicitado: ${cantidad}`);
       if (productLocations.length > 1 && !selectedLocation) return setError("Seleccione la ubicacion exacta del producto.");
       if (conversionError || cantidadAplicada == null || cantidadAplicada <= 0) return setError("No se pudo convertir la cantidad a la unidad base del inventario.");
       try {
-        addMovimiento(tipo, producto, cantidadAplicada, selectedLocation ? selectedLocation.storageKey : prodInfo && prodInfo.storageKey);
+        addMovimiento(tipo, producto, cantidadAplicada, selectedLocation ? selectedLocation.storageKey : prodInfo && prodInfo.storageKey, { transferToMise: transferibleToMise && transferToMise });
         setSuccess(`${cfg.label} registrada.\n\nProducto: ${producto}\nCantidad digitada: ${cant} ${selectedCantidadUnidad}\nCantidad aplicada: ${cantidadAplicada} ${(existenceInfo && existenceInfo.medida) || ""}`);
         setProducto("");
         setCantidad("");
         setCantidadUnidad("");
         setSelectedStorageKey("");
+        setTransferToMise(false);
         toast(`${cfg.label} guardada: ${producto} x${cant}`);
       } catch (e) {
         setError(e.message);
@@ -14680,6 +14821,10 @@ Solicitado: ${cantidad}`);
               Array.isArray(prodInfo.locations) && prodInfo.locations.length > 1 && /* @__PURE__ */ React.createElement("span", { style: { flexBasis: "100%" } }, prodInfo.locations.map(function(loc) { return `${loc.storageLabel}: ${formatQty4(loc.existencia || 0)} ${loc.medida}`; }).join(" · "))
             )
           ),
+          transferibleToMise && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "flex-start", gap: 9, border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#166534", borderRadius: 8, padding: "10px 12px", fontSize: 12, fontWeight: 800, marginBottom: 12 } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: transferToMise, onChange: (e) => setTransferToMise(e.target.checked), style: { marginTop: 2 } }),
+            /* @__PURE__ */ React.createElement("span", null, "Dar entrada automatica al Mise An Place relacionado usando el contenido interno configurado del producto.")
+          ),
           prodInfo && productLocations.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Ubicacion exacta"),
             /* @__PURE__ */ React.createElement("select", { className: `form-control ${error && !selectedStorageKey ? "error" : ""}`, value: selectedStorageKey, onChange: (e) => { setSelectedStorageKey(e.target.value); setError(""); setSuccess(""); } },
@@ -14711,7 +14856,7 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("button", { className: `btn btn-${cfg.color}`, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setTransferToMise(false); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
           )
         )
       )
@@ -15208,6 +15353,15 @@ Solicitado: ${cantidad}`);
       return normalizeMiseItems(miseAnPlace);
     }, [miseAnPlace]);
     const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
+    function applySelectedMiseProductUnit(value, row) {
+      const selected = miseOptions.find(function(item) {
+        return normalizar(item.producto) === normalizar(value);
+      });
+      return Object.assign({}, row, {
+        p: value,
+        u: selected && selected.medida ? normalizarMedidaMise(selected.medida) : row.u
+      });
+    }
     function guardar() {
       setError("");
       const items = filas.filter((f) => f.p.trim() || f.c);
@@ -15255,7 +15409,7 @@ Solicitado: ${cantidad}`);
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, p: e.target.value } : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
   function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
@@ -15264,6 +15418,9 @@ Solicitado: ${cantidad}`);
       return normalizeMiseItems(miseAnPlace);
     }, [miseAnPlace]);
     const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
+    function applySelectedMiseProductUnit(value, row) {
+      return Object.assign({}, row, { p: value });
+    }
     function guardar() {
       setError("");
       const items = filas.filter((f) => f.p.trim() || f.c);
@@ -15357,7 +15514,7 @@ Solicitado: ${cantidad}`);
       toast(`Salida r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt", style: { color: "var(--azul)", marginRight: 7 } }), "Salida R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-sal-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-sal-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, p: e.target.value } : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Registrar salida r\xE1pida"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt", style: { color: "var(--azul)", marginRight: 7 } }), "Salida R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-sal-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-sal-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Registrar salida r\xE1pida"))));
   }
   function ConfirmNeveraModal({ items, onConfirm, onCancel }) {
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { color: "var(--azul)", marginRight: 7 } }), "Actualizar neveras"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, marginBottom: 12, color: "#374151" } }, "Hay existencias en neveras que podr\xEDan no estar directamente relacionadas con este movimiento. \xBFDescontar tambi\xE9n de las neveras?"), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "En neveras"), /* @__PURE__ */ React.createElement("th", null, "Cambio"))), /* @__PURE__ */ React.createElement("tbody", null, items.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, it.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "exist-ok" }, it.totalEnNeveras)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--rojo)", fontWeight: 600 } }, it.delta))))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }), "No, mantener nevera"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: onConfirm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "S\xED, actualizar nevera"))));
