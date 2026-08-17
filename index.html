@@ -9126,6 +9126,11 @@ Solicitado: ${cantidad}`);
       setPendingSearch("");
     }
     function closeProductionModal() {
+      const snapshot = buildProductionHoldSnapshot(activeProductionHoldId);
+      if (hasProductionHoldContent(snapshot)) {
+        const title = snapshot.titulo || snapshot.resultado && snapshot.resultado.nombre || "esta produccion";
+        if (!window.confirm(`¿Cancelar y olvidar la producción "${title}"? Si deseas continuar luego, usa Minimizar en hold.`)) return;
+      }
       cancelProductionHold();
     }
     function openRecipeModal() {
