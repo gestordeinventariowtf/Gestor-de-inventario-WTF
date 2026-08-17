@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "2026-08-17-pwa-10";
+const WTF_SW_VERSION = "2026-08-17-pwa-11";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",
@@ -32,7 +32,7 @@ function isNavigationRequest(request) {
 }
 
 function shouldBypassCache(url) {
-  return url.pathname === "/version.json" || url.pathname === "/firebase-config.js" || url.pathname.startsWith("/__/") || url.hostname.includes("googleapis.com") || url.hostname.includes("gstatic.com");
+  return url.pathname === "/version.json" || url.pathname === "/app-version.js" || url.pathname === "/pwa.js" || url.pathname === "/firebase-config.js" || url.pathname.startsWith("/__/") || url.hostname.includes("googleapis.com") || url.hostname.includes("gstatic.com");
 }
 
 self.addEventListener("fetch", (event) => {

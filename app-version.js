@@ -2,6 +2,7 @@
   const VERSION_URL = "/version.json";
   const CHECK_INTERVAL_MS = 60000;
   const STORAGE_KEY = "wtf_app_loaded_version";
+  const RELOAD_FLAG = "wtf_app_update_reload_started";
   let currentVersion = "";
   let bannerShown = false;
   let pendingVersion = "";
@@ -21,10 +22,86 @@
     }).then(readBuildId);
   }
 
+  function getStoredVersion() {
+    try {
+      return String(window.localStorage.getItem(STORAGE_KEY) || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setStoredVersion(version) {
+    if (!version) return;
+    currentVersion = version;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, version);
+    } catch (_) {}
+  }
+
+  function removeUpdateBanner() {
+    bannerShown = false;
+    const banner = document.getElementById("wtf-update-banner");
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+  }
+
+  function reloadWithVersion(version) {
+    const targetVersion = version || String(Date.now());
+    const url = new URL(window.location.href);
+    url.searchParams.set("wtf_v", targetVersion);
+    window.location.replace(url.toString());
+  }
+
+  function refreshToLatestVersion(button) {
+    const targetVersion = pendingVersion || currentVersion || String(Date.now());
+    setStoredVersion(targetVersion);
+    try {
+      window.sessionStorage.setItem(RELOAD_FLAG, targetVersion);
+    } catch (_) {}
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Actualizando...";
+    }
+    const clearCaches = "caches" in window ? caches.keys().then(function (keys) {
+      return Promise.all(keys.filter(function (key) {
+        return key.indexOf("wtf-static-") === 0;
+      }).map(function (key) {
+        return caches.delete(key);
+      }));
+    }).catch(function () {}) : Promise.resolve();
+    clearCaches.then(function () {
+      if (!navigator.serviceWorker) {
+        reloadWithVersion(targetVersion);
+        return;
+      }
+      let reloaded = false;
+      function reloadOnce() {
+        if (reloaded) return;
+        reloaded = true;
+        removeUpdateBanner();
+        window.setTimeout(function () {
+          reloadWithVersion(targetVersion);
+        }, 150);
+      }
+      navigator.serviceWorker.addEventListener("controllerchange", reloadOnce, { once: true });
+      navigator.serviceWorker.getRegistration().then(function (registration) {
+        if (registration && registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+          window.setTimeout(reloadOnce, 900);
+          return;
+        }
+        window.setTimeout(reloadOnce, 250);
+      }).catch(function () {
+        reloadOnce();
+      });
+    });
+  }
+
   function showUpdateBanner(latestVersion) {
+    const cleanLatest = String(latestVersion || "").trim();
+    if (cleanLatest && (cleanLatest === currentVersion || cleanLatest === getStoredVersion())) return;
     if (bannerShown || document.getElementById("wtf-update-banner")) return;
     bannerShown = true;
-    pendingVersion = latestVersion || "";
+    pendingVersion = cleanLatest || "";
 
     const banner = document.createElement("div");
     banner.id = "wtf-update-banner";
@@ -68,10 +145,7 @@
       "white-space:nowrap"
     ].join(";");
     button.addEventListener("click", function () {
-      try {
-        if (pendingVersion) window.localStorage.setItem(STORAGE_KEY, pendingVersion);
-      } catch (_) {}
-      window.location.reload();
+      refreshToLatestVersion(button);
     });
 
     banner.appendChild(text);
@@ -83,8 +157,7 @@
     fetchVersion().then(function (latestVersion) {
       if (!latestVersion) return;
       if (!currentVersion) {
-        currentVersion = latestVersion;
-        try { window.localStorage.setItem(STORAGE_KEY, latestVersion); } catch (_) {}
+        setStoredVersion(latestVersion);
         return;
       }
       if (latestVersion !== currentVersion) {
@@ -94,6 +167,8 @@
   }
 
   function start() {
+    currentVersion = getStoredVersion();
+    try { window.sessionStorage.removeItem(RELOAD_FLAG); } catch (_) {}
     checkForUpdates();
     window.setInterval(checkForUpdates, CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", function () {
@@ -101,10 +176,8 @@
     });
     window.addEventListener("wtf:pwa-update-ready", function () {
       fetchVersion().then(function (latestVersion) {
-        showUpdateBanner(latestVersion || "service-worker");
-      }).catch(function () {
-        showUpdateBanner("service-worker");
-      });
+        if (latestVersion && latestVersion !== currentVersion) showUpdateBanner(latestVersion);
+      }).catch(function () {});
     });
   }
 
