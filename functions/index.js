@@ -304,21 +304,38 @@ async function dispatchPushMessage(messageData) {
   };
 }
 
+async function claimPendingPushMessage(docRef) {
+  const db = getFirestore();
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(docRef);
+    if (!snapshot.exists) return null;
+    const messageData = snapshot.data() || {};
+    if (messageData.status && messageData.status !== "pending") return null;
+    transaction.set(docRef, { status: "processing", processingAt: new Date().toISOString() }, { merge: true });
+    return messageData;
+  });
+}
+
+async function processPushMessageDocument(docRef) {
+  const messageData = await claimPendingPushMessage(docRef);
+  if (!messageData) return { status: "skipped" };
+  try {
+    const result = await dispatchPushMessage(messageData);
+    await docRef.set({ status: result.ok ? "sent" : "partial_error", result, completedAt: new Date().toISOString() }, { merge: true });
+    return { status: result.ok ? "sent" : "partial_error", result };
+  } catch (error) {
+    await docRef.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
+    return { status: "error", error: error && error.message || "Error enviando push" };
+  }
+}
+
 async function processPendingPushMessages(limit = 25) {
   const db = getFirestore();
   const snapshot = await db.collection(PUSH_MESSAGES_COLLECTION).where("status", "==", "pending").limit(Math.max(1, Math.min(Number(limit || 25), 100))).get();
   const processed = [];
   for (const doc of snapshot.docs) {
-    const messageData = doc.data() || {};
-    await doc.ref.set({ status: "processing", processingAt: new Date().toISOString() }, { merge: true });
-    try {
-      const result = await dispatchPushMessage(messageData);
-      await doc.ref.set({ status: result.ok ? "sent" : "partial_error", result, completedAt: new Date().toISOString() }, { merge: true });
-      processed.push({ id: doc.id, status: result.ok ? "sent" : "partial_error", result });
-    } catch (error) {
-      await doc.ref.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
-      processed.push({ id: doc.id, status: "error", error: error && error.message || "Error enviando push" });
-    }
+    const result = await processPushMessageDocument(doc.ref);
+    processed.push({ id: doc.id, ...result });
   }
   return { ok: true, total: snapshot.size, processed };
 }
@@ -370,7 +387,6 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
 export const wtfDispatchPushMessage = onDocumentCreated({ document: `${PUSH_MESSAGES_COLLECTION}/{messageId}`, region: "us-central1", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY] }, async (event) => {
   const snapshot = event.data;
   if (!snapshot) return;
-  const messageData = snapshot.data() || {};
-  if (messageData.status && messageData.status !== "pending") return;
-  console.log("Push message queued for HTTP processor", snapshot.id);
+  const result = await processPushMessageDocument(snapshot.ref);
+  console.log("Push message processed", snapshot.id, result.status);
 });

@@ -24,6 +24,14 @@
     return outputArray;
   }
 
+  function isIosDevice() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function isStandaloneMode() {
+    return Boolean(window.navigator.standalone === true || window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  }
+
   async function getDb() {
     const cfg = getFirebaseConfig();
     if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) return null;
@@ -48,7 +56,8 @@
       topics: ["general", topic].filter(Boolean),
       userAgent: navigator.userAgent,
       platform: navigator.platform || "",
-      standalone: window.matchMedia && window.matchMedia("(display-mode: standalone)").matches,
+      standalone: isStandaloneMode(),
+      ios: isIosDevice(),
       updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
     return true;
@@ -60,11 +69,15 @@
     if (!("Notification" in window) || !("PushManager" in window) || !serviceWorkerRegistration || !vapidPublicKey) {
       return { ok: false, reason: "push-not-configured" };
     }
+    if (isIosDevice() && !isStandaloneMode()) {
+      return { ok: false, reason: "ios-home-screen-required" };
+    }
+    const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return { ok: false, reason: "permission-denied" };
-    const currentSubscription = await serviceWorkerRegistration.pushManager.getSubscription();
+    const currentSubscription = await registration.pushManager.getSubscription();
     if (currentSubscription) await currentSubscription.unsubscribe().catch(() => false);
-    const subscription = await serviceWorkerRegistration.pushManager.subscribe({
+    const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
     });
@@ -74,7 +87,8 @@
 
   async function refreshExistingPushSubscription() {
     if (!serviceWorkerRegistration || !("Notification" in window) || Notification.permission !== "granted") return;
-    const subscription = await serviceWorkerRegistration.pushManager.getSubscription();
+    const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
+    const subscription = await registration.pushManager.getSubscription();
     if (subscription) await savePushSubscription(subscription);
   }
 

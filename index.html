@@ -12752,6 +12752,8 @@ Solicitado: ${cantidad}`);
         return { ok: false };
       });
       if (result && result.ok) toast("Este dispositivo quedo suscrito a notificaciones.", "ok");
+      else if (result && result.reason === "ios-home-screen-required") toast("En iPhone debes abrir la app desde el icono agregado a la pantalla de inicio para activar notificaciones.", "error", 6500);
+      else if (result && result.reason === "permission-denied") toast("El dispositivo tiene las notificaciones bloqueadas para esta app.", "error", 6500);
       else toast("No se pudieron activar las notificaciones en este dispositivo.", "error");
     }
     async function sendNotification() {
