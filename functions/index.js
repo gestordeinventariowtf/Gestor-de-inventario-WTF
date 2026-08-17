@@ -258,6 +258,10 @@ async function dispatchPushMessage(messageData) {
 
   await Promise.all(snapshot.docs.map(async (doc) => {
     const data = doc.data() || {};
+    if (data.active === false) {
+      skipped += 1;
+      return;
+    }
     if (!matchesPushTopic(data, topic)) {
       skipped += 1;
       return;

@@ -12807,6 +12807,17 @@ Solicitado: ${cantidad}`);
       else if (result && result.reason === "permission-denied") toast("El dispositivo tiene las notificaciones bloqueadas para esta app.", "error", 6500);
       else toast("No se pudieron activar las notificaciones en este dispositivo.", "error");
     }
+    async function disableThisDevice() {
+      if (!window.WTF_PWA || typeof window.WTF_PWA.disablePushNotifications !== "function") {
+        toast("Este navegador no permite desactivar la suscripcion desde la app.", "error");
+        return;
+      }
+      const result = await window.WTF_PWA.disablePushNotifications().catch(function() {
+        return { ok: false };
+      });
+      if (result && result.ok) toast("Este dispositivo quedo desactivado para notificaciones.", "ok");
+      else toast("No se pudieron desactivar las notificaciones en este dispositivo.", "error");
+    }
     async function sendNotification() {
       const title = String(form.title || "").trim();
       const body = String(form.body || "").trim();
@@ -12940,7 +12951,8 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", disabled: sending, onClick: sendNotification }, sending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Enviando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), "Enviar notificacion")),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: enableThisDevice }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-mobile-screen-button" }), "Activar este dispositivo"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: enableThisDevice, title: "Se desactivaran las notificaciones" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-mobile-screen-button" }), "Activar este dispositivo"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: disableThisDevice, title: "Se activaran las notificaciones" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bell-slash" }), "Desactivar este dispositivo"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", disabled: sending, onClick: processPendingNotifications }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate" }), "Procesar pendientes")
           )
         )

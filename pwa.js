@@ -32,6 +32,10 @@
     return Boolean(window.navigator.standalone === true || window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
   }
 
+  function getSubscriptionDocId(endpoint) {
+    return btoa(String(endpoint || "")).replace(/[^a-zA-Z0-9]/g, "").slice(-120) || String(Date.now());
+  }
+
   async function getDb() {
     const cfg = getFirebaseConfig();
     if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) return null;
@@ -47,10 +51,11 @@
     if (!endpoint) return false;
     const activeModule = String(sessionStorage.getItem("wtf_modulo") || "").trim();
     const topic = activeModule || "general";
-    const id = btoa(endpoint).replace(/[^a-zA-Z0-9]/g, "").slice(-120) || String(Date.now());
+    const id = getSubscriptionDocId(endpoint);
     await db.collection(SUBSCRIPTION_COLLECTION).doc(id).set({
       endpoint,
       subscription: payload,
+      active: true,
       module: topic,
       modulo: topic,
       topics: ["general", topic].filter(Boolean),
@@ -82,6 +87,27 @@
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
     });
     await savePushSubscription(subscription);
+    return { ok: true };
+  }
+
+  async function disablePushNotifications() {
+    if (!serviceWorkerRegistration || !("PushManager" in window)) return { ok: false, reason: "push-not-configured" };
+    const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return { ok: true, reason: "no-subscription" };
+    const payload = subscription.toJSON ? subscription.toJSON() : subscription;
+    const endpoint = String(payload.endpoint || "");
+    await subscription.unsubscribe().catch(() => false);
+    const db = await getDb();
+    if (db && endpoint) {
+      await db.collection(SUBSCRIPTION_COLLECTION).doc(getSubscriptionDocId(endpoint)).set({
+        endpoint,
+        subscription: payload,
+        active: false,
+        disabledAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
     return { ok: true };
   }
 
@@ -170,6 +196,7 @@
     setupResumeSync();
     window.WTF_PWA = Object.assign({}, window.WTF_PWA || {}, {
       enablePushNotifications,
+      disablePushNotifications,
       refreshPushSubscription: refreshExistingPushSubscription,
       syncNow: (reason) => dispatchSyncEvent(RESUME_SYNC_EVENT, reason || "manual")
     });
