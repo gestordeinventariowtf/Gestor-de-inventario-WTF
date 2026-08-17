@@ -17,5 +17,9 @@ window.WTF_FIREBASE_CONFIG = {
     fallbackProvider: "openai",
     model: "gpt-5.6",
     ollamaModel: "gemma4:31b-cloud"
+  },
+  push: {
+    enabled: true,
+    vapidPublicKey: "BAVQhH29K19awAlPJ03LIXHhgsQ7zyMfxlvRw3hWTUi5GZU-3B5JIC6Dluy9qALBowHo5dmeJxvz9SwpP-2Cz5A"
   }
 };

@@ -99,6 +99,13 @@
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) checkForUpdates();
     });
+    window.addEventListener("wtf:pwa-update-ready", function () {
+      fetchVersion().then(function (latestVersion) {
+        showUpdateBanner(latestVersion || "service-worker");
+      }).catch(function () {
+        showUpdateBanner("service-worker");
+      });
+    });
   }
 
   if (document.readyState === "loading") {

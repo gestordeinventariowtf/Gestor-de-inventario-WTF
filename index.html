@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a9f28" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="WTF Sistema" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>WTF Sistema Cocina</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/pwa-icon.svg" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -16,6 +22,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
   <script src="./app-version.js" defer></script>
+  <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5905,6 +5912,49 @@
         applyingRemoteRef.current = false;
       }, 0);
     }
+    async function pullLatestFirebaseSnapshot(reason) {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current || applyingRemoteRef.current) return;
+      try {
+        const snapshot = await firebaseDocRef.current.get({ source: "server" });
+        const data = snapshot.data();
+        const remoteState = decodeFirebaseAppState(data);
+        if (!remoteState) return;
+        const remoteSignature = serializeAppState(remoteState);
+        const currentSignature = serializeAppState(getCurrentAppState());
+        if (remoteSignature === currentSignature) {
+          if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+          lastRemoteSignatureRef.current = remoteSignature;
+          setFirebaseStatus("connected");
+          setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
+          if (data && data.updatedAt) {
+            const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
+            setLastSyncedAt(formatDatetime(date));
+          }
+          return;
+        }
+        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || hasPendingLocalWrite;
+        if (hasCurrentSessionLocalChange) {
+          setFirebaseMessage("Sincronizacion pausada: cambios locales pendientes");
+          return;
+        }
+        if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+        lastRemoteSignatureRef.current = remoteSignature;
+        applyRemoteState(remoteState);
+        setFirebaseStatus("connected");
+        setFirebaseMessage(reason === "foreground-interval" ? "Nube aplicada en primer plano" : "Nube aplicada al volver");
+        if (data && data.updatedAt) {
+          const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
+          setLastSyncedAt(formatDatetime(date));
+        }
+      } catch (error) {
+        console.warn("Firebase foreground pull error:", error);
+        if (firebaseStatus !== "connected") {
+          setFirebaseStatus("error");
+          setFirebaseMessage(error && error.message ? error.message : "No se pudo refrescar Firebase");
+        }
+      }
+    }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
@@ -6275,6 +6325,23 @@
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
     }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
+    useEffect(() => {
+      let lastPullAt = 0;
+      function handlePwaSync(event) {
+        const now = Date.now();
+        const reason = event && event.detail && event.detail.reason || "pwa";
+        if (reason === "foreground-interval" && now - lastPullAt < 25000) return;
+        if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
+        lastPullAt = now;
+        pullLatestFirebaseSnapshot(reason);
+      }
+      window.addEventListener("wtf:pwa-resume", handlePwaSync);
+      window.addEventListener("wtf:pwa-foreground-sync", handlePwaSync);
+      return function() {
+        window.removeEventListener("wtf:pwa-resume", handlePwaSync);
+        window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
+      };
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, firebaseStatus]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);

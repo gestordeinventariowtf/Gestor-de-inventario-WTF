@@ -5,6 +5,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /pwaPushSubscriptions/{subscriptionId} {
+      allow create, update: if subscriptionId.matches('^[A-Za-z0-9_-]{1,140}$')
+        && request.resource.data.endpoint is string
+        && request.resource.data.endpoint.size() > 20
+        && request.resource.data.endpoint.size() <= 1200
+        && request.resource.data.subscription is map;
+      allow read, delete: if false;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
