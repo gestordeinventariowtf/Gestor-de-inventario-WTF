@@ -2,6 +2,7 @@
   const VERSION_URL = "/version.json";
   const CHECK_INTERVAL_MS = 60000;
   const STORAGE_KEY = "wtf_app_loaded_version";
+  const ACK_KEY = "wtf_app_acknowledged_version";
   const RELOAD_FLAG = "wtf_app_update_reload_started";
   let currentVersion = "";
   let bannerShown = false;
@@ -23,8 +24,16 @@
   }
 
   function getStoredVersion() {
+    return getLocalValue(STORAGE_KEY);
+  }
+
+  function getAcknowledgedVersion() {
+    return getLocalValue(ACK_KEY);
+  }
+
+  function getLocalValue(key) {
     try {
-      return String(window.localStorage.getItem(STORAGE_KEY) || "").trim();
+      return String(window.localStorage.getItem(key) || "").trim();
     } catch (_) {
       return "";
     }
@@ -36,6 +45,19 @@
     try {
       window.localStorage.setItem(STORAGE_KEY, version);
     } catch (_) {}
+  }
+
+  function acknowledgeVersion(version) {
+    if (!version) return;
+    setStoredVersion(version);
+    try {
+      window.localStorage.setItem(ACK_KEY, version);
+    } catch (_) {}
+  }
+
+  function isAcceptedVersion(version) {
+    const cleanVersion = String(version || "").trim();
+    return Boolean(cleanVersion && (cleanVersion === currentVersion || cleanVersion === getStoredVersion() || cleanVersion === getAcknowledgedVersion()));
   }
 
   function removeUpdateBanner() {
@@ -53,7 +75,7 @@
 
   function refreshToLatestVersion(button) {
     const targetVersion = pendingVersion || currentVersion || String(Date.now());
-    setStoredVersion(targetVersion);
+    acknowledgeVersion(targetVersion);
     try {
       window.sessionStorage.setItem(RELOAD_FLAG, targetVersion);
     } catch (_) {}
@@ -98,7 +120,10 @@
 
   function showUpdateBanner(latestVersion) {
     const cleanLatest = String(latestVersion || "").trim();
-    if (cleanLatest && (cleanLatest === currentVersion || cleanLatest === getStoredVersion())) return;
+    if (isAcceptedVersion(cleanLatest)) {
+      removeUpdateBanner();
+      return;
+    }
     if (bannerShown || document.getElementById("wtf-update-banner")) return;
     bannerShown = true;
     pendingVersion = cleanLatest || "";
@@ -156,6 +181,11 @@
   function checkForUpdates() {
     fetchVersion().then(function (latestVersion) {
       if (!latestVersion) return;
+      if (latestVersion === getAcknowledgedVersion()) {
+        setStoredVersion(latestVersion);
+        removeUpdateBanner();
+        return;
+      }
       if (!currentVersion) {
         setStoredVersion(latestVersion);
         return;
@@ -176,7 +206,7 @@
     });
     window.addEventListener("wtf:pwa-update-ready", function () {
       fetchVersion().then(function (latestVersion) {
-        if (latestVersion && latestVersion !== currentVersion) showUpdateBanner(latestVersion);
+        if (latestVersion && !isAcceptedVersion(latestVersion)) showUpdateBanner(latestVersion);
       }).catch(function () {});
     });
   }
