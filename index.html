@@ -1733,6 +1733,13 @@
     radiusMeters: 200,
     maxAccuracyMeters: 200
   };
+  const WTF_DEFAULT_BRANCH = {
+    branchId: "wtf-av-venezuela",
+    nombre: "WTF Av. Venezuela",
+    latitude: WTF_BUSINESS_LOCATION.lat,
+    longitude: WTF_BUSINESS_LOCATION.lng,
+    allowedRadius: WTF_BUSINESS_LOCATION.radiusMeters
+  };
   const PERMISSION_OPTIONS = [
     { key: "dashboard", label: "Dashboard" },
     { key: "dashboardGeneral", label: "Dashboard General" },
@@ -3242,8 +3249,134 @@
     if (error.code === 3) return "La ubicacion tardo demasiado en responder. Intentalo de nuevo con buena senal.";
     return error.message || "No se pudo validar la ubicacion.";
   }
+  function getControlHorarioConfig() {
+    const cfg = window.WTF_FIREBASE_CONFIG || {};
+    const control = cfg.controlHorario || {};
+    return {
+      endpoint: String(control.terminalEndpoint || "").trim(),
+      branchId: String(control.defaultBranchId || WTF_DEFAULT_BRANCH.branchId).trim() || WTF_DEFAULT_BRANCH.branchId
+    };
+  }
+  function getTerminalStorageKey() {
+    return "wtf_authorized_terminal_credential_v1";
+  }
+  function getDeviceInfoForTerminal() {
+    return {
+      userAgent: navigator.userAgent || "",
+      platform: navigator.platform || "",
+      language: navigator.language || "",
+      screen: window.screen ? `${window.screen.width}x${window.screen.height}` : "",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      standalone: Boolean(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+    };
+  }
+  function makeTerminalSecret() {
+    const bytes = new Uint8Array(32);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    let binary = "";
+    bytes.forEach((byte) => binary += String.fromCharCode(byte));
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function readLocalTerminalCredential() {
+    try {
+      const raw = window.localStorage.getItem(getTerminalStorageKey());
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  function saveLocalTerminalCredential(credential) {
+    try {
+      window.localStorage.setItem(getTerminalStorageKey(), JSON.stringify(credential || {}));
+    } catch (_) {}
+  }
+  function clearLocalTerminalCredential() {
+    try {
+      window.localStorage.removeItem(getTerminalStorageKey());
+    } catch (_) {}
+  }
+  async function callTerminalEndpoint(payload) {
+    const cfg = getControlHorarioConfig();
+    if (!cfg.endpoint) throw new Error("No hay endpoint de terminal autorizada configurado.");
+    const response = await fetch(cfg.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ branchId: cfg.branchId }, payload || {}))
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || result && result.ok === false) throw new Error(result && result.error || "No se pudo validar la terminal.");
+    return result;
+  }
+  async function requestTerminalAuthorization(user, proposedName) {
+    const cfg = getControlHorarioConfig();
+    const existing = readLocalTerminalCredential() || {};
+    const credential = {
+      terminalId: existing.terminalId || "",
+      secret: existing.secret || makeTerminalSecret(),
+      branchId: cfg.branchId,
+      createdAt: existing.createdAt || new Date().toISOString()
+    };
+    const result = await callTerminalEndpoint({
+      action: "request",
+      terminalId: credential.terminalId,
+      secret: credential.secret,
+      name: proposedName || existing.name || `PC WTF ${new Date().toLocaleDateString("es-DO")}`,
+      user: {
+        id: user && user.id || "",
+        nombre: getUserDisplayLabel(user),
+        email: user && user.email || "",
+        role: user && user.role || "user"
+      },
+      deviceInfo: getDeviceInfoForTerminal()
+    });
+    saveLocalTerminalCredential(Object.assign({}, credential, {
+      terminalId: result.terminalId || credential.terminalId,
+      name: result.terminal && result.terminal.name || proposedName || existing.name || "",
+      requestedAt: new Date().toISOString()
+    }));
+    return result;
+  }
+  async function validateLocalAuthorizedTerminal(user, attendance) {
+    const credential = readLocalTerminalCredential();
+    if (!credential || !credential.terminalId || !credential.secret) return { ok: false, allowed: false, reason: "missing-credential" };
+    const result = await callTerminalEndpoint({
+      action: "validate",
+      terminalId: credential.terminalId,
+      secret: credential.secret,
+      user: {
+        id: user && user.id || "",
+        nombre: getUserDisplayLabel(user),
+        email: user && user.email || "",
+        role: user && user.role || "user"
+      },
+      attendance: attendance || null,
+      deviceInfo: getDeviceInfoForTerminal()
+    });
+    if (result && (result.reason === "revoked" || result.reason === "invalid-credential" || result.reason === "not-found")) clearLocalTerminalCredential();
+    return result || { ok: false, allowed: false };
+  }
   function requestPreciseLoginLocation(user) {
     if (isAdminUser(user)) return Promise.resolve({ bypass: true, reason: "admin" });
+    return validateLocalAuthorizedTerminal(user).catch(function() {
+      return { ok: false, allowed: false, reason: "validation-unavailable" };
+    }).then(function(terminalResult) {
+      if (terminalResult && terminalResult.allowed) {
+        return {
+          bypass: true,
+          reason: "authorized-terminal",
+          validationMethod: "AUTHORIZED_TERMINAL",
+          terminalId: terminalResult.terminal && terminalResult.terminal.terminalId || "",
+          terminalName: terminalResult.terminal && terminalResult.terminal.name || "Terminal autorizada",
+          serverTime: terminalResult.serverTime || new Date().toISOString()
+        };
+      }
+      if (terminalResult && terminalResult.reason === "blocked") throw new Error("Esta terminal no esta autorizada actualmente para registrar asistencia. Comunicate con un administrador.");
+      if (terminalResult && terminalResult.reason === "revoked") throw new Error("Esta terminal fue revocada. Comunicate con un administrador.");
+      return requestGpsBusinessLocation();
+    });
+  }
+  function requestGpsBusinessLocation() {
     if (!navigator.geolocation) {
       return Promise.reject(new Error("Este dispositivo o navegador no permite validar ubicacion. Usa un navegador compatible o contacta un administrador."));
     }
@@ -5327,6 +5460,8 @@
       payrollRuns: [],
       commitments: [],
       attendance: [],
+      authorizedTerminals: [],
+      terminalAuditLogs: [],
       closings: [],
       imports: [],
       settings: {
@@ -5356,6 +5491,8 @@
       payrollRuns: Array.isArray(input.payrollRuns) ? input.payrollRuns : [],
       commitments: Array.isArray(input.commitments) ? input.commitments : [],
       attendance: Array.isArray(input.attendance) ? input.attendance : [],
+      authorizedTerminals: Array.isArray(input.authorizedTerminals) ? input.authorizedTerminals : [],
+      terminalAuditLogs: Array.isArray(input.terminalAuditLogs) ? input.terminalAuditLogs : [],
       closings: Array.isArray(input.closings) ? input.closings : [],
       imports: Array.isArray(input.imports) ? input.imports : [],
       settings: Object.assign({}, base.settings, settings, {
@@ -5393,6 +5530,8 @@
       payrollRuns: mergeFinancialRows(local.payrollRuns, remote.payrollRuns),
       commitments: mergeFinancialRows(local.commitments, remote.commitments),
       attendance: mergeFinancialRows(local.attendance, remote.attendance),
+      authorizedTerminals: mergeFinancialRows(local.authorizedTerminals, remote.authorizedTerminals),
+      terminalAuditLogs: mergeFinancialRows(local.terminalAuditLogs, remote.terminalAuditLogs),
       closings: mergeFinancialRows(local.closings, remote.closings),
       imports: mergeFinancialRows(local.imports, remote.imports),
       settings: Object.assign({}, remote.settings || {}, local.settings || {})
@@ -6264,18 +6403,37 @@
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
       const locationCheck = await requestPreciseLoginLocation(user);
+      try {
+        sessionStorage.setItem("wtf_last_access_validation", JSON.stringify(locationCheck || {}));
+      } catch (_) {}
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
       setAuthUserEmail(user.email);
+      const loginDetail = locationCheck && locationCheck.reason === "authorized-terminal" ? `Acceso confirmado desde terminal autorizada: ${locationCheck.terminalName || locationCheck.terminalId || "Terminal WTF"}.` : locationCheck && locationCheck.bypass ? "Acceso confirmado con correo y contrasena. Validacion de ubicacion omitida por rol administrador." : `Acceso confirmado dentro del rango WTF. Distancia aprox.: ${locationCheck.distanceMeters} m. Precision: ${locationCheck.accuracyMeters} m.`;
       addSystemLog({
         modulo: "Sistema",
         accion: "Inicio de sesion",
-        detalle: locationCheck && locationCheck.bypass ? "Acceso confirmado con correo y contrasena. Validacion de ubicacion omitida por rol administrador." : `Acceso confirmado dentro del rango WTF. Distancia aprox.: ${locationCheck.distanceMeters} m. Precision: ${locationCheck.accuracyMeters} m.`
+        detalle: loginDetail
       }, user);
       sessionStorage.removeItem("wtf_modulo");
       setModulo(null);
       setPage("dashboard");
       return user;
+    }
+    async function requestLoginTerminalAuthorization(email, password) {
+      const user = usuarios.find(function(u) {
+        return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
+      });
+      if (!user) throw new Error("Correo o contrasena incorrectos.");
+      const name = prompt("Nombre para identificar esta computadora", "PC Principal WTF");
+      if (name == null) throw new Error("Solicitud cancelada.");
+      const result = await requestTerminalAuthorization(user, name || "PC WTF");
+      addSystemLog({
+        modulo: "Control Horario",
+        accion: "Solicitud de terminal",
+        detalle: `Solicitud enviada para ${name || "PC WTF"} (${result.terminalId || ""}).`
+      }, user);
+      return result;
     }
     function hasAccess(pageKey) {
       if (!currentUser) return false;
@@ -7308,7 +7466,7 @@ Solicitado: ${cantidad}`);
       produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
-      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, toast });
+      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
     }
     if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
@@ -11572,6 +11730,9 @@ Solicitado: ${cantidad}`);
     const [payrollForm, setPayrollForm] = useState({ empleadoId: "", fechaPago: new Date().toISOString().slice(0, 10), periodStart: period.start, periodEnd: period.end, salarioBruto: "", deducciones: "", aportesEmpresa: "", estado: "Borrador", observacion: "" });
     const [commitmentForm, setCommitmentForm] = useState({ descripcion: "", categoria: "Alquiler", beneficiario: "", montoEstimado: "", montoReal: "", fechaVencimiento: new Date().toISOString().slice(0, 10), frecuencia: "Mensual", cuenta: normalized.settings.defaultAccount || "Caja", estado: "Pendiente", observacion: "" });
     const [attendanceForm, setAttendanceForm] = useState({ empleadoId: "", fecha: new Date().toISOString().slice(0, 10), entradaProgramada: "", entradaReal: "", salidaProgramada: "", salidaReal: "", dispositivo: "", observacion: "" });
+    const [terminalRows, setTerminalRows] = useState(normalized.authorizedTerminals || []);
+    const [terminalAuditRows, setTerminalAuditRows] = useState(normalized.terminalAuditLogs || []);
+    const [terminalBusy, setTerminalBusy] = useState(false);
     const productMap = useMemo(function() {
       return buildFinancialProductMap(inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario);
     }, [inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario]);
@@ -11583,6 +11744,10 @@ Solicitado: ${cantidad}`);
     }, [normalized, period, icgFrontRestData, productMap, inventoryValue, regEntradas, barRegEntradas]);
     const activeUsers = (Array.isArray(usuarios) ? usuarios : []).filter(function(user) { return user && user.activo !== false; });
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
+    const isAdmin = isAdminUser(currentUser);
+    useEffect(function() {
+      if (active === "asistencia" && isAdmin) refreshTerminals();
+    }, [active, isAdmin]);
     function updateData(updater, logPayload) {
       if (typeof setData !== "function") return;
       setData(function(prev) {
@@ -11591,6 +11756,57 @@ Solicitado: ${cantidad}`);
         return next;
       });
       if (typeof onSystemLog === "function" && logPayload) onSystemLog(Object.assign({ modulo: "Finanzas" }, logPayload));
+    }
+    async function callTerminalAdmin(action, payload) {
+      return callTerminalEndpoint(Object.assign({
+        action,
+        user: {
+          id: currentUser && currentUser.id || "",
+          nombre: getUserDisplayLabel(currentUser),
+          email: currentUser && currentUser.email || "",
+          role: currentUser && currentUser.role || "user"
+        }
+      }, payload || {}));
+    }
+    async function refreshTerminals() {
+      if (!isAdmin) return;
+      setTerminalBusy(true);
+      try {
+        const result = await callTerminalAdmin("list", {});
+        const terminals = Array.isArray(result.terminals) ? result.terminals : [];
+        const logs = Array.isArray(result.auditLogs) ? result.auditLogs : [];
+        setTerminalRows(terminals);
+        setTerminalAuditRows(logs);
+        updateData((prev) => Object.assign({}, prev, { authorizedTerminals: terminals, terminalAuditLogs: logs }));
+      } catch (err) {
+        toast(err.message || "No se pudieron cargar las terminales.", "error");
+      } finally {
+        setTerminalBusy(false);
+      }
+    }
+    async function updateTerminal(row, action, patch) {
+      if (!isAdmin) return toast("Solo administradores pueden administrar terminales.", "error");
+      setTerminalBusy(true);
+      try {
+        await callTerminalAdmin("update", Object.assign({ terminalId: row.terminalId, action }, patch || {}));
+        toast("Terminal actualizada.", "ok");
+        await refreshTerminals();
+      } catch (err) {
+        toast(err.message || "No se pudo actualizar la terminal.", "error");
+      } finally {
+        setTerminalBusy(false);
+      }
+    }
+    function renameTerminal(row) {
+      const nextName = prompt("Nombre de terminal", row.name || "PC WTF");
+      if (nextName == null) return;
+      updateTerminal(row, "rename", { name: nextName });
+    }
+    function terminalStatusPill(status) {
+      const value = String(status || "pending");
+      const cls = value === "active" ? "pill-verde" : value === "blocked" || value === "revoked" || value === "rejected" ? "pill-rojo" : "pill-naranja";
+      const label = value === "active" ? "Activa" : value === "blocked" ? "Bloqueada" : value === "revoked" ? "Revocada" : value === "rejected" ? "Rechazada" : "Pendiente";
+      return /* @__PURE__ */ React.createElement("span", { className: `pill ${cls}` }, label);
     }
     function addSale() {
       const gross = parseCostNumber(saleForm.ventaBruta);
@@ -11671,8 +11887,16 @@ Solicitado: ${cantidad}`);
       const late = ep != null && er != null ? Math.max(0, er - ep - Number(normalized.settings.attendanceToleranceMinutes || 0)) : 0;
       const worked = er != null && sr != null ? Number(((sr - er) / 60).toFixed(2)) : 0;
       const extra = sp != null && sr != null ? Math.max(0, sr - sp) : 0;
-      const row = Object.assign({}, attendanceForm, { id: `att-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", minutosTarde: late, horasTrabajadas: worked, minutosAdicionales: extra, estado: er == null || sr == null ? "Incompleto" : late > 0 ? "Tardanza" : "OK", createdAt: new Date().toISOString() });
+      let accessValidation = {};
+      try {
+        accessValidation = JSON.parse(sessionStorage.getItem("wtf_last_access_validation") || "{}") || {};
+      } catch (_) {
+        accessValidation = {};
+      }
+      const validationMethod = accessValidation.reason === "authorized-terminal" ? "AUTHORIZED_TERMINAL" : accessValidation.reason === "admin" ? "ADMIN" : "GPS";
+      const row = Object.assign({}, attendanceForm, { id: `att-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", minutosTarde: late, horasTrabajadas: worked, minutosAdicionales: extra, estado: er == null || sr == null ? "Incompleto" : late > 0 ? "Tardanza" : "OK", validationMethod, terminalId: accessValidation.terminalId || "", terminalName: accessValidation.terminalName || "", distanceMeters: accessValidation.distanceMeters || "", accuracyMeters: accessValidation.accuracyMeters || "", branchId: WTF_DEFAULT_BRANCH.branchId, branchName: WTF_DEFAULT_BRANCH.nombre, createdAt: new Date().toISOString() });
       updateData((prev) => Object.assign({}, prev, { attendance: [row].concat(prev.attendance || []) }), { accion: "Registrar asistencia", detalle: `${row.empleado} ${row.estado}` });
+      if (validationMethod === "AUTHORIZED_TERMINAL") validateLocalAuthorizedTerminal(currentUser, { type: er != null && sr == null ? "CLOCK_IN" : sr != null ? "CLOCK_OUT" : "ATTENDANCE", employee: row.empleado }).catch(() => null);
       toast("Asistencia registrada.", "ok");
     }
     function closePeriod() {
@@ -11728,7 +11952,8 @@ Solicitado: ${cantidad}`);
       active === "flujo" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, stat("Entradas de efectivo", formatAssetCurrency(statement.flujoEntradas), "#15803d"), stat("Salidas de efectivo", formatAssetCurrency(statement.flujoSalidas), "#b91c1c"), stat("Flujo neto", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#15803d" : "#b91c1c"), stat("Diferencia utilidad vs caja", formatAssetCurrency(statement.resultadoOperativo - statement.flujoNeto), "#4338ca")),
       active === "nomina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar nomina")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: payrollForm.empleadoId, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Salario bruto", payrollForm.salarioBruto, (v) => setPayrollForm((p) => Object.assign({}, p, { salarioBruto: v })), { type: "number" }), field("Deducciones", payrollForm.deducciones, (v) => setPayrollForm((p) => Object.assign({}, p, { deducciones: v })), { type: "number" }), field("Aportes empresa", payrollForm.aportesEmpresa, (v) => setPayrollForm((p) => Object.assign({}, p, { aportesEmpresa: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addPayroll }, "Guardar nomina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nomina del periodo")), renderSimpleFinanceTable(statement.payrollRows.slice(0, 80), ["fechaPago", "empleado", "salarioBruto", "deducciones", "netoPagar", "aportesEmpresa", "estado"]))),
       active === "compromisos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nuevo compromiso")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Descripcion", commitmentForm.descripcion, (v) => setCommitmentForm((p) => Object.assign({}, p, { descripcion: v }))), field("Beneficiario", commitmentForm.beneficiario, (v) => setCommitmentForm((p) => Object.assign({}, p, { beneficiario: v }))), field("Monto estimado", commitmentForm.montoEstimado, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoEstimado: v })), { type: "number" }), field("Vencimiento", commitmentForm.fechaVencimiento, (v) => setCommitmentForm((p) => Object.assign({}, p, { fechaVencimiento: v })), { type: "date" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addCommitment }, "Guardar compromiso"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Pendientes"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, formatAssetCurrency(statement.commitments.pendingTotal))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Descripcion", "Vence", "Monto", "Pagado", "Estado", "Accion"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, statement.commitments.pending.slice(0, 80).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.descripcion), /* @__PURE__ */ React.createElement("td", null, row.fechaVencimiento), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoReal || row.montoEstimado)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.pagado || 0)), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => payCommitment(row) }, "Pagar"))))))))),
-      active === "asistencia" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar marcacion")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: attendanceForm.empleadoId, onChange: (e) => setAttendanceForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Fecha", attendanceForm.fecha, (v) => setAttendanceForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), field("Entrada programada", attendanceForm.entradaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaProgramada: v })), { type: "time" }), field("Entrada real", attendanceForm.entradaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaReal: v })), { type: "time" }), field("Salida programada", attendanceForm.salidaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaProgramada: v })), { type: "time" }), field("Salida real", attendanceForm.salidaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaReal: v })), { type: "time" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addAttendance }, "Guardar marcacion"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistencia reciente")), renderSimpleFinanceTable(normalized.attendance.slice(0, 100), ["fecha", "empleado", "entradaReal", "salidaReal", "horasTrabajadas", "minutosTarde", "estado"]))),
+      active === "asistencia" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar marcacion")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: attendanceForm.empleadoId, onChange: (e) => setAttendanceForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Fecha", attendanceForm.fecha, (v) => setAttendanceForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), field("Entrada programada", attendanceForm.entradaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaProgramada: v })), { type: "time" }), field("Entrada real", attendanceForm.entradaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaReal: v })), { type: "time" }), field("Salida programada", attendanceForm.salidaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaProgramada: v })), { type: "time" }), field("Salida real", attendanceForm.salidaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaReal: v })), { type: "time" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addAttendance }, "Guardar marcacion"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistencia reciente")), renderSimpleFinanceTable(normalized.attendance.slice(0, 100).map((row) => Object.assign({}, row, { metodo: row.validationMethod === "AUTHORIZED_TERMINAL" ? `Terminal: ${row.terminalName || row.terminalId || "WTF"}` : row.validationMethod === "GPS" ? `GPS ${row.distanceMeters ? row.distanceMeters + " m" : ""}` : row.validationMethod || "-" })), ["fecha", "empleado", "entradaReal", "salidaReal", "metodo", "horasTrabajadas", "minutosTarde", "estado"]))),
+      active === "asistencia" && isAdmin && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop", style: { marginRight: 7, color: "var(--azul)" } }), "Terminales autorizadas"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", disabled: terminalBusy, onClick: refreshTerminals }, /* @__PURE__ */ React.createElement("i", { className: terminalBusy ? "fas fa-spinner fa-spin" : "fas fa-rotate" }), "Actualizar")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Las terminales activas pueden iniciar sesion y registrar asistencia aunque la ubicacion del navegador sea imprecisa. El radio GPS de 200 m permanece activo para dispositivos no autorizados."), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Nombre", "Identificador", "Sucursal", "Estado", "Autorizo", "Ultima IP", "Ultima actividad", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, terminalRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.terminalId }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.name || "Terminal WTF", /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.requestedBy || row.requestedByEmail || "")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, wordBreak: "break-all" } }, row.terminalId), /* @__PURE__ */ React.createElement("td", null, row.branchName || row.branchId || "-"), /* @__PURE__ */ React.createElement("td", null, terminalStatusPill(row.status)), /* @__PURE__ */ React.createElement("td", null, row.authorizedBy || "-"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11 } }, row.lastObservedIp || "-"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, row.lastSeenAt && row.lastSeenAt.toDate ? formatDatetime(row.lastSeenAt.toDate()) : row.lastSeenAt ? formatDatetime(row.lastSeenAt) : "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Cambiar nombre", disabled: terminalBusy, onClick: () => renameTerminal(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), row.status !== "active" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", disabled: terminalBusy, onClick: () => updateTerminal(row, "authorize") }, "Autorizar"), row.status === "active" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-naranja", disabled: terminalBusy, onClick: () => updateTerminal(row, "block") }, "Bloquear"), row.status === "blocked" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", disabled: terminalBusy, onClick: () => updateTerminal(row, "reactivate") }, "Reactivar"), row.status !== "revoked" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", disabled: terminalBusy, onClick: () => updateTerminal(row, "revoke") }, "Revocar"))))), !terminalRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { textAlign: "center", color: "var(--gris)", padding: 24 } }, "Sin terminales registradas."))))), terminalAuditRows.length ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Ultimos eventos: ", terminalAuditRows.slice(0, 5).map((log) => `${log.type || "EVENTO"} ${log.terminalId || ""}`).join(" · ")) : null)),
       active === "cierres" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Cierres financieros"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: closePeriod }, "Cerrar periodo")), renderSimpleFinanceTable(normalized.closings.slice(0, 80), ["label", "periodStart", "periodEnd", "ventasNetas", "resultadoOperativo", "inventarioFinal", "flujoNeto", "estado"])),
       active === "config" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion financiera")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Las tasas de nomina, cuentas y categorias quedan configurables. No se guardan credenciales NGTeco en el navegador ni en Git."), /* @__PURE__ */ React.createElement("div", null, "Perfiles RRHH disponibles: ", employeeProfiles.length), /* @__PURE__ */ React.createElement("div", null, "Cuentas: ", normalized.settings.accounts.join(", ")), /* @__PURE__ */ React.createElement("div", null, "Canales venta: ", normalized.settings.salesChannels.join(", "))))
     );
@@ -11748,10 +11973,11 @@ Solicitado: ${cantidad}`);
       )
     ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
   }
-  function LoginScreen({ onLogin, toast }) {
+  function LoginScreen({ onLogin, onRequestTerminal, toast }) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [requestingTerminal, setRequestingTerminal] = useState(false);
     async function iniciarSesion(e) {
       if (e && e.preventDefault) e.preventDefault();
       setSubmitting(true);
@@ -11762,6 +11988,19 @@ Solicitado: ${cantidad}`);
         toast(err && err.message ? err.message : "No se pudo iniciar sesi\xF3n.", "error");
       } finally {
         setSubmitting(false);
+      }
+    }
+    async function solicitarTerminal(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      setRequestingTerminal(true);
+      try {
+        if (typeof onRequestTerminal !== "function") throw new Error("Solicitud de terminal no disponible.");
+        await onRequestTerminal(email, password);
+        toast("Solicitud enviada. Un administrador debe autorizar esta computadora en Finanzas > Control Horario.", "ok", 7500);
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo solicitar autorizacion de terminal.", "error", 7500);
+      } finally {
+        setRequestingTerminal(false);
       }
     }
     return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Al iniciar sesi\xF3n se pedir\xE1 ubicaci\xF3n precisa. Los administradores pueden entrar desde cualquier lugar."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
@@ -11791,7 +12030,7 @@ Solicitado: ${cantidad}`);
         style: { opacity: !email.trim() || !password || submitting ? 0.7 : 1 }
       },
       submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando acceso...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), "Entrar al sistema")
-    )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
+    ), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", disabled: !email.trim() || !password || requestingTerminal, onClick: solicitarTerminal, style: { width: "100%", justifyContent: "center", marginTop: 8, opacity: !email.trim() || !password || requestingTerminal ? 0.7 : 1 } }, requestingTerminal ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Solicitando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop" }), "Solicitar autorizacion de esta PC"))), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
   }
   function getAiAssistantConfig() {
     const localConfig = window.WTF_AI_CONFIG || {};

@@ -3,6 +3,7 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import crypto from "node:crypto";
 import webpush from "web-push";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -14,8 +15,19 @@ const VAPID_PRIVATE_KEY = defineSecret("VAPID_PRIVATE_KEY");
 const PUSH_ADMIN_KEY = defineSecret("PUSH_ADMIN_KEY");
 const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
+const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
+const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
 const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-29056@appspot.gserviceaccount.com";
+const DEFAULT_BRANCHES = {
+  "wtf-av-venezuela": {
+    branchId: "wtf-av-venezuela",
+    nombre: "WTF Av. Venezuela",
+    latitude: 18.488178,
+    longitude: -69.87001,
+    allowedRadius: 200
+  }
+};
 
 if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
@@ -32,6 +44,197 @@ function cors(req, res) {
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key");
+}
+
+function observedIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || String(req.ip || req.socket?.remoteAddress || "").trim();
+}
+
+function sanitizeTerminalText(value, max = 160) {
+  return String(value == null ? "" : value).trim().slice(0, max);
+}
+
+function isAdminCaller(body) {
+  const user = body && body.user && typeof body.user === "object" ? body.user : {};
+  return String(user.role || "").toLowerCase() === "admin";
+}
+
+function hashTerminalSecret(secret) {
+  return crypto.createHash("sha256").update(String(secret || ""), "utf8").digest("hex");
+}
+
+function makeTerminalId() {
+  return `term_${crypto.randomBytes(18).toString("base64url")}`;
+}
+
+async function writeTerminalAudit(type, terminalId, payload = {}, req = null) {
+  const db = getFirestore();
+  await db.collection(TERMINAL_AUDIT_COLLECTION).add({
+    type,
+    terminalId: sanitizeTerminalText(terminalId, 120),
+    branchId: sanitizeTerminalText(payload.branchId || "", 80),
+    actor: sanitizeTerminalText(payload.actor || payload.userName || "", 160),
+    actorEmail: sanitizeTerminalText(payload.actorEmail || "", 160),
+    detail: sanitizeTerminalText(payload.detail || "", 500),
+    observedIp: req ? observedIp(req) : sanitizeTerminalText(payload.observedIp || "", 120),
+    userAgent: req ? sanitizeTerminalText(req.headers["user-agent"] || "", 500) : sanitizeTerminalText(payload.userAgent || "", 500),
+    createdAt: FieldValue.serverTimestamp()
+  });
+}
+
+function publicTerminalData(doc) {
+  const data = doc.data ? doc.data() || {} : doc || {};
+  const terminalId = doc.id || data.terminalId || "";
+  return {
+    terminalId,
+    name: data.name || "",
+    branchId: data.branchId || "wtf-av-venezuela",
+    branchName: data.branchName || DEFAULT_BRANCHES[data.branchId || "wtf-av-venezuela"]?.nombre || "WTF Av. Venezuela",
+    status: data.status || "pending",
+    requestedBy: data.requestedBy || "",
+    requestedByEmail: data.requestedByEmail || "",
+    authorizedBy: data.authorizedBy || "",
+    authorizedByEmail: data.authorizedByEmail || "",
+    createdAt: data.createdAt || null,
+    authorizedAt: data.authorizedAt || null,
+    lastSeenAt: data.lastSeenAt || null,
+    lastObservedIp: data.lastObservedIp || "",
+    lastUserAgent: data.lastUserAgent || "",
+    deviceInfo: data.deviceInfo || {},
+    credentialVersion: data.credentialVersion || 1,
+    lastAttendance: data.lastAttendance || null
+  };
+}
+
+async function requestTerminalAuthorization(body, req) {
+  const db = getFirestore();
+  const secret = sanitizeTerminalText(body.secret, 500);
+  if (secret.length < 24) throw new Error("Credencial de terminal invalida");
+  const terminalId = sanitizeTerminalText(body.terminalId, 140) || makeTerminalId();
+  const branchId = sanitizeTerminalText(body.branchId || "wtf-av-venezuela", 80);
+  const branch = DEFAULT_BRANCHES[branchId] || DEFAULT_BRANCHES["wtf-av-venezuela"];
+  const user = body.user && typeof body.user === "object" ? body.user : {};
+  const ref = db.collection(AUTHORIZED_TERMINALS_COLLECTION).doc(terminalId);
+  const snapshot = await ref.get();
+  const now = FieldValue.serverTimestamp();
+  const base = {
+    terminalId,
+    name: sanitizeTerminalText(body.name || "Terminal pendiente WTF", 120),
+    branchId: branch.branchId,
+    branchName: branch.nombre,
+    status: snapshot.exists && snapshot.data()?.status === "active" ? "active" : "pending",
+    secretHash: hashTerminalSecret(secret),
+    credentialVersion: Number(snapshot.data()?.credentialVersion || 0) + 1,
+    requestedBy: sanitizeTerminalText(user.nombre || user.name || "", 160),
+    requestedByEmail: sanitizeTerminalText(user.email || "", 160),
+    deviceInfo: body.deviceInfo && typeof body.deviceInfo === "object" ? body.deviceInfo : {},
+    lastObservedIp: observedIp(req),
+    lastUserAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500),
+    updatedAt: now
+  };
+  if (!snapshot.exists) base.createdAt = now;
+  await ref.set(base, { merge: true });
+  await writeTerminalAudit("REQUESTED", terminalId, { branchId: branch.branchId, actor: base.requestedBy, actorEmail: base.requestedByEmail, detail: "Solicitud de autorizacion de terminal" }, req);
+  return { ok: true, terminal: publicTerminalData(Object.assign({ id: terminalId }, base)), terminalId, status: base.status };
+}
+
+async function validateAuthorizedTerminal(body, req) {
+  const terminalId = sanitizeTerminalText(body.terminalId, 140);
+  const secret = sanitizeTerminalText(body.secret, 500);
+  const branchId = sanitizeTerminalText(body.branchId || "wtf-av-venezuela", 80);
+  if (!terminalId || !secret) return { ok: false, allowed: false, reason: "missing-credential" };
+  const db = getFirestore();
+  const ref = db.collection(AUTHORIZED_TERMINALS_COLLECTION).doc(terminalId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) return { ok: true, allowed: false, reason: "not-found" };
+  const data = snapshot.data() || {};
+  const secretOk = data.secretHash && data.secretHash === hashTerminalSecret(secret);
+  if (!secretOk) {
+    await writeTerminalAudit("REJECTED_BAD_SECRET", terminalId, { branchId, detail: "Credencial local no coincide" }, req);
+    return { ok: true, allowed: false, reason: "invalid-credential", terminal: publicTerminalData(snapshot) };
+  }
+  if (data.status === "blocked" || data.status === "revoked") {
+    await writeTerminalAudit("REJECTED_STATUS", terminalId, { branchId, detail: `Terminal ${data.status}` }, req);
+    return { ok: true, allowed: false, reason: data.status, terminal: publicTerminalData(snapshot) };
+  }
+  if (data.status !== "active") return { ok: true, allowed: false, reason: "pending", terminal: publicTerminalData(snapshot) };
+  if (String(data.branchId || "") !== branchId) {
+    await writeTerminalAudit("REJECTED_BRANCH", terminalId, { branchId, detail: `Terminal autorizada para ${data.branchId || "otra sucursal"}` }, req);
+    return { ok: true, allowed: false, reason: "wrong-branch", terminal: publicTerminalData(snapshot) };
+  }
+  const user = body.user && typeof body.user === "object" ? body.user : {};
+  await ref.set({
+    lastSeenAt: FieldValue.serverTimestamp(),
+    lastObservedIp: observedIp(req),
+    lastUserAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500),
+    lastUserName: sanitizeTerminalText(user.nombre || user.name || "", 160),
+    lastUserEmail: sanitizeTerminalText(user.email || "", 160),
+    lastAttendance: body.attendance ? {
+      type: sanitizeTerminalText(body.attendance.type || "", 40),
+      employee: sanitizeTerminalText(body.attendance.employee || "", 160),
+      at: FieldValue.serverTimestamp()
+    } : data.lastAttendance || null
+  }, { merge: true });
+  await writeTerminalAudit("VALIDATED", terminalId, { branchId, actor: user.nombre || user.name, actorEmail: user.email, detail: "Terminal autorizada validada" }, req);
+  return {
+    ok: true,
+    allowed: true,
+    validationMethod: "AUTHORIZED_TERMINAL",
+    terminal: publicTerminalData(Object.assign({ id: terminalId }, Object.assign({}, data, { terminalId }))),
+    serverTime: new Date().toISOString()
+  };
+}
+
+async function listAuthorizedTerminals(body) {
+  if (!isAdminCaller(body)) throw new Error("Solo administradores pueden consultar terminales");
+  const db = getFirestore();
+  const snapshot = await db.collection(AUTHORIZED_TERMINALS_COLLECTION).limit(200).get();
+  const auditSnapshot = await db.collection(TERMINAL_AUDIT_COLLECTION).orderBy("createdAt", "desc").limit(120).get();
+  return {
+    ok: true,
+    branches: Object.values(DEFAULT_BRANCHES),
+    terminals: snapshot.docs.map(publicTerminalData).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))),
+    auditLogs: auditSnapshot.docs.map((doc) => Object.assign({ id: doc.id }, doc.data() || {}))
+  };
+}
+
+async function updateAuthorizedTerminal(body, req) {
+  if (!isAdminCaller(body)) throw new Error("Solo administradores pueden administrar terminales");
+  const terminalId = sanitizeTerminalText(body.terminalId, 140);
+  if (!terminalId) throw new Error("Terminal invalida");
+  const db = getFirestore();
+  const ref = db.collection(AUTHORIZED_TERMINALS_COLLECTION).doc(terminalId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error("Terminal no encontrada");
+  const action = sanitizeTerminalText(body.action || "", 60);
+  const user = body.user && typeof body.user === "object" ? body.user : {};
+  const patch = { updatedAt: FieldValue.serverTimestamp(), updatedBy: sanitizeTerminalText(user.nombre || user.name || "", 160), updatedByEmail: sanitizeTerminalText(user.email || "", 160) };
+  if (body.name != null) patch.name = sanitizeTerminalText(body.name, 120);
+  if (body.branchId != null) {
+    const branch = DEFAULT_BRANCHES[sanitizeTerminalText(body.branchId, 80)] || DEFAULT_BRANCHES["wtf-av-venezuela"];
+    patch.branchId = branch.branchId;
+    patch.branchName = branch.nombre;
+  }
+  if (action === "authorize") {
+    patch.status = "active";
+    patch.authorizedAt = FieldValue.serverTimestamp();
+    patch.authorizedBy = patch.updatedBy;
+    patch.authorizedByEmail = patch.updatedByEmail;
+  } else if (action === "block") {
+    patch.status = "blocked";
+  } else if (action === "revoke") {
+    patch.status = "revoked";
+    patch.revokedAt = FieldValue.serverTimestamp();
+  } else if (action === "reactivate") {
+    patch.status = "active";
+  } else if (action === "reject") {
+    patch.status = "rejected";
+  }
+  await ref.set(patch, { merge: true });
+  await writeTerminalAudit(action.toUpperCase() || "UPDATED", terminalId, { branchId: patch.branchId || snapshot.data()?.branchId, actor: patch.updatedBy, actorEmail: patch.updatedByEmail, detail: `Terminal actualizada: ${action || "datos"}` }, req);
+  const updated = await ref.get();
+  return { ok: true, terminal: publicTerminalData(updated) };
 }
 
 function extractOutputText(data) {
@@ -494,6 +697,40 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
     res.json(await processPendingPushMessages(req.body?.limit || 25));
   } catch (error) {
     res.status(500).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
+  }
+});
+
+export const wtfAuthorizedTerminal = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Metodo no permitido" });
+    return;
+  }
+  try {
+    const action = sanitizeTerminalText(req.body?.action || "", 80);
+    if (action === "request") {
+      res.json(await requestTerminalAuthorization(req.body || {}, req));
+      return;
+    }
+    if (action === "validate") {
+      res.json(await validateAuthorizedTerminal(req.body || {}, req));
+      return;
+    }
+    if (action === "list") {
+      res.json(await listAuthorizedTerminals(req.body || {}));
+      return;
+    }
+    if (action === "update") {
+      res.json(await updateAuthorizedTerminal(req.body || {}, req));
+      return;
+    }
+    res.status(400).json({ ok: false, error: "Accion de terminal invalida" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error && error.message || "Error procesando terminal autorizada" });
   }
 });
 

@@ -28,6 +28,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /authorizedTerminals/{terminalId} {
+      allow read, write, delete: if false;
+    }
+
+    match /terminalAuditLogs/{logId} {
+      allow read, write, delete: if false;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
