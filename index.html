@@ -494,6 +494,14 @@
 
     /* -- Table -- */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+    .rrhh-schedule-table th,
+    .rrhh-schedule-table td {
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    .rrhh-schedule-table td {
+      background: #fff;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
       background: #f9fafb;
@@ -3906,15 +3914,17 @@
     return "Uni";
   }
   function convertirCantidadMise(cantidad, desde, hacia) {
+    const value = Number(cantidad);
+    if (!Number.isFinite(value)) return null;
     const from = normalizarMedidaMise(desde);
     const to = normalizarMedidaMise(hacia);
-    if (from === to) return cantidad;
-    if (from === "G" && to === "Lb") return cantidad / 453.59237;
-    if (from === "Lb" && to === "G") return cantidad * 453.59237;
-    if (from === "G" && to === "Oz") return cantidad / 28.349523125;
-    if (from === "Oz" && to === "G") return cantidad * 28.349523125;
-    if (from === "Lb" && to === "Oz") return cantidad * 16;
-    if (from === "Oz" && to === "Lb") return cantidad / 16;
+    if (from === to) return Number(value.toFixed(4));
+    if (from === "G" && to === "Lb") return Number((value / 453.59237).toFixed(4));
+    if (from === "Lb" && to === "G") return Number((value * 453.59237).toFixed(4));
+    if (from === "G" && to === "Oz") return Number((value / 28.349523125).toFixed(4));
+    if (from === "Oz" && to === "G") return Number((value * 28.349523125).toFixed(4));
+    if (from === "Lb" && to === "Oz") return Number((value * 16).toFixed(4));
+    if (from === "Oz" && to === "Lb") return Number((value / 16).toFixed(4));
     return null;
   }
   function initRegEntradas() {
@@ -5360,6 +5370,49 @@
     { nombre: "Camarera lider", area: "Servicio", objetivo: "Coordinar el equipo de servicio y estandares de atencion.", tareas: ["Asignar areas", "Supervisar apertura de salon", "Validar limpieza", "Reportar necesidades del turno"] }
   ];
   const EMPLOYEE_ONBOARDING_STAGES = ["Mensaje de bienvenida del propietario", "Historia, mision, vision y valores", "Normas principales y promesa de servicio", "Contactos importantes y supervisor asignado", "Cursos obligatorios del cargo", "Checklist guiado del primer turno", "Firmas de politicas y confirmacion final"];
+  const EMPLOYEE_WEEK_DAYS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
+  function makeEmployeeWorkDays(restDay, weekdayShift = "4:00 PM - 12:00 AM", weekendShift = "4:00 PM - 2:00 AM", breakMinutes = 20) {
+    return EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) {
+      const isRest = normalizar(day) === normalizar(restDay);
+      acc[day] = isRest ? { trabaja: false, entrada: "", salida: "", descansoMin: 0, nota: "Libre" } : {
+        trabaja: true,
+        entrada: day === "Viernes" || day === "Sabado" ? weekendShift.split(" - ")[0] : weekdayShift.split(" - ")[0],
+        salida: day === "Viernes" || day === "Sabado" ? weekendShift.split(" - ")[1] : weekdayShift.split(" - ")[1],
+        descansoMin: breakMinutes,
+        nota: ""
+      };
+      return acc;
+    }, {});
+  }
+  function createDefaultEmployeeScheduleTemplates() {
+    const base = [
+      { id: "tpl-nocturno-libra-lunes", nombre: "Nocturno - libra lunes", tipo: "Nocturno", color: "#4338ca", dias: makeEmployeeWorkDays("Lunes") },
+      { id: "tpl-nocturno-libra-martes", nombre: "Nocturno - libra martes", tipo: "Nocturno", color: "#0f766e", dias: makeEmployeeWorkDays("Martes") },
+      { id: "tpl-nocturno-libra-miercoles", nombre: "Nocturno - libra miercoles", tipo: "Nocturno", color: "#b45309", dias: makeEmployeeWorkDays("Miercoles") },
+      { id: "tpl-nocturno-libra-jueves", nombre: "Nocturno - libra jueves", tipo: "Nocturno", color: "#be123c", dias: makeEmployeeWorkDays("Jueves") },
+      { id: "tpl-nocturno-libra-viernes", nombre: "Nocturno - libra viernes", tipo: "Nocturno", color: "#7c3aed", dias: makeEmployeeWorkDays("Viernes") },
+      { id: "tpl-nocturno-libra-sabado", nombre: "Nocturno - libra sabado", tipo: "Nocturno", color: "#0369a1", dias: makeEmployeeWorkDays("Sabado") },
+      { id: "tpl-nocturno-libra-domingo", nombre: "Nocturno - libra domingo", tipo: "Nocturno", color: "#15803d", dias: makeEmployeeWorkDays("Domingo") }
+    ];
+    const productionDays = makeEmployeeWorkDays("Miercoles", "9:00 AM - 5:00 PM", "9:00 AM - 6:00 PM", 20);
+    const waitressFridayEarly = makeEmployeeWorkDays("Lunes", "4:00 PM - 12:00 AM", "4:00 PM - 2:00 AM", 20);
+    waitressFridayEarly.Viernes = { trabaja: true, entrada: "4:00 PM", salida: "1:00 AM", descansoMin: 20, nota: "Camarera viernes temprano" };
+    const waitressFridayLate = makeEmployeeWorkDays("Lunes", "4:00 PM - 12:00 AM", "4:00 PM - 2:00 AM", 20);
+    waitressFridayLate.Viernes = { trabaja: true, entrada: "5:00 PM", salida: "2:00 AM", descansoMin: 20, nota: "Camarera viernes tarde" };
+    const waitressSaturdayEarly = makeEmployeeWorkDays("Lunes", "4:00 PM - 12:00 AM", "4:00 PM - 2:00 AM", 20);
+    waitressSaturdayEarly.Sabado = { trabaja: true, entrada: "4:00 PM", salida: "1:00 AM", descansoMin: 20, nota: "Camarera sabado temprano" };
+    const waitressSaturdayLate = makeEmployeeWorkDays("Lunes", "4:00 PM - 12:00 AM", "4:00 PM - 2:00 AM", 20);
+    waitressSaturdayLate.Sabado = { trabaja: true, entrada: "5:00 PM", salida: "2:00 AM", descansoMin: 20, nota: "Camarera sabado tarde" };
+    base.push(
+      { id: "tpl-matutino-produccion-libra-miercoles", nombre: "Matutino produccion - libra miercoles", tipo: "Matutino", color: "#16a34a", dias: productionDays },
+      { id: "tpl-camarera-viernes-temprano", nombre: "Camarera - viernes 4 PM a 1 AM", tipo: "Servicio", color: "#db2777", dias: waitressFridayEarly },
+      { id: "tpl-camarera-viernes-tarde", nombre: "Camarera - viernes 5 PM a 2 AM", tipo: "Servicio", color: "#9333ea", dias: waitressFridayLate },
+      { id: "tpl-camarera-sabado-temprano", nombre: "Camarera - sabado 4 PM a 1 AM", tipo: "Servicio", color: "#ea580c", dias: waitressSaturdayEarly },
+      { id: "tpl-camarera-sabado-tarde", nombre: "Camarera - sabado 5 PM a 2 AM", tipo: "Servicio", color: "#2563eb", dias: waitressSaturdayLate },
+      { id: "tpl-cajera-fin-semana", nombre: "Cajera - viernes y sabado 5 PM a 2 AM", tipo: "Caja", color: "#0891b2", dias: Object.assign(makeEmployeeWorkDays("Lunes"), { Viernes: { trabaja: true, entrada: "5:00 PM", salida: "2:00 AM", descansoMin: 20, nota: "Caja viernes" }, Sabado: { trabaja: true, entrada: "5:00 PM", salida: "2:00 AM", descansoMin: 20, nota: "Caja sabado" } }) }
+    );
+    return base.map(function(row) { return Object.assign({ estado: "Activo", createdAt: new Date().toISOString() }, row); });
+  }
   function buildDefaultEmployeeCenterData() {
     const now = new Date().toISOString();
     const profiles = EMPLOYEE_PROFILE_SEED.map(function(profile, index) {
@@ -5386,6 +5439,8 @@
         { id: "course-2", titulo: "Manipulacion segura de alimentos", perfil: "Cocinero/a", estado: "Publicado", aprobadoMinimo: 80, lecciones: ["Higiene", "Temperaturas", "Contaminacion cruzada"] }
       ],
       schedules: [],
+      scheduleTemplates: createDefaultEmployeeScheduleTemplates(),
+      timeOff: [],
       announcements: [{ id: "ann-1", titulo: "Bienvenido al Centro del Colaborador", prioridad: "Normal", estado: "Publicado", contenido: "Este espacio centraliza induccion, tareas, politicas, cursos, horarios y documentos.", fecha: now, reads: [] }],
       signatures: [],
       taskCompletions: [],
@@ -5413,6 +5468,8 @@
       manualDocuments: Array.isArray(input.manualDocuments) && input.manualDocuments.length ? input.manualDocuments : base.manualDocuments,
       courses: Array.isArray(input.courses) && input.courses.length ? input.courses : base.courses,
       schedules: Array.isArray(input.schedules) ? input.schedules : [],
+      scheduleTemplates: Array.isArray(input.scheduleTemplates) && input.scheduleTemplates.length ? input.scheduleTemplates : base.scheduleTemplates,
+      timeOff: Array.isArray(input.timeOff) ? input.timeOff : [],
       announcements: Array.isArray(input.announcements) && input.announcements.length ? input.announcements : base.announcements,
       signatures: Array.isArray(input.signatures) ? input.signatures : [],
       taskCompletions: Array.isArray(input.taskCompletions) ? input.taskCompletions : [],
@@ -5775,7 +5832,9 @@
     const [taskForm, setTaskForm] = useState({ titulo: "", perfil: "Todos", frecuencia: "Diaria", prioridad: "Media", evidencia: "No requerida" });
     const [manualForm, setManualForm] = useState({ titulo: "", categoria: "Politicas", contenido: "", obligatorio: true, firmaObligatoria: false });
     const [announcementForm, setAnnouncementForm] = useState({ titulo: "", contenido: "", prioridad: "Normal" });
-    const [employeeEdit, setEmployeeEdit] = useState({ userId: "", perfilLaboral: "", cargoVisible: "", fechaIngreso: "", supervisorId: "", foto: "" });
+    const [employeeEdit, setEmployeeEdit] = useState({ userId: "", perfilLaboral: "", cargoVisible: "", fechaIngreso: "", supervisorId: "", foto: "", scheduleTemplateId: "", scheduleEffectiveFrom: "", scheduleNotes: "" });
+    const [scheduleForm, setScheduleForm] = useState({ userId: "", templateId: "", effectiveFrom: new Date().toISOString().slice(0, 10), notes: "" });
+    const [timeOffForm, setTimeOffForm] = useState({ userId: "", tipo: "Vacaciones", desde: new Date().toISOString().slice(0, 10), hasta: new Date().toISOString().slice(0, 10), motivo: "" });
     const [evidenceTaskId, setEvidenceTaskId] = useState("");
     const [adminSection, setAdminSection] = useState("colaboradores");
     const [employeeAdminSearch, setEmployeeAdminSearch] = useState("");
@@ -5864,8 +5923,52 @@
       setUsuarios(function(prev) {
         return ensureAdminUser(prev.map((user) => String(user.id) === String(employeeEdit.userId) ? Object.assign({}, user, employeeEdit, { updatedAt: new Date().toISOString() }) : user));
       });
-      updateData((prev) => prev, { accion: "Actualizar colaborador", registro: employeeEdit.userId, detalle: "Perfil laboral, cargo, fecha, supervisor o foto actualizado" });
+      updateData((prev) => prev, { accion: "Actualizar colaborador", registro: employeeEdit.userId, detalle: "Perfil laboral, cargo, horario, fecha, supervisor o foto actualizado" });
       toast("Colaborador actualizado.", "success");
+    }
+    function assignScheduleTemplate() {
+      if (!scheduleForm.userId || !scheduleForm.templateId) return toast("Seleccione colaborador y hoja de tiempo.", "error");
+      const user = usuarios.find((row) => String(row.id) === String(scheduleForm.userId));
+      const template = normalized.scheduleTemplates.find((row) => row.id === scheduleForm.templateId);
+      setUsuarios(function(prev) {
+        return ensureAdminUser(prev.map(function(row) {
+          return String(row.id) === String(scheduleForm.userId) ? Object.assign({}, row, {
+            scheduleTemplateId: scheduleForm.templateId,
+            scheduleEffectiveFrom: scheduleForm.effectiveFrom,
+            scheduleNotes: scheduleForm.notes,
+            updatedAt: new Date().toISOString()
+          }) : row;
+        }));
+      });
+      updateData(function(prev) {
+        const assignment = {
+          id: `sch-${Date.now()}`,
+          userId: scheduleForm.userId,
+          usuario: user ? getUserDisplayLabel(user) : scheduleForm.userId,
+          templateId: scheduleForm.templateId,
+          templateName: template ? template.nombre : scheduleForm.templateId,
+          effectiveFrom: scheduleForm.effectiveFrom,
+          notes: scheduleForm.notes,
+          estado: "Activo",
+          fecha: new Date().toISOString()
+        };
+        return Object.assign({}, prev, { schedules: [assignment].concat(prev.schedules || []) });
+      }, { accion: "Asignar horario", registro: user ? getUserDisplayLabel(user) : scheduleForm.userId, detalle: template ? template.nombre : scheduleForm.templateId });
+      setScheduleForm({ userId: "", templateId: "", effectiveFrom: new Date().toISOString().slice(0, 10), notes: "" });
+      toast("Hoja de tiempo asignada.", "success");
+    }
+    function addTimeOff() {
+      if (!timeOffForm.userId || !timeOffForm.desde || !timeOffForm.hasta) return toast("Seleccione colaborador y rango de fechas.", "error");
+      const user = usuarios.find((row) => String(row.id) === String(timeOffForm.userId));
+      const row = Object.assign({}, timeOffForm, {
+        id: `off-${Date.now()}`,
+        usuario: user ? getUserDisplayLabel(user) : timeOffForm.userId,
+        estado: "Activo",
+        fecha: new Date().toISOString()
+      });
+      updateData((prev) => Object.assign({}, prev, { timeOff: [row].concat(prev.timeOff || []) }), { accion: "Registrar ausencia", registro: row.usuario, detalle: `${row.tipo}: ${row.desde} a ${row.hasta}` });
+      setTimeOffForm({ userId: "", tipo: "Vacaciones", desde: new Date().toISOString().slice(0, 10), hasta: new Date().toISOString().slice(0, 10), motivo: "" });
+      toast("Vacacion/descanso registrado.", "success");
     }
     function setEmployeeCenterRowStatus(listName, id, estado) {
       updateData(function(prev) {
@@ -5905,6 +6008,7 @@
     const adminSections = [
       ["colaboradores", "Colaboradores", "fa-id-badge"],
       ["perfiles", "Perfiles", "fa-briefcase"],
+      ["horarios", "Horarios", "fa-calendar-days"],
       ["tareas", "Tareas", "fa-list-check"],
       ["documentos", "Documentos", "fa-file-lines"],
       ["anuncios", "Anuncios", "fa-bullhorn"],
@@ -5924,6 +6028,38 @@
     function renderEmployeeAvatar(user, size) {
       const label = String(user && (user.nombre || user.email) || "?").trim().slice(0, 1).toUpperCase();
       return user && user.foto ? /* @__PURE__ */ React.createElement("img", { src: user.foto, alt: user.nombre || "Colaborador", style: { width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #fff", boxShadow: "0 6px 18px rgba(15,23,42,.18)" } }) : /* @__PURE__ */ React.createElement("div", { style: { width: size, height: size, borderRadius: "50%", display: "grid", placeItems: "center", background: "linear-gradient(135deg,#0f766e,#2563eb)", color: "#fff", fontWeight: 900, border: "2px solid #fff", boxShadow: "0 6px 18px rgba(15,23,42,.18)" } }, label);
+    }
+    function getScheduleTemplate(templateId) {
+      return normalized.scheduleTemplates.find((row) => row.id === templateId) || null;
+    }
+    function getUserScheduleTemplate(user) {
+      return getScheduleTemplate(user && user.scheduleTemplateId) || null;
+    }
+    function renderScheduleCell(dayRow, template) {
+      const cell = dayRow || {};
+      const bg = cell.trabaja ? "#fff" : "#fef2f2";
+      const color = cell.trabaja ? "#111827" : "#991b1b";
+      return /* @__PURE__ */ React.createElement("div", { style: { minWidth: 126, border: "1px solid #e5e7eb", borderRadius: 8, padding: 8, background: bg, display: "grid", gap: 3 } },
+        /* @__PURE__ */ React.createElement("strong", { style: { color, fontSize: 12 } }, cell.trabaja ? `${cell.entrada || "-"} - ${cell.salida || "-"}` : "LIBRE"),
+        cell.trabaja && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "#6b7280" } }, "Receso: ", Number(cell.descansoMin || 0), " min"),
+        cell.nota && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: template && template.color || "#6b7280", fontWeight: 700 } }, cell.nota)
+      );
+    }
+    function renderScheduleWeekTable(rows, title) {
+      return /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, title), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, rows.length, " colaboradores")),
+        /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "rrhh-schedule-table" },
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Colaborador", "Hoja de tiempo"].concat(EMPLOYEE_WEEK_DAYS).map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))),
+          /* @__PURE__ */ React.createElement("tbody", null, rows.map(function(user) {
+            const template = getUserScheduleTemplate(user);
+            return /* @__PURE__ */ React.createElement("tr", { key: user.id || user.email },
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, minWidth: 170 } }, getUserDisplayLabel(user), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 600 } }, user.perfilLaboral || user.cargoVisible || "Sin perfil")),
+              /* @__PURE__ */ React.createElement("td", { style: { minWidth: 190 } }, template ? /* @__PURE__ */ React.createElement("span", { className: "pill", style: { background: `${template.color || "#2563eb"}18`, color: template.color || "#2563eb", borderColor: `${template.color || "#2563eb"}55` } }, template.nombre) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin asignar")),
+              EMPLOYEE_WEEK_DAYS.map(function(day) { return /* @__PURE__ */ React.createElement("td", { key: day }, template ? renderScheduleCell(template.dias && template.dias[day], template) : "-"); })
+            );
+          }))
+        ))
+      );
     }
     const tabButton = (key, label) => /* @__PURE__ */ React.createElement("button", { key, className: `tab ${tab === key ? "active" : ""}`, onClick: () => setTab(key) }, label);
     return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } },
@@ -5974,7 +6110,13 @@
       tab === "tareas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Checklist de hoy"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, profileName)), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, profileTasks.map((task) => { const done = completedToday.includes(task.id); return /* @__PURE__ */ React.createElement("div", { key: task.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "grid", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, task.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, task.frecuencia, " · ", task.prioridad, " · Evidencia: ", task.evidencia), /* @__PURE__ */ React.createElement("button", { className: done ? "btn btn-sm btn-gris" : "btn btn-sm btn-verde", disabled: done, onClick: () => completeTask(task) }, done ? "Completada" : "Completar")); }))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Evidencia fotografica")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: evidenceTaskId, onChange: (e) => setEvidenceTaskId(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar tarea"), profileTasks.map((task) => /* @__PURE__ */ React.createElement("option", { key: task.id, value: task.id }, task.titulo))), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Tomar fotografia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: (e) => uploadTaskEvidence(e.target.files && e.target.files[0]) })), /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)" } }, "La web solicita camara trasera cuando el navegador lo permite; se comprime a un maximo aproximado de 2 MB.")))),
       tab === "manual" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Manual del colaborador")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar politicas, procedimientos o manual...", value: search, onChange: (e) => setSearch(e.target.value) }), filteredDocs.map((doc) => { const signed = normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version); return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, doc.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", margin: "4px 0" } }, doc.categoria, " · Version ", doc.version, " · ", doc.firmaObligatoria ? "Firma requerida" : "Lectura"), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, doc.contenido), doc.firmaObligatoria && /* @__PURE__ */ React.createElement("button", { className: signed ? "btn btn-sm btn-gris" : "btn btn-sm btn-azul", disabled: signed, onClick: () => signDocument(doc) }, signed ? "Firmado" : "Firmar digitalmente")); }))),
       tab === "cursos" && /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, normalized.courses.map((course) => /* @__PURE__ */ React.createElement("div", { className: "card", key: course.id }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, course.titulo), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, "Perfil: ", course.perfil, " · Minimo: ", course.aprobadoMinimo, "%"), /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12 } }, (course.lecciones || []).map((lesson) => /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson))))))),
-      tab === "horarios" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Horarios, descansos y vacaciones")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.schedules.length ? normalized.schedules.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.fecha, " · ", row.turno)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin horarios cargados."))),
+      tab === "horarios" && /* @__PURE__ */ React.createElement(React.Fragment, null,
+        renderScheduleWeekTable(isAdmin ? activeEmployees : [currentUser], isAdmin ? "Horario semanal del equipo" : "Mi horario semanal"),
+        /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Descansos y vacaciones")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, normalized.timeOff.filter(function(row) { return isAdmin || String(row.userId) === String(userId); }).slice(0, 80).map(function(row) { return /* @__PURE__ */ React.createElement("div", { key: row.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, row.usuario || row.userId), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.tipo, " · ", row.desde, " a ", row.hasta, row.motivo ? " · " + row.motivo : "")), /* @__PURE__ */ React.createElement("span", { className: row.tipo === "Vacaciones" ? "pill pill-verde" : "pill pill-azul" }, row.estado || "Activo")); }), normalized.timeOff.filter(function(row) { return isAdmin || String(row.userId) === String(userId); }).length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin descansos especiales o vacaciones registradas."))),
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Hojas de tiempo disponibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, normalized.scheduleTemplates.filter((tpl) => tpl.estado !== "Archivado").map(function(tpl) { return /* @__PURE__ */ React.createElement("div", { key: tpl.id, style: { borderLeft: `4px solid ${tpl.color || "#2563eb"}`, borderTop: "1px solid #e5e7eb", borderRight: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("strong", null, tpl.nombre), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 4 } }, tpl.tipo, " · ", EMPLOYEE_WEEK_DAYS.filter((day) => !(tpl.dias && tpl.dias[day] && tpl.dias[day].trabaja)).join(", ") || "Sin dia libre")); })))
+        )
+      ),
       tab === "anuncios" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Anuncios")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, normalized.announcements.filter((a) => a.estado === "Publicado").map((ann) => /* @__PURE__ */ React.createElement("div", { key: ann.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ann.titulo), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, ann.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => markAnnouncementRead(ann) }, "Marcar leido"))))),
       tab === "equipos" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Uniformes y equipos asignados")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.equipmentAssignments.filter((row) => row.userId === userId || isAdmin).length ? normalized.equipmentAssignments.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.articulo)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin equipos asignados."))),
       tab === "desempeno" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.recognitions.length ? normalized.recognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.titulo)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos."))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.competencies.length ? normalized.competencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.nombre)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas.")))),
@@ -6009,7 +6151,7 @@
                 ),
                 /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, user.modulo || "ambos"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, taskCount, " tareas"), /* @__PURE__ */ React.createElement("span", { className: percent >= 100 ? "pill pill-verde" : "pill pill-naranja" }, percent, "% induccion")),
                 /* @__PURE__ */ React.createElement("div", { style: { height: 8, background: "#e5e7eb", borderRadius: 999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${percent}%`, height: "100%", background: percent >= 100 ? "#16a34a" : "#f59e0b" } })),
-                /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeEdit({ userId: user.id, perfilLaboral: user.perfilLaboral || "", cargoVisible: user.cargoVisible || "", fechaIngreso: user.fechaIngreso || "", supervisorId: user.supervisorId || "", foto: user.foto || "" }); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar debajo")
+                /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeEdit({ userId: user.id, perfilLaboral: user.perfilLaboral || "", cargoVisible: user.cargoVisible || "", fechaIngreso: user.fechaIngreso || "", supervisorId: user.supervisorId || "", foto: user.foto || "", scheduleTemplateId: user.scheduleTemplateId || "", scheduleEffectiveFrom: user.scheduleEffectiveFrom || "", scheduleNotes: user.scheduleNotes || "" }); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar debajo")
               );
             }))
           )
@@ -6018,6 +6160,26 @@
           const count = activeEmployees.filter((user) => normalizar(user.perfilLaboral) === normalizar(profile.nombre)).length;
           return /* @__PURE__ */ React.createElement("div", { className: "card", key: profile.id || profile.nombre }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15 } }, profile.nombre), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, profile.area || "Sin area"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, count, " colaboradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#374151" } }, profile.objetivo || "Sin objetivo definido"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeCenterRowStatus("profiles", profile.id, profile.estado === "Archivado" ? "Activo" : "Archivado"); } }, profile.estado === "Archivado" ? "Reactivar" : "Archivar")));
         })),
+        adminSection === "horarios" && /* @__PURE__ */ React.createElement(React.Fragment, null,
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asignar hoja de tiempo")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: scheduleForm.userId, onChange: function(e) { setScheduleForm((p) => Object.assign({}, p, { userId: e.target.value })); } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))),
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: scheduleForm.templateId, onChange: function(e) { setScheduleForm((p) => Object.assign({}, p, { templateId: e.target.value })); } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar hoja de tiempo"), normalized.scheduleTemplates.filter((tpl) => tpl.estado !== "Archivado").map((tpl) => /* @__PURE__ */ React.createElement("option", { key: tpl.id, value: tpl.id }, tpl.nombre))),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: scheduleForm.effectiveFrom, onChange: function(e) { setScheduleForm((p) => Object.assign({}, p, { effectiveFrom: e.target.value })); } }),
+              /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Notas internas del horario", value: scheduleForm.notes, onChange: function(e) { setScheduleForm((p) => Object.assign({}, p, { notes: e.target.value })); } }),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: assignScheduleTemplate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-check" }), "Asignar horario")
+            )),
+            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Vacaciones / descanso especial")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: timeOffForm.userId, onChange: function(e) { setTimeOffForm((p) => Object.assign({}, p, { userId: e.target.value })); } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))),
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: timeOffForm.tipo, onChange: function(e) { setTimeOffForm((p) => Object.assign({}, p, { tipo: e.target.value })); } }, ["Vacaciones", "Descanso especial", "Permiso", "Licencia", "Cambio de turno"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))),
+              /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: timeOffForm.desde, onChange: function(e) { setTimeOffForm((p) => Object.assign({}, p, { desde: e.target.value })); } }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: timeOffForm.hasta, onChange: function(e) { setTimeOffForm((p) => Object.assign({}, p, { hasta: e.target.value })); } })),
+              /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Motivo o comentario", value: timeOffForm.motivo, onChange: function(e) { setTimeOffForm((p) => Object.assign({}, p, { motivo: e.target.value })); } }),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: addTimeOff }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-umbrella-beach" }), "Registrar")
+            ))
+          ),
+          renderScheduleWeekTable(activeEmployees, "Tabla semanal asignada"),
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de asignaciones")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Colaborador", "Hoja de tiempo", "Vigente desde", "Notas"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.schedules.slice(0, 100).map(function(row) { return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.usuario), /* @__PURE__ */ React.createElement("td", null, row.templateName), /* @__PURE__ */ React.createElement("td", null, row.effectiveFrom), /* @__PURE__ */ React.createElement("td", null, row.notes || "-")); })))))
+        ),
         adminSection === "tareas" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Tarea", "Perfil", "Frecuencia", "Prioridad", "Evidencia", "Estado", "Accion"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.tasks.map(function(task) { return /* @__PURE__ */ React.createElement("tr", { key: task.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, task.titulo), /* @__PURE__ */ React.createElement("td", null, task.perfil), /* @__PURE__ */ React.createElement("td", null, task.frecuencia), /* @__PURE__ */ React.createElement("td", null, task.prioridad), /* @__PURE__ */ React.createElement("td", null, task.evidencia), /* @__PURE__ */ React.createElement("td", null, task.estado || "Activo"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeCenterRowStatus("tasks", task.id, task.estado === "Archivado" ? "Activo" : "Archivado"); } }, task.estado === "Archivado" ? "Reactivar" : "Archivar"))); }))))),
         adminSection === "documentos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, normalized.manualDocuments.map(function(doc) { return /* @__PURE__ */ React.createElement("div", { className: "card", key: doc.id }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, doc.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, doc.categoria, " · Version ", doc.version, " · ", doc.estado || "Publicado"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, doc.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeCenterRowStatus("manualDocuments", doc.id, doc.estado === "Archivado" ? "Publicado" : "Archivado"); } }, doc.estado === "Archivado" ? "Publicar" : "Archivar"))); })),
         adminSection === "anuncios" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, normalized.announcements.map(function(ann) { return /* @__PURE__ */ React.createElement("div", { className: "card", key: ann.id }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, ann.titulo), /* @__PURE__ */ React.createElement("span", { className: ann.prioridad === "Alta" ? "pill pill-rojo" : "pill pill-azul" }, ann.prioridad || "Normal"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, ann.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { setEmployeeCenterRowStatus("announcements", ann.id, ann.estado === "Archivado" ? "Publicado" : "Archivado"); } }, ann.estado === "Archivado" ? "Publicar" : "Archivar"))); })),
@@ -8363,18 +8525,6 @@ Solicitado: ${cantidad}`);
         return String(a.nombre || "").localeCompare(String(b.nombre || ""));
       });
     }, [produccionProgramadaAll, pendingSearch]);
-    const productionNameMatches = useMemo(function() {
-      const q = String(resultado.nombre || "").trim();
-      if (normalizar(q).length < 3) return [];
-      if (hiddenProductionMatchName && normalizar(q) === normalizar(hiddenProductionMatchName)) return [];
-      return produccionProgramadaCatalogo.map(buildProduccionProgramadaItem).map(function(item) {
-        return Object.assign({}, item, { searchScore: getPendingProductionSearchScore(q, item) });
-      }).filter(function(item) {
-        return item.searchScore >= 82 && (item.recetaMatch || item.miseMatch);
-      }).sort(function(a, b) {
-        return b.searchScore - a.searchScore || a.nombre.localeCompare(b.nombre);
-      }).slice(0, 5);
-    }, [resultado.nombre, hiddenProductionMatchName, produccionProgramadaCatalogo, productosSoloInventario, miseAnPlace, recetasOrdenadas]);
     const recipeNameMatches = useMemo(function() {
       const q = String(resultado.nombre || "").trim();
       if (normalizar(q).length < 3) return [];
@@ -8423,7 +8573,10 @@ Solicitado: ${cantidad}`);
       }
       const unidadProducida = resolveProductionTransferUnit(row, match);
       const unidadDestinoTransferencia = normalizarMedidaMise(match.medida || unidadProducida);
-      const cantidadDestinoTransferencia = convertirCantidadMise(cantidad, unidadProducida, unidadDestinoTransferencia);
+      const cantidadMiseGuardada = Number(row.cantidadProducidaMiseEstimada);
+      const cantidadDestinoTransferencia = Number.isFinite(cantidadMiseGuardada) && cantidadMiseGuardada > 0 && normalizarMedidaMise(row.medidaProducidaMiseEstimada || unidadDestinoTransferencia) === unidadDestinoTransferencia
+        ? Number(cantidadMiseGuardada.toFixed(4))
+        : convertirCantidadMise(cantidad, unidadProducida, unidadDestinoTransferencia);
       if (cantidadDestinoTransferencia == null) {
         toast(`No se pudo transferir "${productoNombre}" porque no hay una conversion valida hacia ${match.producto}.`, "error", 6500);
         return;
@@ -8609,6 +8762,9 @@ Solicitado: ${cantidad}`);
             miseProductoId: match ? match.id : item.miseProductoId || null,
             cantidadTransferidaAMise: Number(cantidadDestinoTransferencia.toFixed(4)),
             unidadTransferidaAMise: unidadDestinoTransferencia,
+            cantidadProducidaMiseEstimada: Number(cantidadDestinoTransferencia.toFixed(4)),
+            medidaProducidaMiseEstimada: unidadDestinoTransferencia,
+            conversionMiseAutomatica: normalizarMedidaMise(unidadProducida) !== unidadDestinoTransferencia,
             miseInsumosTransferidosAt: miseInsumosPendientes.length ? fechaTransferencia : item.miseInsumosTransferidosAt || "",
             insumosStockTransferidosAt: stockInsumosPendientes.length ? fechaTransferencia : item.insumosStockTransferidosAt || "",
             updatedAt: fechaTransferencia
@@ -9012,8 +9168,10 @@ Solicitado: ${cantidad}`);
         return;
       }
       saveCurrentProductionHold();
+      const holdResultado = Object.assign({ nombre: "", cantidad: "", medida: "Uni" }, hold.resultado || {});
+      const resumedName = String(holdResultado.nombre || hold.titulo || "").trim();
       setActiveProductionHoldId(hold.id);
-      setResultado(Object.assign({ nombre: "", cantidad: "", medida: "Uni" }, hold.resultado || {}));
+      setResultado(holdResultado);
       setInsumos(Array.isArray(hold.insumos) ? hold.insumos.map(function(item) { return Object.assign({}, item, { rowId: item.rowId || `ins-${Date.now()}-${Math.random()}` }); }) : []);
       setRecipeMainInstruction(hold.recipeMainInstruction || "");
       setRecipeInstructions(hold.recipeInstructions || "");
@@ -9021,8 +9179,8 @@ Solicitado: ${cantidad}`);
       setMiseProductTarget(hold.miseProductTarget || "");
       setBusqueda("");
       setError("");
-      setHiddenRecipeMatchName("");
-      setHiddenProductionMatchName("");
+      setHiddenRecipeMatchName(resumedName);
+      setHiddenProductionMatchName(resumedName);
       setModalOpen(true);
       toast(`Produccion retomada: ${hold.titulo || "en espera"}`, "ok");
     }
@@ -9726,6 +9884,13 @@ Solicitado: ${cantidad}`);
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
       const productionMiseTarget = findMiseTarget(miseProductTarget) || findRecipeMiseMatch(findBestRecipeMatch(nombreProducido));
+      const producedUnit = normalizeProductionUnitLabel(resultado.medida);
+      const miseTargetUnit = productionMiseTarget ? normalizarMedidaMise(productionMiseTarget.medida || producedUnit) : producedUnit;
+      const producedQtyForMise = productionMiseTarget ? convertirCantidadMise(cantidadProducidaInput, producedUnit, miseTargetUnit) : null;
+      if (productionMiseTarget && producedQtyForMise == null) {
+        setError(`No se puede convertir la produccion de ${producedUnit} hacia ${miseTargetUnit} para ${productionMiseTarget.producto}.`);
+        return;
+      }
       const mermaResumen = resolvedInsumos.reduce(function(acc, entry) {
         const baseQty = Number(entry.cantidadUsadaConvertida ?? entry.convertedQty ?? 0);
         const comparison = calculateRealMermaComparison(baseQty, entry.mermaEsperadaPorcentaje || entry.mermaPorcentaje, entry.cantidadMermaStock || 0);
@@ -9745,7 +9910,10 @@ Solicitado: ${cantidad}`);
           productoProducido: nombreProducido,
           cantidadProducida: Number(cantidadProducidaInput.toFixed(4)),
           cantidadProducidaOriginal: Number(cantidadProducidaInput.toFixed(4)),
-          medidaProducida: normalizeProductionUnitLabel(resultado.medida),
+          medidaProducida: producedUnit,
+          cantidadProducidaMiseEstimada: producedQtyForMise != null ? Number(producedQtyForMise.toFixed(4)) : "",
+          medidaProducidaMiseEstimada: productionMiseTarget ? miseTargetUnit : "",
+          conversionMiseAutomatica: Boolean(productionMiseTarget && normalizarMedidaMise(producedUnit) !== miseTargetUnit),
           miseProductoTarget: productionMiseTarget ? productionMiseTarget.producto : "",
           miseProductoId: productionMiseTarget ? productionMiseTarget.id : null,
           insumos: resolvedInsumos.map(function(entry) {
@@ -10403,6 +10571,7 @@ Solicitado: ${cantidad}`);
                   ),
                   /* @__PURE__ */ React.createElement("td", null,
                     /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, row.cantidadProducida, " ", row.medidaProducida),
+                    row.cantidadProducidaMiseEstimada && row.medidaProducidaMiseEstimada && normalizarMedidaMise(row.medidaProducida) !== normalizarMedidaMise(row.medidaProducidaMiseEstimada) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#166534", marginTop: 5, fontWeight: 800 } }, "Equivale a ", row.cantidadProducidaMiseEstimada, " ", row.medidaProducidaMiseEstimada, " en Mise"),
                     row.mermaResumen && Number(row.mermaResumen.cantidadMerma || 0) > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", marginTop: 5, fontWeight: 700 } }, "Merma insumos: ", row.mermaResumen.cantidadMerma, " · Neto: ", row.mermaResumen.cantidadNeta)
                   ),
                   /* @__PURE__ */ React.createElement("td", null,
@@ -10744,34 +10913,6 @@ Solicitado: ${cantidad}`);
                               /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Carga esta receta para usar el nombre y los insumos correctos."),
                               /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { openRecipeSheet(receta, "production"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-lines" }), "Ver hoja"),
                               /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { cargarReceta(receta); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-flask" }), "Usar receta")
-                            )
-                          );
-                        })
-                      ),
-                      productionNameMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 10, padding: 10, display: "grid", gap: 8 } },
-                        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-                          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: "#9a3412" } }, "Coincidencias en producción pendiente"),
-                          /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, productionNameMatches.length, " sugerencia", productionNameMatches.length === 1 ? "" : "s")
-                        ),
-                        productionNameMatches.map(function(item) {
-                          const inventarioInfo = item.inventarioMatch ? `${Number(getInventoryExistence(item.inventarioMatch).toFixed(2))} ${item.inventarioMatch.medida}` : "No registrado";
-                          const miseInfo = item.miseMatch ? `${Number((Number(item.miseMatch.existencia) || 0).toFixed(2))} ${item.miseMatch.medida || "Uni"}` : "Sin coincidencia";
-                          const canOpenItemRecipe = item.recetaMatch && canUserViewRecipe(item.recetaMatch);
-                          return /* @__PURE__ */ React.createElement("div", { key: item.id, style: { borderTop: "1px solid #fed7aa", paddingTop: 8, display: "grid", gap: 7 } },
-                            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "start" } },
-                              /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
-                                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, color: "#111827", fontSize: 13 } }, item.nombre),
-                                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", marginTop: 2 } }, canOpenItemRecipe ? `Receta encontrada: ${item.recetaMatch.nombre}` : "Sin receta guardada")
-                              ),
-                              /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } },
-                                canOpenItemRecipe ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Con receta") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin receta"),
-                                /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Inventario: ", inventarioInfo),
-                                /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Mise: ", miseInfo)
-                              )
-                            ),
-                            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" } },
-                              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, canOpenItemRecipe ? "Usa esta receta para evitar nombres duplicados." : "Usa este pendiente para mantener el mismo nombre operativo."),
-                              /* @__PURE__ */ React.createElement("button", { className: `btn btn-sm ${canOpenItemRecipe ? "btn-verde" : "btn-naranja"}`, onClick: function() { seleccionarProduccionProgramada(Object.assign({}, item, { recetaMatch: canOpenItemRecipe ? item.recetaMatch : null })); } }, /* @__PURE__ */ React.createElement("i", { className: canOpenItemRecipe ? "fas fa-flask" : "fas fa-arrow-right" }), canOpenItemRecipe ? "Usar receta" : "Usar pendiente")
                             )
                           );
                         })
