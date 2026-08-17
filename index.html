@@ -9009,7 +9009,7 @@ Solicitado: ${cantidad}`);
       setRecipeAccessModal(true);
     }
     function openRecetarioCompleto() {
-      if (!recipesAuthorized && !hasVisibleRecipes) {
+      if (!isAdminUser(currentUser) && !recipesAuthorized) {
         requestRecipeAccess("recetario");
         return;
       }
