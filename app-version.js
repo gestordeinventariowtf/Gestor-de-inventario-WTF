@@ -4,6 +4,7 @@
   const STORAGE_KEY = "wtf_app_loaded_version";
   let currentVersion = "";
   let bannerShown = false;
+  let pendingVersion = "";
 
   function readBuildId(payload) {
     if (!payload || typeof payload !== "object") return "";
@@ -20,9 +21,10 @@
     }).then(readBuildId);
   }
 
-  function showUpdateBanner() {
+  function showUpdateBanner(latestVersion) {
     if (bannerShown || document.getElementById("wtf-update-banner")) return;
     bannerShown = true;
+    pendingVersion = latestVersion || "";
 
     const banner = document.createElement("div");
     banner.id = "wtf-update-banner";
@@ -66,6 +68,9 @@
       "white-space:nowrap"
     ].join(";");
     button.addEventListener("click", function () {
+      try {
+        if (pendingVersion) window.localStorage.setItem(STORAGE_KEY, pendingVersion);
+      } catch (_) {}
       window.location.reload();
     });
 
@@ -83,13 +88,12 @@
         return;
       }
       if (latestVersion !== currentVersion) {
-        showUpdateBanner();
+        showUpdateBanner(latestVersion);
       }
     }).catch(function () {});
   }
 
   function start() {
-    try { currentVersion = window.localStorage.getItem(STORAGE_KEY) || ""; } catch (_) {}
     checkForUpdates();
     window.setInterval(checkForUpdates, CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", function () {
