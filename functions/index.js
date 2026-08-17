@@ -1,10 +1,22 @@
 import { onRequest } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import webpush from "web-push";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OLLAMA_CHAT_URL = "https://ollama.com/api/chat";
 const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
 const OLLAMA_API_KEY = defineSecret("OLLAMA_API_KEY");
+const VAPID_PUBLIC_KEY = defineSecret("VAPID_PUBLIC_KEY");
+const VAPID_PRIVATE_KEY = defineSecret("VAPID_PRIVATE_KEY");
+const PUSH_ADMIN_KEY = defineSecret("PUSH_ADMIN_KEY");
+const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
+const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
+const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
+
+if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
   "https://gestor-de-inventario-wtf-prod-2026.web.app",
   "http://localhost:5000",
@@ -18,7 +30,7 @@ function cors(req, res) {
   }
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key");
 }
 
 function extractOutputText(data) {
@@ -191,5 +203,140 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error && error.message || "Error interno IA" });
+  }
+});
+
+function getPushAdminKey(req) {
+  const auth = String(req.headers.authorization || "");
+  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  return String(req.headers["x-push-admin-key"] || req.body?.adminKey || "").trim();
+}
+
+function buildPushPayload(body) {
+  const title = String(body?.title || "WTF Sistema").trim().slice(0, 120) || "WTF Sistema";
+  const message = String(body?.body || body?.message || "Tienes una nueva notificacion del sistema.").trim().slice(0, 500);
+  return {
+    title,
+    body: message,
+    icon: body?.icon || "/pwa-icon.svg",
+    badge: body?.badge || "/pwa-icon.svg",
+    tag: String(body?.tag || "wtf-sistema").trim().slice(0, 80) || "wtf-sistema",
+    url: String(body?.url || "/").trim() || "/",
+    data: body?.data && typeof body.data === "object" ? body.data : {}
+  };
+}
+
+function normalizePushSubscription(doc) {
+  const data = doc.data() || {};
+  const subscription = data.subscription && typeof data.subscription === "object" ? data.subscription : data;
+  if (!subscription.endpoint || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) return null;
+  return subscription;
+}
+
+function matchesPushTopic(data, topic) {
+  if (!topic) return true;
+  const topics = Array.isArray(data.topics) ? data.topics.map((item) => String(item).toLowerCase()) : [];
+  const moduleName = String(data.module || data.modulo || "").toLowerCase();
+  const requestedTopic = String(topic).toLowerCase();
+  return topics.includes(requestedTopic) || moduleName === requestedTopic;
+}
+
+async function dispatchPushMessage(messageData) {
+  const topic = String(messageData?.topic || "").trim();
+  const dryRun = Boolean(messageData?.dryRun);
+  const payload = buildPushPayload(messageData || {});
+  const db = getFirestore();
+  const snapshot = await db.collection(PUSH_SUBSCRIPTIONS_COLLECTION).get();
+
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY.value(), VAPID_PRIVATE_KEY.value());
+
+  let sent = 0;
+  let skipped = 0;
+  let deleted = 0;
+  const failures = [];
+
+  await Promise.all(snapshot.docs.map(async (doc) => {
+    const data = doc.data() || {};
+    if (!matchesPushTopic(data, topic)) {
+      skipped += 1;
+      return;
+    }
+    const subscription = normalizePushSubscription(doc);
+    if (!subscription) {
+      await doc.ref.delete();
+      deleted += 1;
+      return;
+    }
+    if (dryRun) {
+      sent += 1;
+      return;
+    }
+    try {
+      await webpush.sendNotification(subscription, JSON.stringify(payload), { TTL: 60 * 60 });
+      sent += 1;
+    } catch (error) {
+      const statusCode = Number(error?.statusCode || error?.status || 0);
+      if (statusCode === 404 || statusCode === 410) {
+        await doc.ref.delete();
+        deleted += 1;
+        return;
+      }
+      failures.push({
+        subscriptionId: doc.id,
+        statusCode,
+        message: String(error?.body || error?.message || "Error enviando push").slice(0, 300)
+      });
+    }
+  }));
+
+  return {
+    ok: failures.length === 0,
+    totalSubscriptions: snapshot.size,
+    topic: topic || "todos",
+    dryRun,
+    sent,
+    skipped,
+    deleted,
+    failed: failures.length,
+    failures: failures.slice(0, 20)
+  };
+}
+
+export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, PUSH_ADMIN_KEY], invoker: "public" }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Metodo no permitido" });
+    return;
+  }
+  try {
+    const expectedKey = PUSH_ADMIN_KEY.value();
+    if (!expectedKey || getPushAdminKey(req) !== expectedKey) {
+      res.status(401).json({ ok: false, error: "No autorizado" });
+      return;
+    }
+
+    res.json(await dispatchPushMessage(req.body || {}));
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error && error.message || "Error interno enviando push" });
+  }
+});
+
+export const wtfDispatchPushMessage = onDocumentCreated({ document: `${PUSH_MESSAGES_COLLECTION}/{messageId}`, region: "us-central1", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY] }, async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+  const ref = snapshot.ref;
+  const messageData = snapshot.data() || {};
+  if (messageData.status && messageData.status !== "pending") return;
+  await ref.set({ status: "processing", processingAt: new Date().toISOString() }, { merge: true });
+  try {
+    const result = await dispatchPushMessage(messageData);
+    await ref.set({ status: result.ok ? "sent" : "partial_error", result, completedAt: new Date().toISOString() }, { merge: true });
+  } catch (error) {
+    await ref.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
+    throw error;
   }
 });

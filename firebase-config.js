@@ -20,6 +20,6 @@ window.WTF_FIREBASE_CONFIG = {
   },
   push: {
     enabled: true,
-    vapidPublicKey: "BAVQhH29K19awAlPJ03LIXHhgsQ7zyMfxlvRw3hWTUi5GZU-3B5JIC6Dluy9qALBowHo5dmeJxvz9SwpP-2Cz5A"
+    vapidPublicKey: "BBykS-efnBriT-5tkedsaNxcq5UOy33lL8Mag_0FilyAAx3iOBFLFmLs5ApJkhIoMEVxzEl_0UHhU8q7zTKdigg"
   }
 };
