@@ -3107,8 +3107,24 @@
     if (!cfg.active || Date.now() > cfg.expiresAt) return false;
     return dismissedKey !== getUserWelcomeCoverKey(user);
   }
+  function getStoredWelcomeCoverDismissedKey() {
+    try {
+      return sessionStorage.getItem("wtf_welcome_cover_dismissed_key") || "";
+    } catch (_) {
+      return "";
+    }
+  }
   function markUserWelcomeCoverSeen(user) {
-    return getUserWelcomeCoverKey(user);
+    const key = getUserWelcomeCoverKey(user);
+    try {
+      sessionStorage.setItem("wtf_welcome_cover_dismissed_key", key);
+    } catch (_) {}
+    return key;
+  }
+  function clearStoredWelcomeCoverSeen() {
+    try {
+      sessionStorage.removeItem("wtf_welcome_cover_dismissed_key");
+    } catch (_) {}
   }
   function isAdminUser(user) {
     return Boolean(user) && user.role === "admin";
@@ -5596,7 +5612,7 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
-    const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState("");
+    const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [barInventario, setBarInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.inventario, []), initialInventoryDeletedKeys.barInventario));
     const [barCuartoFrioInventario, setBarCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(BAR_KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.barCuartoFrioInventario));
@@ -6007,6 +6023,8 @@
         });
       }
       setAuthUserEmail("");
+      clearStoredWelcomeCoverSeen();
+      setWelcomeCoverDismissedKey("");
       sessionStorage.removeItem("wtf_modulo");
       setModulo(null);
       setPage("dashboard");
@@ -6016,6 +6034,8 @@
         return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
+      clearStoredWelcomeCoverSeen();
+      setWelcomeCoverDismissedKey("");
       setAuthUserEmail(user.email);
       addSystemLog({
         modulo: "Sistema",
@@ -7154,7 +7174,7 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("button", {
-            onClick: () => { setAuthUserEmail(""); sessionStorage.removeItem("wtf_modulo"); },
+            onClick: () => { setAuthUserEmail(""); clearStoredWelcomeCoverSeen(); setWelcomeCoverDismissedKey(""); sessionStorage.removeItem("wtf_modulo"); },
             style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.5)", borderRadius: 10, padding: "10px 24px", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 8 }
           }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-left" }), "Cerrar sesión")
         )
