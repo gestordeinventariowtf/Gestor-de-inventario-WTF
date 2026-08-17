@@ -2386,6 +2386,7 @@ function connectBoardSync(branchId) {
   window.clearTimeout(boardConnectTimer);
   window.clearTimeout(boardRetryTimer);
   hasRemoteSnapshot = false;
+  pendingRemoteSave = false;
   remoteBoardRef = getBoardDocRef(branchId);
   if (!remoteBoardRef) {
     setSyncStatus("Modo local", "offline");
@@ -2414,6 +2415,7 @@ function connectBoardSync(branchId) {
       setSyncStatus("Error de formato", "error");
       return;
     }
+    pendingRemoteSave = false;
     isApplyingRemoteState = true;
     state = remoteState;
     const prunedEvidence = pruneExpiredPhotoEvidenceInState();
@@ -2592,6 +2594,11 @@ function queueRemoteSave(options = {}) {
     pendingRemoteSave = true;
     return;
   }
+  if (!hasRemoteSnapshot) {
+    pendingRemoteSave = true;
+    setSyncStatus("Esperando datos de Firebase antes de guardar", "busy");
+    return;
+  }
   if (remoteSaveInFlight) {
     pendingRemoteSave = true;
     return;
@@ -2605,6 +2612,11 @@ function queueRemoteSave(options = {}) {
 function flushRemoteSave() {
   if (!remoteBoardRef || remoteSaveInFlight) {
     pendingRemoteSave = true;
+    return;
+  }
+  if (!hasRemoteSnapshot) {
+    pendingRemoteSave = true;
+    setSyncStatus("Esperando datos de Firebase antes de guardar", "busy");
     return;
   }
   remoteSaveInFlight = true;
