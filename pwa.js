@@ -37,10 +37,15 @@
     const payload = subscription.toJSON ? subscription.toJSON() : subscription;
     const endpoint = String(payload.endpoint || "");
     if (!endpoint) return false;
+    const activeModule = String(sessionStorage.getItem("wtf_modulo") || "").trim();
+    const topic = activeModule || "general";
     const id = btoa(endpoint).replace(/[^a-zA-Z0-9]/g, "").slice(-120) || String(Date.now());
     await db.collection(SUBSCRIPTION_COLLECTION).doc(id).set({
       endpoint,
       subscription: payload,
+      module: topic,
+      modulo: topic,
+      topics: ["general", topic].filter(Boolean),
       userAgent: navigator.userAgent,
       platform: navigator.platform || "",
       standalone: window.matchMedia && window.matchMedia("(display-mode: standalone)").matches,
@@ -63,6 +68,12 @@
     });
     await savePushSubscription(subscription);
     return { ok: true };
+  }
+
+  async function refreshExistingPushSubscription() {
+    if (!serviceWorkerRegistration || !("Notification" in window) || Notification.permission !== "granted") return;
+    const subscription = await serviceWorkerRegistration.pushManager.getSubscription();
+    if (subscription) await savePushSubscription(subscription);
   }
 
   function showPushButtonIfAvailable() {
@@ -118,6 +129,7 @@
       if (data.type === "WTF_PWA_SYNC_NOW") dispatchSyncEvent(RESUME_SYNC_EVENT, data.reason || "service-worker");
     });
     showPushButtonIfAvailable();
+    refreshExistingPushSubscription().catch(() => null);
   }
 
   function setupResumeSync() {
@@ -142,6 +154,7 @@
     setupResumeSync();
     window.WTF_PWA = Object.assign({}, window.WTF_PWA || {}, {
       enablePushNotifications,
+      refreshPushSubscription: refreshExistingPushSubscription,
       syncNow: (reason) => dispatchSyncEvent(RESUME_SYNC_EVENT, reason || "manual")
     });
   }

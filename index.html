@@ -1673,6 +1673,7 @@
     { key: "activosOperativos", label: "Activos Operativos" },
     { key: "employeeCenter", label: "Centro del Colaborador" },
     { key: "aiAssistant", label: "Asistente IA" },
+    { key: "notificaciones", label: "Notificaciones" },
     { key: "systemLogs", label: "Logs de Sistema" },
     { key: "linkCocinaBar", label: "Enlazar COCINA Y BAR" }
   ];
@@ -6217,6 +6218,11 @@
         setFirebaseStatus("connecting");
         setFirebaseMessage("Sincronizando con Firebase...");
         const unsubscribe = docRef.onSnapshot(async (snapshot) => {
+          if (!firebaseBootstrappedRef.current && snapshot.metadata && snapshot.metadata.fromCache) {
+            setFirebaseStatus("connecting");
+            setFirebaseMessage("Leyendo datos reales del servidor...");
+            return;
+          }
           const data = snapshot.data();
           const remoteState = decodeFirebaseAppState(data);
           if (remoteState) {
@@ -6504,6 +6510,11 @@
         setPage("dashboard");
       }
     }, [modulo, page]);
+    useEffect(() => {
+      if (window.WTF_PWA && typeof window.WTF_PWA.refreshPushSubscription === "function") {
+        window.WTF_PWA.refreshPushSubscription().catch(function() {});
+      }
+    }, [modulo]);
     const productos = useMemo(
       () => inventario.filter((r) => r.tipo === "producto").map((p) => ({
         ...p,
@@ -6512,6 +6523,18 @@
       [inventario]
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
+    function forceFirebaseSyncNow() {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) {
+        toast("Firebase aun no esta listo para sincronizar.", "error");
+        return;
+      }
+      setFirebaseStatus("connecting");
+      setFirebaseMessage("Forzando lectura del servidor...");
+      pullLatestFirebaseSnapshot("manual-sync");
+      if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
+        window.WTF_PWA.syncNow("manual-sync");
+      }
+    }
     const syncBadge = useMemo(() => {
       const syncTitle = lastSyncedAt ? `${firebaseMessage} · Ultima sincronizacion: ${lastSyncedAt}` : firebaseMessage;
       const isFirebaseBusy = firebaseStatus === "connected" && /guardando|protegiendo|sincronizando/i.test(String(firebaseMessage || ""));
@@ -6791,6 +6814,7 @@ Solicitado: ${cantidad}`);
       { key: "employeeCenter", icon: "fa-people-group", label: "Centro del Colaborador", section: "COLABORADORES" },
       { key: "usuarios", icon: "fa-user-shield", label: "Usuarios y Permisos", section: "ADMIN" },
       { key: "aiAssistant", icon: "fa-brain", label: "Asistente IA", section: null },
+      { key: "notificaciones", icon: "fa-bell", label: "Notificaciones", section: null },
       { key: "systemLogs", icon: "fa-clipboard-list", label: "Logs de Sistema", section: null }
     ];
     const titles = {
@@ -6816,6 +6840,7 @@ Solicitado: ${cantidad}`);
       employeeCenter: "Centro del Colaborador",
       usuarios: "Administrar Usuarios",
       aiAssistant: "Asistente IA",
+      notificaciones: "Notificaciones",
       systemLogs: "Logs de Sistema",
       produccion: "Producción"
     };
@@ -6825,7 +6850,7 @@ Solicitado: ${cantidad}`);
     const esIcgHost = modulo === "icgHost";
     const esFinanzas = modulo === "finanzas";
     const esEmployeeCenter = modulo === "employeeCenter";
-    const isAdminUtilityPage = page === "usuarios" || page === "systemLogs" || page === "aiAssistant";
+    const isAdminUtilityPage = page === "usuarios" || page === "systemLogs" || page === "aiAssistant" || page === "notificaciones";
     const showFloatingAiChat = isAdminUser(currentUser) || Boolean(currentUser && Array.isArray(currentUser.permisos) && currentUser.permisos.includes("aiAssistant"));
     const activePage = esSharp && !isAdminUtilityPage ? "sharp" : esIcg && !isAdminUtilityPage ? "icg" : esIcgHost && !isAdminUtilityPage ? "icgHost" : esFinanzas && !isAdminUtilityPage ? "finanzas" : esEmployeeCenter && !isAdminUtilityPage ? "employeeCenter" : page;
     const activeInv = esBar ? barInventario : inventario;
@@ -7133,6 +7158,7 @@ Solicitado: ${cantidad}`);
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData }),
       aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
+      notificaciones: /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
       produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
@@ -7308,6 +7334,8 @@ Solicitado: ${cantidad}`);
       if (esEmployeeCenter && item.key !== "employeeCenter" && item.key !== "usuarios") return false;
       if (esBar && barOcultos.includes(item.key)) return false;
       if (item.key === "usuarios") return canManageAdministration(currentUser);
+      if (item.key === "notificaciones" && modulo !== "cocina" && modulo !== "bar") return false;
+      if (item.key === "notificaciones") return isAdminUser(currentUser) || hasAccess("notificaciones");
       if (item.key === "systemLogs" && modulo !== "cocina" && modulo !== "bar") return false;
       if (item.key === "systemLogs") return isAdminUser(currentUser) || hasAccess("systemLogs");
       return hasAccess(item.key);
@@ -7332,7 +7360,7 @@ Solicitado: ${cantidad}`);
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -12587,6 +12615,158 @@ Solicitado: ${cantidad}`);
         )
       ),
       /* @__PURE__ */ React.createElement("button", { type: "button", style: bubbleStyle, onClick: listening ? stopVoiceSession : () => setOpen((value) => !value), onDoubleClick: startVoice, title: listening ? "Detener escucha" : "Hablar con la IA" }, listening ? /* @__PURE__ */ React.createElement("span", { style: { width: 20, height: 20, borderRadius: "50%", background: "#fff", animation: "aiListenPulse .8s ease-in-out infinite" } }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${open ? "fa-times" : "fa-brain"}` }))
+    );
+  }
+  function NotificacionesPage({ currentUser }) {
+    const toast = useToast();
+    const [form, setForm] = useState({ title: "WTF Sistema", body: "", topic: "", url: "/" });
+    const [sending, setSending] = useState(false);
+    const [history, setHistory] = useState([]);
+    const [historyError, setHistoryError] = useState("");
+    const canUsePush = Boolean(window.WTF_PWA && typeof window.WTF_PWA.enablePushNotifications === "function");
+    function getPushDb() {
+      const cfg = window.WTF_FIREBASE_CONFIG || {};
+      if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) throw new Error("Firebase no esta disponible en este navegador.");
+      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
+      return app.firestore();
+    }
+    useEffect(function() {
+      let unsubscribe = null;
+      try {
+        const db = getPushDb();
+        unsubscribe = db.collection("pwaPushMessages").orderBy("createdAt", "desc").limit(60).onSnapshot(function(snapshot) {
+          setHistory(snapshot.docs.map(function(doc) {
+            return Object.assign({ id: doc.id }, doc.data() || {});
+          }));
+          setHistoryError("");
+        }, function(error) {
+          setHistoryError(error && error.message ? error.message : "No se pudo leer el historial.");
+        });
+      } catch (error) {
+        setHistoryError(error && error.message ? error.message : "No se pudo conectar con Firebase.");
+      }
+      return function() {
+        if (typeof unsubscribe === "function") unsubscribe();
+      };
+    }, []);
+    async function enableThisDevice() {
+      if (!canUsePush) {
+        toast("Este navegador no tiene soporte de notificaciones push.", "error");
+        return;
+      }
+      const result = await window.WTF_PWA.enablePushNotifications().catch(function() {
+        return { ok: false };
+      });
+      if (result && result.ok) toast("Este dispositivo quedo suscrito a notificaciones.", "ok");
+      else toast("No se pudieron activar las notificaciones en este dispositivo.", "error");
+    }
+    async function sendNotification() {
+      const title = String(form.title || "").trim();
+      const body = String(form.body || "").trim();
+      if (!title) {
+        toast("Escriba el titulo de la notificacion.", "error");
+        return;
+      }
+      if (!body) {
+        toast("Escriba el mensaje de la notificacion.", "error");
+        return;
+      }
+      setSending(true);
+      try {
+        const db = getPushDb();
+        await db.collection("pwaPushMessages").add({
+          title,
+          body,
+          topic: String(form.topic || "").trim(),
+          url: String(form.url || "/").trim() || "/",
+          status: "pending",
+          createdBy: getUserDisplayLabel(currentUser),
+          createdByEmail: currentUser && currentUser.email || "",
+          createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        });
+        setForm(function(prev) {
+          return Object.assign({}, prev, { body: "" });
+        });
+        toast("Notificacion enviada a la cola. Firebase la procesara automaticamente.", "ok");
+      } catch (error) {
+        toast(error && error.message ? error.message : "No se pudo enviar la notificacion.", "error");
+      } finally {
+        setSending(false);
+      }
+    }
+    function statusPill(status) {
+      const value = String(status || "pending");
+      const normalized = normalizar(value);
+      const cls = normalized.includes("sent") ? "pill-verde" : normalized.includes("error") ? "pill-rojo" : normalized.includes("processing") ? "pill-naranja" : "pill-azul";
+      const label = value === "pending" ? "Pendiente" : value === "processing" ? "Procesando" : value === "sent" ? "Enviada" : value === "partial_error" ? "Parcial" : value;
+      return /* @__PURE__ */ React.createElement("span", { className: `pill ${cls}` }, label);
+    }
+    function getDateValue(row) {
+      const dateValue = row && row.createdAt;
+      if (dateValue && typeof dateValue.toDate === "function") return dateValue.toDate();
+      return dateValue || "";
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bell", style: { marginRight: 7, color: "var(--azul)" } }), "Enviar notificacion")
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
+          /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Los colaboradores deben activar notificaciones en su dispositivo para recibir estos avisos."),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Titulo"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.title, maxLength: 120, onChange: (e) => setForm((p) => Object.assign({}, p, { title: e.target.value })) })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Mensaje"),
+            /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: form.body, maxLength: 500, rows: 4, placeholder: "Ej: Favor realizar conteo de Inventario Cocina a las 10:00 PM.", onChange: (e) => setForm((p) => Object.assign({}, p, { body: e.target.value })) })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Destino"),
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.topic, onChange: (e) => setForm((p) => Object.assign({}, p, { topic: e.target.value })) },
+                /* @__PURE__ */ React.createElement("option", { value: "" }, "Todos los dispositivos"),
+                /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"),
+                /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"),
+                /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"),
+                /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administracion")
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+              /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Abrir al tocar"),
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.url, maxLength: 240, placeholder: "/", onChange: (e) => setForm((p) => Object.assign({}, p, { url: e.target.value })) })
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", disabled: sending, onClick: sendNotification }, sending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Enviando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), "Enviar notificacion")),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: enableThisDevice }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-mobile-screen-button" }), "Activar este dispositivo")
+          )
+        )
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "card" },
+        /* @__PURE__ */ React.createElement("div", { className: "card-header" },
+          /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clock-rotate-left", style: { marginRight: 7, color: "var(--verde)" } }), "Historial de notificaciones"),
+          /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, history.length, " mensajes")
+        ),
+        historyError ? /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), historyError)) : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+          /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Mensaje"), /* @__PURE__ */ React.createElement("th", null, "Destino"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Resultado"))),
+            /* @__PURE__ */ React.createElement("tbody", null,
+              history.map(function(row) {
+                const result = row.result || {};
+                return /* @__PURE__ */ React.createElement("tr", { key: row.id },
+                  /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, getDateValue(row) ? formatDatetime(getDateValue(row)) : "-"),
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800 } }, row.title || "WTF Sistema"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", whiteSpace: "normal" } }, row.body || "")),
+                  /* @__PURE__ */ React.createElement("td", null, row.topic ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, row.topic) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Todos")),
+                  /* @__PURE__ */ React.createElement("td", null, statusPill(row.status)),
+                  /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, result.totalSubscriptions != null ? `${result.sent || 0} enviadas · ${result.failed || 0} errores · ${result.deleted || 0} limpias` : "-")
+                );
+              }),
+              history.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin notificaciones registradas."))
+            )
+          )
+        )
+      )
     );
   }
   function SystemLogsPage({ logs }) {
