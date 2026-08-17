@@ -87,6 +87,23 @@
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
     });
     await savePushSubscription(subscription);
+    await showLocalNotification("WTF Sistema", "Notificaciones activadas en este dispositivo.").catch(() => null);
+    return { ok: true };
+  }
+
+  async function showLocalNotification(title, body) {
+    if (!serviceWorkerRegistration || !("Notification" in window)) return { ok: false, reason: "push-not-configured" };
+    const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
+    const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (permission !== "granted") return { ok: false, reason: "permission-denied" };
+    await registration.showNotification(title || "WTF Sistema", {
+      body: body || "Prueba de notificacion local.",
+      icon: "/pwa-icon.svg",
+      badge: "/pwa-icon.svg",
+      tag: "wtf-local-test",
+      renotify: true,
+      data: { url: "/" }
+    });
     return { ok: true };
   }
 
@@ -197,6 +214,7 @@
     window.WTF_PWA = Object.assign({}, window.WTF_PWA || {}, {
       enablePushNotifications,
       disablePushNotifications,
+      showLocalNotification,
       refreshPushSubscription: refreshExistingPushSubscription,
       syncNow: (reason) => dispatchSyncEvent(RESUME_SYNC_EVENT, reason || "manual")
     });

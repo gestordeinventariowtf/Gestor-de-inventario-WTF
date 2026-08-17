@@ -367,6 +367,41 @@ async function deletePushMessage(messageId) {
   return { ok: true, deleted: cleanId };
 }
 
+async function diagnosePushSubscriptions(topic = "") {
+  const requestedTopic = String(topic || "").trim();
+  const db = getFirestore();
+  const snapshot = await db.collection(PUSH_SUBSCRIPTIONS_COLLECTION).get();
+  let active = 0;
+  let inactive = 0;
+  let valid = 0;
+  let invalid = 0;
+  let matching = 0;
+  let ios = 0;
+  let standalone = 0;
+  snapshot.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    if (data.active === false) inactive += 1;
+    else active += 1;
+    if (normalizePushSubscription(doc)) valid += 1;
+    else invalid += 1;
+    if (matchesPushTopic(data, requestedTopic) && data.active !== false && normalizePushSubscription(doc)) matching += 1;
+    if (data.ios === true) ios += 1;
+    if (data.standalone === true) standalone += 1;
+  });
+  return {
+    ok: true,
+    topic: requestedTopic || "todos",
+    totalSubscriptions: snapshot.size,
+    active,
+    inactive,
+    valid,
+    invalid,
+    matching,
+    ios,
+    standalone
+  };
+}
+
 export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, PUSH_ADMIN_KEY], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") {
@@ -407,6 +442,10 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
   try {
     if (req.body && req.body.action === "deleteMessage") {
       res.json(await deletePushMessage(req.body.messageId));
+      return;
+    }
+    if (req.body && req.body.action === "diagnoseSubscriptions") {
+      res.json(await diagnosePushSubscriptions(req.body.topic || ""));
       return;
     }
     res.json(await processPendingPushMessages(req.body?.limit || 25));
