@@ -2,7 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import webpush from "web-push";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -216,12 +216,13 @@ function getPushAdminKey(req) {
 function buildPushPayload(body) {
   const title = String(body?.title || "WTF Sistema").trim().slice(0, 120) || "WTF Sistema";
   const message = String(body?.body || body?.message || "Tienes una nueva notificacion del sistema.").trim().slice(0, 500);
+  const defaultTag = body?.messageId || body?.id || `wtf-sistema-${Date.now()}`;
   return {
     title,
     body: message,
     icon: body?.icon || "/pwa-icon.svg",
     badge: body?.badge || "/pwa-icon.svg",
-    tag: String(body?.tag || "wtf-sistema").trim().slice(0, 80) || "wtf-sistema",
+    tag: String(body?.tag || defaultTag).trim().slice(0, 80) || defaultTag,
     url: String(body?.url || "/").trim() || "/",
     data: body?.data && typeof body.data === "object" ? body.data : {}
   };
@@ -277,7 +278,7 @@ async function dispatchPushMessage(messageData) {
       return;
     }
     try {
-      await webpush.sendNotification(subscription, JSON.stringify(payload), { TTL: 60 * 60 });
+      await webpush.sendNotification(subscription, JSON.stringify(payload), { TTL: 60 * 60, timeout: 10000 });
       sent += 1;
       } catch (error) {
         const statusCode = Number(error?.statusCode || error?.status || 0);
@@ -336,6 +337,44 @@ async function processPushMessageDocument(docRef) {
   } catch (error) {
     await docRef.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
     return { status: "error", error: error && error.message || "Error enviando push" };
+  }
+}
+
+async function createAndSendPushMessage(body = {}) {
+  const title = String(body.title || "WTF Sistema").trim().slice(0, 120) || "WTF Sistema";
+  const message = String(body.body || body.message || "").trim().slice(0, 500);
+  if (!message) throw new Error("Mensaje de notificacion vacio");
+  const db = getFirestore();
+  const docRef = db.collection(PUSH_MESSAGES_COLLECTION).doc();
+  const now = new Date().toISOString();
+  const messageData = {
+    title,
+    body: message,
+    topic: String(body.topic || "").trim(),
+    url: String(body.url || "/").trim() || "/",
+    tag: `wtf-notification-${docRef.id}`,
+    createdBy: String(body.createdBy || "").trim().slice(0, 160),
+    createdByEmail: String(body.createdByEmail || "").trim().slice(0, 160),
+    status: "processing",
+    processingAt: now,
+    createdAt: FieldValue.serverTimestamp()
+  };
+  await docRef.set(messageData);
+  try {
+    const result = await dispatchPushMessage(Object.assign({}, messageData, { messageId: docRef.id }));
+    await docRef.set({
+      status: result.ok ? "sent" : "partial_error",
+      result,
+      completedAt: new Date().toISOString()
+    }, { merge: true });
+    return { ok: result.ok, id: docRef.id, status: result.ok ? "sent" : "partial_error", result };
+  } catch (error) {
+    await docRef.set({
+      status: "error",
+      error: error && error.message || "Error enviando push",
+      completedAt: new Date().toISOString()
+    }, { merge: true });
+    throw error;
   }
 }
 
@@ -446,6 +485,10 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
     }
     if (req.body && req.body.action === "diagnoseSubscriptions") {
       res.json(await diagnosePushSubscriptions(req.body.topic || ""));
+      return;
+    }
+    if (req.body && req.body.action === "createAndSend") {
+      res.json(await createAndSendPushMessage(req.body));
       return;
     }
     res.json(await processPendingPushMessages(req.body?.limit || 25));

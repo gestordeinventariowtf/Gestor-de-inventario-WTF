@@ -12768,7 +12768,11 @@ Solicitado: ${cantidad}`);
     const [sending, setSending] = useState(false);
     const [history, setHistory] = useState([]);
     const [historyError, setHistoryError] = useState("");
+    const [cooldownUntil, setCooldownUntil] = useState(0);
+    const [cooldownNow, setCooldownNow] = useState(Date.now());
     const canUsePush = Boolean(window.WTF_PWA && typeof window.WTF_PWA.enablePushNotifications === "function");
+    const cooldownRemainingMs = Math.max(0, Number(cooldownUntil || 0) - Number(cooldownNow || Date.now()));
+    const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1e3);
     function getPushDb() {
       const cfg = window.WTF_FIREBASE_CONFIG || {};
       if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) throw new Error("Firebase no esta disponible en este navegador.");
@@ -12794,6 +12798,17 @@ Solicitado: ${cantidad}`);
         if (typeof unsubscribe === "function") unsubscribe();
       };
     }, []);
+    useEffect(function() {
+      if (!cooldownUntil) return void 0;
+      const timer = window.setInterval(function() {
+        const now = Date.now();
+        setCooldownNow(now);
+        if (now >= cooldownUntil) setCooldownUntil(0);
+      }, 1e3);
+      return function() {
+        window.clearInterval(timer);
+      };
+    }, [cooldownUntil]);
     async function enableThisDevice() {
       if (!canUsePush) {
         toast("Este navegador no tiene soporte de notificaciones push.", "error");
@@ -12863,32 +12878,41 @@ Solicitado: ${cantidad}`);
         toast("Escriba el mensaje de la notificacion.", "error");
         return;
       }
+      if (cooldownRemainingMs > 0) {
+        toast(`Espere ${cooldownRemainingSeconds} segundo(s) antes de enviar otra notificacion.`, "error", 5500);
+        return;
+      }
       setSending(true);
       try {
-        const db = getPushDb();
-        await db.collection("pwaPushMessages").add({
-          title,
-          body,
-          topic: String(form.topic || "").trim(),
-          url: String(form.url || "/").trim() || "/",
-          status: "pending",
-          createdBy: getUserDisplayLabel(currentUser),
-          createdByEmail: currentUser && currentUser.email || "",
-          createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
-        });
         const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-        if (processEndpoint) {
-          const response = await fetch(processEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ limit: 25 })
-          });
-          if (!response.ok) throw new Error("La notificacion se guardo, pero el backend no pudo procesarla.");
+        if (!processEndpoint) throw new Error("No hay procesador de notificaciones configurado.");
+        const response = await fetch(processEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "createAndSend",
+            title,
+            body,
+            topic: String(form.topic || "").trim(),
+            url: String(form.url || "/").trim() || "/",
+            createdBy: getUserDisplayLabel(currentUser),
+            createdByEmail: currentUser && currentUser.email || ""
+          })
+        });
+        if (!response.ok) throw new Error("No se pudo procesar la notificacion en Firebase.");
+        const result = await response.json().catch(() => null);
+        const sent = result && result.result ? Number(result.result.sent || 0) : 0;
+        const failed = result && result.result ? Number(result.result.failed || 0) : 0;
+        if (!sent && failed) {
+          throw new Error("Firebase intento enviar la notificacion, pero todos los dispositivos fallaron.");
         }
         setForm(function(prev) {
           return Object.assign({}, prev, { body: "" });
         });
-        toast("Notificacion enviada y procesada por Firebase.", "ok");
+        const nextAvailable = Date.now() + 12e4;
+        setCooldownUntil(nextAvailable);
+        setCooldownNow(Date.now());
+        toast(`Notificacion enviada a ${sent} dispositivo(s). Proximo envio disponible en 2 minutos.`, sent ? "ok" : "error", 7500);
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo enviar la notificacion.", "error");
       } finally {
@@ -12984,7 +13008,7 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", disabled: sending, onClick: sendNotification }, sending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Enviando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), "Enviar notificacion")),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", disabled: sending || cooldownRemainingMs > 0, onClick: sendNotification }, sending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Enviando...") : cooldownRemainingMs > 0 ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hourglass-half" }), "Espere ", cooldownRemainingSeconds, "s") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paper-plane" }), "Enviar notificacion")),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: enableThisDevice, title: "Se activaran las notificaciones en este dispositivo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-mobile-screen-button" }), "Activar este dispositivo"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: disableThisDevice, title: "Se desactivaran las notificaciones en este dispositivo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bell-slash" }), "Desactivar este dispositivo"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: testThisDeviceNotification }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-vial" }), "Probar este dispositivo"),
