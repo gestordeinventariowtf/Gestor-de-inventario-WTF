@@ -7824,7 +7824,15 @@ Solicitado: ${cantidad}`);
       return rows.map(function(value) { return String(value || "").trim().toLowerCase(); }).filter(Boolean);
     }
     function getCurrentRecipeUserIds() {
-      return [currentUser && currentUser.id, currentUser && currentUser.email].map(function(value) { return String(value || "").trim().toLowerCase(); }).filter(Boolean);
+      const values = [currentUser && currentUser.id, currentUser && currentUser.email, currentUser && currentUser.nombre, currentUser && currentUser.name, getUserDisplayLabel(currentUser)];
+      const email = normalizar(currentUser && currentUser.email);
+      if (email) {
+        (Array.isArray(usuarios) ? usuarios : []).forEach(function(user) {
+          if (normalizar(user && user.email) !== email) return;
+          values.push(user.id, user.email, user.nombre, user.name, getUserDisplayLabel(user));
+        });
+      }
+      return Array.from(new Set(values.map(function(value) { return String(value || "").trim().toLowerCase(); }).filter(Boolean)));
     }
     function canUserViewRecipe(receta) {
       if (isAdminUser(currentUser) || recipesAuthorized) return true;
@@ -7848,7 +7856,7 @@ Solicitado: ${cantidad}`);
     }
     const recetasOrdenadas = useMemo(function() {
       return (Array.isArray(recetas) ? [...recetas].reverse() : []).filter(canUserViewRecipe);
-    }, [recetas, currentUser, recipesAuthorized]);
+    }, [recetas, currentUser, usuarios, recipesAuthorized]);
     const hasVisibleRecipes = recetasOrdenadas.length > 0;
     const recetasFiltradas = useMemo(function() {
       const q = normalizar(recipeSearch);
