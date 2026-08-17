@@ -207,7 +207,7 @@ async function updateAuthorizedTerminal(body, req) {
   const ref = db.collection(AUTHORIZED_TERMINALS_COLLECTION).doc(terminalId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error("Terminal no encontrada");
-  const action = sanitizeTerminalText(body.action || "", 60);
+  const action = sanitizeTerminalText(body.terminalAction || body.operation || "", 60);
   const user = body.user && typeof body.user === "object" ? body.user : {};
   const patch = { updatedAt: FieldValue.serverTimestamp(), updatedBy: sanitizeTerminalText(user.nombre || user.name || "", 160), updatedByEmail: sanitizeTerminalText(user.email || "", 160) };
   if (body.name != null) patch.name = sanitizeTerminalText(body.name, 120);

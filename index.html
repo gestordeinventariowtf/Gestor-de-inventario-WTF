@@ -11788,7 +11788,7 @@ Solicitado: ${cantidad}`);
       if (!isAdmin) return toast("Solo administradores pueden administrar terminales.", "error");
       setTerminalBusy(true);
       try {
-        await callTerminalAdmin("update", Object.assign({ terminalId: row.terminalId, action }, patch || {}));
+        await callTerminalAdmin("update", Object.assign({ terminalId: row.terminalId, terminalAction: action }, patch || {}));
         toast("Terminal actualizada.", "ok");
         await refreshTerminals();
       } catch (err) {
