@@ -15,6 +15,7 @@ const PUSH_ADMIN_KEY = defineSecret("PUSH_ADMIN_KEY");
 const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
+const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-29056@appspot.gserviceaccount.com";
 
 if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
@@ -274,19 +275,20 @@ async function dispatchPushMessage(messageData) {
     try {
       await webpush.sendNotification(subscription, JSON.stringify(payload), { TTL: 60 * 60 });
       sent += 1;
-    } catch (error) {
-      const statusCode = Number(error?.statusCode || error?.status || 0);
-      if (statusCode === 404 || statusCode === 410) {
-        await doc.ref.delete();
-        deleted += 1;
-        return;
+      } catch (error) {
+        const statusCode = Number(error?.statusCode || error?.status || 0);
+        const errorBody = String(error?.body || error?.message || "");
+        if (statusCode === 404 || statusCode === 410 || (statusCode === 403 && /BadJwtToken/i.test(errorBody))) {
+          await doc.ref.delete();
+          deleted += 1;
+          return;
+        }
+        failures.push({
+          subscriptionId: doc.id,
+          statusCode,
+          message: String(errorBody || "Error enviando push").slice(0, 300)
+        });
       }
-      failures.push({
-        subscriptionId: doc.id,
-        statusCode,
-        message: String(error?.body || error?.message || "Error enviando push").slice(0, 300)
-      });
-    }
   }));
 
   return {
@@ -302,7 +304,26 @@ async function dispatchPushMessage(messageData) {
   };
 }
 
-export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, PUSH_ADMIN_KEY], invoker: "public" }, async (req, res) => {
+async function processPendingPushMessages(limit = 25) {
+  const db = getFirestore();
+  const snapshot = await db.collection(PUSH_MESSAGES_COLLECTION).where("status", "==", "pending").limit(Math.max(1, Math.min(Number(limit || 25), 100))).get();
+  const processed = [];
+  for (const doc of snapshot.docs) {
+    const messageData = doc.data() || {};
+    await doc.ref.set({ status: "processing", processingAt: new Date().toISOString() }, { merge: true });
+    try {
+      const result = await dispatchPushMessage(messageData);
+      await doc.ref.set({ status: result.ok ? "sent" : "partial_error", result, completedAt: new Date().toISOString() }, { merge: true });
+      processed.push({ id: doc.id, status: result.ok ? "sent" : "partial_error", result });
+    } catch (error) {
+      await doc.ref.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
+      processed.push({ id: doc.id, status: "error", error: error && error.message || "Error enviando push" });
+    }
+  }
+  return { ok: true, total: snapshot.size, processed };
+}
+
+export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, PUSH_ADMIN_KEY], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") {
     res.status(204).send("");
@@ -319,24 +340,37 @@ export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: 
       return;
     }
 
+    if (req.body && req.body.processPending === true) {
+      res.json(await processPendingPushMessages(req.body.limit || 25));
+      return;
+    }
     res.json(await dispatchPushMessage(req.body || {}));
   } catch (error) {
     res.status(500).json({ ok: false, error: error && error.message || "Error interno enviando push" });
   }
 });
 
+export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Metodo no permitido" });
+    return;
+  }
+  try {
+    res.json(await processPendingPushMessages(req.body?.limit || 25));
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
+  }
+});
+
 export const wtfDispatchPushMessage = onDocumentCreated({ document: `${PUSH_MESSAGES_COLLECTION}/{messageId}`, region: "us-central1", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY] }, async (event) => {
   const snapshot = event.data;
   if (!snapshot) return;
-  const ref = snapshot.ref;
   const messageData = snapshot.data() || {};
   if (messageData.status && messageData.status !== "pending") return;
-  await ref.set({ status: "processing", processingAt: new Date().toISOString() }, { merge: true });
-  try {
-    const result = await dispatchPushMessage(messageData);
-    await ref.set({ status: result.ok ? "sent" : "partial_error", result, completedAt: new Date().toISOString() }, { merge: true });
-  } catch (error) {
-    await ref.set({ status: "error", error: error && error.message || "Error enviando push", completedAt: new Date().toISOString() }, { merge: true });
-    throw error;
-  }
+  console.log("Push message queued for HTTP processor", snapshot.id);
 });

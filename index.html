@@ -12688,10 +12688,19 @@ Solicitado: ${cantidad}`);
           createdByEmail: currentUser && currentUser.email || "",
           createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
+        const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+        if (processEndpoint) {
+          const response = await fetch(processEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ limit: 25 })
+          });
+          if (!response.ok) throw new Error("La notificacion se guardo, pero el backend no pudo procesarla.");
+        }
         setForm(function(prev) {
           return Object.assign({}, prev, { body: "" });
         });
-        toast("Notificacion enviada a la cola. Firebase la procesara automaticamente.", "ok");
+        toast("Notificacion enviada y procesada por Firebase.", "ok");
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo enviar la notificacion.", "error");
       } finally {

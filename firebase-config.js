@@ -20,6 +20,7 @@ window.WTF_FIREBASE_CONFIG = {
   },
   push: {
     enabled: true,
-    vapidPublicKey: "BBykS-efnBriT-5tkedsaNxcq5UOy33lL8Mag_0FilyAAx3iOBFLFmLs5ApJkhIoMEVxzEl_0UHhU8q7zTKdigg"
+    vapidPublicKey: "BBykS-efnBriT-5tkedsaNxcq5UOy33lL8Mag_0FilyAAx3iOBFLFmLs5ApJkhIoMEVxzEl_0UHhU8q7zTKdigg",
+    processEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfProcessPendingPushMessages"
   }
 };

@@ -62,6 +62,8 @@
     }
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return { ok: false, reason: "permission-denied" };
+    const currentSubscription = await serviceWorkerRegistration.pushManager.getSubscription();
+    if (currentSubscription) await currentSubscription.unsubscribe().catch(() => false);
     const subscription = await serviceWorkerRegistration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
