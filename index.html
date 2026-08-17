@@ -1676,6 +1676,12 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
+  const WTF_BUSINESS_LOCATION = {
+    lat: 18.488178,
+    lng: -69.87001,
+    radiusMeters: 200,
+    maxAccuracyMeters: 200
+  };
   const PERMISSION_OPTIONS = [
     { key: "dashboard", label: "Dashboard" },
     { key: "dashboardGeneral", label: "Dashboard General" },
@@ -3165,6 +3171,61 @@
   }
   function isAdminUser(user) {
     return Boolean(user) && user.role === "admin";
+  }
+  function degreesToRadians(value) {
+    return Number(value || 0) * Math.PI / 180;
+  }
+  function getDistanceMeters(fromLat, fromLng, toLat, toLng) {
+    const earthRadiusMeters = 6371e3;
+    const dLat = degreesToRadians(toLat - fromLat);
+    const dLng = degreesToRadians(toLng - fromLng);
+    const lat1 = degreesToRadians(fromLat);
+    const lat2 = degreesToRadians(toLat);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+  function getGeolocationErrorMessage(error) {
+    if (!error) return "No se pudo validar la ubicacion.";
+    if (error.code === 1) return "Debes permitir la ubicacion precisa para entrar al sistema. Los administradores pueden entrar sin esta validacion.";
+    if (error.code === 2) return "No se pudo obtener tu ubicacion. Verifica que el GPS o la ubicacion del dispositivo este activa.";
+    if (error.code === 3) return "La ubicacion tardo demasiado en responder. Intentalo de nuevo con buena senal.";
+    return error.message || "No se pudo validar la ubicacion.";
+  }
+  function requestPreciseLoginLocation(user) {
+    if (isAdminUser(user)) return Promise.resolve({ bypass: true, reason: "admin" });
+    if (!navigator.geolocation) {
+      return Promise.reject(new Error("Este dispositivo o navegador no permite validar ubicacion. Usa un navegador compatible o contacta un administrador."));
+    }
+    return new Promise(function(resolve, reject) {
+      navigator.geolocation.getCurrentPosition(function(position) {
+        const coords = position && position.coords ? position.coords : {};
+        const distance = getDistanceMeters(coords.latitude, coords.longitude, WTF_BUSINESS_LOCATION.lat, WTF_BUSINESS_LOCATION.lng);
+        const accuracy = Number(coords.accuracy || 0);
+        if (!Number.isFinite(distance)) {
+          reject(new Error("No se pudo leer una ubicacion valida del dispositivo."));
+          return;
+        }
+        if (accuracy > WTF_BUSINESS_LOCATION.maxAccuracyMeters) {
+          reject(new Error(`Activa ubicacion precisa. La precision actual es de ${Math.round(accuracy)} m y el sistema requiere ${WTF_BUSINESS_LOCATION.maxAccuracyMeters} m o menos.`));
+          return;
+        }
+        if (distance > WTF_BUSINESS_LOCATION.radiusMeters) {
+          reject(new Error(`Acceso bloqueado: estas aproximadamente a ${Math.round(distance)} m de WTF - Whats That Food. El rango permitido es ${WTF_BUSINESS_LOCATION.radiusMeters} m.`));
+          return;
+        }
+        resolve({
+          bypass: false,
+          distanceMeters: Math.round(distance),
+          accuracyMeters: Math.round(accuracy)
+        });
+      }, function(error) {
+        reject(new Error(getGeolocationErrorMessage(error)));
+      }, {
+        enableHighAccuracy: true,
+        timeout: 18e3,
+        maximumAge: 0
+      });
+    });
   }
   function getVisibleAdminUsers(users) {
     return Array.isArray(users) ? users.filter((user) => user && user.activo !== false && user.role === "admin" && !isRootAdmin(user)) : [];
@@ -6146,18 +6207,19 @@
       setModulo(null);
       setPage("dashboard");
     }
-    function loginWithCredentials(email, password) {
+    async function loginWithCredentials(email, password) {
       const user = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
+      const locationCheck = await requestPreciseLoginLocation(user);
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
       setAuthUserEmail(user.email);
       addSystemLog({
         modulo: "Sistema",
         accion: "Inicio de sesion",
-        detalle: "Acceso confirmado con correo y contrasena."
+        detalle: locationCheck && locationCheck.bypass ? "Acceso confirmado con correo y contrasena. Validacion de ubicacion omitida por rol administrador." : `Acceso confirmado dentro del rango WTF. Distancia aprox.: ${locationCheck.distanceMeters} m. Precision: ${locationCheck.accuracyMeters} m.`
       }, user);
       sessionStorage.removeItem("wtf_modulo");
       setModulo(null);
@@ -11651,7 +11713,7 @@ Solicitado: ${cantidad}`);
         setSubmitting(false);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-lock" }), /* @__PURE__ */ React.createElement("span", null, "Los usuarios solo ven en el men\xFA las secciones que tengan autorizadas.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Los administradores pueden agregar usuarios, activar o desactivar accesos y asignar permisos por secci\xF3n."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Al iniciar sesi\xF3n se pedir\xE1 ubicaci\xF3n precisa. Los administradores pueden entrar desde cualquier lugar."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
       "input",
       {
         className: "form-control",
@@ -11677,7 +11739,7 @@ Solicitado: ${cantidad}`);
         disabled: !email.trim() || !password || submitting,
         style: { opacity: !email.trim() || !password || submitting ? 0.7 : 1 }
       },
-      submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Ingresando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-to-bracket" }), "Entrar al sistema")
+      submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando acceso...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), "Entrar al sistema")
     )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
   }
   function getAiAssistantConfig() {
