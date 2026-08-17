@@ -3139,6 +3139,18 @@
     if (String(ADMIN_DEFAULT.password || "") === input) return true;
     return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
   }
+  function findActiveUserByPassword(users, password) {
+    const input = String(password || "");
+    if (!input) return { user: null, duplicate: false };
+    const candidates = ensureAdminUser(users || []).filter(function(user) {
+      return user && user.activo !== false && String(user.password || "") === input;
+    });
+    return {
+      user: candidates.length === 1 ? candidates[0] : null,
+      duplicate: candidates.length > 1,
+      count: candidates.length
+    };
+  }
   function canManageAdministration(user) {
     return isAdminUser(user);
   }
@@ -3998,6 +4010,30 @@
       return String(a.nombre).localeCompare(String(b.nombre));
     });
   }
+  function loadCachedIcgLinkGroups() {
+    try {
+      return normalizeIcgLinkGroups(JSON.parse(localStorage.getItem("wtf_icg_link_groups_cache") || "[]"));
+    } catch (_) {
+      return [];
+    }
+  }
+  function saveCachedIcgLinkGroups(groups) {
+    try {
+      localStorage.setItem("wtf_icg_link_groups_cache", JSON.stringify(normalizeIcgLinkGroups(groups)));
+    } catch (_) {}
+  }
+  function mergeIcgLinkGroups(primaryGroups, fallbackGroups) {
+    const map = new Map();
+    normalizeIcgLinkGroups(fallbackGroups).forEach(function(group) {
+      map.set(normalizar(group.nombre), group);
+    });
+    normalizeIcgLinkGroups(primaryGroups).forEach(function(group) {
+      map.set(normalizar(group.nombre), group);
+    });
+    return Array.from(map.values()).sort(function(a, b) {
+      return String(a.nombre).localeCompare(String(b.nombre));
+    });
+  }
   function mergeIcgLinksWithoutDuplicates(currentLinks, groupLinks, defaultUnit) {
     const current = (Array.isArray(currentLinks) ? currentLinks : []).filter(function(link) {
       return String(link && (link.value || link.CodArticulo || link.Referencia || link.ProductoICG) || "").trim();
@@ -4036,6 +4072,7 @@
         updatedAt: now
       };
       const nextGroups = existingIndex >= 0 ? groups.map(function(row, index) { return index === existingIndex ? group : row; }) : groups.concat([group]);
+      saveCachedIcgLinkGroups(nextGroups);
       return ensureIcgFrontRestData(Object.assign({}, normalized, { icgLinkGroups: nextGroups, updatedAt: now }));
     });
     return true;
@@ -4082,7 +4119,7 @@
   }
   function renderIcgLinksEditor({ idPrefix, links, setLinks, icgArticles, defaultUnit, icgLinkGroups = [], setIcgFrontRestData = null, toast = null }) {
     const safeLinks = Array.isArray(links) && links.length ? links : [createBlankIcgLink(defaultUnit)];
-    const groups = normalizeIcgLinkGroups(icgLinkGroups);
+    const groups = mergeIcgLinkGroups(icgLinkGroups, loadCachedIcgLinkGroups());
     const updateLink = function(index, patch) {
       setLinks(function(prev) {
         const current = Array.isArray(prev) && prev.length ? prev : [createBlankIcgLink(defaultUnit)];
@@ -6089,6 +6126,12 @@
         return u.id !== currentUser.id && normalizar(u.email) === normalizar(nextEmail);
       });
       if (duplicate) throw new Error("Ese correo ya est\xE1 en uso por otro usuario.");
+      if (nextPassword) {
+        const duplicatePassword = ensureAdminUser(usuarios || []).find(function(u) {
+          return u && u.id !== currentUser.id && u.activo !== false && String(u.password || "") === String(nextPassword);
+        });
+        if (duplicatePassword) throw new Error("Esa contrase\xF1a ya est\xE1 asignada a otro usuario.");
+      }
       setUsuarios(function(prev) {
         const now = new Date().toISOString();
         return ensureAdminUser(prev.map(function(u) {
@@ -6557,12 +6600,13 @@
     function addMovimientoBar(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
+      const movementUser = options.responsibleUser || currentUser;
       const prod = barInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
       if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -6570,6 +6614,7 @@
     function addMovimiento(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
+      const movementUser = options.responsibleUser || currentUser;
       const prod = inventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
@@ -6589,7 +6634,7 @@ Solicitado: ${cantidad}`);
         medida: prod.medida,
         producto: prod.nombre,
         cantidad,
-        usuario: getUserDisplayLabel(currentUser)
+        usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
         setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r));
@@ -6609,12 +6654,13 @@ Solicitado: ${cantidad}`);
     function addMovimientoBarCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
+      const movementUser = options.responsibleUser || currentUser;
       const prod = barCuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(currentUser) };
+      const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad) } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
       if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) } : r)); setBarRegDecomiso((p) => [...p, reg]); }
@@ -6622,6 +6668,7 @@ Solicitado: ${cantidad}`);
     function addMovimientoCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
+      const movementUser = options.responsibleUser || currentUser;
       const prod = cuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
@@ -6637,7 +6684,7 @@ Solicitado: ${cantidad}`);
         medida: prod.medida,
         producto: prod.nombre,
         cantidad,
-        usuario: getUserDisplayLabel(currentUser)
+        usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad) } : r));
@@ -7004,9 +7051,9 @@ Solicitado: ${cantidad}`);
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
       inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
       cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData }),
-      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
-      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
-      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget }),
+      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
+      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
+      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento }),
       mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
@@ -7262,6 +7309,7 @@ Solicitado: ${cantidad}`);
     const [secureRecipeHidden, setSecureRecipeHidden] = useState(false);
     const [editingRecipeId, setEditingRecipeId] = useState(null);
     const [recipeEditRequest, setRecipeEditRequest] = useState(null);
+    const [recipeDeleteRequest, setRecipeDeleteRequest] = useState(null);
     const [deleteRequest, setDeleteRequest] = useState(null);
     const [deletePassword, setDeletePassword] = useState("");
     const [busqueda, setBusqueda] = useState("");
@@ -8391,6 +8439,13 @@ Solicitado: ${cantidad}`);
         return (Array.isArray(prev) ? prev : []).filter(function(item) { return item.id !== holdId; });
       });
       if (activeProductionHoldId === holdId) setActiveProductionHoldId(null);
+    }
+    function requestDeleteProductionHold(hold) {
+      if (!hold || !hold.id) return;
+      const title = hold.titulo || "Produccion en hold";
+      if (!window.confirm(`¿Cerrar y eliminar la producción en hold "${title}"?`)) return;
+      deleteProductionHold(hold.id);
+      toast(`Produccion en hold cerrada: ${title}`, "info");
     }
     function resumeProductionHold(hold) {
       if (!hold) return;
@@ -9624,17 +9679,22 @@ Solicitado: ${cantidad}`);
       return renderSecureRecipeShell("Recetario Completo", `${moduleLabel} · Solo administradores`, body, footer);
     }
     function eliminarReceta(recetaId) {
-      if (!confirm("¿Eliminar esta receta?")) return;
       const receta = (Array.isArray(recetas) ? recetas : []).find(function(item) {
         return item.id === recetaId;
       });
-      if (typeof onMarkRecipeDeleted === "function") onMarkRecipeDeleted(recipeStateKey, receta || { id: recetaId });
+      setRecipeDeleteRequest(receta || { id: recetaId, nombre: "esta receta" });
+    }
+    function confirmarEliminarReceta() {
+      const receta = recipeDeleteRequest;
+      if (!receta || !receta.id) return;
+      if (typeof onMarkRecipeDeleted === "function") onMarkRecipeDeleted(recipeStateKey, receta);
       setRecetas(function(prev) {
         return (Array.isArray(prev) ? prev : []).filter(function(item) {
-          return item.id !== recetaId;
+          return item.id !== receta.id;
         });
       });
-      toast("Receta eliminada", "info");
+      setRecipeDeleteRequest(null);
+      toast(`Receta eliminada: ${receta.nombre || "sin nombre"}`, "info");
     }
     const productionHoldsNode = productionHolds.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 16, border: "1px solid #fed7aa", background: "#fff7ed" } },
       /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 10, alignItems: "center" } },
@@ -9651,7 +9711,7 @@ Solicitado: ${cantidad}`);
             ),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: function() { resumeProductionHold(hold); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-play" }), "Retomar"),
-              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { deleteProductionHold(hold.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Cancelar")
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { requestDeleteProductionHold(hold); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Cancelar")
             )
           );
         })
@@ -9843,6 +9903,7 @@ Solicitado: ${cantidad}`);
           )
         )
       ),
+      recipeDeleteRequest && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: `Autorizar eliminar receta: ${recipeDeleteRequest.nombre || "sin nombre"}`, usuarios, onClose: function() { setRecipeDeleteRequest(null); }, onConfirm: confirmarEliminarReceta }),
       directLoadModalOpen && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
         /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: function(e) { e.stopPropagation(); } },
           /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
@@ -12594,6 +12655,17 @@ Solicitado: ${cantidad}`);
         toast("Ese correo ya existe en el sistema.", "error");
         return;
       }
+      const nextPassword = password || (editingId ? (usuarios.find(function(u) { return u.id === editingId; }) || {}).password : "");
+      const shouldValidatePassword = !editingId || Boolean(password);
+      if (shouldValidatePassword && nextPassword) {
+        const duplicatePassword = ensureAdminUser(usuarios || []).find(function(u) {
+          return u && u.id !== editingId && u.activo !== false && String(u.password || "") === String(nextPassword);
+        });
+        if (duplicatePassword) {
+          toast("Esa contrase\xF1a ya est\xE1 asignada a otro usuario. Cada colaborador debe tener una contrase\xF1a \xFAnica.", "error");
+          return;
+        }
+      }
       if (editingId) {
         setUsuarios(function(prev) {
           const now = new Date().toISOString();
@@ -14663,13 +14735,14 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [], specialAccess = false, movementDraftTarget = null }) {
+  function MovimientoForm({ tipo, productos, addMovimiento, storageLabel = "Inventario", storageSources = [], specialAccess = false, movementDraftTarget = null, usuarios = [], currentUser = null }) {
     const toast = useToast();
     const [producto, setProducto] = useState("");
     const [cantidad, setCantidad] = useState("");
     const [cantidadUnidad, setCantidadUnidad] = useState("");
     const [selectedStorageKey, setSelectedStorageKey] = useState("");
     const [transferToMise, setTransferToMise] = useState(false);
+    const [responsablePassword, setResponsablePassword] = useState("");
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
     const [bulkRows, setBulkRows] = useState([]);
@@ -14690,6 +14763,7 @@ Solicitado: ${cantidad}`);
     const conversionError = !isNaN(cant) && existenceInfo && cantidadAplicada == null;
     const excede = existenceInfo && (tipo === "salida" || tipo === "decomiso") && !isNaN(cant) && !conversionError && cantidadAplicada > existenceInfo.existencia;
     const sourcePills = storageSources.length ? storageSources : [{ storageKey: "inventario", label: "Inventario" }, { storageKey: "cuartoFrio", label: "Cuarto Frio" }];
+    const requiresResponsiblePassword = Boolean(currentUser && normalizar(currentUser.email) === normalizar("Cocinawtf@gmail.com"));
     useEffect(function() {
       const options = getMovementUnitOptions(existenceInfo);
       if (!options.length) {
@@ -14744,6 +14818,17 @@ Solicitado: ${cantidad}`);
       const selected = locations.find(function(loc) { return loc.storageKey === row.storageKey; }) || (locations.length === 1 ? locations[0] : null);
       return { info, locations, selected };
     }
+    function resolveMovementResponsible() {
+      if (!requiresResponsiblePassword) return currentUser;
+      const resolved = findActiveUserByPassword(usuarios, responsablePassword);
+      if (resolved.duplicate) {
+        throw new Error("Esta contrase\xF1a est\xE1 repetida en Usuarios y Permisos. Asigna contrase\xF1as \xFAnicas antes de registrar movimientos.");
+      }
+      if (!resolved.user) {
+        throw new Error("Ingrese la contrase\xF1a del colaborador responsable del movimiento.");
+      }
+      return resolved.user;
+    }
     function guardarMasivo() {
       setError("");
       setSuccess("");
@@ -14762,13 +14847,15 @@ Solicitado: ${cantidad}`);
       });
       if (errors.length) return setError(errors.join("\n"));
       try {
+        const responsibleUser = resolveMovementResponsible();
         rows.forEach(function(row) {
           const qty = parseFloat(String(row.cantidad || "").replace(",", "."));
           const resolved = getBulkProductInfo(row);
-          addMovimiento(tipo, row.producto, qty, resolved.selected ? resolved.selected.storageKey : resolved.info && resolved.info.storageKey, { transferToMise: false });
+          addMovimiento(tipo, row.producto, qty, resolved.selected ? resolved.selected.storageKey : resolved.info && resolved.info.storageKey, { transferToMise: false, responsibleUser });
         });
         setSuccess(`${cfg.label} masiva registrada.\n\nMovimientos aplicados: ${rows.length}`);
         setBulkRows([]);
+        setResponsablePassword("");
         toast(`${cfg.label} masiva guardada: ${rows.length} productos`);
       } catch (e) {
         setError(e.message);
@@ -14782,13 +14869,15 @@ Solicitado: ${cantidad}`);
       if (productLocations.length > 1 && !selectedLocation) return setError("Seleccione la ubicacion exacta del producto.");
       if (conversionError || cantidadAplicada == null || cantidadAplicada <= 0) return setError("No se pudo convertir la cantidad a la unidad base del inventario.");
       try {
-        addMovimiento(tipo, producto, cantidadAplicada, selectedLocation ? selectedLocation.storageKey : prodInfo && prodInfo.storageKey, { transferToMise: transferibleToMise && transferToMise });
+        const responsibleUser = resolveMovementResponsible();
+        addMovimiento(tipo, producto, cantidadAplicada, selectedLocation ? selectedLocation.storageKey : prodInfo && prodInfo.storageKey, { transferToMise: transferibleToMise && transferToMise, responsibleUser });
         setSuccess(`${cfg.label} registrada.\n\nProducto: ${producto}\nCantidad digitada: ${cant} ${selectedCantidadUnidad}\nCantidad aplicada: ${cantidadAplicada} ${(existenceInfo && existenceInfo.medida) || ""}`);
         setProducto("");
         setCantidad("");
         setCantidadUnidad("");
         setSelectedStorageKey("");
         setTransferToMise(false);
+        setResponsablePassword("");
         toast(`${cfg.label} guardada: ${producto} x${cant}`);
       } catch (e) {
         setError(e.message);
@@ -14884,9 +14973,14 @@ Solicitado: ${cantidad}`);
             conversionError && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--rojo)" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle", style: { marginRight: 4 } }), "No se pudo convertir esa unidad al inventario."),
             excede && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 12, color: "var(--rojo)" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle", style: { marginRight: 4 } }), "Excede existencia actual (", Number((existenceInfo && existenceInfo.existencia) || 0).toFixed(2), " ", (existenceInfo && existenceInfo.medida) || prodInfo.medida, ")")
           ),
+          requiresResponsiblePassword && /* @__PURE__ */ React.createElement("div", { className: "form-group" },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a del responsable"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: responsablePassword, onChange: function(e) { setResponsablePassword(e.target.value); setError(""); setSuccess(""); }, placeholder: "Colaborador que realiza el movimiento", autoComplete: "off" }),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "El historial guardar\xE1 el usuario due\xF1o de esta contrase\xF1a.")
+          ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("button", { className: `btn btn-${cfg.color}`, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setTransferToMise(false); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setTransferToMise(false); setResponsablePassword(""); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
           )
         )
       )
