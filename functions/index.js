@@ -304,13 +304,19 @@ async function dispatchPushMessage(messageData) {
   };
 }
 
+function isStaleProcessingMessage(messageData) {
+  if (!messageData || messageData.status !== "processing") return false;
+  const processingAt = messageData.processingAt ? new Date(messageData.processingAt).getTime() : 0;
+  return !Number.isFinite(processingAt) || !processingAt || Date.now() - processingAt > 3 * 60 * 1000;
+}
+
 async function claimPendingPushMessage(docRef) {
   const db = getFirestore();
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(docRef);
     if (!snapshot.exists) return null;
     const messageData = snapshot.data() || {};
-    if (messageData.status && messageData.status !== "pending") return null;
+    if (messageData.status && messageData.status !== "pending" && !isStaleProcessingMessage(messageData)) return null;
     transaction.set(docRef, { status: "processing", processingAt: new Date().toISOString() }, { merge: true });
     return messageData;
   });
@@ -331,13 +337,30 @@ async function processPushMessageDocument(docRef) {
 
 async function processPendingPushMessages(limit = 25) {
   const db = getFirestore();
-  const snapshot = await db.collection(PUSH_MESSAGES_COLLECTION).where("status", "==", "pending").limit(Math.max(1, Math.min(Number(limit || 25), 100))).get();
+  const safeLimit = Math.max(1, Math.min(Number(limit || 25), 100));
+  const pendingSnapshot = await db.collection(PUSH_MESSAGES_COLLECTION).where("status", "==", "pending").limit(safeLimit).get();
+  const processingSnapshot = await db.collection(PUSH_MESSAGES_COLLECTION).where("status", "==", "processing").limit(safeLimit).get();
+  const docsById = new Map();
+  pendingSnapshot.docs.forEach((doc) => docsById.set(doc.id, doc));
+  processingSnapshot.docs.forEach((doc) => {
+    if (isStaleProcessingMessage(doc.data() || {})) docsById.set(doc.id, doc);
+  });
   const processed = [];
-  for (const doc of snapshot.docs) {
+  for (const doc of Array.from(docsById.values()).slice(0, safeLimit)) {
     const result = await processPushMessageDocument(doc.ref);
     processed.push({ id: doc.id, ...result });
   }
-  return { ok: true, total: snapshot.size, processed };
+  return { ok: true, total: docsById.size, processed };
+}
+
+async function deletePushMessage(messageId) {
+  const cleanId = String(messageId || "").trim();
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(cleanId)) {
+    throw new Error("ID de notificacion invalido");
+  }
+  const db = getFirestore();
+  await db.collection(PUSH_MESSAGES_COLLECTION).doc(cleanId).delete();
+  return { ok: true, deleted: cleanId };
 }
 
 export const wtfSendPushNotification = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, PUSH_ADMIN_KEY], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
@@ -378,6 +401,10 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
     return;
   }
   try {
+    if (req.body && req.body.action === "deleteMessage") {
+      res.json(await deletePushMessage(req.body.messageId));
+      return;
+    }
     res.json(await processPendingPushMessages(req.body?.limit || 25));
   } catch (error) {
     res.status(500).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });

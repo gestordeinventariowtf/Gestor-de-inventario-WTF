@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "2026-08-17-pwa-6";
+const WTF_SW_VERSION = "2026-08-17-pwa-7";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",
