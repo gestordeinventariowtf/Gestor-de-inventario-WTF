@@ -573,9 +573,9 @@
     }
     .uniform-piece-card {
       border: 1px solid #e5e7eb;
-      border-radius: 14px;
+      border-radius: 12px;
       padding: 10px;
-      background: #fff;
+      background: linear-gradient(180deg, #ffffff, #f8fafc);
       display: grid;
       grid-template-columns: 54px 1fr auto;
       gap: 10px;
@@ -603,6 +603,34 @@
       overflow: hidden;
       border: 1px solid rgba(15, 23, 42, .08);
     }
+    .uniform-piece-visual::before {
+      content: "";
+      position: absolute;
+      inset: 10px 12px 8px;
+      border-radius: 10px 10px 12px 12px;
+      background: rgba(107, 125, 69, .16);
+      border: 1px solid rgba(107, 125, 69, .18);
+    }
+    .uniform-piece-visual.uniform-piece-black-denim-apron-long::before,
+    .uniform-piece-visual.uniform-piece-black-denim-apron-short::before,
+    .uniform-piece-visual.uniform-piece-black-jeans::before,
+    .uniform-piece-visual.uniform-piece-black-sneakers::before,
+    .uniform-piece-visual.uniform-piece-black-closed-shoes::before,
+    .uniform-piece-visual.uniform-piece-black-closed-crocs::before,
+    .uniform-piece-visual.uniform-piece-black-belt::before {
+      background: rgba(17, 24, 39, .18);
+      border-color: rgba(17, 24, 39, .24);
+    }
+    .uniform-piece-visual.uniform-piece-checkered-chef-pants::before {
+      background-color: #e5e7eb;
+      background-image: linear-gradient(90deg, rgba(17,24,39,.22) 1px, transparent 1px), linear-gradient(0deg, rgba(17,24,39,.22) 1px, transparent 1px);
+      background-size: 9px 9px;
+    }
+    .uniform-piece-visual.uniform-piece-chef-hat::before,
+    .uniform-piece-visual.uniform-piece-black-socks::before {
+      background: rgba(248, 250, 252, .95);
+      border-color: rgba(148, 163, 184, .4);
+    }
     .uniform-piece-visual i {
       font-size: 24px;
       color: #111827;
@@ -612,9 +640,10 @@
       position: absolute;
       right: 5px;
       top: 5px;
-      width: 18px;
-      height: 18px;
+      width: 17px;
+      height: 17px;
       object-fit: cover;
+      object-position: center;
       background: #fff;
       border: 1px solid rgba(15, 23, 42, .16);
       border-radius: 999px;
@@ -623,17 +652,19 @@
     }
     .uniform-preview-card {
       border: 1px solid #dbeafe;
-      border-radius: 18px;
-      background: linear-gradient(180deg, #f8fafc, #eef6ff);
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fff7ed, #f8fafc 42%, #eef6ff);
       padding: 16px;
       display: grid;
       gap: 14px;
       box-shadow: 0 14px 32px rgba(15, 23, 42, .07);
     }
     .uniform-preview-person {
-      min-height: 360px;
-      border-radius: 18px;
-      background: linear-gradient(180deg, #ffffff, #f8fafc);
+      min-height: 410px;
+      border-radius: 16px;
+      background:
+        linear-gradient(90deg, rgba(245, 158, 11, .18) 0 20px, transparent 20px calc(100% - 20px), rgba(245, 158, 11, .18) calc(100% - 20px)),
+        linear-gradient(180deg, #fffaf0, #ffffff 45%, #f8fafc);
       border: 1px solid #e5e7eb;
       display: grid;
       place-items: center;
@@ -650,68 +681,90 @@
       border-radius: 50%;
       background: rgba(15, 23, 42, .08);
     }
+    .uniform-preview-person::after {
+      content: "CODIGO DE VESTIMENTA WTF";
+      position: absolute;
+      top: 14px;
+      left: 18px;
+      right: 18px;
+      color: #1f2937;
+      font-size: 12px;
+      font-weight: 900;
+      text-align: center;
+    }
     .uniform-figure {
-      width: 172px;
-      height: 318px;
+      width: 190px;
+      height: 350px;
       position: relative;
+      margin-top: 28px;
     }
     .uniform-figure .head {
       position: absolute;
-      top: 34px;
-      left: 61px;
-      width: 50px;
-      height: 54px;
+      top: 38px;
+      left: 67px;
+      width: 56px;
+      height: 60px;
       border-radius: 50%;
       background: #f2c9a0;
       border: 2px solid #d6a577;
       z-index: 4;
+      box-shadow: inset -6px -8px 0 rgba(124, 45, 18, .08);
     }
     .uniform-figure .head::before,
     .uniform-figure .head::after {
       content: "";
       position: absolute;
-      top: 22px;
+      top: 25px;
       width: 5px;
       height: 5px;
       border-radius: 50%;
       background: #111827;
       z-index: 2;
     }
-    .uniform-figure .head::before { left: 14px; }
-    .uniform-figure .head::after { right: 14px; }
+    .uniform-figure .head::before { left: 16px; }
+    .uniform-figure .head::after { right: 16px; }
+    .uniform-figure .hair {
+      position: absolute;
+      top: 30px;
+      left: 62px;
+      width: 66px;
+      height: 38px;
+      border-radius: 999px 999px 14px 14px;
+      background: #1f2937;
+      z-index: 3;
+    }
+    .uniform-figure.femenino .hair {
+      top: 28px;
+      left: 58px;
+      width: 74px;
+      height: 68px;
+      border-radius: 42% 42% 36% 36%;
+    }
     .uniform-figure .face {
       position: absolute;
-      top: 64px;
-      left: 80px;
-      width: 14px;
+      top: 72px;
+      left: 87px;
+      width: 16px;
       height: 7px;
       border-bottom: 2px solid #7c2d12;
       border-radius: 0 0 999px 999px;
       z-index: 6;
     }
-    .uniform-figure.femenino .head::after {
-      content: "";
-      position: absolute;
-      inset: -8px -7px 16px;
-      border-radius: 45% 45% 35% 35%;
-      background: #1f2937;
-      z-index: -1;
-    }
     .uniform-figure.femenino .torso {
-      width: 82px;
-      left: 45px;
+      width: 86px;
+      left: 52px;
       border-radius: 24px 24px 12px 12px;
     }
-    .uniform-figure.femenino .leg.left { left: 47px; }
-    .uniform-figure.femenino .leg.right { right: 47px; }
-    .uniform-figure.femenino .arm.left { left: 24px; }
-    .uniform-figure.femenino .arm.right { right: 24px; }
+    .uniform-figure.femenino .leg.left { left: 54px; }
+    .uniform-figure.femenino .leg.right { right: 54px; }
+    .uniform-figure.femenino .arm.left { left: 28px; }
+    .uniform-figure.femenino .arm.right { right: 28px; }
     .uniform-figure .hat {
       position: absolute;
-      top: 5px;
-      left: 48px;
-      width: 76px;
-      height: 39px;
+      top: 4px;
+      left: 54px;
+      width: 82px;
+      height: 44px;
       border-radius: 18px 18px 10px 10px;
       background: #f8fafc;
       border: 2px solid #d1d5db;
@@ -722,32 +775,33 @@
     .uniform-figure .hat img,
     .uniform-figure .torso-logo,
     .uniform-figure .apron-logo {
-      width: 24px;
-      height: 24px;
+      width: 22px;
+      height: 22px;
       border-radius: 999px;
       object-fit: cover;
+      object-position: center;
       background: #fff;
       border: 1px solid rgba(15, 23, 42, .18);
       padding: 1px;
     }
     .uniform-figure .torso {
       position: absolute;
-      top: 91px;
-      left: 41px;
-      width: 90px;
-      height: 98px;
-      border-radius: 20px 20px 10px 10px;
-      background: #6b7d45;
+      top: 105px;
+      left: 47px;
+      width: 96px;
+      height: 108px;
+      border-radius: 22px 22px 10px 10px;
+      background: linear-gradient(180deg, #7f8f55, #566a38);
       border: 2px solid #4f5f34;
       z-index: 3;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.22);
     }
     .uniform-figure .base-shirt {
       position: absolute;
-      top: 93px;
-      left: 43px;
-      width: 86px;
-      height: 88px;
+      top: 107px;
+      left: 49px;
+      width: 92px;
+      height: 98px;
       border-radius: 20px 20px 10px 10px;
       background: #e5e7eb;
       border: 2px solid #cbd5e1;
@@ -755,10 +809,10 @@
     }
     .uniform-figure .base-shorts {
       position: absolute;
-      top: 174px;
-      left: 45px;
-      width: 82px;
-      height: 36px;
+      top: 198px;
+      left: 52px;
+      width: 86px;
+      height: 38px;
       border-radius: 9px;
       background: #475569;
       border: 2px solid #334155;
@@ -774,25 +828,35 @@
       background: rgba(255,255,255,.45);
       transform: translateX(-50%);
     }
+    .uniform-figure .torso::after {
+      content: "";
+      position: absolute;
+      left: 42px;
+      top: 18px;
+      width: 6px;
+      height: 44px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,.8) 0 2px, transparent 3px) 0 0 / 6px 12px;
+    }
     .uniform-figure .torso-logo {
       position: absolute;
-      right: 12px;
-      top: 17px;
+      right: 20px;
+      top: 130px;
       z-index: 5;
     }
     .uniform-figure .apron {
       position: absolute;
-      top: 122px;
-      left: 50px;
-      width: 72px;
-      height: 100px;
+      top: 142px;
+      left: 57px;
+      width: 76px;
+      height: 112px;
       border-radius: 8px 8px 14px 14px;
-      background: #111827;
+      background: linear-gradient(180deg, #1f2937, #020617);
       border: 2px solid #020617;
       z-index: 4;
     }
     .uniform-figure .apron.short {
-      height: 52px;
+      height: 58px;
     }
     .uniform-figure .apron::before {
       content: "";
@@ -806,27 +870,27 @@
     }
     .uniform-figure .apron-logo {
       position: absolute;
-      left: 24px;
-      top: 18px;
+      left: 84px;
+      top: 160px;
       z-index: 5;
     }
     .uniform-figure .arm {
       position: absolute;
-      top: 101px;
-      width: 22px;
-      height: 96px;
+      top: 116px;
+      width: 23px;
+      height: 105px;
       border-radius: 999px;
       background: #f2c9a0;
       border: 2px solid #d6a577;
       z-index: 2;
     }
-    .uniform-figure .arm.left { left: 20px; transform: rotate(8deg); }
-    .uniform-figure .arm.right { right: 20px; transform: rotate(-8deg); }
+    .uniform-figure .arm.left { left: 22px; transform: rotate(8deg); }
+    .uniform-figure .arm.right { right: 22px; transform: rotate(-8deg); }
     .uniform-figure .leg {
       position: absolute;
-      top: 185px;
-      width: 39px;
-      height: 96px;
+      top: 218px;
+      width: 40px;
+      height: 102px;
       border-radius: 8px;
       background-color: #cbd5e1;
       background-image: linear-gradient(90deg, rgba(17,24,39,.35) 1px, transparent 1px), linear-gradient(0deg, rgba(17,24,39,.35) 1px, transparent 1px);
@@ -836,17 +900,17 @@
     }
     .uniform-figure .sock {
       position: absolute;
-      top: 242px;
+      top: 278px;
       width: 32px;
-      height: 32px;
+      height: 28px;
       background: #020617;
       border-radius: 6px;
       z-index: 3;
     }
-    .uniform-figure .sock.left { left: 49px; }
-    .uniform-figure .sock.right { right: 49px; }
-    .uniform-figure .leg.left { left: 45px; }
-    .uniform-figure .leg.right { right: 45px; }
+    .uniform-figure .sock.left { left: 56px; }
+    .uniform-figure .sock.right { right: 56px; }
+    .uniform-figure .leg.left { left: 52px; }
+    .uniform-figure .leg.right { right: 52px; }
     .uniform-figure.jean .leg {
       background: #111827;
       border-color: #020617;
@@ -854,15 +918,43 @@
     }
     .uniform-figure .shoe {
       position: absolute;
-      top: 272px;
-      width: 48px;
+      top: 306px;
+      width: 50px;
       height: 23px;
       background: #030712;
       border-radius: 14px 14px 8px 8px;
       z-index: 3;
     }
-    .uniform-figure .shoe.left { left: 37px; }
-    .uniform-figure .shoe.right { right: 37px; }
+    .uniform-figure .shoe.left { left: 43px; }
+    .uniform-figure .shoe.right { right: 43px; }
+    .uniform-callout {
+      position: absolute;
+      max-width: 112px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .94);
+      border: 1px solid rgba(148, 163, 184, .42);
+      color: #1f2937;
+      font-size: 10.5px;
+      font-weight: 900;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+      z-index: 7;
+    }
+    .uniform-callout::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 28px;
+      height: 1px;
+      background: rgba(15, 23, 42, .28);
+    }
+    .uniform-callout.left::after { left: 100%; }
+    .uniform-callout.right::after { right: 100%; }
+    .uniform-callout.hat { left: 18px; top: 62px; }
+    .uniform-callout.torso { right: 18px; top: 142px; }
+    .uniform-callout.apron { left: 18px; top: 198px; }
+    .uniform-callout.pants { right: 18px; bottom: 88px; }
+    .uniform-callout.shoes { left: 22px; bottom: 46px; }
     .uniform-selected-chips {
       display: flex;
       gap: 6px;
@@ -6728,7 +6820,7 @@
       }, { accion: "Codigo de vestimenta", registro: profile, detalle: `Piezas actualizadas para ${gender}` });
     }
     function renderUniformPieceThumb(piece) {
-      return /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-visual" }, piece.logo && /* @__PURE__ */ React.createElement("img", { className: "uniform-piece-logo", src: WTF_LOGO_ASSET, alt: "Logo WTF" }), /* @__PURE__ */ React.createElement("i", { className: `fas ${piece.icon || "fa-shirt"}` }));
+      return /* @__PURE__ */ React.createElement("div", { className: `uniform-piece-visual uniform-piece-${piece.id}` }, piece.logo && /* @__PURE__ */ React.createElement("img", { className: "uniform-piece-logo", src: WTF_LOGO_ASSET, alt: "Logo WTF" }), /* @__PURE__ */ React.createElement("i", { className: `fas ${piece.icon || "fa-shirt"}` }));
     }
     function renderUniformPrototype(profile, gender, selectedIds) {
       const selected = new Set(selectedIds || []);
@@ -6739,11 +6831,18 @@
       const hasSocksPiece = selected.has("black-socks");
       const hasShoesPiece = selected.has("black-sneakers") || selected.has("black-closed-shoes") || selected.has("black-closed-crocs");
       const usesJean = selected.has("black-jeans");
+      const selectedPieces = DEFAULT_UNIFORM_PIECES.filter((piece) => selected.has(piece.id));
       return /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-card" },
         /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Prototipo vestido"), /* @__PURE__ */ React.createElement("h3", { style: { margin: "4px 0", color: "#111827" } }, profile || "Perfil"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, gender === "femenino" ? "Figura femenina" : "Figura masculina")),
         /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-person" },
+          selected.has("chef-hat") && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left hat" }, "Gorro con logo"),
+          hasTorsoPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout right torso" }, selected.has("olive-chef-jacket") ? "Chaqueta verde oliva" : "Camisa verde oliva"),
+          (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left apron" }, hasShortApron ? "Delantal corto" : "Delantal jean negro"),
+          hasPantsPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout right pants" }, selected.has("checkered-chef-pants") ? "Pantalon cocinero" : "Pantalon negro"),
+          hasShoesPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left shoes" }, "Calzado cerrado"),
           /* @__PURE__ */ React.createElement("div", { className: `uniform-figure ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}` },
             selected.has("chef-hat") && /* @__PURE__ */ React.createElement("div", { className: "hat" }, /* @__PURE__ */ React.createElement("img", { src: WTF_LOGO_ASSET, alt: "Logo WTF" })),
+            /* @__PURE__ */ React.createElement("div", { className: "hair" }),
             /* @__PURE__ */ React.createElement("div", { className: "head" }),
             /* @__PURE__ */ React.createElement("div", { className: "face" }),
             /* @__PURE__ */ React.createElement("div", { className: "base-shirt" }),
@@ -6762,7 +6861,7 @@
             hasShoesPiece && /* @__PURE__ */ React.createElement("div", { className: "shoe right" })
           )
         ),
-        /* @__PURE__ */ React.createElement("div", { className: "uniform-selected-chips" }, DEFAULT_UNIFORM_PIECES.filter((piece) => selected.has(piece.id)).map((piece) => /* @__PURE__ */ React.createElement("span", { key: piece.id, className: "pill pill-azul" }, piece.nombre)))
+        /* @__PURE__ */ React.createElement("div", { className: "uniform-selected-chips" }, selectedPieces.map((piece) => /* @__PURE__ */ React.createElement("span", { key: piece.id, className: "pill pill-azul" }, piece.nombre)))
       );
     }
     function setEmployeeCenterRowStatus(listName, id, estado) {
