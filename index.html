@@ -698,6 +698,39 @@
       position: relative;
       margin-top: 28px;
     }
+    .uniform-silhouette-base {
+      position: absolute;
+      inset: 24px 36px 8px;
+      overflow: hidden;
+      z-index: 1;
+      pointer-events: none;
+      filter: drop-shadow(0 12px 18px rgba(15, 23, 42, .16));
+    }
+    .uniform-silhouette-base img {
+      height: 100%;
+      width: 220%;
+      max-width: none;
+      object-fit: cover;
+      object-position: left center;
+      display: block;
+    }
+    .uniform-figure.femenino .uniform-silhouette-base img {
+      transform: translateX(-50%);
+    }
+    .uniform-figure.has-template .hair,
+    .uniform-figure.has-template .head,
+    .uniform-figure.has-template .face,
+    .uniform-figure.has-template .arm {
+      display: none;
+    }
+    .uniform-figure.has-template .base-shirt {
+      z-index: 2;
+      opacity: .92;
+    }
+    .uniform-figure.has-template .base-shorts {
+      z-index: 2;
+      opacity: .9;
+    }
     .uniform-figure .head {
       position: absolute;
       top: 38px;
@@ -6095,6 +6128,7 @@
     { id: "black-denim-apron-short", nombre: "Delantal Corto Tipo Jean Negro", tipo: "Delantal", icon: "fa-vest", logo: true, short: true }
   ];
   const WTF_LOGO_ASSET = "assets/wtf-logo.jpg";
+  const UNIFORM_BODY_TEMPLATE_ASSET = "assets/uniform-human-body-template.webp";
   function getDefaultUniformPieceIds(profileName) {
     const key = normalizar(profileName || "");
     if (key.includes("cocin")) return ["chef-hat", "olive-chef-jacket", "checkered-chef-pants", "black-socks", "black-closed-crocs"];
@@ -6840,7 +6874,8 @@
           (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left apron" }, hasShortApron ? "Delantal corto" : "Delantal jean negro"),
           hasPantsPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout right pants" }, selected.has("checkered-chef-pants") ? "Pantalon cocinero" : "Pantalon negro"),
           hasShoesPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left shoes" }, "Calzado cerrado"),
-          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}` },
+          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure has-template ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}` },
+            /* @__PURE__ */ React.createElement("div", { className: "uniform-silhouette-base", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("img", { src: UNIFORM_BODY_TEMPLATE_ASSET, alt: "" })),
             selected.has("chef-hat") && /* @__PURE__ */ React.createElement("div", { className: "hat" }, /* @__PURE__ */ React.createElement("img", { src: WTF_LOGO_ASSET, alt: "Logo WTF" })),
             /* @__PURE__ */ React.createElement("div", { className: "hair" }),
             /* @__PURE__ */ React.createElement("div", { className: "head" }),
