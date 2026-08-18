@@ -502,6 +502,195 @@
     .rrhh-schedule-table td {
       background: #fff;
     }
+    .rrhh-shell {
+      display: grid;
+      gap: 16px;
+    }
+    .rrhh-hero {
+      overflow: hidden;
+      border: 1px solid rgba(37, 99, 235, .16);
+      background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 42%, #ecfdf5 100%);
+      border-radius: 16px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, .08);
+    }
+    .rrhh-hero-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .rrhh-kicker {
+      font-size: 11px;
+      font-weight: 900;
+      color: #0f766e;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .rrhh-title {
+      margin: 4px 0;
+      font-size: clamp(22px, 3vw, 30px);
+      color: #111827;
+      line-height: 1.15;
+    }
+    .rrhh-subtitle {
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+    .rrhh-progress-card {
+      min-width: 230px;
+      border: 1px solid rgba(255, 255, 255, .78);
+      background: rgba(255, 255, 255, .76);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, .08);
+    }
+    .rrhh-progress-bar {
+      height: 12px;
+      background: #e0f2fe;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(37, 99, 235, .14);
+    }
+    .rrhh-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #16a34a, #2563eb);
+      border-radius: 999px;
+      transition: width .45s ease;
+    }
+    .rrhh-action-grid,
+    .rrhh-stage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .rrhh-action-card,
+    .rrhh-stage-card {
+      text-align: left;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, .06);
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .rrhh-action-card {
+      display: grid;
+      gap: 8px;
+      min-height: 128px;
+    }
+    .rrhh-action-card:hover,
+    .rrhh-stage-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, .10);
+      border-color: #bfdbfe;
+    }
+    .rrhh-shell .card:not(.rrhh-hero) {
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .05);
+    }
+    .rrhh-shell .card-header {
+      background: linear-gradient(180deg, #fff, #f8fafc);
+      border-radius: 14px 14px 0 0;
+    }
+    .rrhh-shell .form-control {
+      border-radius: 10px;
+    }
+    .rrhh-shell .table-wrap {
+      border-radius: 0 0 14px 14px;
+    }
+    .rrhh-shell tbody tr:hover td {
+      background: #f0f9ff;
+    }
+    .rrhh-action-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      box-shadow: 0 10px 18px rgba(15, 23, 42, .16);
+    }
+    .rrhh-stage-card {
+      display: grid;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .rrhh-stage-card.is-done {
+      background: #f0fdf4;
+      border-color: #86efac;
+    }
+    .rrhh-stage-card.is-open {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+    .rrhh-stage-card.is-locked {
+      background: #f8fafc;
+      border-color: #e5e7eb;
+    }
+    .rrhh-stage-number {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .rrhh-card-soft {
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .06);
+    }
+    .rrhh-tabs {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 6px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .05);
+    }
+    .rrhh-tabs .tab {
+      border-radius: 10px;
+      border-bottom: 0;
+      margin-bottom: 0;
+    }
+    .rrhh-tabs .tab.active {
+      background: #ecfdf5;
+      color: #047857;
+      box-shadow: inset 0 0 0 1px #bbf7d0;
+    }
+    .rrhh-animate-in {
+      animation: rrhhFadeUp .28s ease both;
+    }
+    .rrhh-modal-pop {
+      animation: rrhhModalPop .24s ease both;
+    }
+    @keyframes rrhhFadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes rrhhModalPop {
+      from { opacity: 0; transform: translateY(12px) scale(.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @media (max-width: 640px) {
+      .rrhh-hero .card-body { padding: 18px !important; }
+      .rrhh-progress-card { width: 100%; min-width: 0; }
+      .rrhh-action-grid,
+      .rrhh-stage-grid { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .rrhh-animate-in,
+      .rrhh-modal-pop { animation: none; }
+      .rrhh-action-card,
+      .rrhh-stage-card,
+      .rrhh-progress-fill { transition: none; }
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
       background: #f9fafb;
@@ -5870,6 +6059,7 @@
     const [scheduleForm, setScheduleForm] = useState({ userId: "", templateId: "", templateId2: "", effectiveFrom: new Date().toISOString().slice(0, 10), notes: "" });
     const [scheduleTemplateForm, setScheduleTemplateForm] = useState({ nombre: "", tipo: "Nocturno", color: "#2563eb", entradaSemana: "4:00 PM", salidaSemana: "12:00 AM", entradaFin: "4:00 PM", salidaFin: "2:00 AM", descansoMin: 20, diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = true; return acc; }, {}) });
     const [timeOffForm, setTimeOffForm] = useState({ userId: "", tipo: "Vacaciones", desde: new Date().toISOString().slice(0, 10), hasta: new Date().toISOString().slice(0, 10), motivo: "" });
+    const [equipmentForm, setEquipmentForm] = useState({ userId: "", articulo: "", tipo: "Uniforme", talla: "", cantidad: 1, condicion: "Nuevo", fechaEntrega: new Date().toISOString().slice(0, 10), requiereDevolucion: true, observacion: "" });
     const [evidenceTaskId, setEvidenceTaskId] = useState("");
     const [adminSection, setAdminSection] = useState("colaboradores");
     const [employeeAdminSearch, setEmployeeAdminSearch] = useState("");
@@ -5879,6 +6069,8 @@
     const [editingOnboardingId, setEditingOnboardingId] = useState("");
     const [editingTimeOffId, setEditingTimeOffId] = useState("");
     const [editingScheduleTemplateId, setEditingScheduleTemplateId] = useState("");
+    const [editingEquipmentId, setEditingEquipmentId] = useState("");
+    const [activeOnboardingStage, setActiveOnboardingStage] = useState(null);
     const profileName = getEmployeeProfileName(currentUser) || "Colaborador";
     const supervisor = usuarios.find((u) => String(u.id) === String(currentUser && currentUser.supervisorId));
     const onboardingPercent = getOnboardingProgressPercent(normalized, currentUser);
@@ -6131,6 +6323,56 @@
       setTimeOffForm({ userId: row.userId || "", tipo: row.tipo || "Vacaciones", desde: row.desde || new Date().toISOString().slice(0, 10), hasta: row.hasta || new Date().toISOString().slice(0, 10), motivo: row.motivo || "" });
       setAdminSection("horarios");
     }
+    function resetEquipmentForm() {
+      setEditingEquipmentId("");
+      setEquipmentForm({ userId: "", articulo: "", tipo: "Uniforme", talla: "", cantidad: 1, condicion: "Nuevo", fechaEntrega: new Date().toISOString().slice(0, 10), requiereDevolucion: true, observacion: "" });
+    }
+    function saveEquipmentAssignment() {
+      const articulo = String(equipmentForm.articulo || "").trim();
+      if (!equipmentForm.userId || !articulo) return toast("Seleccione colaborador e indique el articulo asignado.", "error");
+      const user = usuarios.find((row) => String(row.id || row.email) === String(equipmentForm.userId));
+      const payload = {
+        userId: equipmentForm.userId,
+        usuario: user ? getUserDisplayLabel(user) : equipmentForm.userId,
+        articulo,
+        tipo: equipmentForm.tipo || "Uniforme",
+        talla: equipmentForm.talla || "",
+        cantidad: Math.max(1, Number(equipmentForm.cantidad || 1)),
+        condicion: equipmentForm.condicion || "Nuevo",
+        fechaEntrega: equipmentForm.fechaEntrega || new Date().toISOString().slice(0, 10),
+        requiereDevolucion: equipmentForm.requiereDevolucion !== false,
+        observacion: equipmentForm.observacion || "",
+        estado: "Asignado",
+        updatedAt: new Date().toISOString()
+      };
+      if (editingEquipmentId) {
+        updateData((prev) => Object.assign({}, prev, { equipmentAssignments: (prev.equipmentAssignments || []).map((row) => row.id === editingEquipmentId ? Object.assign({}, row, payload) : row) }), { accion: "Editar uniforme/equipo", registro: articulo, detalle: `Asignacion actualizada para ${payload.usuario}` });
+      } else {
+        updateData((prev) => Object.assign({}, prev, { equipmentAssignments: [Object.assign({ id: `eq-${Date.now()}`, createdAt: new Date().toISOString() }, payload)].concat(prev.equipmentAssignments || []) }), { accion: "Asignar uniforme/equipo", registro: articulo, detalle: `Asignado a ${payload.usuario}` });
+      }
+      resetEquipmentForm();
+      toast("Uniforme/equipo guardado.", "success");
+    }
+    function editEquipmentAssignment(row) {
+      setEditingEquipmentId(row.id);
+      setEquipmentForm({
+        userId: row.userId || "",
+        articulo: row.articulo || "",
+        tipo: row.tipo || "Uniforme",
+        talla: row.talla || "",
+        cantidad: row.cantidad || 1,
+        condicion: row.condicion || "Nuevo",
+        fechaEntrega: row.fechaEntrega || new Date().toISOString().slice(0, 10),
+        requiereDevolucion: row.requiereDevolucion !== false,
+        observacion: row.observacion || ""
+      });
+      setAdminSection("equipos");
+    }
+    function returnEquipmentAssignment(row) {
+      if (!row || !row.id) return;
+      updateData((prev) => Object.assign({}, prev, { equipmentAssignments: (prev.equipmentAssignments || []).map((item) => item.id === row.id ? Object.assign({}, item, { estado: "Devuelto", fechaDevolucion: new Date().toISOString(), updatedAt: new Date().toISOString() }) : item) }), { accion: "Devolver uniforme/equipo", registro: row.articulo || row.id, detalle: `Devuelto por ${row.usuario || row.userId || ""}` });
+      toast("Equipo marcado como devuelto.", "success");
+    }
     function setEmployeeCenterRowStatus(listName, id, estado) {
       updateData(function(prev) {
         return Object.assign({}, prev, {
@@ -6172,6 +6414,7 @@
       ["horarios", "Horarios", "fa-calendar-days"],
       ["induccion", "Induccion", "fa-route"],
       ["tareas", "Tareas", "fa-list-check"],
+      ["equipos", "Uniformes y equipos", "fa-shirt"],
       ["documentos", "Documentos", "fa-file-lines"],
       ["anuncios", "Anuncios", "fa-bullhorn"],
       ["auditoria", "Auditoria", "fa-clock-rotate-left"]
@@ -6228,12 +6471,12 @@
       );
     }
     const tabButton = (key, label) => /* @__PURE__ */ React.createElement("button", { key, className: `tab ${tab === key ? "active" : ""}`, onClick: () => setTab(key) }, label);
-    return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 14 } },
+    return /* @__PURE__ */ React.createElement("div", { className: "rrhh-shell" },
       isEmployeeWelcomeActive(currentUser, normalized) && tab === "panel" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { border: "1px solid #bbf7d0", background: "#f0fdf4" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" } }, currentUser.foto && /* @__PURE__ */ React.createElement("img", { src: currentUser.foto, alt: "Foto colaborador", style: { width: 74, height: 74, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 4px" } }, `Bienvenido/a, ${getUserDisplayLabel(currentUser)}`), /* @__PURE__ */ React.createElement("div", { style: { color: "#166534", fontWeight: 700 } }, profileName, " · Ingreso: ", getEmployeeHireDate(currentUser) ? new Date(getEmployeeHireDate(currentUser)).toLocaleDateString("es-DO") : "Sin fecha", " · Supervisor: ", supervisor ? getUserDisplayLabel(supervisor) : "No asignado"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, height: 10, background: "#dcfce7", borderRadius: 999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${onboardingPercent}%`, height: "100%", background: "#16a34a" } })), /* @__PURE__ */ React.createElement("small", null, onboardingPercent, "% de induccion completado")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setTab("induccion") }, "Continuar induccion"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setTab("tareas") }, "Ver checklist"), typeof onExitToModules === "function" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onExitToModules }, "Visitar modulos")))),
-      /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 19 } }, "Centro del Colaborador"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Induccion, tareas, politicas, cursos, horarios, equipos, firmas y expediente laboral.")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(normalized.auditLogs, `Centro_Colaborador_Auditoria_${new Date().toISOString().slice(0, 10)}.xlsx`, "Auditoria", toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-excel" }), "Exportar auditoria"))),
-      /* @__PURE__ */ React.createElement("div", { className: "tabs" }, [["panel", "Mi panel"], ["induccion", "Induccion"], ["tareas", "Tareas"], ["manual", "Manual"], ["cursos", "Cursos"], ["horarios", "Horarios"], ["anuncios", "Anuncios"], ["equipos", "Uniformes y equipos"], ["desempeno", "Desempeno"], ["expediente", "Expediente"], isAdmin && ["admin", "Admin"], isAdmin && ["disciplina", "Disciplina"], isAdmin && ["config", "Config"], isAdmin && ["auditoria", "Auditoria"]].filter(Boolean).map((row) => tabButton(row[0], row[1]))),
+      /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-hero-inner" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Recursos Humanos WTF"), /* @__PURE__ */ React.createElement("h1", { className: "rrhh-title" }, "Centro del Colaborador"), /* @__PURE__ */ React.createElement("div", { className: "rrhh-subtitle" }, "Induccion, tareas, politicas, cursos, horarios, equipos, firmas y expediente laboral.")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(normalized.auditLogs, `Centro_Colaborador_Auditoria_${new Date().toISOString().slice(0, 10)}.xlsx`, "Auditoria", toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-excel" }), "Exportar auditoria"))),
+      /* @__PURE__ */ React.createElement("div", { className: "tabs rrhh-tabs" }, [["panel", "Mi panel"], ["induccion", "Induccion"], ["tareas", "Tareas"], ["manual", "Manual"], ["cursos", "Cursos"], ["horarios", "Horarios"], ["anuncios", "Anuncios"], ["equipos", "Uniformes y equipos"], ["desempeno", "Desempeno"], ["expediente", "Expediente"], isAdmin && ["admin", "Admin"], isAdmin && ["disciplina", "Disciplina"], isAdmin && ["config", "Config"], isAdmin && ["auditoria", "Auditoria"]].filter(Boolean).map((row) => tabButton(row[0], row[1]))),
       tab === "panel" && /* @__PURE__ */ React.createElement(React.Fragment, null,
-        /* @__PURE__ */ React.createElement("div", { className: "card", style: { overflow: "hidden", border: "1px solid #bfdbfe", background: "linear-gradient(135deg,#eff6ff,#f0fdf4)" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in", style: { overflow: "hidden", border: "1px solid #bfdbfe", background: "linear-gradient(135deg,#eff6ff,#f0fdf4)" } },
           /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", justifyContent: "space-between", gap: 18, flexWrap: "wrap", alignItems: "center", padding: 22 } },
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", minWidth: 260 } },
               renderEmployeeAvatar(currentUser, 72),
@@ -6272,7 +6515,7 @@
           )
         )
       ),
-      tab === "induccion" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { background: "linear-gradient(135deg,#eff6ff,#f0fdf4)", padding: 22, display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 900, color: "#0f766e", letterSpacing: ".06em", textTransform: "uppercase" } }, "Ruta de aprendizaje"), /* @__PURE__ */ React.createElement("h2", { style: { margin: "4px 0", fontSize: 24 } }, `Induccion de ${getUserDisplayLabel(currentUser)}`), /* @__PURE__ */ React.createElement("div", { style: { color: "#374151", fontSize: 13, fontWeight: 700 } }, "Contenido editable por administradores para capacitar al colaborador.")), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, onboardingPercent, "% completado")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, normalized.onboardingStages.filter((stage) => stage.estado !== "Archivado").sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0)).map(function(stage, index) { const done = normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === stage.id || row.stageIndex === index)); const prevDone = index === 0 || normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === normalized.onboardingStages.filter((s) => s.estado !== "Archivado").sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0))[index - 1].id || row.stageIndex === index - 1)); return /* @__PURE__ */ React.createElement("div", { key: stage.id || stage.titulo, style: { border: "1px solid var(--borde)", borderRadius: 10, padding: 14, display: "grid", gap: 8, background: done ? "#f0fdf4" : "#fff" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15 } }, index + 1, ". ", stage.titulo), stage.descripcion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, stage.descripcion)), /* @__PURE__ */ React.createElement("span", { className: done ? "pill pill-verde" : prevDone ? "pill pill-azul" : "pill pill-gris" }, done ? "Completado" : prevDone ? "Pendiente" : "Bloqueado")), stage.contenido && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.55, color: "#374151", whiteSpace: "pre-wrap" } }, stage.contenido), stage.recursoUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: stage.recursoUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link" }), "Abrir recurso"), /* @__PURE__ */ React.createElement("button", { className: done ? "btn btn-sm btn-gris" : "btn btn-sm btn-verde", disabled: done || !prevDone, onClick: () => completeOnboardingStage(index), style: { justifySelf: "start" } }, done ? "Listo" : "Confirmar lectura")); }))),
+      tab === "induccion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in", style: { overflow: "hidden", border: "1px solid #bfdbfe" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-hero-inner", style: { background: "linear-gradient(135deg,#dbeafe,#ecfdf5)", padding: 24 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Ruta de aprendizaje WTF"), /* @__PURE__ */ React.createElement("h2", { className: "rrhh-title" }, "Induccion de ", getUserDisplayLabel(currentUser)), /* @__PURE__ */ React.createElement("div", { className: "rrhh-subtitle" }, "Selecciona cada apartado para leerlo en una ventana completa.")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-card" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 900, marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", null, "Avance"), /* @__PURE__ */ React.createElement("span", null, onboardingPercent, "%")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-bar" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-fill", style: { width: `${onboardingPercent}%` } })))), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-stage-grid" }, normalized.onboardingStages.filter((stage) => stage.estado !== "Archivado").slice().sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0)).map(function(stage, index) { const stages = normalized.onboardingStages.filter((s) => s.estado !== "Archivado").slice().sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0)); const done = normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === stage.id || row.stageIndex === index)); const prevDone = index === 0 || normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === stages[index - 1].id || row.stageIndex === index - 1)); const statusText = done ? "Completado" : prevDone ? "Pendiente" : "Bloqueado"; return /* @__PURE__ */ React.createElement("button", { key: stage.id || stage.titulo, type: "button", className: `rrhh-stage-card ${done ? "is-done" : prevDone ? "is-open" : "is-locked"}`, onClick: function() { setActiveOnboardingStage({ stage, index, done, prevDone }); } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: "rrhh-stage-number", style: { background: done ? "#16a34a" : prevDone ? "#2563eb" : "#9ca3af" } }, index + 1), /* @__PURE__ */ React.createElement("span", { className: done ? "pill pill-verde" : prevDone ? "pill pill-azul" : "pill pill-gris" }, statusText)), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15, color: "#111827" } }, stage.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748b", lineHeight: 1.45 } }, stage.descripcion || "Abrir apartado para ver el contenido."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#2563eb", fontWeight: 900, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-up-right-from-square" }), "Abrir apartado")); }))), activeOnboardingStage && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onMouseDown: function(e) { if (e.target === e.currentTarget) setActiveOnboardingStage(null); } }, /* @__PURE__ */ React.createElement("div", { className: "modal-content rrhh-modal-pop", style: { maxWidth: 760, width: "min(94vw,760px)" } }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-route", style: { color: "#2563eb", marginRight: 7 } }), activeOnboardingStage.stage.titulo), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: function() { setActiveOnboardingStage(null); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: activeOnboardingStage.done ? "pill pill-verde" : activeOnboardingStage.prevDone ? "pill pill-azul" : "pill pill-gris" }, activeOnboardingStage.done ? "Completado" : activeOnboardingStage.prevDone ? "Pendiente" : "Bloqueado"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Etapa ", activeOnboardingStage.index + 1)), activeOnboardingStage.stage.descripcion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: "#334155" } }, activeOnboardingStage.stage.descripcion), /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, background: "#f8fafc", color: "#1f2937", lineHeight: 1.65, whiteSpace: "pre-wrap", minHeight: 120 } }, activeOnboardingStage.stage.contenido || "Esta etapa aun no tiene contenido cargado por administracion."), activeOnboardingStage.stage.recursoUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: activeOnboardingStage.stage.recursoUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link" }), "Abrir recurso")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setActiveOnboardingStage(null); } }, "Cerrar"), /* @__PURE__ */ React.createElement("button", { className: activeOnboardingStage.done ? "btn btn-gris" : "btn btn-verde", disabled: activeOnboardingStage.done || !activeOnboardingStage.prevDone, onClick: function() { completeOnboardingStage(activeOnboardingStage.index); setActiveOnboardingStage(null); } }, activeOnboardingStage.done ? "Lectura confirmada" : "Confirmar lectura"))))),
       tab === "tareas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Checklist de hoy"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, profileName)), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, profileTasks.map((task) => { const done = completedToday.includes(task.id); return /* @__PURE__ */ React.createElement("div", { key: task.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "grid", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, task.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, task.frecuencia, " · ", task.prioridad, " · Evidencia: ", task.evidencia), /* @__PURE__ */ React.createElement("button", { className: done ? "btn btn-sm btn-gris" : "btn btn-sm btn-verde", disabled: done, onClick: () => completeTask(task) }, done ? "Completada" : "Completar")); }))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Evidencia fotografica")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: evidenceTaskId, onChange: (e) => setEvidenceTaskId(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar tarea"), profileTasks.map((task) => /* @__PURE__ */ React.createElement("option", { key: task.id, value: task.id }, task.titulo))), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Tomar fotografia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: (e) => uploadTaskEvidence(e.target.files && e.target.files[0]) })), /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)" } }, "La web solicita camara trasera cuando el navegador lo permite; se comprime a un maximo aproximado de 2 MB.")))),
       tab === "manual" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Manual del colaborador")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar politicas, procedimientos o manual...", value: search, onChange: (e) => setSearch(e.target.value) }), filteredDocs.map((doc) => { const signed = normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version); return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, doc.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", margin: "4px 0" } }, doc.categoria, " · Version ", doc.version, " · ", doc.firmaObligatoria ? "Firma requerida" : "Lectura"), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, doc.contenido), doc.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: doc.archivoDataUrl, target: "_blank", rel: "noreferrer", style: { marginRight: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), doc.archivoNombre || "Abrir adjunto"), doc.firmaObligatoria && /* @__PURE__ */ React.createElement("button", { className: signed ? "btn btn-sm btn-gris" : "btn btn-sm btn-azul", disabled: signed, onClick: () => signDocument(doc) }, signed ? "Firmado" : "Firmar digitalmente")); }))),
       tab === "cursos" && /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, normalized.courses.map((course) => /* @__PURE__ */ React.createElement("div", { className: "card", key: course.id }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, course.titulo), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, "Perfil: ", course.perfil, " · Minimo: ", course.aprobadoMinimo, "%"), /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12 } }, (course.lecciones || []).map((lesson) => /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson))))))),
@@ -6283,11 +6526,11 @@
         )
       ),
       tab === "anuncios" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Anuncios")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, normalized.announcements.filter((a) => a.estado === "Publicado").map((ann) => /* @__PURE__ */ React.createElement("div", { key: ann.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ann.titulo), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, ann.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => markAnnouncementRead(ann) }, "Marcar leido"))))),
-      tab === "equipos" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Uniformes y equipos asignados")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.equipmentAssignments.filter((row) => row.userId === userId || isAdmin).length ? normalized.equipmentAssignments.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.articulo)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin equipos asignados."))),
+      tab === "equipos" && /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Uniformes y equipos asignados"), isAdmin && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: function() { setTab("admin"); setAdminSection("equipos"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-gear" }), "Administrar")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, (isAdmin ? normalized.equipmentAssignments : normalized.equipmentAssignments.filter((row) => row.userId === userId)).length ? /* @__PURE__ */ React.createElement("div", { className: "rrhh-action-grid" }, (isAdmin ? normalized.equipmentAssignments : normalized.equipmentAssignments.filter((row) => row.userId === userId)).map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, className: "rrhh-action-card" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827", fontSize: 15 } }, row.articulo || "Articulo"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, row.tipo || "Equipo", row.talla ? " · Talla " + row.talla : "", " · Cant. ", row.cantidad || 1)), /* @__PURE__ */ React.createElement("span", { className: row.estado === "Devuelto" ? "pill pill-gris" : "pill pill-verde" }, row.estado || "Asignado")), isAdmin && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#475569" } }, row.usuario || row.userId), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#475569" } }, "Entrega: ", row.fechaEntrega || "-", " · Condicion: ", row.condicion || "-"), row.observacion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748b" } }, row.observacion)))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin equipos asignados."))),
       tab === "desempeno" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.recognitions.length ? normalized.recognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.titulo)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos."))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.competencies.length ? normalized.competencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.nombre)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas.")))),
       tab === "expediente" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Expediente digital")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "El expediente muestra solo datos propios del colaborador o informacion autorizada para administradores."), /* @__PURE__ */ React.createElement("p", null, "Perfil laboral: ", profileName), /* @__PURE__ */ React.createElement("p", null, "Fecha de ingreso: ", getEmployeeHireDate(currentUser) || "Sin registrar"), /* @__PURE__ */ React.createElement("p", null, "Firmas registradas: ", normalized.signatures.filter((sig) => sig.userId === userId).length))),
       isAdmin && tab === "admin" && /* @__PURE__ */ React.createElement(React.Fragment, null,
-        /* @__PURE__ */ React.createElement("div", { className: "card", style: { border: "1px solid #c7d2fe", background: "#f8fafc" } },
+        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in", style: { border: "1px solid #c7d2fe", background: "#f8fafc" } },
           /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" } },
               /* @__PURE__ */ React.createElement("div", null,
@@ -6297,7 +6540,7 @@
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(normalized.auditLogs, `Centro_Colaborador_Auditoria_${new Date().toISOString().slice(0, 10)}.xlsx`, "Auditoria", toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-excel" }), "Exportar auditoria")
             ),
             /* @__PURE__ */ React.createElement("div", { className: "grid-4" }, rrhhCards.slice(0, 4).map(renderRrhhMetric)),
-            /* @__PURE__ */ React.createElement("div", { className: "tabs" }, adminSections.map(function(row) {
+            /* @__PURE__ */ React.createElement("div", { className: "tabs rrhh-tabs" }, adminSections.map(function(row) {
               return /* @__PURE__ */ React.createElement("button", { key: row[0], className: `tab ${adminSection === row[0] ? "active" : ""}`, onClick: function() { setAdminSection(row[0]); } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${row[2]}`, style: { marginRight: 6 } }), row[1]);
             }))
           )
@@ -6387,6 +6630,65 @@
         adminSection === "tareas" && /* @__PURE__ */ React.createElement(React.Fragment, null,
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingTaskId ? "Editar tarea" : "Nueva tarea")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo", value: taskForm.titulo, onChange: (e) => setTaskForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: taskForm.perfil, onChange: (e) => setTaskForm((p) => Object.assign({}, p, { perfil: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "Todos" }, "Todos"), normalized.profiles.map((p) => /* @__PURE__ */ React.createElement("option", { key: p.id, value: p.nombre }, p.nombre))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: taskForm.frecuencia, onChange: (e) => setTaskForm((p) => Object.assign({}, p, { frecuencia: e.target.value })) }, ["Diaria", "Semanal", "Mensual", "Por turno"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: taskForm.prioridad, onChange: (e) => setTaskForm((p) => Object.assign({}, p, { prioridad: e.target.value })) }, ["Baja", "Media", "Alta", "Critica"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: taskForm.evidencia, onChange: (e) => setTaskForm((p) => Object.assign({}, p, { evidencia: e.target.value })) }, ["No requerida", "Opcional", "Obligatoria"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addTask }, editingTaskId ? "Guardar cambios" : "Agregar tarea"), editingTaskId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setEditingTaskId(""); setTaskForm({ titulo: "", perfil: "Todos", frecuencia: "Diaria", prioridad: "Media", evidencia: "No requerida" }); } }, "Cancelar")))),
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Tarea", "Perfil", "Frecuencia", "Prioridad", "Evidencia", "Estado", "Accion"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.tasks.map(function(task) { return /* @__PURE__ */ React.createElement("tr", { key: task.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, task.titulo), /* @__PURE__ */ React.createElement("td", null, task.perfil), /* @__PURE__ */ React.createElement("td", null, task.frecuencia), /* @__PURE__ */ React.createElement("td", null, task.prioridad), /* @__PURE__ */ React.createElement("td", null, task.evidencia), /* @__PURE__ */ React.createElement("td", null, task.estado || "Activo"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { editTask(task); } }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: task.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: function() { setEmployeeCenterRowStatus("tasks", task.id, task.estado === "Archivado" ? "Activo" : "Archivado"); } }, task.estado === "Archivado" ? "Reactivar" : "Eliminar")))); })))))
+        ),
+        adminSection === "equipos" && /* @__PURE__ */ React.createElement(React.Fragment, null,
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
+            /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" },
+              /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingEquipmentId ? "Editar asignacion" : "Asignar uniforme/equipo")),
+              /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+                /* @__PURE__ */ React.createElement("select", { className: "form-control", value: equipmentForm.userId, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { userId: e.target.value })); } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Articulo asignado: camisa, gorra, delantal, radio, llave...", value: equipmentForm.articulo, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { articulo: e.target.value })); } }),
+                /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                  /* @__PURE__ */ React.createElement("select", { className: "form-control", value: equipmentForm.tipo, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { tipo: e.target.value })); } }, ["Uniforme", "Equipo", "Herramienta", "Accesorio", "Documento", "Otro"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))),
+                  /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Talla / codigo / serial", value: equipmentForm.talla, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { talla: e.target.value })); } })
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                  /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", placeholder: "Cantidad", value: equipmentForm.cantidad, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { cantidad: e.target.value })); } }),
+                  /* @__PURE__ */ React.createElement("select", { className: "form-control", value: equipmentForm.condicion, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { condicion: e.target.value })); } }, ["Nuevo", "Bueno", "Usado", "Reparado", "Desgastado"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))
+                ),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: equipmentForm.fechaEntrega, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { fechaEntrega: e.target.value })); } }),
+                /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observacion interna, condiciones de entrega o notas de devolucion", value: equipmentForm.observacion, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { observacion: e.target.value })); } }),
+                /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: equipmentForm.requiereDevolucion !== false, onChange: function(e) { setEquipmentForm((p) => Object.assign({}, p, { requiereDevolucion: e.target.checked })); } }), "Requiere devolucion al finalizar o cambiar de puesto"),
+                /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                  /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveEquipmentAssignment }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingEquipmentId ? "Guardar cambios" : "Asignar"),
+                  editingEquipmentId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetEquipmentForm }, "Cancelar")
+                )
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" },
+              /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Resumen operativo")),
+              /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+                /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                  /* @__PURE__ */ React.createElement("div", { className: "rrhh-card-soft", style: { padding: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, "Asignados"), /* @__PURE__ */ React.createElement("div", { className: "stat-value", style: { color: "#15803d" } }, normalized.equipmentAssignments.filter((row) => row.estado !== "Devuelto" && row.estado !== "Archivado").length)),
+                  /* @__PURE__ */ React.createElement("div", { className: "rrhh-card-soft", style: { padding: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, "Devueltos"), /* @__PURE__ */ React.createElement("div", { className: "stat-value", style: { color: "#64748b" } }, normalized.equipmentAssignments.filter((row) => row.estado === "Devuelto").length))
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Usa este apartado para controlar uniformes, equipos, llaves, radios, herramientas o cualquier articulo entregado a colaboradores. Cada cambio queda registrado en auditoria.")
+              )
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "card" },
+            /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asignaciones registradas"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, normalized.equipmentAssignments.length, " registros")),
+            normalized.equipmentAssignments.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+              /* @__PURE__ */ React.createElement("table", null,
+                /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Colaborador", "Articulo", "Tipo", "Cantidad", "Entrega", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))),
+                /* @__PURE__ */ React.createElement("tbody", null, normalized.equipmentAssignments.slice(0, 200).map(function(row) {
+                  return /* @__PURE__ */ React.createElement("tr", { key: row.id },
+                    /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.usuario || row.userId || "-"),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("strong", null, row.articulo || "-"), row.talla && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Talla/codigo: ", row.talla)),
+                    /* @__PURE__ */ React.createElement("td", null, row.tipo || "-"),
+                    /* @__PURE__ */ React.createElement("td", null, row.cantidad || 1),
+                    /* @__PURE__ */ React.createElement("td", null, row.fechaEntrega || "-"),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: row.estado === "Devuelto" || row.estado === "Archivado" ? "pill pill-gris" : "pill pill-verde" }, row.estado || "Asignado")),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                      /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { editEquipmentAssignment(row); } }, "Editar"),
+                      row.estado !== "Devuelto" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: function() { returnEquipmentAssignment(row); } }, "Devolver"),
+                      /* @__PURE__ */ React.createElement("button", { className: row.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: function() { setEmployeeCenterRowStatus("equipmentAssignments", row.id, row.estado === "Archivado" ? "Asignado" : "Archivado"); } }, row.estado === "Archivado" ? "Reactivar" : "Archivar")
+                    ))
+                  );
+                }))
+              )
+            ) : /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Aun no hay uniformes o equipos asignados."))
+          )
         ),
         adminSection === "documentos" && /* @__PURE__ */ React.createElement(React.Fragment, null,
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingManualId ? "Editar documento" : "Manual / Politicas")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo", value: manualForm.titulo, onChange: (e) => setManualForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Categoria", value: manualForm.categoria, onChange: (e) => setManualForm((p) => Object.assign({}, p, { categoria: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Contenido", value: manualForm.contenido, onChange: (e) => setManualForm((p) => Object.assign({}, p, { contenido: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), manualForm.archivoNombre ? "Adjunto: " + manualForm.archivoNombre : "Adjuntar archivo o foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,.pdf,.doc,.docx,.xlsx,.xls,.csv", style: { display: "none" }, onChange: (e) => handleManualAttachment(e.target.files && e.target.files[0]) })), /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: manualForm.firmaObligatoria, onChange: (e) => setManualForm((p) => Object.assign({}, p, { firmaObligatoria: e.target.checked })) }), "Requiere firma"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: addManual }, editingManualId ? "Guardar cambios" : "Publicar documento"), editingManualId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setEditingManualId(""); setManualForm({ titulo: "", categoria: "Politicas", contenido: "", obligatorio: true, firmaObligatoria: false, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" }); } }, "Cancelar")))),
