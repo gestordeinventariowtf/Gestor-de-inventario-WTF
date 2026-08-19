@@ -743,6 +743,17 @@
       display: grid;
       place-items: center;
     }
+    .uniform-garment-layer.is-editable {
+      pointer-events: auto;
+      cursor: move;
+      outline: 1px dashed rgba(37, 99, 235, .45);
+      outline-offset: 2px;
+      touch-action: none;
+    }
+    .uniform-garment-layer.is-active {
+      outline: 2px solid #2563eb;
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, .14);
+    }
     .uniform-garment-layer img {
       width: 100%;
       height: 100%;
@@ -750,6 +761,25 @@
       display: block;
       filter: drop-shadow(0 5px 7px rgba(15, 23, 42, .12));
     }
+    .uniform-transform-handle {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid #fff;
+      background: #2563eb;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, .25);
+      z-index: 20;
+      padding: 0;
+    }
+    .uniform-transform-handle[data-handle="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
+    .uniform-transform-handle[data-handle="n"] { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
+    .uniform-transform-handle[data-handle="e"] { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .uniform-transform-handle[data-handle="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+    .uniform-transform-handle[data-handle="s"] { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+    .uniform-transform-handle[data-handle="w"] { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-figure.has-template .hat,
     .uniform-figure.has-template .torso,
     .uniform-figure.has-template .torso-logo,
@@ -760,30 +790,32 @@
     .uniform-figure.has-template .shoe {
       display: none;
     }
-    .uniform-layer-chef-hat { left: 69px; top: 15px; width: 52px; height: 34px; z-index: 8; }
-    .uniform-layer-olive-short-shirt { left: 32px; top: 90px; width: 126px; height: 134px; z-index: 5; }
-    .uniform-layer-black-polo-shirt { left: 32px; top: 90px; width: 126px; height: 134px; z-index: 5; }
-    .uniform-layer-olive-chef-jacket { left: 30px; top: 88px; width: 130px; height: 138px; z-index: 5; }
-    .uniform-layer-black-denim-apron-long { left: 49px; top: 121px; width: 92px; height: 140px; z-index: 7; }
-    .uniform-layer-black-denim-apron-short { left: 52px; top: 137px; width: 86px; height: 78px; z-index: 7; overflow: hidden; }
+    .uniform-layer-chef-hat { left: 69px; top: 11px; width: 52px; height: 34px; z-index: 8; }
+    .uniform-layer-olive-short-shirt { left: 32px; top: 82px; width: 126px; height: 134px; z-index: 5; }
+    .uniform-layer-black-polo-shirt { left: 32px; top: 82px; width: 126px; height: 134px; z-index: 5; }
+    .uniform-layer-olive-chef-jacket { left: 30px; top: 80px; width: 130px; height: 138px; z-index: 5; }
+    .uniform-layer-black-denim-apron-long { left: 49px; top: 113px; width: 92px; height: 140px; z-index: 7; }
+    .uniform-layer-black-denim-apron-short { left: 52px; top: 129px; width: 86px; height: 78px; z-index: 7; overflow: hidden; }
     .uniform-layer-black-denim-apron-short img { height: 152%; object-position: top center; }
-    .uniform-layer-checkered-chef-pants { left: 42px; top: 196px; width: 106px; height: 132px; z-index: 5; }
-    .uniform-layer-black-socks { left: 47px; top: 286px; width: 96px; height: 34px; z-index: 7; }
+    .uniform-layer-checkered-chef-pants { left: 42px; top: 188px; width: 106px; height: 132px; z-index: 5; }
+    .uniform-layer-black-socks { left: 47px; top: 278px; width: 96px; height: 34px; z-index: 7; }
     .uniform-layer-black-closed-crocs,
-    .uniform-layer-black-closed-shoes { left: 45px; top: 311px; width: 100px; height: 32px; z-index: 8; }
-    .uniform-figure.femenino .uniform-layer-chef-hat { left: 70px; top: 17px; width: 50px; height: 32px; }
-    .uniform-figure.femenino .uniform-layer-olive-short-shirt { left: 38px; top: 96px; width: 114px; height: 126px; }
-    .uniform-figure.femenino .uniform-layer-black-polo-shirt { left: 38px; top: 96px; width: 114px; height: 126px; }
-    .uniform-figure.femenino .uniform-layer-olive-chef-jacket { left: 36px; top: 94px; width: 118px; height: 132px; }
-    .uniform-figure.femenino .uniform-layer-black-denim-apron-long { left: 52px; top: 123px; width: 86px; height: 138px; }
-    .uniform-figure.femenino .uniform-layer-black-denim-apron-short { left: 55px; top: 139px; width: 80px; height: 76px; }
-    .uniform-figure.femenino .uniform-layer-checkered-chef-pants { left: 46px; top: 200px; width: 98px; height: 128px; }
-    .uniform-figure.femenino .uniform-layer-black-socks { left: 50px; top: 285px; width: 90px; height: 34px; }
+    .uniform-layer-black-closed-shoes { left: 45px; top: 303px; width: 100px; height: 32px; z-index: 8; }
+    .uniform-layer-black-sneakers { left: 43px; top: 299px; width: 104px; height: 40px; z-index: 8; }
+    .uniform-figure.femenino .uniform-layer-chef-hat { left: 70px; top: 13px; width: 50px; height: 32px; }
+    .uniform-figure.femenino .uniform-layer-olive-short-shirt { left: 38px; top: 88px; width: 114px; height: 126px; }
+    .uniform-figure.femenino .uniform-layer-black-polo-shirt { left: 38px; top: 88px; width: 114px; height: 126px; }
+    .uniform-figure.femenino .uniform-layer-olive-chef-jacket { left: 36px; top: 86px; width: 118px; height: 132px; }
+    .uniform-figure.femenino .uniform-layer-black-denim-apron-long { left: 52px; top: 115px; width: 86px; height: 138px; }
+    .uniform-figure.femenino .uniform-layer-black-denim-apron-short { left: 55px; top: 131px; width: 80px; height: 76px; }
+    .uniform-figure.femenino .uniform-layer-checkered-chef-pants { left: 46px; top: 192px; width: 98px; height: 128px; }
+    .uniform-figure.femenino .uniform-layer-black-socks { left: 50px; top: 277px; width: 90px; height: 34px; }
     .uniform-figure.femenino .uniform-layer-black-closed-crocs,
-    .uniform-figure.femenino .uniform-layer-black-closed-shoes { left: 48px; top: 306px; width: 94px; height: 34px; }
+    .uniform-figure.femenino .uniform-layer-black-closed-shoes { left: 48px; top: 298px; width: 94px; height: 34px; }
+    .uniform-figure.femenino .uniform-layer-black-sneakers { left: 47px; top: 296px; width: 96px; height: 38px; }
     .uniform-figure .uniform-layer-black-belt {
       left: 50px;
-      top: 198px;
+      top: 190px;
       width: 90px;
       height: 8px;
       border-radius: 999px;
@@ -793,12 +825,12 @@
     }
     .uniform-figure .uniform-layer-black-jeans {
       left: 38px;
-      top: 192px;
+      top: 184px;
       width: 114px;
       height: 138px;
       z-index: 5;
     }
-    .uniform-figure.femenino .uniform-layer-black-jeans { left: 45px; top: 198px; width: 100px; height: 130px; }
+    .uniform-figure.femenino .uniform-layer-black-jeans { left: 45px; top: 190px; width: 100px; height: 130px; }
     .uniform-figure .head {
       position: absolute;
       top: 38px;
@@ -1061,6 +1093,55 @@
       gap: 6px;
       flex-wrap: wrap;
       align-items: center;
+    }
+    .uniform-piece-actions {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .uniform-adjust-grid {
+      display: grid;
+      gap: 8px;
+      max-height: 330px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .uniform-adjust-row {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      padding: 9px;
+      display: grid;
+      gap: 8px;
+    }
+    .uniform-adjust-row .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(58px, 1fr));
+      gap: 6px;
+    }
+    .uniform-adjust-row input {
+      min-width: 0;
+      height: 34px;
+      padding: 6px 7px;
+      font-size: 12px;
+    }
+    .uniform-piece-form {
+      border: 1px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      background: #f8fafc;
+    }
+    .uniform-visual-editor-hint {
+      font-size: 11px;
+      color: #1d4ed8;
+      font-weight: 800;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      padding: 8px 10px;
     }
     @media (max-width: 860px) {
       .uniform-config-layout { grid-template-columns: 1fr; }
@@ -6170,6 +6251,8 @@
       evidence: [],
       equipmentAssignments: [],
       uniformDressCodes: [],
+      uniformPieces: [],
+      uniformHiddenPieceIds: [],
       performanceReviews: [],
       recognitions: [],
       competencies: [],
@@ -6187,6 +6270,7 @@
     { id: "black-polo-shirt", nombre: "Polo Negro", tipo: "Superior", icon: "fa-shirt" },
     { id: "black-denim-apron-long", nombre: "Delantal Tipo Jean negro Largo", tipo: "Delantal", icon: "fa-vest" },
     { id: "black-jeans", nombre: "Pantalon Jean Negro", tipo: "Inferior", icon: "fa-person", visual: "jean" },
+    { id: "black-sneakers", nombre: "Tenis Negros", tipo: "Calzado", icon: "fa-shoe-prints" },
     { id: "olive-chef-jacket", nombre: "Chaqueta de Chef Verde Oliva", tipo: "Superior", icon: "fa-shirt" },
     { id: "checkered-chef-pants", nombre: "Pantalon de Cocinero cuadritos gris con negro", tipo: "Inferior", icon: "fa-table-cells" },
     { id: "black-socks", nombre: "Medias Negras", tipo: "Accesorio", icon: "fa-socks" },
@@ -6203,6 +6287,7 @@
     "black-polo-shirt": "assets/uniform-pieces/uniform-piece-black-polo.png",
     "black-denim-apron-long": "assets/uniform-pieces/uniform-piece-long-apron.png",
     "black-jeans": "assets/uniform-pieces/uniform-piece-black-jeans.png",
+    "black-sneakers": "assets/uniform-pieces/uniform-piece-black-sneakers.png",
     "olive-chef-jacket": "assets/uniform-pieces/uniform-piece-chef-jacket.png",
     "checkered-chef-pants": "assets/uniform-pieces/uniform-piece-checkered-pants.png",
     "black-socks": "assets/uniform-pieces/uniform-piece-socks.png",
@@ -6213,9 +6298,9 @@
   function getDefaultUniformPieceIds(profileName) {
     const key = normalizar(profileName || "");
     if (key.includes("cocin")) return ["chef-hat", "olive-chef-jacket", "checkered-chef-pants", "black-socks", "black-closed-crocs"];
-    if (key.includes("camar") || key.includes("servicio")) return ["olive-short-shirt", "black-denim-apron-long", "black-jeans", "black-socks", "black-closed-shoes"];
-    if (key.includes("bar")) return ["olive-short-shirt", "black-denim-apron-short", "black-jeans", "black-belt", "black-closed-shoes"];
-    return ["olive-short-shirt", "black-jeans", "black-socks", "black-closed-shoes"];
+    if (key.includes("camar") || key.includes("servicio")) return ["olive-short-shirt", "black-denim-apron-long", "black-jeans", "black-socks", "black-sneakers"];
+    if (key.includes("bar")) return ["olive-short-shirt", "black-denim-apron-short", "black-jeans", "black-belt", "black-sneakers"];
+    return ["olive-short-shirt", "black-jeans", "black-socks", "black-sneakers"];
   }
   function ensureEmployeeCenterData(data) {
     const base = buildDefaultEmployeeCenterData();
@@ -6237,6 +6322,8 @@
       evidence: Array.isArray(input.evidence) ? input.evidence : [],
       equipmentAssignments: Array.isArray(input.equipmentAssignments) ? input.equipmentAssignments : [],
       uniformDressCodes: Array.isArray(input.uniformDressCodes) ? input.uniformDressCodes : [],
+      uniformPieces: Array.isArray(input.uniformPieces) ? input.uniformPieces : [],
+      uniformHiddenPieceIds: Array.isArray(input.uniformHiddenPieceIds) ? input.uniformHiddenPieceIds : [],
       performanceReviews: Array.isArray(input.performanceReviews) ? input.performanceReviews : [],
       recognitions: Array.isArray(input.recognitions) ? input.recognitions : [],
       competencies: Array.isArray(input.competencies) ? input.competencies : [],
@@ -6605,6 +6692,11 @@
     const [equipmentForm, setEquipmentForm] = useState({ userId: "", articulo: "", tipo: "Uniforme", talla: "", cantidad: 1, condicion: "Nuevo", fechaEntrega: new Date().toISOString().slice(0, 10), requiereDevolucion: true, observacion: "" });
     const [uniformProfile, setUniformProfile] = useState(getEmployeeProfileName(currentUser) || "Cocinero/a");
     const [uniformGender, setUniformGender] = useState("masculino");
+    const [uniformLayoutDraft, setUniformLayoutDraft] = useState({});
+    const [activeUniformPieceId, setActiveUniformPieceId] = useState("");
+    const uniformDragRef = useRef(null);
+    const [uniformPieceForm, setUniformPieceForm] = useState({ nombre: "", tipo: "Superior", imagenDataUrl: "", imagenNombre: "" });
+    const [editingUniformPieceId, setEditingUniformPieceId] = useState("");
     const [evidenceTaskId, setEvidenceTaskId] = useState("");
     const [adminSection, setAdminSection] = useState("colaboradores");
     const [employeeAdminSearch, setEmployeeAdminSearch] = useState("");
@@ -6624,6 +6716,11 @@
     const pendingTasks = profileTasks.filter((task) => !completedToday.includes(task.id));
     const unreadAnnouncements = normalized.announcements.filter((ann) => ann.estado === "Publicado" && !(Array.isArray(ann.reads) ? ann.reads : []).includes(userId));
     const pendingSignatures = normalized.manualDocuments.filter((doc) => doc.estado === "Publicado" && doc.firmaObligatoria && !normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version));
+    const uniformDefaultIds = new Set(DEFAULT_UNIFORM_PIECES.map((piece) => piece.id));
+    const uniformHiddenIds = new Set(normalized.uniformHiddenPieceIds || []);
+    const uniformCustomRows = (normalized.uniformPieces || []).filter((piece) => piece && piece.estado !== "Archivado");
+    const uniformOverrideById = new Map(uniformCustomRows.filter((piece) => uniformDefaultIds.has(piece.id)).map((piece) => [piece.id, piece]));
+    const uniformPieces = DEFAULT_UNIFORM_PIECES.map((piece) => Object.assign({}, piece, uniformOverrideById.get(piece.id) || {})).filter((piece) => !uniformHiddenIds.has(piece.id)).concat(uniformCustomRows.filter((piece) => !uniformDefaultIds.has(piece.id)));
     function updateData(updater, logPayload) {
       setData(function(prev) {
         const current = ensureEmployeeCenterData(prev);
@@ -6921,7 +7018,7 @@
     function getUniformDressCode(profile, gender) {
       const current = (normalized.uniformDressCodes || []).find((row) => normalizar(row.profile) === normalizar(profile) && String(row.gender || "masculino") === String(gender || "masculino"));
       const pieces = current && Array.isArray(current.piezas) && current.piezas.length ? current.piezas : getDefaultUniformPieceIds(profile);
-      return { profile, gender, piezas: pieces };
+      return { profile, gender, piezas: pieces, ajustes: current && current.ajustes && typeof current.ajustes === "object" ? current.ajustes : {} };
     }
     function toggleUniformPiece(profile, gender, pieceId) {
       const current = getUniformDressCode(profile, gender);
@@ -6931,31 +7028,220 @@
       const nextPieces = Array.from(selected);
       updateData(function(prev) {
         const rest = (prev.uniformDressCodes || []).filter((row) => !(normalizar(row.profile) === normalizar(profile) && String(row.gender || "masculino") === String(gender || "masculino")));
-        return Object.assign({}, prev, { uniformDressCodes: [{ id: `dress-${normalizar(profile)}-${gender}`, profile, gender, piezas: nextPieces, updatedAt: new Date().toISOString() }].concat(rest) });
+        return Object.assign({}, prev, { uniformDressCodes: [{ id: `dress-${normalizar(profile)}-${gender}`, profile, gender, piezas: nextPieces, ajustes: current.ajustes || {}, updatedAt: new Date().toISOString() }].concat(rest) });
       }, { accion: "Codigo de vestimenta", registro: profile, detalle: `Piezas actualizadas para ${gender}` });
     }
+    function resetUniformPieceForm() {
+      setEditingUniformPieceId("");
+      setUniformPieceForm({ nombre: "", tipo: "Superior", imagenDataUrl: "", imagenNombre: "" });
+    }
+    function normalizeUniformPieceId(name) {
+      const base = normalizar(name || "pieza").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pieza";
+      return `custom-${base}-${Date.now()}`;
+    }
+    async function compressUniformPiecePng(file) {
+      if (!file) return null;
+      if (!/\\.png$/i.test(file.name || "") && file.type !== "image/png") throw new Error("La pieza debe cargarse en formato PNG.");
+      const dataUrl = await new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+        reader.readAsDataURL(file);
+      });
+      const img = await new Promise(function(resolve, reject) {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("No se pudo procesar la imagen PNG."));
+        image.src = dataUrl;
+      });
+      const maxSide = 620;
+      const scale = Math.min(1, maxSide / Math.max(img.width || maxSide, img.height || maxSide));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((img.width || maxSide) * scale));
+      canvas.height = Math.max(1, Math.round((img.height || maxSide) * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return { dataUrl: canvas.toDataURL("image/png"), nombre: file.name || "pieza.png" };
+    }
+    async function handleUniformPieceFile(file) {
+      try {
+        const image = await compressUniformPiecePng(file);
+        if (!image) return;
+        setUniformPieceForm((prev) => Object.assign({}, prev, { imagenDataUrl: image.dataUrl, imagenNombre: image.nombre }));
+        toast("Imagen PNG cargada y optimizada.", "success");
+      } catch (error) {
+        toast(error && error.message || "No se pudo cargar la pieza.", "error");
+      }
+    }
+    function saveUniformPiece() {
+      const name = String(uniformPieceForm.nombre || "").trim();
+      if (!name) return toast("Indica el nombre de la pieza.", "error");
+      if (!uniformPieceForm.imagenDataUrl && !editingUniformPieceId) return toast("Carga una imagen PNG para la pieza.", "error");
+      const id = editingUniformPieceId || normalizeUniformPieceId(name);
+      const existing = uniformPieces.find((piece) => piece.id === id) || {};
+      const nextPiece = Object.assign({}, existing, {
+        id,
+        nombre: name,
+        tipo: uniformPieceForm.tipo || existing.tipo || "Superior",
+        icon: existing.icon || "fa-shirt",
+        imagenDataUrl: uniformPieceForm.imagenDataUrl || existing.imagenDataUrl || UNIFORM_PIECE_ASSETS[id] || "",
+        imagenNombre: uniformPieceForm.imagenNombre || existing.imagenNombre || "",
+        updatedAt: new Date().toISOString(),
+        estado: "Activo"
+      });
+      updateData(function(prev) {
+        const list = (prev.uniformPieces || []).filter((piece) => piece.id !== id);
+        const hidden = (prev.uniformHiddenPieceIds || []).filter((pieceId) => pieceId !== id);
+        return Object.assign({}, prev, { uniformPieces: [nextPiece].concat(list), uniformHiddenPieceIds: hidden });
+      }, { accion: editingUniformPieceId ? "Editar pieza de uniforme" : "Agregar pieza de uniforme", registro: name, detalle: "Pieza de vestir actualizada" });
+      resetUniformPieceForm();
+      toast("Pieza de vestir guardada.", "success");
+    }
+    function editUniformPiece(piece) {
+      setEditingUniformPieceId(piece.id);
+      setUniformPieceForm({ nombre: piece.nombre || "", tipo: piece.tipo || "Superior", imagenDataUrl: piece.imagenDataUrl || "", imagenNombre: piece.imagenNombre || "" });
+      toast("Carga una foto PNG si deseas reemplazar la imagen de esta pieza.", "info");
+    }
+    function deleteUniformPiece(piece) {
+      if (!piece || !piece.id) return;
+      if (!window.confirm(`Eliminar la pieza "${piece.nombre || piece.id}" del catalogo de uniformes?`)) return;
+      updateData(function(prev) {
+        const isDefault = DEFAULT_UNIFORM_PIECES.some((base) => base.id === piece.id);
+        const uniformDressCodes = (prev.uniformDressCodes || []).map((row) => {
+          const ajustes = Object.assign({}, row.ajustes || {});
+          delete ajustes[piece.id];
+          return Object.assign({}, row, { piezas: (row.piezas || []).filter((pieceId) => pieceId !== piece.id), ajustes });
+        });
+        return Object.assign({}, prev, {
+          uniformPieces: isDefault ? (prev.uniformPieces || []).filter((row) => row.id !== piece.id) : (prev.uniformPieces || []).filter((row) => row.id !== piece.id),
+          uniformHiddenPieceIds: isDefault ? Array.from(new Set([].concat(prev.uniformHiddenPieceIds || [], [piece.id]))) : (prev.uniformHiddenPieceIds || []),
+          uniformDressCodes
+        });
+      }, { accion: "Eliminar pieza de uniforme", registro: piece.nombre || piece.id, detalle: "Pieza retirada del catalogo" });
+      toast("Pieza eliminada del catalogo.", "success");
+    }
+    function updateUniformLayoutDraft(pieceId, field, value) {
+      const clean = value === "" ? "" : Number(value);
+      setUniformLayoutDraft((prev) => Object.assign({}, prev, { [pieceId]: Object.assign({}, prev[pieceId] || {}, { [field]: clean }) }));
+    }
+    function applyUniformVisualLayout(pieceId, nextLayout) {
+      const cleanLayout = {};
+      ["left", "top", "width", "height"].forEach(function(field) {
+        const value = Math.round(Number(nextLayout[field] || 0));
+        cleanLayout[field] = field === "width" || field === "height" ? Math.max(12, value) : value;
+      });
+      setUniformLayoutDraft((prev) => Object.assign({}, prev, { [pieceId]: Object.assign({}, prev[pieceId] || {}, cleanLayout) }));
+    }
+    function startUniformVisualAdjust(event, pieceId, mode) {
+      if (!pieceId) return;
+      const layer = event.currentTarget.closest ? event.currentTarget.closest(".uniform-garment-layer") : event.currentTarget;
+      if (!layer) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveUniformPieceId(pieceId);
+      const start = {
+        x: event.clientX,
+        y: event.clientY,
+        left: layer.offsetLeft || 0,
+        top: layer.offsetTop || 0,
+        width: layer.offsetWidth || 24,
+        height: layer.offsetHeight || 24,
+        mode: mode || "move",
+        pieceId
+      };
+      uniformDragRef.current = start;
+      const onMove = function(moveEvent) {
+        const current = uniformDragRef.current;
+        if (!current || current.pieceId !== pieceId) return;
+        const dx = moveEvent.clientX - current.x;
+        const dy = moveEvent.clientY - current.y;
+        let left = current.left;
+        let top = current.top;
+        let width = current.width;
+        let height = current.height;
+        if (current.mode === "move") {
+          left += dx;
+          top += dy;
+        } else {
+          if (current.mode.includes("e")) width += dx;
+          if (current.mode.includes("s")) height += dy;
+          if (current.mode.includes("w")) {
+            left += dx;
+            width -= dx;
+          }
+          if (current.mode.includes("n")) {
+            top += dy;
+            height -= dy;
+          }
+        }
+        if (width < 12) {
+          if (current.mode.includes("w")) left = current.left + current.width - 12;
+          width = 12;
+        }
+        if (height < 12) {
+          if (current.mode.includes("n")) top = current.top + current.height - 12;
+          height = 12;
+        }
+        applyUniformVisualLayout(pieceId, { left, top, width, height });
+      };
+      const onUp = function() {
+        uniformDragRef.current = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    }
+    function saveUniformLayoutAdjustments() {
+      const current = getUniformDressCode(uniformProfile, uniformGender);
+      updateData(function(prev) {
+        const rest = (prev.uniformDressCodes || []).filter((row) => !(normalizar(row.profile) === normalizar(uniformProfile) && String(row.gender || "masculino") === String(uniformGender || "masculino")));
+        return Object.assign({}, prev, { uniformDressCodes: [{ id: `dress-${normalizar(uniformProfile)}-${uniformGender}`, profile: uniformProfile, gender: uniformGender, piezas: current.piezas || [], ajustes: uniformLayoutDraft || {}, updatedAt: new Date().toISOString() }].concat(rest) });
+      }, { accion: "Ajustar uniforme", registro: uniformProfile, detalle: `Ubicacion/tamano actualizado para ${uniformGender}` });
+      toast("Ubicacion y tamano guardados.", "success");
+    }
     function renderUniformPieceThumb(piece) {
-      const asset = UNIFORM_PIECE_ASSETS[piece.id];
+      const asset = piece.imagenDataUrl || UNIFORM_PIECE_ASSETS[piece.id];
       return /* @__PURE__ */ React.createElement("div", { className: `uniform-piece-visual uniform-piece-${piece.id}` }, piece.logo && /* @__PURE__ */ React.createElement("img", { className: "uniform-piece-logo", src: WTF_LOGO_ASSET, alt: "Logo WTF" }), asset ? /* @__PURE__ */ React.createElement("img", { className: "uniform-piece-thumb-img", src: asset, alt: piece.nombre }) : /* @__PURE__ */ React.createElement("i", { className: `fas ${piece.icon || "fa-shirt"}` }));
     }
-    function renderUniformGarmentLayer(pieceId) {
-      const asset = UNIFORM_PIECE_ASSETS[pieceId];
-      const piece = DEFAULT_UNIFORM_PIECES.find((item) => item.id === pieceId);
+    function renderUniformGarmentLayer(pieceId, ajustes, editorEnabled) {
+      const piece = uniformPieces.find((item) => item.id === pieceId);
+      const asset = piece && piece.imagenDataUrl || UNIFORM_PIECE_ASSETS[pieceId];
+      const custom = ajustes && ajustes[pieceId] || {};
+      const style = {};
+      ["left", "top", "width", "height"].forEach(function(field) {
+        if (custom[field] !== "" && custom[field] != null && !Number.isNaN(Number(custom[field]))) style[field] = `${Number(custom[field])}px`;
+      });
+      const isActive = editorEnabled && activeUniformPieceId === pieceId;
+      const layerProps = {
+        key: pieceId,
+        className: `uniform-garment-layer uniform-layer-${pieceId}${editorEnabled ? " is-editable" : ""}${isActive ? " is-active" : ""}`,
+        style,
+        onPointerDown: editorEnabled ? function(e) { startUniformVisualAdjust(e, pieceId, "move"); } : undefined,
+        onClick: editorEnabled ? function(e) { e.preventDefault(); e.stopPropagation(); setActiveUniformPieceId(pieceId); } : undefined,
+        title: editorEnabled ? "Arrastra para mover. Usa los puntos para ajustar tamano o forma." : undefined
+      };
+      const handles = editorEnabled && isActive ? ["nw", "n", "ne", "e", "se", "s", "sw", "w"].map(function(handle) {
+        return /* @__PURE__ */ React.createElement("button", { key: handle, type: "button", className: "uniform-transform-handle", "data-handle": handle, title: `Ajustar ${handle}`, onPointerDown: function(e) { startUniformVisualAdjust(e, pieceId, handle); } });
+      }) : null;
       if (asset) {
-        return /* @__PURE__ */ React.createElement("div", { key: pieceId, className: `uniform-garment-layer uniform-layer-${pieceId}` }, /* @__PURE__ */ React.createElement("img", { src: asset, alt: piece ? piece.nombre : "" }));
+        return /* @__PURE__ */ React.createElement("div", layerProps, /* @__PURE__ */ React.createElement("img", { src: asset, alt: piece ? piece.nombre : "" }), handles);
       }
-      return /* @__PURE__ */ React.createElement("div", { key: pieceId, className: `uniform-garment-layer uniform-layer-${pieceId}`, "aria-label": piece ? piece.nombre : pieceId });
+      return /* @__PURE__ */ React.createElement("div", Object.assign({}, layerProps, { "aria-label": piece ? piece.nombre : pieceId }), handles);
     }
-    function renderUniformPrototype(profile, gender, selectedIds) {
+    function renderUniformPrototype(profile, gender, selectedIds, layoutDraft, editorEnabled) {
       const selected = new Set(selectedIds || []);
       const hasLongApron = selected.has("black-denim-apron-long");
       const hasShortApron = selected.has("black-denim-apron-short");
       const hasTorsoPiece = selected.has("olive-short-shirt") || selected.has("olive-chef-jacket") || selected.has("black-polo-shirt");
       const hasPantsPiece = selected.has("black-jeans") || selected.has("checkered-chef-pants");
       const hasSocksPiece = selected.has("black-socks");
-      const hasShoesPiece = selected.has("black-closed-shoes") || selected.has("black-closed-crocs");
+      const hasShoesPiece = selected.has("black-sneakers") || selected.has("black-closed-shoes") || selected.has("black-closed-crocs");
       const usesJean = selected.has("black-jeans");
-      const selectedPieces = DEFAULT_UNIFORM_PIECES.filter((piece) => selected.has(piece.id));
+      const savedDressCode = getUniformDressCode(profile, gender);
+      const ajustes = layoutDraft || savedDressCode.ajustes || {};
+      const selectedPieces = uniformPieces.filter((piece) => selected.has(piece.id));
       return /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-card" },
         /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Prototipo vestido"), /* @__PURE__ */ React.createElement("h3", { style: { margin: "4px 0", color: "#111827" } }, profile || "Perfil"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, gender === "femenino" ? "Figura femenina" : "Figura masculina")),
         /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-person" },
@@ -6972,7 +7258,7 @@
             /* @__PURE__ */ React.createElement("div", { className: "face" }),
             /* @__PURE__ */ React.createElement("div", { className: "base-shirt" }),
             /* @__PURE__ */ React.createElement("div", { className: "base-shorts" }),
-            selectedPieces.map((piece) => renderUniformGarmentLayer(piece.id)),
+            selectedPieces.map((piece) => renderUniformGarmentLayer(piece.id, ajustes, editorEnabled)),
             hasTorsoPiece && /* @__PURE__ */ React.createElement("div", { className: "torso" }),
             hasTorsoPiece && /* @__PURE__ */ React.createElement("img", { className: "torso-logo", src: WTF_LOGO_ASSET, alt: "Logo WTF" }),
             (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("div", { className: `apron ${hasShortApron ? "short" : ""}` }),
@@ -7106,7 +7392,7 @@
                 /* @__PURE__ */ React.createElement("option", { value: "masculino" }, "Masculino"),
                 /* @__PURE__ */ React.createElement("option", { value: "femenino" }, "Femenino")
               ),
-              /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-list" }, DEFAULT_UNIFORM_PIECES.filter((piece) => userUniformSelectedPieces.includes(piece.id)).map((piece) => /* @__PURE__ */ React.createElement("div", { key: piece.id, className: "uniform-piece-card is-selected" },
+              /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-list" }, uniformPieces.filter((piece) => userUniformSelectedPieces.includes(piece.id)).map((piece) => /* @__PURE__ */ React.createElement("div", { key: piece.id, className: "uniform-piece-card is-selected" },
                 renderUniformPieceThumb(piece),
                 /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { display: "block", color: "#111827", fontSize: 13 } }, piece.nombre), /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontWeight: 700 } }, piece.tipo)),
                 /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Usa")
@@ -7131,6 +7417,16 @@
     const uniformSelectedPieces = uniformCurrent.piezas || [];
     const userUniformCurrent = getUniformDressCode(profileName || "Colaborador", uniformGender);
     const userUniformSelectedPieces = userUniformCurrent.piezas || [];
+    useEffect(() => {
+      setUniformLayoutDraft(Object.assign({}, getUniformDressCode(uniformProfile, uniformGender).ajustes || {}));
+    }, [uniformProfile, uniformGender, JSON.stringify(normalized.uniformDressCodes || [])]);
+    useEffect(() => {
+      if (!uniformSelectedPieces.length) {
+        setActiveUniformPieceId("");
+        return;
+      }
+      if (!activeUniformPieceId || !uniformSelectedPieces.includes(activeUniformPieceId)) setActiveUniformPieceId(uniformSelectedPieces[0]);
+    }, [uniformSelectedPieces.join("|"), activeUniformPieceId]);
     const tabButton = (key, label) => /* @__PURE__ */ React.createElement("button", { key, className: `tab ${tab === key ? "active" : ""}`, onClick: () => setTab(key) }, label);
     return /* @__PURE__ */ React.createElement("div", { className: "rrhh-shell" },
       isEmployeeWelcomeActive(currentUser, normalized) && tab === "panel" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { border: "1px solid #bbf7d0", background: "#f0fdf4" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" } }, currentUser.foto && /* @__PURE__ */ React.createElement("img", { src: currentUser.foto, alt: "Foto colaborador", style: { width: 74, height: 74, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 4px" } }, `Bienvenido/a, ${getUserDisplayLabel(currentUser)}`), /* @__PURE__ */ React.createElement("div", { style: { color: "#166534", fontWeight: 700 } }, profileName, " · Ingreso: ", getEmployeeHireDate(currentUser) ? new Date(getEmployeeHireDate(currentUser)).toLocaleDateString("es-DO") : "Sin fecha", " · Supervisor: ", supervisor ? getUserDisplayLabel(supervisor) : "No asignado"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, height: 10, background: "#dcfce7", borderRadius: 999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${onboardingPercent}%`, height: "100%", background: "#16a34a" } })), /* @__PURE__ */ React.createElement("small", null, onboardingPercent, "% de induccion completado")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setTab("induccion") }, "Continuar induccion"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setTab("tareas") }, "Ver checklist"), typeof onExitToModules === "function" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onExitToModules }, "Visitar modulos")))),
@@ -7310,17 +7606,52 @@
                     /* @__PURE__ */ React.createElement("select", { className: "form-control", value: uniformGender, onChange: function(e) { setUniformGender(e.target.value); } }, /* @__PURE__ */ React.createElement("option", { value: "masculino" }, "Masculino"), /* @__PURE__ */ React.createElement("option", { value: "femenino" }, "Femenino"))
                   )
                 ),
-                /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Selecciona las piezas que usara este perfil. El prototipo vestido se actualiza automaticamente y queda guardado para el perfil y genero seleccionado."),
-                /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-list" }, DEFAULT_UNIFORM_PIECES.map(function(piece) {
+                /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Selecciona piezas, edita su foto PNG y ajusta manualmente izquierda, arriba, ancho y alto. Luego pulsa Guardar ubicacion y tamano."),
+                /* @__PURE__ */ React.createElement("div", { className: "uniform-visual-editor-hint" }, "Edicion visual: toca una pieza sobre el prototipo para activarla. Arrastrala para moverla o usa los puntos azules para ajustar mangas, largo, ancho y posicion."),
+                /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-list" }, uniformPieces.map(function(piece) {
                   const selected = uniformSelectedPieces.includes(piece.id);
                   return /* @__PURE__ */ React.createElement("label", { key: piece.id, className: `uniform-piece-card ${selected ? "is-selected" : ""}` },
                     renderUniformPieceThumb(piece),
                     /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("strong", { style: { display: "block", color: "#111827", fontSize: 13 } }, piece.nombre), /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontWeight: 700 } }, piece.tipo)),
+                    /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-actions" },
+                      /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Editar pieza", onClick: function(e) { e.preventDefault(); e.stopPropagation(); editUniformPiece(piece); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })),
+                      /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar pieza", onClick: function(e) { e.preventDefault(); e.stopPropagation(); deleteUniformPiece(piece); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                    ),
                     /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: selected, onChange: function() { toggleUniformPiece(uniformProfile, uniformGender, piece.id); } })
                   );
-                }))
+                })),
+                /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-form" },
+                  /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827" } }, editingUniformPieceId ? "Editar pieza de vestir" : "Agregar pieza de vestir"),
+                  /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Nombre de la pieza", value: uniformPieceForm.nombre, onChange: function(e) { setUniformPieceForm((prev) => Object.assign({}, prev, { nombre: e.target.value })); } }),
+                    /* @__PURE__ */ React.createElement("select", { className: "form-control", value: uniformPieceForm.tipo, onChange: function(e) { setUniformPieceForm((prev) => Object.assign({}, prev, { tipo: e.target.value })); } }, ["Cabeza", "Superior", "Delantal", "Inferior", "Accesorio", "Calzado", "Otro"].map((type) => /* @__PURE__ */ React.createElement("option", { key: type, value: type }, type)))
+                  ),
+                  /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "file", accept: "image/png,.png", onChange: function(e) { handleUniformPieceFile(e.target.files && e.target.files[0]); e.target.value = ""; } }),
+                  uniformPieceForm.imagenNombre && /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontWeight: 700 } }, "Imagen cargada: ", uniformPieceForm.imagenNombre),
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                    /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-verde btn-sm", onClick: saveUniformPiece }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingUniformPieceId ? "Guardar pieza" : "Agregar pieza"),
+                    editingUniformPieceId && /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-sm", onClick: resetUniformPieceForm }, "Cancelar")
+                  )
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "uniform-piece-form" },
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+                    /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827" } }, "Ubicacion y tamano de piezas seleccionadas"),
+                    /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-azul btn-sm", onClick: saveUniformLayoutAdjustments }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar ubicacion y tamano")
+                  ),
+                  /* @__PURE__ */ React.createElement("div", { className: "uniform-adjust-grid" }, uniformPieces.filter((piece) => uniformSelectedPieces.includes(piece.id)).map(function(piece) {
+                    const values = uniformLayoutDraft[piece.id] || {};
+                    return /* @__PURE__ */ React.createElement("div", { key: piece.id, className: "uniform-adjust-row" },
+                      /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 12, color: activeUniformPieceId === piece.id ? "#1d4ed8" : "#111827", cursor: "pointer" }, onClick: function() { setActiveUniformPieceId(piece.id); } }, piece.nombre),
+                      /* @__PURE__ */ React.createElement("div", { className: "mini-grid" },
+                        [["left", "Izq."], ["top", "Arriba"], ["width", "Ancho"], ["height", "Alto"]].map(function(field) {
+                          return /* @__PURE__ */ React.createElement("input", { key: field[0], className: "form-control", type: "number", step: "1", placeholder: field[1], value: values[field[0]] == null ? "" : values[field[0]], onChange: function(e) { updateUniformLayoutDraft(piece.id, field[0], e.target.value); } });
+                        })
+                      )
+                    );
+                  }))
+                )
               ),
-              renderUniformPrototype(uniformProfile, uniformGender, uniformSelectedPieces)
+              renderUniformPrototype(uniformProfile, uniformGender, uniformSelectedPieces, uniformLayoutDraft, true)
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
