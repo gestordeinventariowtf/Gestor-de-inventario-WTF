@@ -51,6 +51,8 @@
     if (!endpoint) return false;
     const activeModule = String(sessionStorage.getItem("wtf_modulo") || "").trim();
     const topic = activeModule || "general";
+    const activeUserEmail = String(localStorage.getItem("wtf_auth_user") || "").trim().toLowerCase();
+    const userTopic = activeUserEmail ? `user:${activeUserEmail}` : "";
     const id = getSubscriptionDocId(endpoint);
     await db.collection(SUBSCRIPTION_COLLECTION).doc(id).set({
       endpoint,
@@ -58,7 +60,9 @@
       active: true,
       module: topic,
       modulo: topic,
-      topics: ["general", topic].filter(Boolean),
+      topics: ["general", topic, userTopic].filter(Boolean),
+      userTopic,
+      userEmail: activeUserEmail,
       userAgent: navigator.userAgent,
       platform: navigator.platform || "",
       standalone: isStandaloneMode(),

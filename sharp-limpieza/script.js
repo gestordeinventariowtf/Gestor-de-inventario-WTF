@@ -1698,8 +1698,26 @@ async function uploadPhotoEvidenceToFirebaseStorage(blob) {
       createdAt: getServerTimestamp()
     }).catch((err) => console.warn("No se pudo indexar la foto:", err && err.message ? err.message : err));
   }
+  queueSharpPushNotification(record);
   runPhotoRetentionCleanup();
   return record;
+}
+
+async function queueSharpPushNotification(record) {
+  try {
+    if (!firebaseDB || !record) return;
+    await firebaseDB.collection("pwaPushMessages").add({
+      title: "Evidencia Sharp recibida",
+      body: `${record.collaboratorName || "Colaborador"} completo ${record.taskName || "una tarea"} en ${record.branchName || "Sharp de Limpieza"}.`,
+      topic: "admin",
+      url: "/",
+      status: "pending",
+      createdBy: record.collaboratorName || "Sharp de Limpieza",
+      createdAt: getServerTimestamp()
+    });
+  } catch (err) {
+    console.warn("No se pudo encolar notificacion Sharp:", err && err.message ? err.message : err);
+  }
 }
 
 function getLocalDateKey(date = new Date()) {
