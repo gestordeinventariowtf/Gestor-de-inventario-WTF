@@ -5662,7 +5662,7 @@
   const ASSET_STATUSES = ["Disponible", "En uso", "Asignado", "En reparacion", "Danado", "Pendiente de revision", "Extraviado", "Dado de baja", "Desechado", "Donado", "Vendido", "Otro"];
   const ASSET_RISK_LEVELS = ["Bajo", "Medio", "Alto", "Critico"];
   const ASSET_COUNT_FREQUENCIES = ["Diaria", "Semanal", "Quincenal", "Mensual", "Trimestral", "Semestral", "Anual", "Personalizada", "Bajo demanda"];
-  const ASSET_MOVEMENT_TYPES = ["Entrada por compra", "Entrada por devolucion", "Ajuste positivo", "Ajuste negativo", "Asignacion", "Devolucion", "Transferencia", "Envio a reparacion", "Retorno de reparacion", "Rotura", "Perdida", "Baja", "Reposicion", "Donacion", "Venta", "Desecho", "Otro"];
+  const ASSET_MOVEMENT_TYPES = ["Entrada por compra", "Entrada por devolucion", "Ajuste positivo", "Ajuste negativo", "Asignacion", "Devolucion", "Transferencia", "Envio a reparacion", "Retorno de reparacion", "Reposicion", "Donacion", "Venta", "Otro"];
   function buildDefaultAssetManagementData() {
     return {
       version: "WTF_ASSET_MANAGEMENT_V1",
@@ -5721,6 +5721,69 @@
   }
   function getAssetValue(item) {
     return Number((Number(item && item.cantidadTeorica || 0) * Number(item && item.costoUnitario || 0)).toFixed(2));
+  }
+  function getAssetMovementSign(type) {
+    return ["Entrada por compra", "Entrada por devolucion", "Ajuste positivo", "Retorno de reparacion", "Reposicion"].includes(type) ? 1 : ["Ajuste negativo", "Rotura", "Perdida", "Baja", "Desecho", "Donacion", "Venta"].includes(type) ? -1 : 0;
+  }
+  function getAssetPhotoSource(item) {
+    return item && (item.fotoUrl || item.foto || item.imageUrl || item.photoUrl || "");
+  }
+  function assetImageSignatureFromSource(src) {
+    return new Promise(function(resolve, reject) {
+      if (!src) return reject(new Error("Imagen vacia"));
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function() {
+        try {
+          const size = 16;
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0, size, size);
+          const data = ctx.getImageData(0, 0, size, size).data;
+          const values = [];
+          let r = 0, g = 0, b = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const gray = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+            values.push(gray);
+            r += data[i];
+            g += data[i + 1];
+            b += data[i + 2];
+          }
+          const avg = values.reduce((acc, value) => acc + value, 0) / Math.max(1, values.length);
+          resolve({
+            hash: values.map((value) => value >= avg ? 1 : 0).join(""),
+            color: [r / values.length, g / values.length, b / values.length]
+          });
+        } catch (error) {
+          reject(error);
+        }
+      };
+      img.onerror = function() { reject(new Error("No se pudo leer la imagen")); };
+      img.src = src;
+    });
+  }
+  function assetImageSignatureFromFile(file) {
+    return new Promise(function(resolve, reject) {
+      if (!file) return reject(new Error("Seleccione una fotografia"));
+      const reader = new FileReader();
+      reader.onload = function() {
+        assetImageSignatureFromSource(reader.result).then((signature) => resolve({ signature, preview: reader.result })).catch(reject);
+      };
+      reader.onerror = function() { reject(new Error("No se pudo abrir la fotografia")); };
+      reader.readAsDataURL(file);
+    });
+  }
+  function scoreAssetImageSignature(a, b) {
+    if (!a || !b || !a.hash || !b.hash) return 0;
+    const len = Math.min(a.hash.length, b.hash.length);
+    let same = 0;
+    for (let i = 0; i < len; i++) if (a.hash[i] === b.hash[i]) same++;
+    const hashScore = same / Math.max(1, len);
+    const colorDist = Math.sqrt([0, 1, 2].reduce((acc, i) => acc + Math.pow((a.color[i] || 0) - (b.color[i] || 0), 2), 0));
+    const colorScore = Math.max(0, 1 - colorDist / 441.7);
+    return Math.round((hashScore * 0.72 + colorScore * 0.28) * 100);
   }
   function formatAssetCurrency(value) {
     return Number(value || 0).toLocaleString("es-DO", { style: "currency", currency: "DOP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -5820,6 +5883,9 @@
     const [tab, setTab] = useState("resumen");
     const [search, setSearch] = useState("");
     const [editingAssetId, setEditingAssetId] = useState("");
+    const [editingMovementId, setEditingMovementId] = useState("");
+    const [editingCountId, setEditingCountId] = useState("");
+    const [editingIncidentId, setEditingIncidentId] = useState("");
     const [itemForm, setItemForm] = useState({
       nombre: "",
       descripcion: "",
@@ -5856,6 +5922,9 @@
     const [assetPhotoBusy, setAssetPhotoBusy] = useState(false);
     const [assetPhotoViewer, setAssetPhotoViewer] = useState(null);
     const [assetDeleteTarget, setAssetDeleteTarget] = useState(null);
+    const [assetAdminAction, setAssetAdminAction] = useState(null);
+    const [assetPhotoSearchBusy, setAssetPhotoSearchBusy] = useState("");
+    const [assetPhotoMatches, setAssetPhotoMatches] = useState({ movement: [], count: [], incident: [] });
     const activeItems = normalized.items.filter((item) => item && item.deleted !== true);
     const filteredItems = activeItems.filter(function(item) {
       const q = normalizar(search);
@@ -5954,6 +6023,69 @@
       setAssetDeleteTarget(null);
       toast("Activo eliminado del catalogo sin borrar historial.", "info");
     }
+    function resetMovementForm() {
+      setEditingMovementId("");
+      setMovementForm({ itemId: "", tipo: "Entrada por compra", cantidad: "", motivo: "", ubicacionOrigen: "", ubicacionDestino: "", colaborador: "", observaciones: "" });
+    }
+    function resetCountForm() {
+      setEditingCountId("");
+      setCountForm({ itemId: "", cantidadFisica: "", causa: "", observaciones: "", foto: "" });
+    }
+    function resetIncidentForm() {
+      setEditingIncidentId("");
+      setIncidentForm({ itemId: "", tipo: "Rotura", cantidad: "", area: "Cocina", turno: "", descripcion: "", reportadoPor: "", responsable: "", testigos: "", gravedad: "Media", estado: "Reportada", accion: "", resolucion: "" });
+    }
+    function protectAssetAction(title, run) {
+      setAssetAdminAction({ title, run });
+    }
+    async function searchAssetByPhoto(file, target) {
+      if (!file) return;
+      setAssetPhotoSearchBusy(target);
+      try {
+        const input = await assetImageSignatureFromFile(file);
+        const candidates = [];
+        for (const item of activeItems) {
+          const src = getAssetPhotoSource(item);
+          if (!src) continue;
+          try {
+            const signature = await assetImageSignatureFromSource(src);
+            const score = scoreAssetImageSignature(input.signature, signature);
+            if (score >= 48) candidates.push({ item, score, src });
+          } catch (error) {
+          }
+        }
+        const ordered = candidates.sort((a, b) => b.score - a.score).slice(0, 6);
+        setAssetPhotoMatches((prev) => Object.assign({}, prev, { [target]: ordered }));
+        if (ordered[0]) {
+          const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
+          setter((prev) => Object.assign({}, prev, { itemId: ordered[0].item.id }));
+          toast(`Coincidencia sugerida: ${ordered[0].item.nombre} (${ordered[0].score}%).`, "success");
+        } else {
+          toast("No encontre coincidencias claras en el catalogo.", "info");
+        }
+      } catch (error) {
+        toast(error.message || "No se pudo buscar por fotografia.", "error");
+      } finally {
+        setAssetPhotoSearchBusy("");
+      }
+    }
+    function renderAssetPhotoSearch(target) {
+      const busy = assetPhotoSearchBusy === target;
+      const matches = assetPhotoMatches[target] || [];
+      const applyItem = function(item) {
+        const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
+        setter((prev) => Object.assign({}, prev, { itemId: item.id }));
+        toast(`Activo seleccionado: ${item.nombre}`, "success");
+      };
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, border: "1px dashed #cbd5e1", borderRadius: 10, padding: 10, background: "#f8fafc" } },
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: "#374151" } }, "Buscar activo por fotografia"),
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${busy ? "fa-spinner fa-spin" : "fa-camera"}` }), "Usar camara", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) })),
+          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) }))
+        ),
+        matches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, matches.map((match) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", null, match.item.codigo, " · ", match.item.nombre), /* @__PURE__ */ React.createElement("strong", null, match.score, "%"))))
+      );
+    }
     function registerMovement() {
       const item = activeItems.find((row) => row.id === movementForm.itemId);
       const cantidad = Number(String(movementForm.cantidad || "").replace(",", "."));
@@ -5961,30 +6093,46 @@
         toast("Seleccione activo y cantidad valida.", "error");
         return;
       }
-      const sign = ["Entrada por compra", "Entrada por devolucion", "Ajuste positivo", "Retorno de reparacion", "Reposicion"].includes(movementForm.tipo) ? 1 : ["Ajuste negativo", "Rotura", "Perdida", "Baja", "Desecho", "Donacion", "Venta"].includes(movementForm.tipo) ? -1 : 0;
+      const existing = normalized.movements.find((row) => row.id === editingMovementId);
+      const originalItem = existing ? activeItems.find((row) => row.id === existing.itemId) : null;
+      const sign = getAssetMovementSign(movementForm.tipo);
+      const oldDelta = existing ? Number((Number(existing.cantidadPosterior || 0) - Number(existing.cantidadAnterior || 0)).toFixed(4)) : 0;
+      const newDelta = Number((sign * cantidad).toFixed(4));
       const before = Number(item.cantidadTeorica || 0);
-      const after = Math.max(0, Number((before + sign * cantidad).toFixed(4)));
+      const sameItem = !existing || existing.itemId === item.id;
+      const baseBefore = sameItem ? Number((before - oldDelta).toFixed(4)) : before;
+      const after = Math.max(0, Number((baseBefore + newDelta).toFixed(4)));
       const now = new Date().toISOString();
       const movement = Object.assign({}, movementForm, {
-        id: `asset-mov-${Date.now()}`,
-        numero: assetNumber("MOV", normalized.movements),
+        id: existing ? existing.id : `asset-mov-${Date.now()}`,
+        numero: existing ? existing.numero : assetNumber("MOV", normalized.movements),
         fecha: now,
         itemId: item.id,
         codigo: item.codigo,
         articulo: item.nombre,
         cantidad,
-        cantidadAnterior: before,
+        cantidadAnterior: baseBefore,
         cantidadPosterior: after,
-        usuario: getUserDisplayLabel(currentUser)
+        usuario: existing ? existing.usuario : getUserDisplayLabel(currentUser),
+        actualizadoPor: existing ? getUserDisplayLabel(currentUser) : "",
+        actualizadoAt: existing ? now : ""
       });
       updateData(function(prev) {
         return Object.assign({}, prev, {
-          movements: [movement].concat(prev.movements || []),
-          items: prev.items.map((row) => row.id === item.id ? Object.assign({}, row, { cantidadTeorica: after, estado: movementForm.tipo === "Envio a reparacion" ? "En reparacion" : movementForm.tipo === "Retorno de reparacion" ? "Disponible" : row.estado, updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) }) : row)
+          movements: existing ? (prev.movements || []).map((row) => row.id === existing.id ? movement : row) : [movement].concat(prev.movements || []),
+          items: prev.items.map((row) => {
+            if (existing && originalItem && originalItem.id !== item.id && row.id === originalItem.id) {
+              return Object.assign({}, row, { cantidadTeorica: Math.max(0, Number((Number(row.cantidadTeorica || 0) - oldDelta).toFixed(4))), updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) });
+            }
+            if (row.id === item.id) {
+              return Object.assign({}, row, { cantidadTeorica: after, estado: movementForm.tipo === "Envio a reparacion" ? "En reparacion" : movementForm.tipo === "Retorno de reparacion" ? "Disponible" : row.estado, updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) });
+            }
+            return row;
+          })
         });
-      }, { accion: "Movimiento", registro: movement.numero, detalle: `${movement.tipo}: ${movement.articulo} (${movement.cantidad})` });
-      setMovementForm({ itemId: "", tipo: "Entrada por compra", cantidad: "", motivo: "", ubicacionOrigen: "", ubicacionDestino: "", colaborador: "", observaciones: "" });
-      toast("Movimiento registrado.", "success");
+      }, { accion: existing ? "Editar movimiento" : "Movimiento", registro: movement.numero, detalle: `${movement.tipo}: ${movement.articulo} (${movement.cantidad})` });
+      resetMovementForm();
+      toast(existing ? "Movimiento actualizado y existencia recalculada." : "Movimiento registrado.", "success");
     }
     function registerCount() {
       const item = activeItems.find((row) => row.id === countForm.itemId);
@@ -6000,9 +6148,11 @@
         return;
       }
       const now = new Date().toISOString();
+      const existing = normalized.counts.find((row) => row.id === editingCountId);
+      const originalCountItemId = existing && existing.itemId || "";
       const count = {
-        id: `asset-count-${Date.now()}`,
-        numero: assetNumber("CNT", normalized.counts),
+        id: existing ? existing.id : `asset-count-${Date.now()}`,
+        numero: existing ? existing.numero : assetNumber("CNT", normalized.counts),
         fecha: now,
         itemId: item.id,
         codigo: item.codigo,
@@ -6015,7 +6165,10 @@
         observaciones: countForm.observaciones,
         foto: countForm.foto,
         estado: Math.abs(diferencia) >= Number(normalized.settings.differenceLimit || 1) ? "Pendiente de revision" : "Cerrado",
-        usuario: getUserDisplayLabel(currentUser)
+        usuario: existing ? existing.usuario : getUserDisplayLabel(currentUser),
+        actualizadoPor: existing ? getUserDisplayLabel(currentUser) : "",
+        actualizadoAt: existing ? now : "",
+        incidentId: existing && existing.incidentId || ""
       };
       const incident = Math.abs(diferencia) > 0 ? {
         id: `asset-inc-${Date.now()}`,
@@ -6038,15 +6191,36 @@
         resolucion: "Sin informacion suficiente",
         evidencia: countForm.foto
       } : null;
+      if (incident) count.incidentId = incident.id;
       updateData(function(prev) {
+        let nextIncidents = prev.incidents || [];
+        if (existing) {
+          const existingIncidentId = existing.incidentId || "";
+          const hasExistingIncident = existingIncidentId && nextIncidents.some((row) => row.id === existingIncidentId);
+          if (incident && hasExistingIncident) {
+            count.incidentId = existingIncidentId;
+            nextIncidents = nextIncidents.map((row) => row.id === existingIncidentId ? Object.assign({}, row, incident, { id: row.id, numero: row.numero, sourceCountId: count.id }) : row);
+          } else if (incident) {
+            nextIncidents = [Object.assign({}, incident, { sourceCountId: count.id })].concat(nextIncidents);
+          } else if (hasExistingIncident) {
+            nextIncidents = nextIncidents.map((row) => row.id === existingIncidentId ? Object.assign({}, row, { estado: "Anulada", resolucion: "Conteo corregido sin diferencia" }) : row);
+          }
+        } else if (incident) {
+          nextIncidents = [Object.assign({}, incident, { sourceCountId: count.id })].concat(nextIncidents);
+        }
         return Object.assign({}, prev, {
-          counts: [count].concat(prev.counts || []),
-          incidents: incident ? [incident].concat(prev.incidents || []) : prev.incidents,
-          items: prev.items.map((row) => row.id === item.id ? Object.assign({}, row, { cantidadFisica: fisica, lastCountAt: now, updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) }) : row)
+          counts: existing ? (prev.counts || []).map((row) => row.id === existing.id ? count : row) : [count].concat(prev.counts || []),
+          incidents: nextIncidents,
+          items: prev.items.map((row) => {
+            if (existing && originalCountItemId && originalCountItemId !== item.id && row.id === originalCountItemId) {
+              return Object.assign({}, row, { cantidadFisica: Number(existing.cantidadTeorica || row.cantidadFisica || 0), updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) });
+            }
+            return row.id === item.id ? Object.assign({}, row, { cantidadFisica: fisica, lastCountAt: now, updatedAt: now, updatedBy: getUserDisplayLabel(currentUser) }) : row;
+          })
         });
-      }, { accion: "Conteo", registro: count.numero, detalle: `Conteo de ${item.nombre}. Diferencia: ${diferencia}` });
-      setCountForm({ itemId: "", cantidadFisica: "", causa: "", observaciones: "", foto: "" });
-      toast(incident ? "Conteo registrado e incidencia creada para revision." : "Conteo registrado sin diferencias.", "success");
+      }, { accion: existing ? "Editar conteo" : "Conteo", registro: count.numero, detalle: `Conteo de ${item.nombre}. Diferencia: ${diferencia}` });
+      resetCountForm();
+      toast(existing ? "Conteo actualizado." : incident ? "Conteo registrado e incidencia creada para revision." : "Conteo registrado sin diferencias.", "success");
     }
     function registerIncident() {
       const item = activeItems.find((row) => row.id === incidentForm.itemId);
@@ -6056,22 +6230,91 @@
         return;
       }
       const now = new Date().toISOString();
+      const existing = normalized.incidents.find((row) => row.id === editingIncidentId);
       const incident = Object.assign({}, incidentForm, {
-        id: `asset-inc-${Date.now()}`,
-        numero: assetNumber("INC", normalized.incidents),
-        fechaHecho: now,
-        fechaReporte: now,
+        id: existing ? existing.id : `asset-inc-${Date.now()}`,
+        numero: existing ? existing.numero : assetNumber("INC", normalized.incidents),
+        fechaHecho: existing ? existing.fechaHecho : now,
+        fechaReporte: existing ? existing.fechaReporte : now,
         codigo: item.codigo,
         articulo: item.nombre,
         costoUnitario: Number(item.costoUnitario || 0),
         costoTotal: Number((cantidad * Number(item.costoUnitario || 0)).toFixed(2)),
         cantidad,
-        reportadoPor: incidentForm.reportadoPor || getUserDisplayLabel(currentUser),
-        resolucion: incidentForm.resolucion || "Sin informacion suficiente"
+        reportadoPor: incidentForm.reportadoPor || (existing ? existing.reportadoPor : getUserDisplayLabel(currentUser)),
+        resolucion: incidentForm.resolucion || "Sin informacion suficiente",
+        actualizadoPor: existing ? getUserDisplayLabel(currentUser) : "",
+        actualizadoAt: existing ? now : ""
       });
-      updateData((prev) => Object.assign({}, prev, { incidents: [incident].concat(prev.incidents || []) }), { accion: "Incidencia", registro: incident.numero, detalle: `${incident.tipo}: ${incident.articulo}` });
-      setIncidentForm((prev) => Object.assign({}, prev, { itemId: "", cantidad: "", descripcion: "", responsable: "", testigos: "", accion: "", resolucion: "" }));
-      toast("Incidencia registrada para revision humana.", "success");
+      updateData((prev) => Object.assign({}, prev, { incidents: existing ? (prev.incidents || []).map((row) => row.id === existing.id ? incident : row) : [incident].concat(prev.incidents || []) }), { accion: existing ? "Editar incidencia" : "Incidencia", registro: incident.numero, detalle: `${incident.tipo}: ${incident.articulo}` });
+      resetIncidentForm();
+      toast(existing ? "Incidencia actualizada." : "Incidencia registrada para revision humana.", "success");
+    }
+    function editMovement(row) {
+      if (!row) return;
+      setEditingMovementId(row.id);
+      setMovementForm({
+        itemId: row.itemId || "",
+        tipo: row.tipo || "Entrada por compra",
+        cantidad: row.cantidad == null ? "" : String(row.cantidad),
+        motivo: row.motivo || "",
+        ubicacionOrigen: row.ubicacionOrigen || "",
+        ubicacionDestino: row.ubicacionDestino || "",
+        colaborador: row.colaborador || "",
+        observaciones: row.observaciones || ""
+      });
+      setTab("movimientos");
+      toast("Movimiento listo para editar. Guarda para aplicar el recalculo.", "info");
+    }
+    function deleteMovement(row) {
+      if (!row) return;
+      const delta = Number((Number(row.cantidadPosterior || 0) - Number(row.cantidadAnterior || 0)).toFixed(4));
+      updateData(function(prev) {
+        return Object.assign({}, prev, {
+          movements: (prev.movements || []).filter((mov) => mov.id !== row.id),
+          items: (prev.items || []).map((item) => item.id === row.itemId ? Object.assign({}, item, { cantidadTeorica: Math.max(0, Number((Number(item.cantidadTeorica || 0) - delta).toFixed(4))), updatedAt: new Date().toISOString(), updatedBy: getUserDisplayLabel(currentUser) }) : item)
+        });
+      }, { accion: "Eliminar movimiento", registro: row.numero, detalle: `Movimiento eliminado y cantidad revertida: ${row.articulo}` });
+      resetMovementForm();
+      toast("Movimiento eliminado y existencia revertida.", "success");
+    }
+    function editCount(row) {
+      if (!row) return;
+      setEditingCountId(row.id);
+      setCountForm({
+        itemId: row.itemId || "",
+        cantidadFisica: row.cantidadFisica == null ? "" : String(row.cantidadFisica),
+        causa: row.causa || "",
+        observaciones: row.observaciones || "",
+        foto: row.foto || ""
+      });
+      setTab("conteos");
+      toast("Conteo listo para editar.", "info");
+    }
+    function deleteCount(row) {
+      if (!row) return;
+      updateData(function(prev) {
+        return Object.assign({}, prev, {
+          counts: (prev.counts || []).filter((count) => count.id !== row.id),
+          incidents: (prev.incidents || []).map((inc) => inc.id === row.incidentId || inc.sourceCountId === row.id ? Object.assign({}, inc, { estado: "Anulada", resolucion: "Conteo eliminado con autorizacion administradora" }) : inc),
+          items: (prev.items || []).map((item) => item.id === row.itemId ? Object.assign({}, item, { cantidadFisica: Number(row.cantidadTeorica || item.cantidadFisica || 0), updatedAt: new Date().toISOString(), updatedBy: getUserDisplayLabel(currentUser) }) : item)
+        });
+      }, { accion: "Eliminar conteo", registro: row.numero, detalle: `Conteo eliminado y cantidad fisica revertida: ${row.articulo}` });
+      resetCountForm();
+      toast("Conteo eliminado y cantidad fisica revertida.", "success");
+    }
+    function editIncident(row) {
+      if (!row) return;
+      setEditingIncidentId(row.id);
+      setIncidentForm(Object.assign({}, row, { cantidad: row.cantidad == null ? "" : String(row.cantidad) }));
+      setTab("incidencias");
+      toast("Incidencia lista para editar.", "info");
+    }
+    function deleteIncident(row) {
+      if (!row) return;
+      updateData((prev) => Object.assign({}, prev, { incidents: (prev.incidents || []).filter((inc) => inc.id !== row.id) }), { accion: "Eliminar incidencia", registro: row.numero, detalle: `Caso eliminado: ${row.articulo}` });
+      resetIncidentForm();
+      toast("Incidencia eliminada.", "success");
     }
     function createDocument() {
       const incident = normalized.incidents.find((row) => row.id === documentForm.incidentId);
@@ -6185,9 +6428,9 @@
         )),
         /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Catalogo maestro"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredItems.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar por codigo, nombre, categoria o area...", value: search, onChange: (e) => setSearch(e.target.value), style: { marginBottom: 10 } }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Codigo", "Foto", "Activo", "Area", "Exist.", "Min.", "Valor", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, filteredItems.map((item) => /* @__PURE__ */ React.createElement("tr", { key: item.id }, /* @__PURE__ */ React.createElement("td", null, item.codigo), /* @__PURE__ */ React.createElement("td", null, renderAssetPhotoThumb(item)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, item.nombre, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, item.categoria, " - ", item.control)), /* @__PURE__ */ React.createElement("td", null, item.area), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadTeorica || 0), " ", item.unidad), /* @__PURE__ */ React.createElement("td", null, Number(item.cantidadMinima || 0)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(getAssetValue(item))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.estado === "Disponible" ? "pill-verde" : item.estado === "En reparacion" ? "pill-naranja" : "pill-gris"}` }, item.estado)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar activo", onClick: () => startEditItem(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar activo", onClick: () => setAssetDeleteTarget(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))))))))))
       ),
-      tab === "movimientos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar movimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.itemId, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.tipo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ASSET_MOVEMENT_TYPES.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad", value: movementForm.cantidad, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { cantidad: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Motivo", value: movementForm.motivo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { motivo: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones", value: movementForm.observaciones, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: registerMovement }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de movimientos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Cant.", "Antes", "Despues"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.movements.slice(0, 120).map((mov) => /* @__PURE__ */ React.createElement("tr", { key: mov.id }, /* @__PURE__ */ React.createElement("td", null, mov.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(mov.fecha)), /* @__PURE__ */ React.createElement("td", null, mov.articulo), /* @__PURE__ */ React.createElement("td", null, mov.tipo), /* @__PURE__ */ React.createElement("td", null, mov.cantidad), /* @__PURE__ */ React.createElement("td", null, mov.cantidadAnterior), /* @__PURE__ */ React.createElement("td", null, mov.cantidadPosterior)))))))),
-      tab === "conteos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Conteo fisico")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.itemId, onChange: (e) => setCountForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad fisica contada", value: countForm.cantidadFisica, onChange: (e) => setCountForm((p) => Object.assign({}, p, { cantidadFisica: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.causa, onChange: (e) => setCountForm((p) => Object.assign({}, p, { causa: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Causa probable si hay diferencia"), ["Rotura reportada", "Rotura no reportada", "Perdida", "Dano por calor", "Mal almacenamiento", "Uso incorrecto", "Desgaste normal", "En reparacion", "Transferencia no registrada", "Error de conteo anterior", "Error de registro", "Responsable no determinado", "Otra causa"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones del conteo", value: countForm.observaciones, onChange: (e) => setCountForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Adjuntar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (foto) => setCountForm((p) => Object.assign({}, p, { foto }))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: registerCount }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-check" }), "Cerrar conteo"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de conteos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Teorica", "Fisica", "Dif.", "Estado"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.counts.slice(0, 120).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.articulo), /* @__PURE__ */ React.createElement("td", null, row.cantidadTeorica), /* @__PURE__ */ React.createElement("td", null, row.cantidadFisica), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: Number(row.diferencia || 0) === 0 ? "#15803d" : "#b91c1c" } }, row.diferencia), /* @__PURE__ */ React.createElement("td", null, row.estado)))))))),
-      tab === "incidencias" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar incidencia")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: incidentForm.itemId, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: incidentForm.tipo, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, normalized.settings.incidentTypes.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad afectada", value: incidentForm.cantidad, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { cantidad: e.target.value })) })), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion objetiva de lo ocurrido", value: incidentForm.descripcion, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Posible responsable solo si existe fundamento", value: incidentForm.responsable, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { responsable: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Testigos o colaboradores del area", value: incidentForm.testigos, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { testigos: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: registerIncident }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Registrar incidencia"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Casos registrados")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Costo", "Responsable", "Estado"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.incidents.slice(0, 120).map((inc) => /* @__PURE__ */ React.createElement("tr", { key: inc.id }, /* @__PURE__ */ React.createElement("td", null, inc.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(inc.fechaReporte)), /* @__PURE__ */ React.createElement("td", null, inc.articulo), /* @__PURE__ */ React.createElement("td", null, inc.tipo), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(inc.costoTotal || 0)), /* @__PURE__ */ React.createElement("td", null, inc.responsable || "No determinado"), /* @__PURE__ */ React.createElement("td", null, inc.estado)))))))),
+      tab === "movimientos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingMovementId ? "Editar movimiento" : "Registrar movimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.itemId, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), renderAssetPhotoSearch("movement"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: movementForm.tipo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ASSET_MOVEMENT_TYPES.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad", value: movementForm.cantidad, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { cantidad: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Motivo", value: movementForm.motivo, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { motivo: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones", value: movementForm.observaciones, onChange: (e) => setMovementForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: registerMovement }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), editingMovementId ? "Guardar cambios" : "Guardar movimiento"), editingMovementId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: resetMovementForm }, "Cancelar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de movimientos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Cant.", "Antes", "Despues", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.movements.slice(0, 120).map((mov) => /* @__PURE__ */ React.createElement("tr", { key: mov.id }, /* @__PURE__ */ React.createElement("td", null, mov.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(mov.fecha)), /* @__PURE__ */ React.createElement("td", null, mov.articulo), /* @__PURE__ */ React.createElement("td", null, mov.tipo), /* @__PURE__ */ React.createElement("td", null, mov.cantidad), /* @__PURE__ */ React.createElement("td", null, mov.cantidadAnterior), /* @__PURE__ */ React.createElement("td", null, mov.cantidadPosterior), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar movimiento", onClick: () => protectAssetAction(`Editar movimiento ${mov.numero}`, () => editMovement(mov)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar y revertir movimiento", onClick: () => protectAssetAction(`Eliminar movimiento ${mov.numero}`, () => deleteMovement(mov)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
+      tab === "conteos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCountId ? "Editar conteo" : "Conteo fisico")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.itemId, onChange: (e) => setCountForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), renderAssetPhotoSearch("count"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad fisica contada", value: countForm.cantidadFisica, onChange: (e) => setCountForm((p) => Object.assign({}, p, { cantidadFisica: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: countForm.causa, onChange: (e) => setCountForm((p) => Object.assign({}, p, { causa: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Causa probable si hay diferencia"), ["Rotura reportada", "Rotura no reportada", "Perdida", "Dano por calor", "Mal almacenamiento", "Uso incorrecto", "Desgaste normal", "En reparacion", "Transferencia no registrada", "Error de conteo anterior", "Error de registro", "Responsable no determinado", "Otra causa"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Observaciones del conteo", value: countForm.observaciones, onChange: (e) => setCountForm((p) => Object.assign({}, p, { observaciones: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { justifyContent: "center", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), "Adjuntar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", style: { display: "none" }, onChange: (e) => readAssetFile(e.target.files && e.target.files[0], (foto) => setCountForm((p) => Object.assign({}, p, { foto }))) })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: registerCount }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-check" }), editingCountId ? "Guardar cambios" : "Cerrar conteo"), editingCountId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: resetCountForm }, "Cancelar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de conteos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Teorica", "Fisica", "Dif.", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.counts.slice(0, 120).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.articulo), /* @__PURE__ */ React.createElement("td", null, row.cantidadTeorica), /* @__PURE__ */ React.createElement("td", null, row.cantidadFisica), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: Number(row.diferencia || 0) === 0 ? "#15803d" : "#b91c1c" } }, row.diferencia), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar conteo", onClick: () => protectAssetAction(`Editar conteo ${row.numero}`, () => editCount(row)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar y revertir conteo", onClick: () => protectAssetAction(`Eliminar conteo ${row.numero}`, () => deleteCount(row)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
+      tab === "incidencias" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingIncidentId ? "Editar incidencia" : "Registrar incidencia")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: incidentForm.itemId, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { itemId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar activo"), itemOptions), renderAssetPhotoSearch("incident"), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: incidentForm.tipo, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, normalized.settings.incidentTypes.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", step: "0.0001", placeholder: "Cantidad afectada", value: incidentForm.cantidad, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { cantidad: e.target.value })) })), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion objetiva de lo ocurrido", value: incidentForm.descripcion, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Posible responsable solo si existe fundamento", value: incidentForm.responsable, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { responsable: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Testigos o colaboradores del area", value: incidentForm.testigos, onChange: (e) => setIncidentForm((p) => Object.assign({}, p, { testigos: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: registerIncident }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), editingIncidentId ? "Guardar cambios" : "Registrar incidencia"), editingIncidentId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: resetIncidentForm }, "Cancelar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Casos registrados")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Fecha", "Activo", "Tipo", "Costo", "Responsable", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.incidents.slice(0, 120).map((inc) => /* @__PURE__ */ React.createElement("tr", { key: inc.id }, /* @__PURE__ */ React.createElement("td", null, inc.numero), /* @__PURE__ */ React.createElement("td", null, formatDatetime(inc.fechaReporte)), /* @__PURE__ */ React.createElement("td", null, inc.articulo), /* @__PURE__ */ React.createElement("td", null, inc.tipo), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(inc.costoTotal || 0)), /* @__PURE__ */ React.createElement("td", null, inc.responsable || "No determinado"), /* @__PURE__ */ React.createElement("td", null, inc.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar incidencia", onClick: () => protectAssetAction(`Editar incidencia ${inc.numero}`, () => editIncident(inc)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar incidencia", onClick: () => protectAssetAction(`Eliminar incidencia ${inc.numero}`, () => deleteIncident(inc)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
       tab === "documentos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Generar documento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Toda carta, amonestacion o medida administrativa debe ser revisada por una persona autorizada antes de utilizarse. El sistema no sanciona automaticamente."), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: documentForm.incidentId, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { incidentId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar incidencia"), normalized.incidents.map((inc) => /* @__PURE__ */ React.createElement("option", { key: inc.id, value: inc.id }, `${inc.numero} - ${inc.articulo}`))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: documentForm.tipo, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Registro de retroalimentacion verbal", "Constancia de capacitacion", "Compromiso de mejora", "Carta de amonestacion", "Advertencia final", "Solicitud de declaracion", "Acta de investigacion", "Informe de incidencia", "Informe de responsable no determinado", "Acta de baja de activo"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Colaborador relacionado", value: documentForm.colaborador, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { colaborador: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 6, placeholder: "Contenido editable antes de emitir", value: documentForm.contenido, onChange: (e) => setDocumentForm((p) => Object.assign({}, p, { contenido: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: createDocument }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-signature" }), "Crear borrador"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Documentos")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Numero", "Tipo", "Incidencia", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.documents.map((docRow) => /* @__PURE__ */ React.createElement("tr", { key: docRow.id }, /* @__PURE__ */ React.createElement("td", null, docRow.numero), /* @__PURE__ */ React.createElement("td", null, docRow.tipo), /* @__PURE__ */ React.createElement("td", null, docRow.incidencia), /* @__PURE__ */ React.createElement("td", null, docRow.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => printDocument(docRow) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-print" }), "PDF"))))))))),
       tab === "reportes" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reportes y patrones")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, ["Inventario general", "Incidencias por articulo", "Costos por categoria", "Equipos en reparacion", "Bajas", "Conteos con diferencias"].map((label) => /* @__PURE__ */ React.createElement("button", { key: label, className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(label.includes("Incidencias") ? normalized.incidents : label.includes("Conteos") ? normalized.counts : activeItems, `${label.replace(/\\s+/g, "_")}.xlsx`, label.slice(0, 28), toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-download" }), label))), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Analisis preventivo: revise articulos con incidencias repetidas, diferencias de conteo y costos altos. Estas alertas son sugerencias operativas, no pruebas automaticas de responsabilidad."))),
       tab === "configuracion" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion")), /* @__PURE__ */ React.createElement("div", { className: "card-body grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Categorias (separadas por coma)"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: normalized.settings.categories.join(", "), onChange: (e) => updateSettingsField("categories", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tipos de incidencia"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: normalized.settings.incidentTypes.join(", "), onChange: (e) => updateSettingsField("incidentTypes", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Limite de diferencia que requiere revision"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: normalized.settings.differenceLimit, onChange: (e) => updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { differenceLimit: Number(e.target.value || 0) }) }), { accion: "Configuracion", registro: "differenceLimit", detalle: "Actualizado limite de diferencia" }) })), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo alto para alerta"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: normalized.settings.highCostLimit, onChange: (e) => updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { highCostLimit: Number(e.target.value || 0) }) }), { accion: "Configuracion", registro: "highCostLimit", detalle: "Actualizado limite de costo alto" }) })))),
@@ -6204,6 +6447,16 @@
         usuarios,
         onClose: () => setAssetDeleteTarget(null),
         onConfirm: () => softDeleteItem(assetDeleteTarget)
+      }),
+      assetAdminAction && /* @__PURE__ */ React.createElement(AdminKeyModal, {
+        title: assetAdminAction.title,
+        usuarios,
+        onClose: () => setAssetAdminAction(null),
+        onConfirm: () => {
+          const run = assetAdminAction.run;
+          setAssetAdminAction(null);
+          if (typeof run === "function") run();
+        }
       })
     );
   }
