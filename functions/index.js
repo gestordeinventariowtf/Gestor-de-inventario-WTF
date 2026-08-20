@@ -4,6 +4,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import crypto from "node:crypto";
 import webpush from "web-push";
 
@@ -18,6 +19,8 @@ const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
 const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
+const SHARP_PHOTO_STORAGE_PREFIX = "sharp-limpieza/";
+const SHARP_PHOTO_RETENTION_DAYS = 7;
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
 const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-29056@appspot.gserviceaccount.com";
 const DEFAULT_BRANCHES = {
@@ -447,6 +450,51 @@ function matchesPushTopic(data, topic) {
   return topics.includes(requestedTopic) || moduleName === requestedTopic;
 }
 
+function getSharpPhotoCutoffDate() {
+  return new Date(Date.now() - SHARP_PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function isSharpPhotoFileExpired(file, cutoffDate) {
+  const metadata = file.metadata || {};
+  const createdAt = metadata.timeCreated || metadata.updated || "";
+  const createdMs = createdAt ? new Date(createdAt).getTime() : 0;
+  if (Number.isFinite(createdMs) && createdMs > 0) return createdMs < cutoffDate.getTime();
+  const match = String(file.name || "").match(/sharp-limpieza\/[^/]+\/(\d{4}-\d{2}-\d{2})\//);
+  if (!match) return false;
+  const pathMs = new Date(`${match[1]}T00:00:00-04:00`).getTime();
+  return Number.isFinite(pathMs) && pathMs < cutoffDate.getTime();
+}
+
+async function cleanupSharpStoragePhotos() {
+  const cutoffDate = getSharpPhotoCutoffDate();
+  const bucket = getStorage().bucket();
+  const [files] = await bucket.getFiles({ prefix: SHARP_PHOTO_STORAGE_PREFIX });
+  let checked = 0;
+  let deleted = 0;
+  let failed = 0;
+  const errors = [];
+  await Promise.all(files.map(async (file) => {
+    checked += 1;
+    if (!isSharpPhotoFileExpired(file, cutoffDate)) return;
+    try {
+      await file.delete({ ignoreNotFound: true });
+      deleted += 1;
+    } catch (error) {
+      failed += 1;
+      errors.push({ name: file.name, message: String(error?.message || error).slice(0, 240) });
+    }
+  }));
+  return {
+    ok: failed === 0,
+    retentionDays: SHARP_PHOTO_RETENTION_DAYS,
+    prefix: SHARP_PHOTO_STORAGE_PREFIX,
+    checked,
+    deleted,
+    failed,
+    errors: errors.slice(0, 20)
+  };
+}
+
 async function dispatchPushMessage(messageData) {
   const topic = String(messageData?.topic || "").trim();
   const dryRun = Boolean(messageData?.dryRun);
@@ -716,6 +764,11 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
 
 export const wtfProcessScheduledPushMessages = onSchedule({ region: "us-central1", schedule: "every 5 minutes", timeZone: "America/Santo_Domingo", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY], serviceAccount: PUSH_SERVICE_ACCOUNT }, async () => {
   await processPendingPushMessages(100);
+});
+
+export const wtfCleanupSharpStoragePhotos = onSchedule({ region: "us-central1", schedule: "every day 04:20", timeZone: "America/Santo_Domingo", timeoutSeconds: 300, memory: "512MiB", serviceAccount: PUSH_SERVICE_ACCOUNT }, async () => {
+  const result = await cleanupSharpStoragePhotos();
+  console.log("Sharp Storage photo cleanup", result);
 });
 
 export const wtfAuthorizedTerminal = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
