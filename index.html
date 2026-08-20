@@ -562,7 +562,7 @@
     }
     .uniform-config-layout {
       display: grid;
-      grid-template-columns: minmax(280px, 1.1fr) minmax(260px, .9fr);
+      grid-template-columns: repeat(2, minmax(320px, 1fr));
       gap: 14px;
       align-items: start;
     }
@@ -663,10 +663,11 @@
       padding: 16px;
       display: grid;
       gap: 14px;
+      min-height: 100%;
       box-shadow: 0 14px 32px rgba(15, 23, 42, .07);
     }
     .uniform-preview-person {
-      min-height: 410px;
+      min-height: 560px;
       border-radius: 16px;
       background:
         linear-gradient(90deg, rgba(245, 158, 11, .18) 0 20px, transparent 20px calc(100% - 20px), rgba(245, 158, 11, .18) calc(100% - 20px)),
@@ -782,12 +783,20 @@
     }
     .uniform-transform-handle[data-handle="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
     .uniform-transform-handle[data-handle="n"] { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="n25"] { left: 25%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="n75"] { left: 75%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
     .uniform-transform-handle[data-handle="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
     .uniform-transform-handle[data-handle="e"] { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .uniform-transform-handle[data-handle="e25"] { right: -7px; top: 25%; transform: translateY(-50%); cursor: ew-resize; }
+    .uniform-transform-handle[data-handle="e75"] { right: -7px; top: 75%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-transform-handle[data-handle="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
     .uniform-transform-handle[data-handle="s"] { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="s25"] { left: 25%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+    .uniform-transform-handle[data-handle="s75"] { left: 75%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
     .uniform-transform-handle[data-handle="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
     .uniform-transform-handle[data-handle="w"] { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .uniform-transform-handle[data-handle="w25"] { left: -7px; top: 25%; transform: translateY(-50%); cursor: ew-resize; }
+    .uniform-transform-handle[data-handle="w75"] { left: -7px; top: 75%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-figure.has-template .hat,
     .uniform-figure.has-template .torso,
     .uniform-figure.has-template .torso-logo,
@@ -1125,7 +1134,7 @@
     }
     .uniform-adjust-row .mini-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(58px, 1fr));
+      grid-template-columns: repeat(6, minmax(58px, 1fr));
       gap: 6px;
     }
     .uniform-adjust-row input {
@@ -8111,6 +8120,7 @@
       ["left", "top", "width", "height"].forEach(function(field) {
         if (custom[field] !== "" && custom[field] != null && !Number.isNaN(Number(custom[field]))) style[field] = `${Number(custom[field])}px`;
       });
+      if (custom.zIndex !== "" && custom.zIndex != null && !Number.isNaN(Number(custom.zIndex))) style.zIndex = Math.max(1, Math.min(99, Number(custom.zIndex)));
       if (custom.rotate !== "" && custom.rotate != null && !Number.isNaN(Number(custom.rotate))) style.transform = `rotate(${Number(custom.rotate)}deg)`;
       const isActive = editorEnabled && activeUniformPieceId === pieceId;
       const showEditChrome = editorEnabled && Boolean(activeUniformPieceId);
@@ -8122,7 +8132,7 @@
         onClick: editorEnabled ? function(e) { e.preventDefault(); e.stopPropagation(); setActiveUniformPieceId(pieceId); } : undefined,
         title: editorEnabled ? "Arrastra para mover. Usa los puntos para ajustar tamano o forma." : undefined
       };
-      const handles = editorEnabled && isActive ? ["nw", "n", "ne", "e", "se", "s", "sw", "w"].map(function(handle) {
+      const handles = editorEnabled && isActive ? ["nw", "n25", "n", "n75", "ne", "e25", "e", "e75", "se", "s75", "s", "s25", "sw", "w75", "w", "w25"].map(function(handle) {
         return /* @__PURE__ */ React.createElement("button", { key: handle, type: "button", className: "uniform-transform-handle", "data-handle": handle, title: `Ajustar ${handle}`, onPointerDown: function(e) { startUniformVisualAdjust(e, pieceId, handle); } });
       }) : null;
       if (asset) {
@@ -8166,6 +8176,7 @@
       const savedDressCode = getUniformDressCode(profile, gender);
       const ajustes = layoutDraft || savedDressCode.ajustes || {};
       const prototypeScale = Math.max(60, Math.min(150, Number(ajustes.__prototype && ajustes.__prototype.scale || 100)));
+      const prototypeTop = Math.max(-140, Math.min(160, Number(ajustes.__prototype && ajustes.__prototype.top || 0)));
       const selectedPieces = uniformPieces.filter((piece) => selected.has(piece.id));
       return /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-card" },
         /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Prototipo vestido"), /* @__PURE__ */ React.createElement("h3", { style: { margin: "4px 0", color: "#111827" } }, profile || "Perfil"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, gender === "femenino" ? "Figura femenina" : "Figura masculina")),
@@ -8175,7 +8186,7 @@
           (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left apron" }, hasShortApron ? "Delantal corto" : "Delantal jean negro"),
           hasPantsPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout right pants" }, selected.has("checkered-chef-pants") ? "Pantalon cocinero" : "Pantalon negro"),
           hasShoesPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left shoes" }, "Calzado cerrado"),
-          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure has-template ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}`, style: { transform: `scale(${prototypeScale / 100})`, transformOrigin: "center top" } },
+          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure has-template ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}`, style: { transform: `translateY(${prototypeTop}px) scale(${prototypeScale / 100})`, transformOrigin: "center top" } },
             /* @__PURE__ */ React.createElement("div", { className: "uniform-silhouette-base", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("img", { src: UNIFORM_BODY_TEMPLATE_ASSET, alt: "" })),
             selected.has("chef-hat") && /* @__PURE__ */ React.createElement("div", { className: "hat" }, /* @__PURE__ */ React.createElement("img", { src: WTF_LOGO_ASSET, alt: "Logo WTF" })),
             /* @__PURE__ */ React.createElement("div", { className: "hair" }),
@@ -8665,12 +8676,23 @@
                     /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "range", min: "60", max: "150", step: "1", value: uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.scale || 100, onChange: function(e) { updateUniformLayoutDraft("__prototype", "scale", e.target.value); } }),
                     /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.scale || 100, "%")
                   ),
+                  /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                    /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Mover prototipo arriba / abajo"),
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "range", min: "-140", max: "160", step: "1", value: uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.top || 0, onChange: function(e) { updateUniformLayoutDraft("__prototype", "top", e.target.value); } }),
+                    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.top || 0, " px")
+                  ),
                   /* @__PURE__ */ React.createElement("div", { className: "uniform-adjust-grid" }, uniformPieces.filter((piece) => uniformSelectedPieces.includes(piece.id)).map(function(piece) {
                     const values = uniformLayoutDraft[piece.id] || {};
                     return /* @__PURE__ */ React.createElement("div", { key: piece.id, className: "uniform-adjust-row" },
-                      /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 12, color: activeUniformPieceId === piece.id ? "#1d4ed8" : "#111827", cursor: "pointer" }, onClick: function() { setActiveUniformPieceId(piece.id); } }, piece.nombre),
+                      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+                        /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 12, color: activeUniformPieceId === piece.id ? "#1d4ed8" : "#111827", cursor: "pointer" }, onClick: function() { setActiveUniformPieceId(piece.id); } }, piece.nombre),
+                        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, alignItems: "center" } },
+                          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Enviar capa atras", onClick: function() { updateUniformLayoutDraft(piece.id, "zIndex", Math.max(1, Number(values.zIndex || 6) - 1)); setActiveUniformPieceId(piece.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-down" })),
+                          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Traer capa adelante", onClick: function() { updateUniformLayoutDraft(piece.id, "zIndex", Math.min(99, Number(values.zIndex || 6) + 1)); setActiveUniformPieceId(piece.id); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }))
+                        )
+                      ),
                       /* @__PURE__ */ React.createElement("div", { className: "mini-grid" },
-                        [["left", "Izq."], ["top", "Arriba"], ["width", "Ancho"], ["height", "Alto"], ["rotate", "Giro"]].map(function(field) {
+                        [["left", "Izq."], ["top", "Arriba"], ["width", "Ancho"], ["height", "Alto"], ["rotate", "Giro"], ["zIndex", "Capa"]].map(function(field) {
                           return /* @__PURE__ */ React.createElement("input", { key: field[0], className: "form-control", type: "number", step: "1", placeholder: field[1], value: values[field[0]] == null ? "" : values[field[0]], onChange: function(e) { updateUniformLayoutDraft(piece.id, field[0], e.target.value); } });
                         })
                       ),
