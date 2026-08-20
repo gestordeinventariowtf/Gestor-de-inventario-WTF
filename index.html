@@ -742,12 +742,18 @@
       pointer-events: none;
       display: grid;
       place-items: center;
+      transform-origin: center center;
     }
     .uniform-garment-layer.is-editable {
       pointer-events: auto;
       cursor: move;
       outline: 1px dashed rgba(37, 99, 235, .45);
       outline-offset: 2px;
+      touch-action: none;
+    }
+    .uniform-garment-layer.is-edit-target {
+      pointer-events: auto;
+      cursor: move;
       touch-action: none;
     }
     .uniform-garment-layer.is-active {
@@ -1119,7 +1125,7 @@
     }
     .uniform-adjust-row .mini-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(58px, 1fr));
+      grid-template-columns: repeat(5, minmax(58px, 1fr));
       gap: 6px;
     }
     .uniform-adjust-row input {
@@ -8010,6 +8016,7 @@
         top: layer.offsetTop || 0,
         width: layer.offsetWidth || 24,
         height: layer.offsetHeight || 24,
+        lockAspect: Boolean(uniformLayoutDraft && uniformLayoutDraft[pieceId] && uniformLayoutDraft[pieceId].lockAspect),
         mode: mode || "move",
         pieceId
       };
@@ -8046,6 +8053,27 @@
           if (current.mode.includes("n")) top = current.top + current.height - 12;
           height = 12;
         }
+        if (current.lockAspect && current.mode !== "move") {
+          const aspect = Math.max(0.05, current.width / Math.max(1, current.height));
+          const centerX = current.left + current.width / 2;
+          const centerY = current.top + current.height / 2;
+          const horizontal = current.mode.includes("e") || current.mode.includes("w");
+          const vertical = current.mode.includes("n") || current.mode.includes("s");
+          if (horizontal && vertical) {
+            if (Math.abs(dx) >= Math.abs(dy)) height = width / aspect;
+            else width = height * aspect;
+          } else if (horizontal) {
+            height = width / aspect;
+          } else if (vertical) {
+            width = height * aspect;
+          }
+          width = Math.max(12, width);
+          height = Math.max(12, height);
+          if (current.mode.includes("w")) left = current.left + current.width - width;
+          else if (!current.mode.includes("e")) left = centerX - width / 2;
+          if (current.mode.includes("n")) top = current.top + current.height - height;
+          else if (!current.mode.includes("s")) top = centerY - height / 2;
+        }
         applyUniformVisualLayout(pieceId, { left, top, width, height });
       };
       const onUp = function() {
@@ -8076,10 +8104,12 @@
       ["left", "top", "width", "height"].forEach(function(field) {
         if (custom[field] !== "" && custom[field] != null && !Number.isNaN(Number(custom[field]))) style[field] = `${Number(custom[field])}px`;
       });
+      if (custom.rotate !== "" && custom.rotate != null && !Number.isNaN(Number(custom.rotate))) style.transform = `rotate(${Number(custom.rotate)}deg)`;
       const isActive = editorEnabled && activeUniformPieceId === pieceId;
+      const showEditChrome = editorEnabled && Boolean(activeUniformPieceId);
       const layerProps = {
         key: pieceId,
-        className: `uniform-garment-layer uniform-layer-${pieceId}${editorEnabled ? " is-editable" : ""}${isActive ? " is-active" : ""}`,
+        className: `uniform-garment-layer uniform-layer-${pieceId}${editorEnabled ? " is-edit-target" : ""}${showEditChrome ? " is-editable" : ""}${isActive ? " is-active" : ""}`,
         style,
         onPointerDown: editorEnabled ? function(e) { startUniformVisualAdjust(e, pieceId, "move"); } : undefined,
         onClick: editorEnabled ? function(e) { e.preventDefault(); e.stopPropagation(); setActiveUniformPieceId(pieceId); } : undefined,
@@ -8104,6 +8134,7 @@
       const usesJean = selected.has("black-jeans");
       const savedDressCode = getUniformDressCode(profile, gender);
       const ajustes = layoutDraft || savedDressCode.ajustes || {};
+      const prototypeScale = Math.max(60, Math.min(150, Number(ajustes.__prototype && ajustes.__prototype.scale || 100)));
       const selectedPieces = uniformPieces.filter((piece) => selected.has(piece.id));
       return /* @__PURE__ */ React.createElement("div", { className: "uniform-preview-card" },
         /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Prototipo vestido"), /* @__PURE__ */ React.createElement("h3", { style: { margin: "4px 0", color: "#111827" } }, profile || "Perfil"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, gender === "femenino" ? "Figura femenina" : "Figura masculina")),
@@ -8113,7 +8144,7 @@
           (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left apron" }, hasShortApron ? "Delantal corto" : "Delantal jean negro"),
           hasPantsPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout right pants" }, selected.has("checkered-chef-pants") ? "Pantalon cocinero" : "Pantalon negro"),
           hasShoesPiece && /* @__PURE__ */ React.createElement("span", { className: "uniform-callout left shoes" }, "Calzado cerrado"),
-          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure has-template ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}` },
+          /* @__PURE__ */ React.createElement("div", { className: `uniform-figure has-template ${gender === "femenino" ? "femenino" : "masculino"} ${usesJean ? "jean" : ""}`, style: { transform: `scale(${prototypeScale / 100})`, transformOrigin: "center top" } },
             /* @__PURE__ */ React.createElement("div", { className: "uniform-silhouette-base", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("img", { src: UNIFORM_BODY_TEMPLATE_ASSET, alt: "" })),
             selected.has("chef-hat") && /* @__PURE__ */ React.createElement("div", { className: "hat" }, /* @__PURE__ */ React.createElement("img", { src: WTF_LOGO_ASSET, alt: "Logo WTF" })),
             /* @__PURE__ */ React.createElement("div", { className: "hair" }),
@@ -8121,7 +8152,6 @@
             /* @__PURE__ */ React.createElement("div", { className: "face" }),
             /* @__PURE__ */ React.createElement("div", { className: "base-shirt" }),
             /* @__PURE__ */ React.createElement("div", { className: "base-shorts" }),
-            selectedPieces.map((piece) => renderUniformGarmentLayer(piece.id, ajustes, editorEnabled)),
             hasTorsoPiece && /* @__PURE__ */ React.createElement("div", { className: "torso" }),
             hasTorsoPiece && /* @__PURE__ */ React.createElement("img", { className: "torso-logo", src: WTF_LOGO_ASSET, alt: "Logo WTF" }),
             (hasLongApron || hasShortApron) && /* @__PURE__ */ React.createElement("div", { className: `apron ${hasShortApron ? "short" : ""}` }),
@@ -8133,7 +8163,8 @@
             hasSocksPiece && /* @__PURE__ */ React.createElement("div", { className: "sock left" }),
             hasSocksPiece && /* @__PURE__ */ React.createElement("div", { className: "sock right" }),
             hasShoesPiece && /* @__PURE__ */ React.createElement("div", { className: "shoe left" }),
-            hasShoesPiece && /* @__PURE__ */ React.createElement("div", { className: "shoe right" })
+            hasShoesPiece && /* @__PURE__ */ React.createElement("div", { className: "shoe right" }),
+            selectedPieces.map((piece) => renderUniformGarmentLayer(piece.id, ajustes, editorEnabled))
           )
         ),
         /* @__PURE__ */ React.createElement("div", { className: "uniform-selected-chips" }, selectedPieces.map((piece) => /* @__PURE__ */ React.createElement("span", { key: piece.id, className: "pill pill-azul" }, piece.nombre)))
@@ -8266,8 +8297,7 @@
       const visibleAssignments = normalized.equipmentAssignments.filter((row) => String(row.userId || "") === String(userId || "") && row.estado !== "Archivado");
       return /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" },
-          /* @__PURE__ */ React.createElement("h2", null, "Uniformes y equipos asignados"),
-          isAdmin && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: function() { setTab("admin"); setAdminSection("equipos"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-gear" }), "Administrar")
+          /* @__PURE__ */ React.createElement("h2", null, "Uniformes y equipos asignados")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 16 } },
           /* @__PURE__ */ React.createElement("div", { className: "uniform-config-layout" },
@@ -8535,6 +8565,7 @@
                   ),
                   /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "file", accept: "image/png,.png", onChange: function(e) { handleUniformPieceFile(e.target.files && e.target.files[0]); e.target.value = ""; } }),
                   uniformPieceForm.imagenNombre && /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontWeight: 700 } }, "Imagen cargada: ", uniformPieceForm.imagenNombre),
+                  uniformPieceForm.imagenDataUrl && /* @__PURE__ */ React.createElement("img", { src: uniformPieceForm.imagenDataUrl, alt: "Vista previa de pieza", style: { width: 92, height: 92, objectFit: "contain", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff", padding: 6 } }),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
                     /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-verde btn-sm", onClick: saveUniformPiece }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingUniformPieceId ? "Guardar pieza" : "Agregar pieza"),
                     editingUniformPieceId && /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-sm", onClick: resetUniformPieceForm }, "Cancelar")
@@ -8548,14 +8579,23 @@
                       /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-azul btn-sm", onClick: saveUniformLayoutAdjustments }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar ubicacion y tamano")
                     )
                   ),
+                  /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                    /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tamano del prototipo (%)"),
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "range", min: "60", max: "150", step: "1", value: uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.scale || 100, onChange: function(e) { updateUniformLayoutDraft("__prototype", "scale", e.target.value); } }),
+                    /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, uniformLayoutDraft.__prototype && uniformLayoutDraft.__prototype.scale || 100, "%")
+                  ),
                   /* @__PURE__ */ React.createElement("div", { className: "uniform-adjust-grid" }, uniformPieces.filter((piece) => uniformSelectedPieces.includes(piece.id)).map(function(piece) {
                     const values = uniformLayoutDraft[piece.id] || {};
                     return /* @__PURE__ */ React.createElement("div", { key: piece.id, className: "uniform-adjust-row" },
                       /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 12, color: activeUniformPieceId === piece.id ? "#1d4ed8" : "#111827", cursor: "pointer" }, onClick: function() { setActiveUniformPieceId(piece.id); } }, piece.nombre),
                       /* @__PURE__ */ React.createElement("div", { className: "mini-grid" },
-                        [["left", "Izq."], ["top", "Arriba"], ["width", "Ancho"], ["height", "Alto"]].map(function(field) {
+                        [["left", "Izq."], ["top", "Arriba"], ["width", "Ancho"], ["height", "Alto"], ["rotate", "Giro"]].map(function(field) {
                           return /* @__PURE__ */ React.createElement("input", { key: field[0], className: "form-control", type: "number", step: "1", placeholder: field[1], value: values[field[0]] == null ? "" : values[field[0]], onChange: function(e) { updateUniformLayoutDraft(piece.id, field[0], e.target.value); } });
                         })
+                      ),
+                      /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: values.lockAspect ? "#1d4ed8" : "var(--gris)" } },
+                        /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: values.lockAspect === true, onChange: function(e) { setUniformLayoutDraft((prev) => Object.assign({}, prev, { [piece.id]: Object.assign({}, prev[piece.id] || {}, { lockAspect: e.target.checked }) })); } }),
+                        values.lockAspect ? "Proporcion fija" : "Formato libre"
                       )
                     );
                   }))
