@@ -196,6 +196,7 @@ let _pinCountdownTimer = null; // interval id for lockout countdown
 // DOM refs
 const collaboratorForm  = document.getElementById("collaborator-form");
 const collaboratorInput = document.getElementById("collaborator-name");
+const collaboratorFreeDay = document.getElementById("collaborator-free-day");
 const moduleSelectorOverlay = document.getElementById("module-selector");
 const moduleList = document.getElementById("module-list");
 const headerModuleName = document.getElementById("header-module-name");
@@ -312,6 +313,7 @@ setInterval(() => {
     renderWeekLabel();
     renderTable();
   }
+  maybeAutoFillCurrentWeek();
 }, 60_000);
 
 // ── Event listeners ──────────────────────────────────────────────────
@@ -322,8 +324,9 @@ collaboratorForm.addEventListener("submit", async (event) => {
   if (!name) { collaboratorInput.focus(); return; }
   const allowed = await requireAdmin("Agregar colaborador");
   if (!allowed) return;
-  state.collaborators.push({ id: createId(), name });
+  state.collaborators.push({ id: createId(), name, freeDay: collaboratorFreeDay ? collaboratorFreeDay.value : "" });
   collaboratorInput.value = "";
+  if (collaboratorFreeDay) collaboratorFreeDay.value = "";
   saveState();
   updateTeamSelectors();
   renderTable();
@@ -1997,7 +2000,7 @@ function getTaskAssignee(team, taskId) {
 // ── State ─────────────────────────────────────────────────────────────
 
 function createInitialState() {
-  return { collaborators: [], tasks: {} };
+  return { collaborators: [], tasks: {}, lastAutoFillWeekKey: "" };
 }
 
 function getCleaningModuleId() {
@@ -2039,7 +2042,7 @@ function normalizeState(parsed) {
 
   const collaborators = parsed.collaborators
     .filter((c) => c && typeof c.id === "string" && typeof c.name === "string")
-    .map((c) => ({ id: c.id, name: c.name.trim() }))
+    .map((c) => ({ id: c.id, name: c.name.trim(), freeDay: typeof c.freeDay === "string" ? c.freeDay : "" }))
     .filter((c) => c.name.length > 0);
 
   const sourceTasks = parsed.tasks && typeof parsed.tasks === "object" ? parsed.tasks : {};
@@ -2073,7 +2076,7 @@ function normalizeState(parsed) {
     if (item) tasks[targetKey] = { free: false, items: [item] };
   }
 
-  return { collaborators, tasks };
+  return { collaborators, tasks, lastAutoFillWeekKey: typeof parsed.lastAutoFillWeekKey === "string" ? parsed.lastAutoFillWeekKey : "" };
 }
 
 function normalizeTaskItem(value) {
@@ -2266,6 +2269,7 @@ function selectCleaningModule(moduleId) {
   selectedCell = null;
   updateTeamSelectors();
   renderTable();
+  maybeAutoFillCurrentWeek();
   renderRealizadasPanel();
   if (currentBranch) {
     if (firebaseDB && !usingBranchConfigFallback) connectBoardSync(currentBranch.id);
@@ -2392,6 +2396,7 @@ function enterBranch(branch, options = {}) {
   renderBranchList();
   updateTeamSelectors();
   renderTable();
+  maybeAutoFillCurrentWeek();
   if (firebaseDB && !usingBranchConfigFallback) {
     connectBoardSync(branch.id);
   } else {
@@ -2442,6 +2447,7 @@ function connectBoardSync(branchId) {
     if (prunedEvidence) queueRemoteSave({ immediate: true });
     updateTeamSelectors();
     renderTable();
+    maybeAutoFillCurrentWeek();
     setSyncStatus("Sincronizado", "online");
   }, (err) => {
     console.error("Firebase sync error", err);
@@ -2937,7 +2943,37 @@ function pickCollaboratorForAutoFill(dayIndex, dayLoads, weekLoads) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-function autoFillCalendar() {
+function isCollaboratorFreeOnDay(collaborator, dayIndex) {
+  return collaborator && String(collaborator.freeDay || "") === String(dayIndex);
+}
+
+function hasTasksForCurrentWeek() {
+  return Object.keys(state.tasks || {}).some((key) => key.startsWith(`${currentWeekStart}__`));
+}
+
+function getCurrentWeekAutoFillKey() {
+  return `${currentBranch && currentBranch.id || "branch"}__${getCleaningModuleId()}__${currentWeekStart}`;
+}
+
+function shouldAutoFillCurrentWeekNow(now = new Date()) {
+  const mondayStart = new Date(`${currentWeekStart}T04:00:00`);
+  return now >= mondayStart;
+}
+
+function maybeAutoFillCurrentWeek() {
+  if (!state || !Array.isArray(state.collaborators) || !state.collaborators.length) return;
+  if (!shouldAutoFillCurrentWeekNow()) return;
+  const autoFillKey = getCurrentWeekAutoFillKey();
+  if (state.lastAutoFillWeekKey === autoFillKey) return;
+  if (hasTasksForCurrentWeek()) {
+    state.lastAutoFillWeekKey = autoFillKey;
+    saveState();
+    return;
+  }
+  autoFillCalendar({ silent: true, automatic: true });
+}
+
+function autoFillCalendar(options = {}) {
   const allTasks = [];
   for (const [team, tasks] of Object.entries(TASK_LIBRARY)) {
     for (const task of tasks) {
@@ -2945,18 +2981,24 @@ function autoFillCalendar() {
     }
   }
   if (allTasks.length === 0) {
-    alert("La biblioteca está vacía. Agrega tareas antes de usar Auto-llenar.");
+    if (!options.silent) alert("La biblioteca está vacía. Agrega tareas antes de usar Auto-llenar.");
     return;
   }
   const collabs = state.collaborators;
   const numCollabs = collabs.length;
   if (numCollabs === 0) {
-    alert("Agrega colaboradores antes de usar Auto-llenar.");
+    if (!options.silent) alert("Agrega colaboradores antes de usar Auto-llenar.");
     return;
   }
   for (const key of Object.keys(state.tasks)) {
     if (key.startsWith(`${currentWeekStart}__`)) delete state.tasks[key];
   }
+  collabs.forEach((collaborator) => {
+    const freeDay = Number(collaborator.freeDay);
+    if (Number.isInteger(freeDay) && freeDay >= 0 && freeDay <= 6) {
+      state.tasks[buildCellKey(collaborator.id, freeDay)] = { free: true, items: [] };
+    }
+  });
   const dayPools = Array.from({ length: 7 }, () => []);
   for (const task of allTasks) {
     for (const dayIndex of buildTaskDaysForWeek(task)) {
@@ -2971,7 +3013,11 @@ function autoFillCalendar() {
       const uid = `${task.team}__${task.taskId}`;
       if (usedPerDay.has(uid)) continue;
       usedPerDay.add(uid);
-      const collaboratorIndex = pickCollaboratorForAutoFill(dayIndex, dayLoads, weekLoads);
+      const availableIndexes = collabs.map((collaborator, index) => ({ collaborator, index })).filter((entry) => !isCollaboratorFreeOnDay(entry.collaborator, dayIndex)).map((entry) => entry.index);
+      if (!availableIndexes.length) continue;
+      const scopedDayLoads = availableIndexes.map((index) => dayLoads[index]);
+      const scopedWeekLoads = availableIndexes.map((index) => weekLoads[index]);
+      const collaboratorIndex = availableIndexes[pickCollaboratorForAutoFill(dayIndex, scopedDayLoads, scopedWeekLoads)];
       const key = buildCellKey(collabs[collaboratorIndex].id, dayIndex);
       if (!state.tasks[key]) state.tasks[key] = { free: false, items: [] };
       state.tasks[key].items.push({ id: createId(), team: task.team, taskId: task.taskId, done: false });
@@ -2979,6 +3025,7 @@ function autoFillCalendar() {
       weekLoads[collaboratorIndex] += 1;
     }
   }
+  state.lastAutoFillWeekKey = getCurrentWeekAutoFillKey();
   saveState();
   renderTable();
   if (selectedCell) closeModal();
@@ -2989,10 +3036,10 @@ function autoFillCalendar() {
 function getActiveWeekMondayStr() {
   const now  = new Date();
   const day  = now.getDay(); // 0 = Sunday
-  const isLateNightSunday = day === 0 && now.getHours() >= 5;
-  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const isMondayBeforeFour = day === 1 && now.getHours() < 4;
+  const diffToMonday = isMondayBeforeFour ? -7 : day === 0 ? -6 : 1 - day;
   const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday + (isLateNightSunday ? 7 : 0));
+  monday.setDate(now.getDate() + diffToMonday);
   monday.setHours(0, 0, 0, 0);
   return mondayToStr(monday);
 }

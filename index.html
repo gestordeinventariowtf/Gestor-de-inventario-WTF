@@ -2020,6 +2020,31 @@
     const number = Number(String(value || "").replace(",", "."));
     return Number.isFinite(number) ? number : 0;
   }
+  function getPackageCostMultiplier(data) {
+    const units = parsePackageContentNumber(data && data.unidadesPorEmpaque);
+    const inner = parsePackageContentNumber(data && data.cantidadPorUnidadInterna);
+    if (!units || units <= 0) return 1;
+    return units * (inner && inner > 0 ? inner : 1);
+  }
+  function formatPackageCostValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "";
+    return String(Number(numeric.toFixed(4)));
+  }
+  function syncCostFromUnitCost(data, value) {
+    const multiplier = getPackageCostMultiplier(data);
+    const next = Object.assign({}, data, { costoCompra: value });
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && multiplier > 0) next.costoCompraPaquete = formatPackageCostValue(numeric * multiplier);
+    return next;
+  }
+  function syncCostFromPackageCost(data, value) {
+    const multiplier = getPackageCostMultiplier(data);
+    const next = Object.assign({}, data, { costoCompraPaquete: value });
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && multiplier > 0) next.costoCompra = formatPackageCostValue(numeric / multiplier);
+    return next;
+  }
   function getPackageItemUnitsPerPack(item) {
     if (!item) return 0;
     return parsePackageContentNumber(item.unidadesPorEmpaque ?? item.contenidoPorEmpaque ?? item.unidadesInternasPorEmpaque);
@@ -2032,7 +2057,6 @@
     const raw = item && getPackageItemUnitsPerPack(item) > 0 ? item.unidadesPorEmpaque ?? item.contenidoPorEmpaque ?? item.unidadesInternasPorEmpaque : product && product.unidadesPorEmpaque;
     const configured = parsePackageContentNumber(raw);
     if (configured > 0) return configured;
-    if (normalizar(product && product.nombre) === "azafran baldom") return 10;
     return 0;
   }
   function getPackageInternalUnit(product, item) {
@@ -5728,6 +5752,55 @@
   function getAssetPhotoSource(item) {
     return item && (item.fotoUrl || item.foto || item.imageUrl || item.photoUrl || "");
   }
+  function detectMainObjectBoxFromImage(img, sampleSize) {
+    const size = sampleSize || 96;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, size, size);
+    const data = ctx.getImageData(0, 0, size, size).data;
+    const border = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (x < 5 || y < 5 || x >= size - 5 || y >= size - 5) {
+          const i = (y * size + x) * 4;
+          border.push([data[i], data[i + 1], data[i + 2]]);
+        }
+      }
+    }
+    const bg = border.reduce((acc, pixel) => {
+      acc[0] += pixel[0]; acc[1] += pixel[1]; acc[2] += pixel[2];
+      return acc;
+    }, [0, 0, 0]).map((value) => value / Math.max(1, border.length));
+    let minX = size, minY = size, maxX = 0, maxY = 0, count = 0;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const gray = Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+        const dist = Math.sqrt(Math.pow(r - bg[0], 2) + Math.pow(g - bg[1], 2) + Math.pow(b - bg[2], 2));
+        if (dist > 26 && gray > 8 && gray < 248) {
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          count++;
+        }
+      }
+    }
+    if (count < size * size * 0.025) return null;
+    const pad = Math.max(4, Math.round(size * 0.08));
+    minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+    maxX = Math.min(size - 1, maxX + pad); maxY = Math.min(size - 1, maxY + pad);
+    const w = Math.max(1, maxX - minX + 1);
+    const h = Math.max(1, maxY - minY + 1);
+    if (w * h < size * size * 0.04 || w * h > size * size * 0.92) return null;
+    return {
+      sx: minX / size * img.naturalWidth,
+      sy: minY / size * img.naturalHeight,
+      sw: w / size * img.naturalWidth,
+      sh: h / size * img.naturalHeight
+    };
+  }
   function isUsableAssetPhotoSignature(signature) {
     return Boolean(signature && signature.hash && signature.dHash && signature.edgeHash);
   }
@@ -5750,7 +5823,20 @@
       return text;
     }
   }
-  function assetImageSignatureFromSource(src) {
+  function getAssetManualObjectBox(img, box) {
+    if (!box) return null;
+    const x = Math.max(0, Math.min(95, Number(box.x || 0)));
+    const y = Math.max(0, Math.min(95, Number(box.y || 0)));
+    const w = Math.max(8, Math.min(100 - x, Number(box.w || 100)));
+    const h = Math.max(8, Math.min(100 - y, Number(box.h || 100)));
+    return {
+      sx: x / 100 * img.naturalWidth,
+      sy: y / 100 * img.naturalHeight,
+      sw: w / 100 * img.naturalWidth,
+      sh: h / 100 * img.naturalHeight
+    };
+  }
+  function assetImageSignatureFromSource(src, manualBox) {
     return new Promise(async function(resolve, reject) {
       if (!src) return reject(new Error("Imagen vacia"));
       const img = new Image();
@@ -5762,7 +5848,9 @@
           canvas.width = size;
           canvas.height = size;
           const ctx = canvas.getContext("2d", { willReadFrequently: true });
-          ctx.drawImage(img, 0, 0, size, size);
+          const objectBox = getAssetManualObjectBox(img, manualBox) || detectMainObjectBoxFromImage(img, 96);
+          if (objectBox) ctx.drawImage(img, objectBox.sx, objectBox.sy, objectBox.sw, objectBox.sh, 0, 0, size, size);
+          else ctx.drawImage(img, 0, 0, size, size);
           const data = ctx.getImageData(0, 0, size, size).data;
           const pixels = [];
           for (let y = 0; y < size; y++) {
@@ -5807,7 +5895,8 @@
           smallCanvas.width = smallSize;
           smallCanvas.height = smallSize;
           const smallCtx = smallCanvas.getContext("2d", { willReadFrequently: true });
-          smallCtx.drawImage(img, 0, 0, smallSize, smallSize);
+          if (objectBox) smallCtx.drawImage(img, objectBox.sx, objectBox.sy, objectBox.sw, objectBox.sh, 0, 0, smallSize, smallSize);
+          else smallCtx.drawImage(img, 0, 0, smallSize, smallSize);
           const smallData = smallCtx.getImageData(0, 0, smallSize, smallSize).data;
           const grayAt = function(x, y) {
             const i = (y * smallSize + x) * 4;
@@ -5864,12 +5953,12 @@
       }
     });
   }
-  function assetImageSignatureFromFile(file) {
+  function assetImageSignatureFromFile(file, manualBox) {
     return new Promise(function(resolve, reject) {
       if (!file) return reject(new Error("Seleccione una fotografia"));
       const reader = new FileReader();
       reader.onload = function() {
-        assetImageSignatureFromSource(reader.result).then((signature) => resolve({ signature, preview: reader.result })).catch(reject);
+        assetImageSignatureFromSource(reader.result, manualBox).then((signature) => resolve({ signature, preview: reader.result })).catch(reject);
       };
       reader.onerror = function() { reject(new Error("No se pudo abrir la fotografia")); };
       reader.readAsDataURL(file);
@@ -6052,6 +6141,7 @@
     const [assetPhotoSearchBusy, setAssetPhotoSearchBusy] = useState("");
     const [assetPhotoMatches, setAssetPhotoMatches] = useState({ movement: [], count: [], incident: [] });
     const [assetPhotoSearchMessages, setAssetPhotoSearchMessages] = useState({ movement: "", count: "", incident: "" });
+    const [assetPhotoFocusDraft, setAssetPhotoFocusDraft] = useState(null);
     const activeItems = normalized.items.filter((item) => item && item.deleted !== true);
     const filteredItems = activeItems.filter(function(item) {
       const q = normalizar(search);
@@ -6171,12 +6261,51 @@
     function protectAssetAction(title, run) {
       setAssetAdminAction({ title, run });
     }
-    async function searchAssetByPhoto(file, target) {
+    function prepareAssetPhotoFocus(file, target) {
+      if (!file) return;
+      setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "Preparando enfoque del objeto..." }));
+      const reader = new FileReader();
+      reader.onload = function() {
+        const dataUrl = String(reader.result || "");
+        const img = new Image();
+        img.onload = function() {
+          const detected = detectMainObjectBoxFromImage(img, 96);
+          const box = detected ? {
+            x: Math.max(0, Math.round(detected.sx / Math.max(1, img.naturalWidth) * 100)),
+            y: Math.max(0, Math.round(detected.sy / Math.max(1, img.naturalHeight) * 100)),
+            w: Math.max(12, Math.round(detected.sw / Math.max(1, img.naturalWidth) * 100)),
+            h: Math.max(12, Math.round(detected.sh / Math.max(1, img.naturalHeight) * 100))
+          } : { x: 10, y: 10, w: 80, h: 80 };
+          setAssetPhotoFocusDraft({ target, file, dataUrl, box });
+          setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: detected ? "Ajusta el cuadro si hace falta y toca Aceptar enfoque." : "No pude detectar el objeto principal. Ajusta el cuadro manualmente y toca Aceptar enfoque." }));
+        };
+        img.onerror = function() {
+          setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "La imagen no se pudo previsualizar. Intenta con otra foto." }));
+        };
+        img.src = dataUrl;
+      };
+      reader.onerror = function() {
+        setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "No se pudo leer la foto seleccionada." }));
+      };
+      reader.readAsDataURL(file);
+    }
+    function updateAssetFocusBox(patch) {
+      setAssetPhotoFocusDraft(function(prev) {
+        if (!prev) return prev;
+        const box = Object.assign({}, prev.box, patch);
+        box.x = Math.max(0, Math.min(95, Number(box.x || 0)));
+        box.y = Math.max(0, Math.min(95, Number(box.y || 0)));
+        box.w = Math.max(8, Math.min(100 - box.x, Number(box.w || 80)));
+        box.h = Math.max(8, Math.min(100 - box.y, Number(box.h || 80)));
+        return Object.assign({}, prev, { box });
+      });
+    }
+    async function searchAssetByPhoto(file, target, manualBox) {
       if (!file) return;
       setAssetPhotoSearchBusy(target);
       setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "Analizando fotografia del activo..." }));
       try {
-        const input = await assetImageSignatureFromFile(file);
+        const input = await assetImageSignatureFromFile(file, manualBox);
         const candidates = [];
         for (const item of activeItems) {
           const src = getAssetPhotoSource(item);
@@ -6209,6 +6338,7 @@
         setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "La imagen no se pudo procesar. Prueba con otra fotografia clara del activo." }));
         toast(error.message || "No se pudo buscar por fotografia.", "error");
       } finally {
+        setAssetPhotoFocusDraft((prev) => prev && prev.target === target ? null : prev);
         setAssetPhotoSearchBusy("");
       }
     }
@@ -6224,10 +6354,23 @@
       };
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, border: "1px dashed #cbd5e1", borderRadius: 10, padding: 10, background: "#f8fafc" } },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: "#374151" } }, "Buscar activo por fotografia"),
-        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#64748b", lineHeight: 1.45 } }, "Toma una foto clara del activo. Si hay una coincidencia fuerte se selecciona automaticamente; si hay dudas, elige una sugerencia manualmente."),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#64748b", lineHeight: 1.45 } }, "Toma una foto clara del activo. El sistema enfoca automaticamente el objeto principal y descarta parte del fondo. Si hay una coincidencia fuerte se selecciona automaticamente; si hay dudas, elige una sugerencia manualmente."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${busy ? "fa-spinner fa-spin" : "fa-camera"}` }), "Usar camara", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) })),
-          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) }))
+          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${busy ? "fa-spinner fa-spin" : "fa-camera"}` }), "Usar camara", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", disabled: busy, style: { display: "none" }, onChange: (e) => { prepareAssetPhotoFocus(e.target.files && e.target.files[0], target); e.target.value = ""; } })),
+          /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", disabled: busy, style: { display: "none" }, onChange: (e) => { prepareAssetPhotoFocus(e.target.files && e.target.files[0], target); e.target.value = ""; } }))
+        ),
+        assetPhotoFocusDraft && assetPhotoFocusDraft.target === target && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, border: "1px solid #bfdbfe", borderRadius: 10, padding: 8, background: "#eff6ff" } },
+          /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: "100%", maxWidth: 320, aspectRatio: "1 / 1", overflow: "hidden", borderRadius: 8, background: "#111827", justifySelf: "center" } },
+            /* @__PURE__ */ React.createElement("img", { src: assetPhotoFocusDraft.dataUrl, alt: "Enfoque del activo", style: { width: "100%", height: "100%", objectFit: "contain", display: "block" } }),
+            /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: `${assetPhotoFocusDraft.box.x}%`, top: `${assetPhotoFocusDraft.box.y}%`, width: `${assetPhotoFocusDraft.box.w}%`, height: `${assetPhotoFocusDraft.box.h}%`, border: "2px solid #22c55e", boxShadow: "0 0 0 999px rgba(15,23,42,.42)", borderRadius: 8, pointerEvents: "none" } })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            [["x", "Mover horizontal"], ["y", "Mover vertical"], ["w", "Ancho"], ["h", "Alto"]].map(function(row) { return /* @__PURE__ */ React.createElement("label", { key: row[0], style: { display: "grid", gap: 3, fontSize: 11, fontWeight: 800, color: "#334155" } }, row[1], /* @__PURE__ */ React.createElement("input", { type: "range", min: "0", max: "100", value: assetPhotoFocusDraft.box[row[0]], onChange: function(e) { updateAssetFocusBox({ [row[0]]: Number(e.target.value) }); } })); })
+          ),
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" } },
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris", onClick: function() { setAssetPhotoFocusDraft(null); } }, "Cancelar"),
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-verde", onClick: function() { searchAssetByPhoto(assetPhotoFocusDraft.file, target, assetPhotoFocusDraft.box); } }, "Aceptar enfoque")
+          )
         ),
         statusMessage && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: busy ? "#4338ca" : reliableMatches.length ? "#166534" : "#92400e", fontWeight: 800 } }, statusMessage),
         reliableMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, reliableMatches.map((match, index) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left", borderColor: index === 0 && match.score >= 86 ? "#16a34a" : "#cbd5e1", background: index === 0 && match.score >= 86 ? "#f0fdf4" : "#fff" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", null, match.item.codigo, " · ", match.item.nombre), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, match.score, "%"), /* @__PURE__ */ React.createElement("small", { style: { color: match.score >= 86 ? "#15803d" : "#92400e", fontWeight: 800 } }, match.confidence || "Media"))))),
@@ -6634,6 +6777,36 @@
     });
   }
   const EMPLOYEE_WEEK_DAYS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
+  function createScheduleDayConfig(entradaSemana = "4:00 PM", salidaSemana = "12:00 AM", entradaFin = "4:00 PM", salidaFin = "2:00 AM", descansoMin = 20) {
+    return EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) {
+      const isWeekend = day === "Viernes" || day === "Sabado";
+      acc[day] = {
+        trabaja: true,
+        entrada: isWeekend ? entradaFin : entradaSemana,
+        salida: isWeekend ? salidaFin : salidaSemana,
+        descansoMin: Number(descansoMin || 0),
+        nota: ""
+      };
+      return acc;
+    }, {});
+  }
+  function getScheduleDayName(date) {
+    return ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"][date.getDay()];
+  }
+  function parseEmployeeTimeForDate(timeText, date) {
+    const text = String(timeText || "").trim();
+    const match = text.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+    if (!match) return null;
+    let hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    const suffix = String(match[3] || "").toUpperCase();
+    if (suffix === "PM" && hour < 12) hour += 12;
+    if (suffix === "AM" && hour === 12) hour = 0;
+    if (!suffix && hour === 24) hour = 0;
+    const parsed = new Date(date);
+    parsed.setHours(hour, minute, 0, 0);
+    return parsed;
+  }
   function makeEmployeeWorkDays(restDay, weekdayShift = "4:00 PM - 12:00 AM", weekendShift = "4:00 PM - 2:00 AM", breakMinutes = 20) {
     return EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) {
       const isRest = normalizar(day) === normalizar(restDay);
@@ -7258,13 +7431,13 @@
     const [manualForm, setManualForm] = useState({ titulo: "", categoria: "Politicas", contenido: "", obligatorio: true, firmaObligatoria: false, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
     const [onboardingForm, setOnboardingForm] = useState({ titulo: "", descripcion: "", contenido: "", recursoUrl: "", videoUrl: "", archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
     const [announcementForm, setAnnouncementForm] = useState({ titulo: "", contenido: "", prioridad: "Normal" });
-    const [recognitionForm, setRecognitionForm] = useState({ userId: "", titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10), archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
-    const [competencyForm, setCompetencyForm] = useState({ nombre: "", categoria: "Servicio", descripcion: "", nivelEsperado: "Medio", archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
+    const [recognitionForm, setRecognitionForm] = useState({ userId: "", titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10), visibleToEmployee: false, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
+    const [competencyForm, setCompetencyForm] = useState({ nombre: "", categoria: "Servicio", descripcion: "", nivelEsperado: "Medio", visibleToEmployee: true, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
     const [disciplinaryForm, setDisciplinaryForm] = useState({ userId: "", titulo: "", tipo: "Observacion", fecha: new Date().toISOString().slice(0, 10), descripcion: "", accionCorrectiva: "", estado: "En revision", archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
-    const [recordForm, setRecordForm] = useState({ userId: "", nombres: "", apellidos: "", cedula: "", direccion: "", telefono: "", celular: "", contactoEmergencia: "", telefonoEmergencia: "", parentescoEmergencia: "", alergias: "", notasMedicas: "", documentos: "" });
+    const [recordForm, setRecordForm] = useState({ userId: "", nombres: "", apellidos: "", cedula: "", direccion: "", telefono: "", celular: "", contactoEmergencia: "", telefonoEmergencia: "", parentescoEmergencia: "", alergias: "", notasMedicas: "", documentos: "", visibleToEmployee: true });
     const [employeeEdit, setEmployeeEdit] = useState({ userId: "", perfilLaboral: "", cargoVisible: "", fechaIngreso: "", supervisorId: "", foto: "", scheduleTemplateId: "", scheduleEffectiveFrom: "", scheduleNotes: "" });
     const [scheduleForm, setScheduleForm] = useState({ userId: "", templateId: "", templateId2: "", effectiveFrom: new Date().toISOString().slice(0, 10), notes: "" });
-    const [scheduleTemplateForm, setScheduleTemplateForm] = useState({ nombre: "", tipo: "Nocturno", color: "#2563eb", entradaSemana: "4:00 PM", salidaSemana: "12:00 AM", entradaFin: "4:00 PM", salidaFin: "2:00 AM", descansoMin: 20, diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = true; return acc; }, {}) });
+    const [scheduleTemplateForm, setScheduleTemplateForm] = useState({ nombre: "", tipo: "Nocturno", color: "#2563eb", entradaSemana: "4:00 PM", salidaSemana: "12:00 AM", entradaFin: "4:00 PM", salidaFin: "2:00 AM", descansoMin: 20, diasHoras: createScheduleDayConfig("4:00 PM", "12:00 AM", "4:00 PM", "2:00 AM", 20), diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = true; return acc; }, {}) });
     const [timeOffForm, setTimeOffForm] = useState({ userId: "", tipo: "Vacaciones", desde: new Date().toISOString().slice(0, 10), hasta: new Date().toISOString().slice(0, 10), motivo: "" });
     const [equipmentForm, setEquipmentForm] = useState({ userId: "", articulo: "", tipo: "Uniforme", talla: "", cantidad: 1, condicion: "Nuevo", fechaEntrega: new Date().toISOString().slice(0, 10), requiereDevolucion: true, observacion: "" });
     const [uniformProfile, setUniformProfile] = useState(getEmployeeProfileName(currentUser) || "Cocinero/a");
@@ -7293,11 +7466,16 @@
     const profileName = getEmployeeProfileName(currentUser) || "Colaborador";
     const supervisor = usuarios.find((u) => String(u.id) === String(currentUser && currentUser.supervisorId));
     const onboardingPercent = getOnboardingProgressPercent(normalized, currentUser);
-    const profileTasks = normalized.tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profileName)));
+    const taskReleaseInfo = getTaskReleaseInfo(currentUser, new Date());
+    const profileTasksBase = normalized.tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profileName)));
+    const profileTasks = taskReleaseInfo.open ? profileTasksBase : [];
     const completedToday = normalized.taskCompletions.filter((row) => row.userId === userId && String(row.fecha || "").slice(0, 10) === new Date().toISOString().slice(0, 10)).map((row) => row.taskId);
     const pendingTasks = profileTasks.filter((task) => !completedToday.includes(task.id));
     const unreadAnnouncements = normalized.announcements.filter((ann) => ann.estado === "Publicado" && !(Array.isArray(ann.reads) ? ann.reads : []).includes(userId));
     const pendingSignatures = normalized.manualDocuments.filter((doc) => doc.estado === "Publicado" && doc.firmaObligatoria && !normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version));
+    const currentEmployeeRecord = (normalized.employeeRecords || []).find((row) => row && row.estado !== "Archivado" && row.visibleToEmployee !== false && String(row.userId || "") === String(userId));
+    const visibleRecognitions = (normalized.recognitions || []).filter((row) => row && row.estado !== "Archivado" && row.visibleToEmployee === true && String(row.userId || "") === String(userId));
+    const visibleCompetencies = (normalized.competencies || []).filter((row) => row && row.estado !== "Archivado" && row.visibleToEmployee !== false);
     const uniformDefaultIds = new Set(DEFAULT_UNIFORM_PIECES.map((piece) => piece.id));
     const uniformHiddenIds = new Set(normalized.uniformHiddenPieceIds || []);
     const uniformCustomRows = (normalized.uniformPieces || []).filter((piece) => piece && piece.estado !== "Archivado");
@@ -7474,12 +7652,12 @@
       const payload = Object.assign({}, recognitionForm, { usuario: user ? getUserDisplayLabel(user) : recognitionForm.userId, estado: "Publicado", updatedAt: new Date().toISOString() });
       updateData((prev) => Object.assign({}, prev, { recognitions: editingRecognitionId ? (prev.recognitions || []).map((row) => row.id === editingRecognitionId ? Object.assign({}, row, payload) : row) : [Object.assign({ id: `rec-${Date.now()}`, createdAt: new Date().toISOString() }, payload)].concat(prev.recognitions || []) }), { accion: editingRecognitionId ? "Editar reconocimiento" : "Crear reconocimiento", registro: titulo, detalle: `Reconocimiento para ${payload.usuario}` });
       setEditingRecognitionId("");
-      setRecognitionForm({ userId: "", titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10), archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
+      setRecognitionForm({ userId: "", titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10), visibleToEmployee: false, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
       toast("Reconocimiento guardado.", "success");
     }
     function editRecognition(row) {
       setEditingRecognitionId(row.id);
-      setRecognitionForm({ userId: row.userId || "", titulo: row.titulo || "", descripcion: row.descripcion || "", fecha: row.fecha || new Date().toISOString().slice(0, 10), archivoNombre: row.archivoNombre || "", archivoTipo: row.archivoTipo || "", archivoDataUrl: row.archivoDataUrl || "" });
+      setRecognitionForm({ userId: row.userId || "", titulo: row.titulo || "", descripcion: row.descripcion || "", fecha: row.fecha || new Date().toISOString().slice(0, 10), visibleToEmployee: row.visibleToEmployee === true, archivoNombre: row.archivoNombre || "", archivoTipo: row.archivoTipo || "", archivoDataUrl: row.archivoDataUrl || "" });
       setAdminSection("desempeno");
     }
     function saveCompetency() {
@@ -7488,12 +7666,12 @@
       const payload = Object.assign({}, competencyForm, { nombre, estado: "Activo", updatedAt: new Date().toISOString() });
       updateData((prev) => Object.assign({}, prev, { competencies: editingCompetencyId ? (prev.competencies || []).map((row) => row.id === editingCompetencyId ? Object.assign({}, row, payload) : row) : [Object.assign({ id: `comp-${Date.now()}`, createdAt: new Date().toISOString() }, payload)].concat(prev.competencies || []) }), { accion: editingCompetencyId ? "Editar competencia" : "Crear competencia", registro: nombre, detalle: "Competencia laboral actualizada" });
       setEditingCompetencyId("");
-      setCompetencyForm({ nombre: "", categoria: "Servicio", descripcion: "", nivelEsperado: "Medio", archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
+      setCompetencyForm({ nombre: "", categoria: "Servicio", descripcion: "", nivelEsperado: "Medio", visibleToEmployee: true, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
       toast("Competencia guardada.", "success");
     }
     function editCompetency(row) {
       setEditingCompetencyId(row.id);
-      setCompetencyForm({ nombre: row.nombre || "", categoria: row.categoria || "Servicio", descripcion: row.descripcion || "", nivelEsperado: row.nivelEsperado || "Medio", archivoNombre: row.archivoNombre || "", archivoTipo: row.archivoTipo || "", archivoDataUrl: row.archivoDataUrl || "" });
+      setCompetencyForm({ nombre: row.nombre || "", categoria: row.categoria || "Servicio", descripcion: row.descripcion || "", nivelEsperado: row.nivelEsperado || "Medio", visibleToEmployee: row.visibleToEmployee !== false, archivoNombre: row.archivoNombre || "", archivoTipo: row.archivoTipo || "", archivoDataUrl: row.archivoDataUrl || "" });
       setAdminSection("desempeno");
     }
     function saveEmployeeRecord() {
@@ -7502,12 +7680,12 @@
       const payload = Object.assign({}, recordForm, { usuario: user ? getUserDisplayLabel(user) : recordForm.userId, estado: "Activo", updatedAt: new Date().toISOString() });
       updateData((prev) => Object.assign({}, prev, { employeeRecords: editingRecordId ? (prev.employeeRecords || []).map((row) => row.id === editingRecordId ? Object.assign({}, row, payload) : row) : [Object.assign({ id: `exp-${Date.now()}`, createdAt: new Date().toISOString() }, payload)].concat(prev.employeeRecords || []) }), { accion: editingRecordId ? "Editar expediente" : "Crear expediente", registro: payload.usuario, detalle: "Expediente digital actualizado" });
       setEditingRecordId("");
-      setRecordForm({ userId: "", nombres: "", apellidos: "", cedula: "", direccion: "", telefono: "", celular: "", contactoEmergencia: "", telefonoEmergencia: "", parentescoEmergencia: "", alergias: "", notasMedicas: "", documentos: "" });
+      setRecordForm({ userId: "", nombres: "", apellidos: "", cedula: "", direccion: "", telefono: "", celular: "", contactoEmergencia: "", telefonoEmergencia: "", parentescoEmergencia: "", alergias: "", notasMedicas: "", documentos: "", visibleToEmployee: true });
       toast("Expediente guardado.", "success");
     }
     function editEmployeeRecord(row) {
       setEditingRecordId(row.id);
-      setRecordForm({ userId: row.userId || "", nombres: row.nombres || "", apellidos: row.apellidos || "", cedula: row.cedula || "", direccion: row.direccion || "", telefono: row.telefono || "", celular: row.celular || "", contactoEmergencia: row.contactoEmergencia || "", telefonoEmergencia: row.telefonoEmergencia || "", parentescoEmergencia: row.parentescoEmergencia || "", alergias: row.alergias || "", notasMedicas: row.notasMedicas || "", documentos: row.documentos || "" });
+      setRecordForm({ userId: row.userId || "", nombres: row.nombres || "", apellidos: row.apellidos || "", cedula: row.cedula || "", direccion: row.direccion || "", telefono: row.telefono || "", celular: row.celular || "", contactoEmergencia: row.contactoEmergencia || "", telefonoEmergencia: row.telefonoEmergencia || "", parentescoEmergencia: row.parentescoEmergencia || "", alergias: row.alergias || "", notasMedicas: row.notasMedicas || "", documentos: row.documentos || "", visibleToEmployee: row.visibleToEmployee !== false });
       setAdminSection("expediente");
     }
     function saveDisciplinaryCase() {
@@ -7538,16 +7716,18 @@
     }
     function buildScheduleTemplateDays(form) {
       const active = form.diasActivos || {};
+      const dayHours = form.diasHoras || {};
       return EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) {
         const works = !!active[day];
-        const isWeekend = day === "Viernes" || day === "Sabado";
-        acc[day] = works ? { trabaja: true, entrada: isWeekend ? form.entradaFin : form.entradaSemana, salida: isWeekend ? form.salidaFin : form.salidaSemana, descansoMin: Number(form.descansoMin || 0), nota: "" } : { trabaja: false, entrada: "", salida: "", descansoMin: 0, nota: "Libre" };
+        const defaults = createScheduleDayConfig(form.entradaSemana, form.salidaSemana, form.entradaFin, form.salidaFin, form.descansoMin)[day];
+        const current = Object.assign({}, defaults, dayHours[day] || {});
+        acc[day] = works ? { trabaja: true, entrada: current.entrada || defaults.entrada, salida: current.salida || defaults.salida, descansoMin: Number(current.descansoMin || form.descansoMin || 0), nota: current.nota || "" } : { trabaja: false, entrada: "", salida: "", descansoMin: 0, nota: "Libre" };
         return acc;
       }, {});
     }
     function resetScheduleTemplateForm() {
       setEditingScheduleTemplateId("");
-      setScheduleTemplateForm({ nombre: "", tipo: "Nocturno", color: "#2563eb", entradaSemana: "4:00 PM", salidaSemana: "12:00 AM", entradaFin: "4:00 PM", salidaFin: "2:00 AM", descansoMin: 20, diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = true; return acc; }, {}) });
+      setScheduleTemplateForm({ nombre: "", tipo: "Nocturno", color: "#2563eb", entradaSemana: "4:00 PM", salidaSemana: "12:00 AM", entradaFin: "4:00 PM", salidaFin: "2:00 AM", descansoMin: 20, diasHoras: createScheduleDayConfig("4:00 PM", "12:00 AM", "4:00 PM", "2:00 AM", 20), diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = true; return acc; }, {}) });
     }
     function saveScheduleTemplate() {
       const nombre = String(scheduleTemplateForm.nombre || "").trim();
@@ -7582,6 +7762,11 @@
         entradaFin: dias[firstWeekend] && dias[firstWeekend].entrada || "4:00 PM",
         salidaFin: dias[firstWeekend] && dias[firstWeekend].salida || "2:00 AM",
         descansoMin: Number(dias[firstWeekday] && dias[firstWeekday].descansoMin || 20),
+        diasHoras: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) {
+          const value = dias[day] || {};
+          acc[day] = { entrada: value.entrada || "", salida: value.salida || "", descansoMin: Number(value.descansoMin || dias[firstWeekday] && dias[firstWeekday].descansoMin || 20), nota: value.nota || "" };
+          return acc;
+        }, {}),
         diasActivos: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = !!(dias[day] && dias[day].trabaja); return acc; }, {})
       });
       setAdminSection("horarios");
@@ -8016,6 +8201,29 @@
       const label = String(user && (user.nombre || user.email) || "?").trim().slice(0, 1).toUpperCase();
       return user && user.foto ? /* @__PURE__ */ React.createElement("img", { src: user.foto, alt: user.nombre || "Colaborador", style: { width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #fff", boxShadow: "0 6px 18px rgba(15,23,42,.18)" } }) : /* @__PURE__ */ React.createElement("div", { style: { width: size, height: size, borderRadius: "50%", display: "grid", placeItems: "center", background: "linear-gradient(135deg,#0f766e,#2563eb)", color: "#fff", fontWeight: 900, border: "2px solid #fff", boxShadow: "0 6px 18px rgba(15,23,42,.18)" } }, label);
     }
+    function getEmployeeWorkDayForDate(user, date = new Date()) {
+      const dayName = getScheduleDayName(date);
+      const templates = getUserScheduleTemplates(user);
+      for (const template of templates) {
+        const day = template && template.dias && template.dias[dayName];
+        if (day && day.trabaja) return day;
+      }
+      return null;
+    }
+    function getTaskReleaseInfo(user, date = new Date()) {
+      const workDay = getEmployeeWorkDayForDate(user, date);
+      if (!workDay) return { open: false, label: "Dia libre", detail: "Hoy no tienes una hoja de tiempo activa." };
+      const entryDate = parseEmployeeTimeForDate(workDay.entrada, date);
+      if (!entryDate) return { open: true, label: "Sin hora de entrada", detail: "No se pudo leer la hora de entrada; las tareas quedan visibles." };
+      const releaseDate = new Date(entryDate.getTime() - 2 * 60 * 60 * 1e3);
+      return {
+        open: date >= releaseDate,
+        entryDate,
+        releaseDate,
+        label: `Entrada ${workDay.entrada || "sin hora"}`,
+        detail: `Las tareas se liberan desde ${releaseDate.toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit" })}.`
+      };
+    }
     function getScheduleTemplate(templateId) {
       return normalized.scheduleTemplates.find((row) => row.id === templateId) || null;
     }
@@ -8152,7 +8360,7 @@
         )
       ),
       tab === "induccion" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in", style: { overflow: "hidden", border: "1px solid #bfdbfe" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-hero-inner", style: { background: "linear-gradient(135deg,#dbeafe,#ecfdf5)", padding: 24 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Ruta de aprendizaje WTF"), /* @__PURE__ */ React.createElement("h2", { className: "rrhh-title" }, "Induccion de ", getUserDisplayLabel(currentUser)), /* @__PURE__ */ React.createElement("div", { className: "rrhh-subtitle" }, "Selecciona cada apartado para leerlo en una ventana completa.")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-card" }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 900, marginBottom: 7 } }, /* @__PURE__ */ React.createElement("span", null, "Avance"), /* @__PURE__ */ React.createElement("span", null, onboardingPercent, "%")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-bar" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-progress-fill", style: { width: `${onboardingPercent}%` } })))), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-stage-grid" }, normalized.onboardingStages.filter((stage) => stage.estado !== "Archivado").slice().sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0)).map(function(stage, index) { const stages = normalized.onboardingStages.filter((s) => s.estado !== "Archivado").slice().sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0)); const allDone = stages.every((item, itemIndex) => normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === item.id || row.stageIndex === itemIndex))); const done = normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === stage.id || row.stageIndex === index)); const prevDone = allDone || index === 0 || normalized.onboardingProgress.some((row) => row.userId === userId && row.estado === "Completado" && (row.stageId === stages[index - 1].id || row.stageIndex === index - 1)); const statusText = done ? "Completado" : prevDone ? "Pendiente" : "Bloqueado"; return /* @__PURE__ */ React.createElement("button", { key: stage.id || stage.titulo, type: "button", disabled: !prevDone, className: `rrhh-stage-card ${done ? "is-done" : prevDone ? "is-open" : "is-locked"}`, onClick: function() { if (!prevDone) return toast("Debes completar la etapa anterior primero.", "error"); setActiveOnboardingStage({ stage, index, done, prevDone }); } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: "rrhh-stage-number", style: { background: done ? "#16a34a" : prevDone ? "#2563eb" : "#9ca3af" } }, index + 1), /* @__PURE__ */ React.createElement("span", { className: done ? "pill pill-verde" : prevDone ? "pill pill-azul" : "pill pill-gris" }, statusText)), /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 15, color: "#111827" } }, stage.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#64748b", lineHeight: 1.45 } }, stage.descripcion || "Abrir apartado para ver el contenido."), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#2563eb", fontWeight: 900, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-up-right-from-square" }), "Abrir apartado")); }))), activeOnboardingStage && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal-content rrhh-modal-pop", style: { maxWidth: 760, width: "min(94vw,760px)", background: "#fff" } }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-route", style: { color: "#2563eb", marginRight: 7 } }), activeOnboardingStage.stage.titulo), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: function() { setActiveOnboardingStage(null); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: activeOnboardingStage.done ? "pill pill-verde" : activeOnboardingStage.prevDone ? "pill pill-azul" : "pill pill-gris" }, activeOnboardingStage.done ? "Completado" : activeOnboardingStage.prevDone ? "Pendiente" : "Bloqueado"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Etapa ", activeOnboardingStage.index + 1)), activeOnboardingStage.stage.descripcion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: "#334155" } }, activeOnboardingStage.stage.descripcion), activeOnboardingStage.stage.videoUrl && /* @__PURE__ */ React.createElement("video", { controls: true, src: activeOnboardingStage.stage.videoUrl, style: { width: "100%", borderRadius: 10, background: "#111827", maxHeight: "45dvh" } }), activeOnboardingStage.stage.archivoDataUrl && String(activeOnboardingStage.stage.archivoTipo || "").startsWith("image/") && /* @__PURE__ */ React.createElement("img", { src: activeOnboardingStage.stage.archivoDataUrl, alt: activeOnboardingStage.stage.archivoNombre || "Recurso de induccion", style: { maxWidth: "100%", borderRadius: 10, border: "1px solid #e5e7eb" } }), activeOnboardingStage.stage.archivoDataUrl && String(activeOnboardingStage.stage.archivoTipo || "").startsWith("video/") && /* @__PURE__ */ React.createElement("video", { controls: true, src: activeOnboardingStage.stage.archivoDataUrl, style: { width: "100%", borderRadius: 10, background: "#111827", maxHeight: "45dvh" } }), activeOnboardingStage.stage.archivoDataUrl && !String(activeOnboardingStage.stage.archivoTipo || "").startsWith("image/") && !String(activeOnboardingStage.stage.archivoTipo || "").startsWith("video/") && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: activeOnboardingStage.stage.archivoDataUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), activeOnboardingStage.stage.archivoNombre || "Abrir documento"), /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, background: "#f8fafc", color: "#1f2937", lineHeight: 1.65, whiteSpace: "pre-wrap", minHeight: 120 } }, activeOnboardingStage.stage.contenido || "Esta etapa aun no tiene contenido cargado por administracion."), activeOnboardingStage.stage.recursoUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: activeOnboardingStage.stage.recursoUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link" }), "Abrir recurso")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setActiveOnboardingStage(null); } }, "Cerrar"), /* @__PURE__ */ React.createElement("button", { className: activeOnboardingStage.done ? "btn btn-gris" : "btn btn-verde", disabled: activeOnboardingStage.done || !activeOnboardingStage.prevDone, onClick: function() { completeOnboardingStage(activeOnboardingStage.index); setActiveOnboardingStage(null); } }, activeOnboardingStage.done ? "Lectura confirmada" : "Confirmar lectura"))))),
-      tab === "tareas" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Checklist de hoy"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, profileName)), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, profileTasks.map((task) => { const done = completedToday.includes(task.id); const evidenceRows = normalized.evidence.filter((ev) => ev.userId === userId && ev.taskId === task.id && String(ev.fecha || "").slice(0, 10) === new Date().toISOString().slice(0, 10)); const latestEvidence = evidenceRows[0]; const needsEvidence = task.evidencia === "Obligatoria"; const canComplete = !needsEvidence || !!latestEvidence; return /* @__PURE__ */ React.createElement("div", { key: task.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "grid", gap: 8, background: done ? "#f8fafc" : "#fff" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, task.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, task.frecuencia, " · ", task.prioridad, " · Evidencia: ", task.evidencia)), latestEvidence && /* @__PURE__ */ React.createElement("button", { type: "button", className: "photo-thumb-link", title: "Ver evidencia", onClick: function() { setEvidenceViewer({ src: latestEvidence.dataUrl || latestEvidence.url || latestEvidence.downloadURL || latestEvidence.storagePath, title: task.titulo }); } }, /* @__PURE__ */ React.createElement("img", { className: "task-evidence-thumb", src: latestEvidence.dataUrl || latestEvidence.url || latestEvidence.downloadURL || latestEvidence.storagePath, alt: "Evidencia", loading: "lazy" }))), task.evidencia !== "No requerida" && /* @__PURE__ */ React.createElement("label", { className: needsEvidence && !latestEvidence ? "btn btn-sm btn-naranja" : "btn btn-sm btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), latestEvidence ? "Reemplazar evidencia" : needsEvidence ? "Tomar evidencia obligatoria" : "Tomar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: function(e) { uploadTaskEvidence(e.target.files && e.target.files[0], task.id); e.target.value = ""; } })), /* @__PURE__ */ React.createElement("button", { className: done ? "btn btn-sm btn-gris" : canComplete ? "btn btn-sm btn-verde" : "btn btn-sm btn-gris", disabled: done || !canComplete, onClick: () => completeTask(task) }, done ? "Completada" : canComplete ? "Completar" : "Falta evidencia")); }), profileTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No tienes tareas asignadas para hoy."))), evidenceViewer && /* @__PURE__ */ React.createElement("div", { className: "photo-viewer-overlay" }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "photo-viewer-close", onClick: function() { setEvidenceViewer(null); } }, "x"), /* @__PURE__ */ React.createElement("div", { className: "photo-viewer-card" }, /* @__PURE__ */ React.createElement("img", { src: evidenceViewer.src, alt: evidenceViewer.title || "Evidencia fotografica" })))),
+      tab === "tareas" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Checklist de hoy"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, profileName)), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, !taskReleaseInfo.open && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, taskReleaseInfo.detail || "Las tareas se colocan 2 horas antes de tu hora de entrada."), profileTasks.map((task) => { const done = completedToday.includes(task.id); const evidenceRows = normalized.evidence.filter((ev) => ev.userId === userId && ev.taskId === task.id && String(ev.fecha || "").slice(0, 10) === new Date().toISOString().slice(0, 10)); const latestEvidence = evidenceRows[0]; const needsEvidence = task.evidencia === "Obligatoria"; const canComplete = !needsEvidence || !!latestEvidence; return /* @__PURE__ */ React.createElement("div", { key: task.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 10, display: "grid", gap: 8, background: done ? "#f8fafc" : "#fff" } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, task.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", marginTop: 3 } }, task.frecuencia, " · ", task.prioridad, " · Evidencia: ", task.evidencia)), latestEvidence && /* @__PURE__ */ React.createElement("button", { type: "button", className: "photo-thumb-link", title: "Ver evidencia", onClick: function() { setEvidenceViewer({ src: latestEvidence.dataUrl || latestEvidence.url || latestEvidence.downloadURL || latestEvidence.storagePath, title: task.titulo }); } }, /* @__PURE__ */ React.createElement("img", { className: "task-evidence-thumb", src: latestEvidence.dataUrl || latestEvidence.url || latestEvidence.downloadURL || latestEvidence.storagePath, alt: "Evidencia", loading: "lazy" }))), task.evidencia !== "No requerida" && /* @__PURE__ */ React.createElement("label", { className: needsEvidence && !latestEvidence ? "btn btn-sm btn-naranja" : "btn btn-sm btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-camera" }), latestEvidence ? "Reemplazar evidencia" : needsEvidence ? "Tomar evidencia obligatoria" : "Tomar evidencia", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" }, onChange: function(e) { uploadTaskEvidence(e.target.files && e.target.files[0], task.id); e.target.value = ""; } })), /* @__PURE__ */ React.createElement("button", { className: done ? "btn btn-sm btn-gris" : canComplete ? "btn btn-sm btn-verde" : "btn btn-sm btn-gris", disabled: done || !canComplete, onClick: () => completeTask(task) }, done ? "Completada" : canComplete ? "Completar" : "Falta evidencia")); }), profileTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No tienes tareas asignadas para hoy."))), evidenceViewer && /* @__PURE__ */ React.createElement("div", { className: "photo-viewer-overlay" }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "photo-viewer-close", onClick: function() { setEvidenceViewer(null); } }, "x"), /* @__PURE__ */ React.createElement("div", { className: "photo-viewer-card" }, /* @__PURE__ */ React.createElement("img", { src: evidenceViewer.src, alt: evidenceViewer.title || "Evidencia fotografica" })))),
       tab === "manual" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Manual del colaborador")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar politicas, procedimientos o manual...", value: search, onChange: (e) => setSearch(e.target.value) }), filteredDocs.map((doc) => { const signed = normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version); return /* @__PURE__ */ React.createElement("div", { key: doc.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, doc.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", margin: "4px 0" } }, doc.categoria, " · Version ", doc.version, " · ", doc.firmaObligatoria ? "Firma requerida" : "Lectura"), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, doc.contenido), doc.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: doc.archivoDataUrl, target: "_blank", rel: "noreferrer", style: { marginRight: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), doc.archivoNombre || "Abrir adjunto"), doc.firmaObligatoria && /* @__PURE__ */ React.createElement("button", { className: signed ? "btn btn-sm btn-gris" : "btn btn-sm btn-azul", disabled: signed, onClick: () => signDocument(doc) }, signed ? "Firmado" : "Firmar digitalmente")); }))),
       tab === "cursos" && /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, normalized.courses.map((course) => /* @__PURE__ */ React.createElement("div", { className: "card", key: course.id }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, course.titulo), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)" } }, "Perfil: ", course.perfil, " · Minimo: ", course.aprobadoMinimo, "%"), /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12 } }, (course.lecciones || []).map((lesson) => /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson))))))),
       tab === "horarios" && /* @__PURE__ */ React.createElement(React.Fragment, null,
@@ -8163,8 +8371,8 @@
       ),
       tab === "anuncios" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Anuncios")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, normalized.announcements.filter((a) => a.estado === "Publicado").map((ann) => /* @__PURE__ */ React.createElement("div", { key: ann.id, style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 12 } }, /* @__PURE__ */ React.createElement("strong", null, ann.titulo), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0", fontSize: 13 } }, ann.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => markAnnouncementRead(ann) }, "Marcar leido"))))),
       tab === "equipos" && renderEmployeeEquipmentPage(),
-      tab === "desempeno" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.recognitions.length ? normalized.recognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.titulo)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos."))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, normalized.competencies.length ? normalized.competencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id }, row.nombre)) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas.")))),
-      tab === "expediente" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Expediente digital")), /* @__PURE__ */ React.createElement("div", { className: "card-body" }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "El expediente muestra solo datos propios del colaborador o informacion autorizada para administradores."), /* @__PURE__ */ React.createElement("p", null, "Perfil laboral: ", profileName), /* @__PURE__ */ React.createElement("p", null, "Fecha de ingreso: ", getEmployeeHireDate(currentUser) || "Sin registrar"), /* @__PURE__ */ React.createElement("p", null, "Firmas registradas: ", normalized.signatures.filter((sig) => sig.userId === userId).length))),
+      tab === "desempeno" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Mis reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, visibleRecognitions.length ? visibleRecognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("strong", null, row.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.fecha || "-"), row.descripcion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, marginTop: 4 } }, row.descripcion), row.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: row.archivoDataUrl, target: "_blank", rel: "noreferrer", style: { marginTop: 6, justifySelf: "start" } }, row.archivoNombre || "Abrir adjunto"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos visibles."))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, visibleCompetencies.length ? visibleCompetencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("strong", null, row.nombre), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.categoria || "-", " · Nivel ", row.nivelEsperado || "-"), row.descripcion && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, marginTop: 4 } }, row.descripcion))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas.")))),
+      tab === "expediente" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Expediente digital")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Este expediente muestra solo tus datos autorizados por administracion."), /* @__PURE__ */ React.createElement("p", null, "Perfil laboral: ", profileName), /* @__PURE__ */ React.createElement("p", null, "Fecha de ingreso: ", getEmployeeHireDate(currentUser) || "Sin registrar"), /* @__PURE__ */ React.createElement("p", null, "Firmas registradas: ", normalized.signatures.filter((sig) => sig.userId === userId).length), currentEmployeeRecord ? /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, [["Nombres", currentEmployeeRecord.nombres], ["Apellidos", currentEmployeeRecord.apellidos], ["Cedula", currentEmployeeRecord.cedula], ["Telefono", currentEmployeeRecord.telefono], ["Celular", currentEmployeeRecord.celular], ["Direccion", currentEmployeeRecord.direccion], ["Contacto emergencia", currentEmployeeRecord.contactoEmergencia], ["Telefono emergencia", currentEmployeeRecord.telefonoEmergencia], ["Parentesco", currentEmployeeRecord.parentescoEmergencia], ["Alergias", currentEmployeeRecord.alergias], ["Notas medicas", currentEmployeeRecord.notasMedicas], ["Documentos/observaciones", currentEmployeeRecord.documentos]].filter((row) => row[1]).map((row) => /* @__PURE__ */ React.createElement("div", { key: row[0], style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, row[0]), /* @__PURE__ */ React.createElement("strong", null, row[1])))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No tienes expediente visible todavia."))),
       isAdmin && tab === "admin" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in", style: { border: "1px solid #c7d2fe", background: "#f8fafc" } },
           /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
@@ -8213,26 +8421,44 @@
             /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
               /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
                 /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } },
-                  /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Nombre de la hoja de tiempo", value: scheduleTemplateForm.nombre, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { nombre: e.target.value })); } }),
                   /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Tipo", value: scheduleTemplateForm.tipo, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { tipo: e.target.value })); } }),
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "color", value: scheduleTemplateForm.color, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { color: e.target.value })); } })
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre de la hoja de tiempo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Ej: Nocturno - Dia libre los LUNES", value: scheduleTemplateForm.nombre, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { nombre: e.target.value })); } })),
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tipo de horario"), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Ej: Nocturno", value: scheduleTemplateForm.tipo, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { tipo: e.target.value })); } }))
                   ),
                   /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Entrada Lun-Jue/Dom", value: scheduleTemplateForm.entradaSemana, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { entradaSemana: e.target.value })); } }),
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Salida Lun-Jue/Dom", value: scheduleTemplateForm.salidaSemana, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { salidaSemana: e.target.value })); } })
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Color de la hoja"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "color", value: scheduleTemplateForm.color, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { color: e.target.value })); } })),
+                    /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Minutos de receso por defecto"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "1", value: scheduleTemplateForm.descansoMin, onChange: function(e) { const value = e.target.value; setScheduleTemplateForm((p) => Object.assign({}, p, { descansoMin: value, diasHoras: EMPLOYEE_WEEK_DAYS.reduce(function(acc, day) { acc[day] = Object.assign({}, p.diasHoras && p.diasHoras[day] || {}, { descansoMin: Number(value || 0) }); return acc; }, {}) })); } }))
                   ),
-                  /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Entrada Vie-Sab", value: scheduleTemplateForm.entradaFin, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { entradaFin: e.target.value })); } }),
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Salida Vie-Sab", value: scheduleTemplateForm.salidaFin, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { salidaFin: e.target.value })); } })
-                  ),
-                  /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "1", placeholder: "Minutos de receso", value: scheduleTemplateForm.descansoMin, onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { descansoMin: e.target.value })); } }),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveScheduleTemplate }, editingScheduleTemplateId ? "Guardar cambios" : "Guardar hoja"), editingScheduleTemplateId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetScheduleTemplateForm }, "Cancelar"))
                 ),
-                /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } },
-                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 800 } }, "Dias que trabaja esta hoja"),
-                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(74px,1fr))", gap: 8 } }, EMPLOYEE_WEEK_DAYS.map(function(day) { const label = { Lunes: "Lun", Martes: "Mar", Miercoles: "Mie", Jueves: "Jue", Viernes: "Vie", Sabado: "Sab", Domingo: "Dom" }[day] || day.slice(0, 3); return /* @__PURE__ */ React.createElement("label", { key: day, style: { display: "flex", alignItems: "center", gap: 6, border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontWeight: 800, background: scheduleTemplateForm.diasActivos && scheduleTemplateForm.diasActivos[day] ? "#f0fdf4" : "#fef2f2" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!(scheduleTemplateForm.diasActivos && scheduleTemplateForm.diasActivos[day]), onChange: function(e) { setScheduleTemplateForm((p) => Object.assign({}, p, { diasActivos: Object.assign({}, p.diasActivos || {}, { [day]: e.target.checked }) })); } }), label); })),
-                  /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "El dia sin cotejo queda como LIBRE. Viernes y sabado usan el horario de fin de semana; los demas dias usan el horario regular.")
+                /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
+                  /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 800 } }, "Dias, horas y recesos de esta hoja"),
+                  /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } }, EMPLOYEE_WEEK_DAYS.map(function(day) {
+                    const label = { Lunes: "Lun", Martes: "Mar", Miercoles: "Mie", Jueves: "Jue", Viernes: "Vie", Sabado: "Sab", Domingo: "Dom" }[day] || day.slice(0, 3);
+                    const dayConfig = scheduleTemplateForm.diasHoras && scheduleTemplateForm.diasHoras[day] || createScheduleDayConfig()[day];
+                    const updateDay = function(patch) {
+                      setScheduleTemplateForm((p) => {
+                        const prevConfig = p.diasHoras && p.diasHoras[day] || createScheduleDayConfig()[day];
+                        const nextDay = Object.assign({}, prevConfig, patch);
+                        return Object.assign({}, p, {
+                          diasHoras: Object.assign({}, p.diasHoras || {}, { [day]: nextDay }),
+                          diasActivos: Object.assign({}, p.diasActivos || {}, { [day]: nextDay.trabaja })
+                        });
+                      });
+                    };
+                    return /* @__PURE__ */ React.createElement("div", { key: day, style: { border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, display: "grid", gap: 8, background: dayConfig.trabaja ? "#f0fdf4" : "#fef2f2" } },
+                      /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 900, color: dayConfig.trabaja ? "#166534" : "#991b1b" } },
+                        /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!dayConfig.trabaja, onChange: function(e) { updateDay({ trabaja: e.target.checked }); } }),
+                        label, " - ", dayConfig.trabaja ? "Trabaja" : "Dia libre"
+                      ),
+                      /* @__PURE__ */ React.createElement("div", { className: "grid-3" },
+                        /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Hora de entrada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: dayConfig.entrada || "", onChange: function(e) { updateDay({ entrada: e.target.value }); }, placeholder: "4:00 PM" })),
+                        /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Hora de salida"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: dayConfig.salida || "", onChange: function(e) { updateDay({ salida: e.target.value }); }, placeholder: "12:00 AM" })),
+                        /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Receso del dia en minutos"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "1", value: dayConfig.descansoMin || 0, onChange: function(e) { updateDay({ descansoMin: Number(e.target.value || 0) }); }, placeholder: "20" }))
+                      )
+                    );
+                  })),
+                  /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Cada dia puede tener su propia entrada, salida y receso. Las tareas asignadas vuelven a aparecer 2 horas antes de la entrada configurada.")
                 )
               ),
               /* @__PURE__ */ React.createElement("div", { className: "grid-3" }, normalized.scheduleTemplates.map(function(tpl) { const freeDays = EMPLOYEE_WEEK_DAYS.filter((day) => !(tpl.dias && tpl.dias[day] && tpl.dias[day].trabaja)).join(", ") || "Sin dia libre"; return /* @__PURE__ */ React.createElement("div", { key: tpl.id, style: { borderLeft: `4px solid ${tpl.color || "#2563eb"}`, borderTop: "1px solid #e5e7eb", borderRight: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb", borderRadius: 8, padding: 10, display: "grid", gap: 8, background: tpl.estado === "Archivado" ? "#f9fafb" : "#fff" } }, /* @__PURE__ */ React.createElement("strong", null, tpl.nombre), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, tpl.tipo, " · ", freeDays, " · ", tpl.estado || "Activo"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { editScheduleTemplate(tpl); } }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: tpl.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: function() { setEmployeeCenterRowStatus("scheduleTemplates", tpl.id, tpl.estado === "Archivado" ? "Activo" : "Archivado"); } }, tpl.estado === "Archivado" ? "Reactivar" : "Eliminar"))); }))
@@ -8393,13 +8619,13 @@
         ),
         adminSection === "desempeno" && /* @__PURE__ */ React.createElement(React.Fragment, null,
           /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
-            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingRecognitionId ? "Editar reconocimiento" : "Nuevo reconocimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recognitionForm.userId, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { userId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo del reconocimiento", value: recognitionForm.titulo, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: recognitionForm.fecha, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { fecha: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Detalle del reconocimiento", value: recognitionForm.descripcion, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), recognitionForm.archivoNombre ? "Adjunto: " + recognitionForm.archivoNombre : "Adjuntar documento", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,.pdf,.doc,.docx", style: { display: "none" }, onChange: (e) => readEmployeeAttachment(e.target.files && e.target.files[0], (fileData) => setRecognitionForm((p) => Object.assign({}, p, fileData))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveRecognition }, editingRecognitionId ? "Guardar reconocimiento" : "Agregar reconocimiento"))),
-            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCompetencyId ? "Editar competencia" : "Nueva competencia")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Una competencia es una habilidad o conducta esperada del puesto: higiene, puntualidad, servicio, liderazgo, manejo de inventario o trabajo en equipo."), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Nombre de la competencia", value: competencyForm.nombre, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { nombre: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Categoria", value: competencyForm.categoria, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { categoria: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: competencyForm.nivelEsperado, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { nivelEsperado: e.target.value })) }, ["Basico", "Medio", "Alto", "Critico"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion y criterios de evaluacion", value: competencyForm.descripcion, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: saveCompetency }, editingCompetencyId ? "Guardar competencia" : "Agregar competencia")))
+            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingRecognitionId ? "Editar reconocimiento" : "Nuevo reconocimiento")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recognitionForm.userId, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { userId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo del reconocimiento", value: recognitionForm.titulo, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: recognitionForm.fecha, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { fecha: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Detalle del reconocimiento", value: recognitionForm.descripcion, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recognitionForm.visibleToEmployee === true, onChange: (e) => setRecognitionForm((p) => Object.assign({}, p, { visibleToEmployee: e.target.checked })) }), "Visible para el colaborador"), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), recognitionForm.archivoNombre ? "Adjunto: " + recognitionForm.archivoNombre : "Adjuntar documento", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,.pdf,.doc,.docx", style: { display: "none" }, onChange: (e) => readEmployeeAttachment(e.target.files && e.target.files[0], (fileData) => setRecognitionForm((p) => Object.assign({}, p, fileData))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveRecognition }, editingRecognitionId ? "Guardar reconocimiento" : "Agregar reconocimiento"))),
+            /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCompetencyId ? "Editar competencia" : "Nueva competencia")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Una competencia es una habilidad o conducta esperada del puesto: higiene, puntualidad, servicio, liderazgo, manejo de inventario o trabajo en equipo."), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Nombre de la competencia", value: competencyForm.nombre, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { nombre: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Categoria", value: competencyForm.categoria, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { categoria: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: competencyForm.nivelEsperado, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { nivelEsperado: e.target.value })) }, ["Basico", "Medio", "Alto", "Critico"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion y criterios de evaluacion", value: competencyForm.descripcion, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: competencyForm.visibleToEmployee !== false, onChange: (e) => setCompetencyForm((p) => Object.assign({}, p, { visibleToEmployee: e.target.checked })) }), "Visible para colaboradores"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: saveCompetency }, editingCompetencyId ? "Guardar competencia" : "Agregar competencia")))
           ),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, normalized.recognitions.length ? normalized.recognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("strong", null, row.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.usuario || row.userId, " · ", row.fecha || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, row.descripcion || ""), row.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: row.archivoDataUrl, target: "_blank", rel: "noreferrer" }, row.archivoNombre || "Abrir adjunto"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => editRecognition(row) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: row.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: () => setEmployeeCenterRowStatus("recognitions", row.id, row.estado === "Archivado" ? "Publicado" : "Archivado") }, row.estado === "Archivado" ? "Reactivar" : "Eliminar")))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos."))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, normalized.competencies.length ? normalized.competencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 } }, /* @__PURE__ */ React.createElement("strong", null, row.nombre), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.categoria || "-", " · Nivel ", row.nivelEsperado || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, row.descripcion || ""), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => editCompetency(row) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: row.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: () => setEmployeeCenterRowStatus("competencies", row.id, row.estado === "Archivado" ? "Activo" : "Archivado") }, row.estado === "Archivado" ? "Reactivar" : "Eliminar")))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias."))))
         ),
         adminSection === "expediente" && /* @__PURE__ */ React.createElement(React.Fragment, null,
-          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingRecordId ? "Editar expediente digital" : "Expediente digital")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recordForm.userId, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { userId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, ["nombres", "apellidos", "cedula", "telefono", "celular"].map((field) => /* @__PURE__ */ React.createElement("input", { key: field, className: "form-control", placeholder: field === "cedula" ? "Cedula" : field.charAt(0).toUpperCase() + field.slice(1), value: recordForm[field], onChange: (e) => setRecordForm((p) => Object.assign({}, p, { [field]: e.target.value })) }))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Direccion", value: recordForm.direccion, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { direccion: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Contacto de emergencia", value: recordForm.contactoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { contactoEmergencia: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Telefono emergencia", value: recordForm.telefonoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { telefonoEmergencia: e.target.value })) })), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Parentesco emergencia", value: recordForm.parentescoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { parentescoEmergencia: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Alergias", value: recordForm.alergias, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { alergias: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Notas medicas relevantes", value: recordForm.notasMedicas, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { notasMedicas: e.target.value })) })), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Documentos recibidos, observaciones internas o referencias", value: recordForm.documentos, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { documentos: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveEmployeeRecord }, editingRecordId ? "Guardar expediente" : "Crear expediente"))),
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingRecordId ? "Editar expediente digital" : "Expediente digital")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recordForm.userId, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { userId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, ["nombres", "apellidos", "cedula", "telefono", "celular"].map((field) => /* @__PURE__ */ React.createElement("input", { key: field, className: "form-control", placeholder: field === "cedula" ? "Cedula" : field.charAt(0).toUpperCase() + field.slice(1), value: recordForm[field], onChange: (e) => setRecordForm((p) => Object.assign({}, p, { [field]: e.target.value })) }))), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Direccion", value: recordForm.direccion, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { direccion: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Contacto de emergencia", value: recordForm.contactoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { contactoEmergencia: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Telefono emergencia", value: recordForm.telefonoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { telefonoEmergencia: e.target.value })) })), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Parentesco emergencia", value: recordForm.parentescoEmergencia, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { parentescoEmergencia: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Alergias", value: recordForm.alergias, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { alergias: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Notas medicas relevantes", value: recordForm.notasMedicas, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { notasMedicas: e.target.value })) })), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Documentos recibidos, observaciones internas o referencias", value: recordForm.documentos, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { documentos: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recordForm.visibleToEmployee !== false, onChange: (e) => setRecordForm((p) => Object.assign({}, p, { visibleToEmployee: e.target.checked })) }), "Visible para el colaborador en su expediente"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveEmployeeRecord }, editingRecordId ? "Guardar expediente" : "Crear expediente"))),
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Colaborador", "Cedula", "Celular", "Emergencia", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.employeeRecords.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.usuario || [row.nombres, row.apellidos].filter(Boolean).join(" ") || row.userId), /* @__PURE__ */ React.createElement("td", null, row.cedula || "-"), /* @__PURE__ */ React.createElement("td", null, row.celular || row.telefono || "-"), /* @__PURE__ */ React.createElement("td", null, row.contactoEmergencia || "-", row.telefonoEmergencia ? " · " + row.telefonoEmergencia : ""), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => editEmployeeRecord(row) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: row.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: () => setEmployeeCenterRowStatus("employeeRecords", row.id, row.estado === "Archivado" ? "Activo" : "Archivado") }, row.estado === "Archivado" ? "Reactivar" : "Eliminar")))))))))
         ),
         adminSection === "disciplina" && /* @__PURE__ */ React.createElement(React.Fragment, null,
@@ -9484,7 +9710,7 @@
           id: `ent-auto-mise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
           fecha: now,
           producto: target.producto,
-          medida: target.medida || fromUnit,
+          medida: target.medida || normalizeProductionUnitLabel(fromUnit),
           cantidad: qty,
           cantidadOriginal: `${cantidad} ${fromUnit}`,
           existenciaAnterior: prevExist,
@@ -16334,7 +16560,7 @@ Solicitado: ${cantidad}`);
     const closureRows = useMemo(() => buildIcgDailyClosures(normalized), [data]);
     const ticketRows = useMemo(() => buildIcgSalesTickets(normalized), [data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
-    const bridgeRows = icgRows(normalized, "VinculosMiseICG");
+    const bridgeRows = icgRows(normalized, "VinculosMiseICG").filter(Boolean);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
     const salesConsumptionRows = useMemo(function() {
       return buildIcgSalesConsumption(normalized).map(function(row) {
@@ -16527,6 +16753,44 @@ Solicitado: ${cantidad}`);
           acc[col] = row ? row[col] || "" : "";
           return acc;
         }, {})
+      });
+      setEditPassword("");
+    }
+    function startEditBridgeFromSale(row) {
+      const bridgeColumns = ICG_TABLE_DEFS.VinculosMiseICG.columns || [];
+      const sameIcg = function(link) {
+        if (!link) return false;
+        const codeMatches = row.CodArticulo && normalizar(link.CodArticulo) === normalizar(row.CodArticulo);
+        const refMatches = row.Referencia && normalizar(link.Referencia) === normalizar(row.Referencia);
+        const nameMatches = row.ProductoICG && normalizar(link.ProductoICG) === normalizar(row.ProductoICG);
+        return codeMatches || refMatches || nameMatches;
+      };
+      const existing = bridgeRows.find(function(link) {
+        return sameIcg(link) && normalizar(link.ProductoWTF || link.ProductoMise) === normalizar(row.ProductoWTF || row.ProductoMise);
+      }) || bridgeRows.find(sameIcg);
+      const values = bridgeColumns.reduce(function(acc, col) {
+        acc[col] = existing ? existing[col] || "" : "";
+        return acc;
+      }, {});
+      if (!existing) {
+        values.ModuloWTF = row.ModuloWTF || "Mise an Place Cocina";
+        values.ProductoWTF = row.ProductoWTF || row.ProductoMise || "";
+        values.ProductoMise = row.ProductoMise || row.ProductoWTF || "";
+        values.CodArticulo = row.CodArticulo || "";
+        values.Referencia = row.Referencia || "";
+        values.ProductoICG = row.ProductoICG || "";
+        values.CantidadPorVenta = row.CantidadDescontar || 1;
+        values.Unidad = row.Unidad || "Uni";
+        values.Activo = "Si";
+        values.Notas = "Creado desde Ventas ICG";
+      }
+      setActiveTable("VinculosMiseICG");
+      setTab("tablas");
+      setEditRecord({
+        mode: existing ? "edit" : "add",
+        tableKey: "VinculosMiseICG",
+        rowId: existing && existing._id ? existing._id : "",
+        values
       });
       setEditPassword("");
     }
@@ -16731,7 +16995,7 @@ Solicitado: ${cantidad}`);
           ))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado", "Acciones"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
           /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(group, index) {
             const children = group.children || [group];
             const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
@@ -16751,9 +17015,10 @@ Solicitado: ${cantidad}`);
               /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return `${child.CantidadDescontar || 0} ${child.Unidad || ""}`; })),
               /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaActual === "" ? "-" : child.ExistenciaActual; })),
               /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaNueva === "" ? "-" : child.ExistenciaNueva; })),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { const childClass = child.Estado === "Pendiente" ? "pill-verde" : child.Estado === "Aplicado" ? "pill-azul" : "pill-rojo"; return /* @__PURE__ */ React.createElement("span", { className: `pill ${childClass}` }, child.Estado || "-"); }), children.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, children.length, " descuentos")))
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { const childClass = child.Estado === "Pendiente" ? "pill-verde" : child.Estado === "Aplicado" ? "pill-azul" : "pill-rojo"; return /* @__PURE__ */ React.createElement("span", { className: `pill ${childClass}` }, child.Estado || "-"); }), children.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, children.length, " descuentos"))),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { startEditBridgeFromSale(child); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar WTF"); }))
             );
-          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
+          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
       );
     }
@@ -16896,7 +17161,7 @@ Solicitado: ${cantidad}`);
           ),
           tab === "cierres" && renderDailyClosures(),
           tab === "ventas" && renderSalesConsumption(),
-          tab === "puente" && renderMiseBridge(),
+          tab === "puente" && function() { try { return renderMiseBridge(); } catch (error) { console.error("No se pudo renderizar Puente Mise", error); return /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "No se pudo abrir Puente Mise por un dato incompatible. Actualiza articulos ICG o revisa los vinculos guardados."); } }(),
           tab === "tablas" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
               /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { width: 240, maxWidth: "100%" }, value: activeTable, onChange: (e) => { setActiveTable(e.target.value); setQuery(""); } }, tableKeys.map((key) => /* @__PURE__ */ React.createElement("option", { key, value: key }, ICG_TABLE_DEFS[key].label))),
@@ -17261,7 +17526,7 @@ Solicitado: ${cantidad}`);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
     const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
-    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
+    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
@@ -17532,7 +17797,7 @@ Solicitado: ${cantidad}`);
           detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
         }, currentUser);
       }
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -17629,7 +17894,7 @@ Solicitado: ${cantidad}`);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const linkedMise = stockStatus.mise;
       if (editingId === r.id) {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", hasMiseLinkOptions && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: editData.autoTransferirAMise ? "var(--verde)" : "var(--gris)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editData.autoTransferirAMise === true, onChange: (e) => setEditData((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente"), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" })), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", hasMiseLinkOptions && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: editData.autoTransferirAMise ? "var(--verde)" : "var(--gris)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editData.autoTransferirAMise === true, onChange: (e) => setEditData((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente"), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra por unidad o libra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => syncCostFromUnitCost(p, e.target.value)), placeholder: "Ej: 52.08" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo por paquetes o cajas"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompraPaquete || "", onChange: (e) => setEditData((p) => syncCostFromPackageCost(p, e.target.value)), placeholder: "Ej: 625.00" }))), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
       }
       const baseRowClass = stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const rowClass = `${baseRowClass} ${Number(focusedSearchResultId) === Number(r.id) ? "tr-search-target" : ""}`.trim();
@@ -17680,9 +17945,17 @@ Solicitado: ${cantidad}`);
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
-            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra"),
-            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.costoCompra || "", onChange: (e) => setNewProd((p) => ({ ...p, costoCompra: e.target.value })), placeholder: "Ej: 625.00" }),
-            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Indica el costo del producto comprado completo. Ej: 1 pote de ajo en polvo = 680.4 G y cuesta 625.")
+            /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+              /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra por unidad o libra"),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.costoCompra || "", onChange: (e) => setNewProd((p) => syncCostFromUnitCost(p, e.target.value)), placeholder: "Ej: 52.08" })
+              ),
+              /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo por paquetes o cajas"),
+                /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.costoCompraPaquete || "", onChange: (e) => setNewProd((p) => syncCostFromPackageCost(p, e.target.value)), placeholder: "Ej: 625.00" })
+              )
+            ),
+            /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si el producto tiene contenido interno configurado, el costo unitario y el costo por paquete o caja se calculan entre si automaticamente.")
           ),
           renderPackageContentFields(newProd, setNewProd, newProd.medida),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
