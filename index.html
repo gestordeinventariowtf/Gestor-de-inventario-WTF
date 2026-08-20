@@ -599,6 +599,18 @@
       gap: 9px;
       box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
     }
+    button.rrhh-modern-card {
+      width: 100%;
+      font: inherit;
+      color: inherit;
+      appearance: none;
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    }
+    button.rrhh-modern-card:hover {
+      transform: translateY(-1px);
+      border-color: #93c5fd;
+      box-shadow: 0 16px 34px rgba(37, 99, 235, .13);
+    }
     .rrhh-modern-card.is-done {
       border-color: #bbf7d0;
       background: linear-gradient(180deg, #f0fdf4, #fff);
@@ -1338,6 +1350,26 @@
     .rrhh-modal-pop {
       animation: rrhhModalPop .24s ease both;
     }
+    .rrhh-reader-modal {
+      max-width: 780px;
+      width: min(94vw, 780px);
+      background: #fff;
+      max-height: min(92dvh, 820px);
+      display: flex;
+      flex-direction: column;
+    }
+    .rrhh-reader-modal.is-maximized {
+      width: min(98vw, 1180px);
+      max-width: 1180px;
+      height: 94dvh;
+      max-height: 94dvh;
+    }
+    .rrhh-reader-body {
+      display: grid;
+      gap: 14px;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
     @keyframes rrhhFadeUp {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -1358,6 +1390,187 @@
       .rrhh-action-card,
       .rrhh-stage-card,
       .rrhh-progress-fill { transition: none; }
+    }
+
+    .finance-shell {
+      display: grid;
+      gap: 14px;
+      padding-bottom: 18px;
+      color: #0f172a;
+    }
+    .finance-shell .card {
+      border: 1px solid rgba(148, 163, 184, .24);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, .08);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .finance-hero {
+      background:
+        radial-gradient(circle at top right, rgba(34, 197, 94, .22), transparent 34%),
+        linear-gradient(135deg, #0f172a, #14532d 55%, #0f766e);
+      color: #fff;
+      border: 0 !important;
+      position: relative;
+    }
+    .finance-hero .card-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+      gap: 18px;
+      align-items: center;
+      padding: 22px;
+    }
+    .finance-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.13);
+      color: rgba(255,255,255,.82);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .finance-title {
+      margin: 0;
+      color: #fff;
+      font-size: clamp(24px, 4vw, 38px);
+      line-height: 1.08;
+      font-weight: 950;
+    }
+    .finance-subtitle {
+      margin-top: 8px;
+      color: rgba(255,255,255,.72);
+      font-size: 13px;
+      line-height: 1.55;
+      max-width: 680px;
+      font-weight: 650;
+    }
+    .finance-period-panel {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 12px;
+      background: rgba(255,255,255,.10);
+      backdrop-filter: blur(10px);
+    }
+    .finance-period-panel .form-control {
+      background: rgba(255,255,255,.95);
+      border: 0;
+      font-weight: 800;
+      min-height: 40px;
+    }
+    .finance-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+    }
+    .finance-stat {
+      min-height: 112px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      border-radius: 14px;
+      padding: 14px;
+      background: linear-gradient(180deg, #ffffff, #f8fafc);
+      box-shadow: 0 10px 26px rgba(15, 23, 42, .07);
+      display: grid;
+      gap: 8px;
+      align-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+    .finance-stat::after {
+      content: "";
+      position: absolute;
+      width: 86px;
+      height: 86px;
+      right: -32px;
+      top: -32px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--finance-accent, #2563eb) 18%, transparent);
+    }
+    .finance-stat span {
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      position: relative;
+      z-index: 1;
+    }
+    .finance-stat strong {
+      color: var(--finance-accent, #0f172a);
+      font-size: clamp(20px, 3vw, 27px);
+      line-height: 1.05;
+      font-weight: 950;
+      word-break: break-word;
+      position: relative;
+      z-index: 1;
+    }
+    .finance-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 8px;
+      border: 1px solid rgba(148, 163, 184, .28);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
+    }
+    .finance-tabs .tab {
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 900;
+      white-space: nowrap;
+      min-height: 38px;
+    }
+    .finance-tabs .tab.active {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, .18);
+    }
+    .finance-shell .card-header {
+      background: linear-gradient(180deg, #fff, #f8fafc);
+      border-bottom: 1px solid rgba(148, 163, 184, .22);
+    }
+    .finance-shell .card-header h2 {
+      font-size: 15px;
+      color: #0f172a;
+      font-weight: 950;
+    }
+    .finance-shell .form-control {
+      border-radius: 10px;
+      min-height: 40px;
+    }
+    .finance-table-wrap table {
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 100%;
+    }
+    .finance-table-wrap th {
+      background: #f8fafc;
+      color: #475569;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .finance-table-wrap td {
+      border-bottom: 1px solid #eef2f7;
+      font-size: 12px;
+    }
+    .finance-table-wrap tbody tr:hover td {
+      background: #f8fafc;
+    }
+    @media (max-width: 760px) {
+      .finance-hero .card-body { grid-template-columns: 1fr; padding: 18px; }
+      .finance-period-panel { padding: 12px; }
+      .finance-tabs { border-radius: 12px; }
     }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
@@ -2071,6 +2284,16 @@
     if (!d) return "";
     const dt = new Date(d);
     return isNaN(dt) ? String(d) : dt.toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: APP_TIME_ZONE });
+  }
+  function formatDateDDMMYYYY(value) {
+    if (!value) return "";
+    const text = String(value).trim();
+    let parts = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (parts) return [parts[3].padStart(2, "0"), parts[2].padStart(2, "0"), parts[1]].join("/");
+    parts = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (parts) return [parts[2].padStart(2, "0"), parts[1].padStart(2, "0"), parts[3]].join("/");
+    const dt = new Date(value);
+    return Number.isNaN(dt.getTime()) ? text : dt.toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: APP_TIME_ZONE });
   }
   const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G"];
   const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Lb", "Oz", "Funda", "Fundas", "Serv"];
@@ -3800,6 +4023,7 @@
       return String(a.nombre || a.producto || "").localeCompare(String(b.nombre || b.producto || ""));
     });
   }
+  // Todo modulo persistido debe pasar por esta fusion antes de aplicar datos remotos.
   function mergeRemoteAppStateWithLocal(remoteState, localState, options) {
     const mergeOptions = options && typeof options === "object" ? options : {};
     const includeLocalDeletedKeys = mergeOptions.includeLocalDeletedKeys !== false;
@@ -3820,7 +4044,6 @@
       "systemLogs"
     ].forEach(function(key) {
       if (key === "systemLogs") next[key] = normalizeSystemLogs(mergeMovementRows(localState && localState[key], remoteState && remoteState[key]));
-      else if (key === "productionHolds" || key === "barProductionHolds") next[key] = mergeProductionHolds(includeLocalProductionHolds ? localState && localState[key] : null, remoteState && remoteState[key]);
       else next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key]);
     });
     next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, includeLocalDeletedKeys ? localState && localState.inventoryDeletedKeys : null);
@@ -7035,36 +7258,63 @@
     if (key.includes("bar")) return ["olive-short-shirt", "black-denim-apron-short", "black-jeans", "black-belt", "black-sneakers"];
     return ["olive-short-shirt", "black-jeans", "black-socks", "black-sneakers"];
   }
+  function normalizeEmployeeCenterRows(listName, rows, fallbackRows) {
+    const source = Array.isArray(rows) && rows.length ? rows : (Array.isArray(fallbackRows) ? fallbackRows : []);
+    return source.map(function(row, index) {
+      if (!row || typeof row !== "object") return row;
+      const copy = Object.assign({}, row);
+      if (!copy.id) {
+        const fingerprint = [
+          listName,
+          copy.userId,
+          copy.email,
+          copy.nombre,
+          copy.titulo,
+          copy.fecha,
+          copy.createdAt,
+          copy.categoria,
+          copy.tipo,
+          index
+        ].filter(function(value) { return value !== void 0 && value !== null && value !== ""; }).join("|");
+        copy.id = `${listName}-${quickHashText(fingerprint || JSON.stringify(copy)).replace(/^fnv32-/, "")}`;
+      }
+      const existingCreatedAt = copy.createdAt || copy.fechaCreacion || copy.fecha || copy.fechaEntrega || copy.desde || "";
+      const existingUpdatedAt = copy.updatedAt || copy._updatedAt || copy.fechaActualizacion || existingCreatedAt;
+      if (existingCreatedAt && !copy.createdAt) copy.createdAt = existingCreatedAt;
+      if (existingUpdatedAt && !copy.updatedAt) copy.updatedAt = existingUpdatedAt;
+      return copy;
+    }).filter(Boolean);
+  }
   function ensureEmployeeCenterData(data) {
     const base = buildDefaultEmployeeCenterData();
     const input = data && typeof data === "object" ? data : {};
     return Object.assign({}, base, input, {
-      profiles: Array.isArray(input.profiles) && input.profiles.length ? input.profiles : base.profiles,
-      tasks: Array.isArray(input.tasks) && input.tasks.length ? input.tasks : base.tasks,
-      onboardingStages: Array.isArray(input.onboardingStages) && input.onboardingStages.length ? input.onboardingStages : base.onboardingStages,
+      profiles: normalizeEmployeeCenterRows("profiles", input.profiles, base.profiles),
+      tasks: normalizeEmployeeCenterRows("tasks", input.tasks, base.tasks),
+      onboardingStages: normalizeEmployeeCenterRows("onboardingStages", input.onboardingStages, base.onboardingStages),
       onboardingAssignments: Array.isArray(input.onboardingAssignments) ? input.onboardingAssignments : [],
       onboardingProgress: Array.isArray(input.onboardingProgress) ? input.onboardingProgress : [],
-      manualDocuments: Array.isArray(input.manualDocuments) && input.manualDocuments.length ? input.manualDocuments : base.manualDocuments,
-      courses: Array.isArray(input.courses) && input.courses.length ? input.courses : base.courses,
+      manualDocuments: normalizeEmployeeCenterRows("manualDocuments", input.manualDocuments, base.manualDocuments),
+      courses: normalizeEmployeeCenterRows("courses", input.courses, base.courses),
       schedules: Array.isArray(input.schedules) ? input.schedules : [],
       scheduleTemplates: normalizeEmployeeScheduleTemplates(input.scheduleTemplates),
-      timeOff: Array.isArray(input.timeOff) ? input.timeOff : [],
-      announcements: Array.isArray(input.announcements) && input.announcements.length ? input.announcements : base.announcements,
+      timeOff: normalizeEmployeeCenterRows("timeOff", input.timeOff, []),
+      announcements: normalizeEmployeeCenterRows("announcements", input.announcements, base.announcements),
       signatures: Array.isArray(input.signatures) ? input.signatures : [],
       taskCompletions: Array.isArray(input.taskCompletions) ? input.taskCompletions : [],
       evidence: Array.isArray(input.evidence) ? input.evidence : [],
-      equipmentAssignments: Array.isArray(input.equipmentAssignments) ? input.equipmentAssignments : [],
-      employeeRecords: Array.isArray(input.employeeRecords) ? input.employeeRecords : [],
-      uniformDressCodes: Array.isArray(input.uniformDressCodes) ? input.uniformDressCodes : [],
-      uniformPieces: Array.isArray(input.uniformPieces) ? input.uniformPieces : [],
+      equipmentAssignments: normalizeEmployeeCenterRows("equipmentAssignments", input.equipmentAssignments, []),
+      employeeRecords: normalizeEmployeeCenterRows("employeeRecords", input.employeeRecords, []),
+      uniformDressCodes: normalizeEmployeeCenterRows("uniformDressCodes", input.uniformDressCodes, []),
+      uniformPieces: normalizeEmployeeCenterRows("uniformPieces", input.uniformPieces, []),
       uniformHiddenPieceIds: Array.isArray(input.uniformHiddenPieceIds) ? input.uniformHiddenPieceIds : [],
-      performanceReviews: Array.isArray(input.performanceReviews) ? input.performanceReviews : [],
-      recognitions: Array.isArray(input.recognitions) ? input.recognitions : [],
-      competencies: Array.isArray(input.competencies) ? input.competencies : [],
-      disciplinaryCases: Array.isArray(input.disciplinaryCases) ? input.disciplinaryCases : [],
-      scheduledNotifications: Array.isArray(input.scheduledNotifications) ? input.scheduledNotifications : [],
-      geofences: Array.isArray(input.geofences) ? input.geofences : [],
-      accessAttempts: Array.isArray(input.accessAttempts) ? input.accessAttempts : [],
+      performanceReviews: normalizeEmployeeCenterRows("performanceReviews", input.performanceReviews, []),
+      recognitions: normalizeEmployeeCenterRows("recognitions", input.recognitions, []),
+      competencies: normalizeEmployeeCenterRows("competencies", input.competencies, []),
+      disciplinaryCases: normalizeEmployeeCenterRows("disciplinaryCases", input.disciplinaryCases, []),
+      scheduledNotifications: normalizeEmployeeCenterRows("scheduledNotifications", input.scheduledNotifications, []),
+      geofences: normalizeEmployeeCenterRows("geofences", input.geofences, []),
+      accessAttempts: normalizeEmployeeCenterRows("accessAttempts", input.accessAttempts, []),
       notifications: Array.isArray(input.notifications) ? input.notifications : [],
       auditLogs: Array.isArray(input.auditLogs) ? input.auditLogs : [],
       deletedRowKeys: input.deletedRowKeys && typeof input.deletedRowKeys === "object" ? input.deletedRowKeys : {},
@@ -7166,6 +7416,7 @@
       payrollRuns: [],
       commitments: [],
       tipRuns: [],
+      tipParticipantTemplates: [],
       attendance: [],
       authorizedTerminals: [],
       terminalAuditLogs: [],
@@ -7207,6 +7458,7 @@
       payrollRuns: Array.isArray(input.payrollRuns) ? input.payrollRuns : [],
       commitments: Array.isArray(input.commitments) ? input.commitments : [],
       tipRuns: Array.isArray(input.tipRuns) ? input.tipRuns : [],
+      tipParticipantTemplates: Array.isArray(input.tipParticipantTemplates) ? input.tipParticipantTemplates : [],
       attendance: Array.isArray(input.attendance) ? input.attendance : [],
       authorizedTerminals: Array.isArray(input.authorizedTerminals) ? input.authorizedTerminals : [],
       terminalAuditLogs: Array.isArray(input.terminalAuditLogs) ? input.terminalAuditLogs : [],
@@ -7249,6 +7501,7 @@
       payrollRuns: mergeFinancialRows(local.payrollRuns, remote.payrollRuns),
       commitments: mergeFinancialRows(local.commitments, remote.commitments),
       tipRuns: mergeFinancialRows(local.tipRuns, remote.tipRuns),
+      tipParticipantTemplates: mergeFinancialRows(local.tipParticipantTemplates, remote.tipParticipantTemplates),
       attendance: mergeFinancialRows(local.attendance, remote.attendance),
       authorizedTerminals: mergeFinancialRows(local.authorizedTerminals, remote.authorizedTerminals),
       terminalAuditLogs: mergeFinancialRows(local.terminalAuditLogs, remote.terminalAuditLogs),
@@ -7424,7 +7677,7 @@
         totalConSueldo: Number((parseCostNumber(row.sueldoBase) + pool * pct / 100).toFixed(2))
       });
     });
-    return { tasaDolar, ventasBase, fianza, ventasNetas, propinaLey, wtfPct, wtfMonto, pool, assignedPct, restantePct: Number((100 - assignedPct).toFixed(2)), rows };
+    return { tasaDolar, ventasBase, fianza, descontarOfertas: fianza, ventasNetas, propinaLey, wtfPct, wtfMonto, pool, assignedPct, restantePct: Number((100 - assignedPct).toFixed(2)), rows };
   }
   function calculateFinancialCommitments(rows, range) {
     const active = (Array.isArray(rows) ? rows : []).filter((row) => row.estado !== "Cancelado");
@@ -7564,7 +7817,7 @@
     const snapshot = await storageRef.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
     return snapshot.ref.getDownloadURL();
   }
-  function EmployeeCenterPage({ data, setData, usuarios = [], setUsuarios, currentUser, onSystemLog, onExitToModules }) {
+  function EmployeeCenterPage({ data, setData, usuarios = [], setUsuarios, currentUser, onSystemLog, onExitToModules, onLocalMutation }) {
     const toast = useToast();
     const normalized = ensureEmployeeCenterData(data);
     const isAdmin = isAdminUser(currentUser);
@@ -7608,6 +7861,8 @@
     const [editingScheduleTemplateId, setEditingScheduleTemplateId] = useState("");
     const [editingEquipmentId, setEditingEquipmentId] = useState("");
     const [activeOnboardingStage, setActiveOnboardingStage] = useState(null);
+    const [activeEmployeeReader, setActiveEmployeeReader] = useState(null);
+    const [employeeReaderMaximized, setEmployeeReaderMaximized] = useState(false);
     const profileName = getEmployeeProfileName(currentUser) || "Colaborador";
     const supervisor = usuarios.find((u) => String(u.id) === String(currentUser && currentUser.supervisorId));
     const onboardingPercent = getOnboardingProgressPercent(normalized, currentUser);
@@ -7627,6 +7882,7 @@
     const uniformOverrideById = new Map(uniformCustomRows.filter((piece) => uniformDefaultIds.has(piece.id)).map((piece) => [piece.id, piece]));
     const uniformPieces = DEFAULT_UNIFORM_PIECES.map((piece) => Object.assign({}, piece, uniformOverrideById.get(piece.id) || {})).filter((piece) => !uniformHiddenIds.has(piece.id)).concat(uniformCustomRows.filter((piece) => !uniformDefaultIds.has(piece.id)));
     function updateData(updater, logPayload) {
+      if (typeof onLocalMutation === "function") onLocalMutation("employee-center");
       setData(function(prev) {
         const current = ensureEmployeeCenterData(prev);
         const next = ensureEmployeeCenterData(typeof updater === "function" ? updater(current) : updater);
@@ -8375,6 +8631,47 @@
         });
       }, { accion: "Actualizar visibilidad RRHH", registro: id, detalle: `${listName}: ${visible ? "Visible" : "No visible"}` });
     }
+    function openEmployeeReader(config) {
+      setEmployeeReaderMaximized(false);
+      setActiveEmployeeReader(config || null);
+    }
+    function renderEmployeeReaderModal() {
+      if (!activeEmployeeReader) return null;
+      const item = activeEmployeeReader;
+      const fileType = String(item.fileType || "");
+      const hasImage = item.fileUrl && fileType.startsWith("image/");
+      const hasVideo = item.fileUrl && fileType.startsWith("video/");
+      const hasDocument = item.fileUrl && !hasImage && !hasVideo;
+      return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
+        /* @__PURE__ */ React.createElement("div", { className: `modal-content rrhh-modal-pop rrhh-reader-modal ${employeeReaderMaximized ? "is-maximized" : ""}` },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon || "fa-book-open"}`, style: { color: item.accent || "#2563eb", marginRight: 7 } }), item.title || "Detalle"),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", title: employeeReaderMaximized ? "Restaurar" : "Maximizar", onClick: function() { setEmployeeReaderMaximized((value) => !value); } }, /* @__PURE__ */ React.createElement("i", { className: employeeReaderMaximized ? "fas fa-compress" : "fas fa-expand" })),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", title: "Cerrar", onClick: function() { setActiveEmployeeReader(null); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+            )
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body rrhh-reader-body" },
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+              (item.tags || []).map(function(tag) { return /* @__PURE__ */ React.createElement("span", { key: tag.label, className: tag.className || "pill pill-azul" }, tag.label); })
+            ),
+            item.subtitle && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 850, color: "#334155", lineHeight: 1.5 } }, item.subtitle),
+            hasVideo && /* @__PURE__ */ React.createElement("video", { controls: true, src: item.fileUrl, style: { width: "100%", borderRadius: 12, background: "#111827", maxHeight: employeeReaderMaximized ? "58dvh" : "42dvh" } }),
+            hasImage && /* @__PURE__ */ React.createElement("img", { src: item.fileUrl, alt: item.fileName || item.title || "Recurso", style: { maxWidth: "100%", borderRadius: 12, border: "1px solid #e5e7eb", maxHeight: employeeReaderMaximized ? "58dvh" : "42dvh", objectFit: "contain", background: "#f8fafc" } }),
+            hasDocument && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: item.fileUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), item.fileName || "Abrir adjunto"),
+            item.lessons && item.lessons.length ? /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#f8fafc" } },
+              /* @__PURE__ */ React.createElement("strong", { style: { display: "block", color: "#111827", marginBottom: 8 } }, "Contenido del curso"),
+              /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, color: "#334155", lineHeight: 1.75, fontSize: 13 } }, item.lessons.map(function(lesson) { return /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson); }))
+            ) : null,
+            /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff", color: "#1f2937", lineHeight: 1.68, whiteSpace: "pre-wrap", minHeight: 120, fontSize: 14 } }, item.content || "Este apartado aun no tiene contenido cargado.")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
+            item.action || null,
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setActiveEmployeeReader(null); } }, "Cerrar")
+          )
+        )
+      );
+    }
     const filteredDocs = normalized.manualDocuments.filter((doc) => !search || normalizar([doc.titulo, doc.categoria, doc.contenido].join(" ")).includes(normalizar(search)));
     const stats = {
       activeUsers: usuarios.filter((u) => u.activo !== false).length,
@@ -8560,6 +8857,7 @@
       isEmployeeWelcomeActive(currentUser, normalized) && tab === "panel" && /* @__PURE__ */ React.createElement("div", { className: "card", style: { border: "1px solid #bbf7d0", background: "#f0fdf4" } }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" } }, currentUser.foto && /* @__PURE__ */ React.createElement("img", { src: currentUser.foto, alt: "Foto colaborador", style: { width: 74, height: 74, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React.createElement("div", { style: { flex: "1 1 260px" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 4px" } }, `Bienvenido/a, ${getUserDisplayLabel(currentUser)}`), /* @__PURE__ */ React.createElement("div", { style: { color: "#166534", fontWeight: 700 } }, profileName, " · Ingreso: ", getEmployeeHireDate(currentUser) ? new Date(getEmployeeHireDate(currentUser)).toLocaleDateString("es-DO") : "Sin fecha", " · Supervisor: ", supervisor ? getUserDisplayLabel(supervisor) : "No asignado"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, height: 10, background: "#dcfce7", borderRadius: 999, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: `${onboardingPercent}%`, height: "100%", background: "#16a34a" } })), /* @__PURE__ */ React.createElement("small", null, onboardingPercent, "% de induccion completado")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setTab("induccion") }, "Continuar induccion"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setTab("tareas") }, "Ver checklist"), typeof onExitToModules === "function" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onExitToModules }, "Visitar modulos")))),
       /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-hero-inner" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "rrhh-kicker" }, "Recursos Humanos WTF"), /* @__PURE__ */ React.createElement("h1", { className: "rrhh-title" }, "Centro del Colaborador"), /* @__PURE__ */ React.createElement("div", { className: "rrhh-subtitle" }, "Induccion, tareas, politicas, cursos, horarios, equipos, firmas y expediente laboral.")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => exportAssetRowsToExcel(normalized.auditLogs, `Centro_Colaborador_Auditoria_${new Date().toISOString().slice(0, 10)}.xlsx`, "Auditoria", toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-excel" }), "Exportar auditoria"))),
       /* @__PURE__ */ React.createElement("div", { className: "tabs rrhh-tabs" }, [["panel", "Mi panel"], ["induccion", "Induccion"], ["tareas", "Tareas"], ["manual", "Manual"], ["cursos", "Cursos"], ["horarios", "Horarios"], ["anuncios", "Anuncios"], ["equipos", "Uniformes y equipos"], ["desempeno", "Desempeno"], ["expediente", "Expediente"], isAdmin && ["disciplina", "Disciplina"], isAdmin && ["admin", "Ajustes"]].filter(Boolean).map((row) => tabButton(row[0], row[1]))),
+      renderEmployeeReaderModal(),
       tab === "panel" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         /* @__PURE__ */ React.createElement("div", { className: "card rrhh-hero rrhh-animate-in", style: { overflow: "hidden", border: "1px solid #bfdbfe", background: "linear-gradient(135deg,#eff6ff,#f0fdf4)" } },
           /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", justifyContent: "space-between", gap: 18, flexWrap: "wrap", alignItems: "center", padding: 22 } },
@@ -8609,11 +8907,11 @@
       ),
       tab === "manual" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-book-open", "Manual del colaborador", "Politicas, procedimientos, documentos y firmas digitales en un solo lugar.", "linear-gradient(135deg,#4338ca,#0f766e)"),
-        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar politicas, procedimientos o manual...", value: search, onChange: (e) => setSearch(e.target.value) }), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, filteredDocs.map((doc) => { const signed = normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version); return /* @__PURE__ */ React.createElement("div", { key: doc.id, className: "rrhh-modern-card" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, doc.titulo), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, doc.categoria, " · Version ", doc.version, " · ", doc.firmaObligatoria ? "Firma requerida" : "Lectura"), /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, doc.contenido), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, doc.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: doc.archivoDataUrl, target: "_blank", rel: "noreferrer" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), doc.archivoNombre || "Abrir adjunto"), doc.firmaObligatoria && /* @__PURE__ */ React.createElement("button", { className: signed ? "btn btn-sm btn-gris" : "btn btn-sm btn-azul", disabled: signed, onClick: () => signDocument(doc) }, signed ? "Firmado" : "Firmar digitalmente"))); }), filteredDocs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No se encontraron documentos."))))
+        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar politicas, procedimientos o manual...", value: search, onChange: (e) => setSearch(e.target.value) }), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, filteredDocs.map((doc) => { const signed = normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version); const openDoc = () => openEmployeeReader({ icon: "fa-book-open", accent: "#4338ca", title: doc.titulo, subtitle: `${doc.categoria || "Manual"} · Version ${doc.version || "1.0"}`, content: doc.contenido, fileUrl: doc.archivoDataUrl, fileType: doc.archivoTipo, fileName: doc.archivoNombre, tags: [{ label: doc.firmaObligatoria ? signed ? "Firmado" : "Firma requerida" : "Lectura", className: signed ? "pill pill-verde" : doc.firmaObligatoria ? "pill pill-naranja" : "pill pill-azul" }], action: doc.firmaObligatoria ? /* @__PURE__ */ React.createElement("button", { className: signed ? "btn btn-gris" : "btn btn-azul", disabled: signed, onClick: function() { signDocument(doc); setActiveEmployeeReader(null); } }, signed ? "Firmado" : "Firmar digitalmente") : null }); return /* @__PURE__ */ React.createElement("button", { key: doc.id, type: "button", className: "rrhh-modern-card", onClick: openDoc, style: { textAlign: "left", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, doc.titulo), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, doc.categoria, " · Version ", doc.version, " · ", doc.firmaObligatoria ? "Firma requerida" : "Lectura"), /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, doc.contenido), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, doc.archivoDataUrl && /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), doc.archivoNombre || "Adjunto"), doc.firmaObligatoria && /* @__PURE__ */ React.createElement("span", { className: signed ? "btn btn-sm btn-gris" : "btn btn-sm btn-azul" }, signed ? "Firmado" : "Firmar al abrir"), /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline" }, "Abrir"))); }), filteredDocs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No se encontraron documentos."))))
       ),
       tab === "cursos" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-graduation-cap", "Cursos y capacitacion", "Lecciones por perfil para reforzar induccion, servicio y operacion.", "linear-gradient(135deg,#7c3aed,#2563eb)"),
-        /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.courses.map((course) => /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card", key: course.id }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, course.titulo), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, course.aprobadoMinimo || 0, "%")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, "Perfil: ", course.perfil), /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6 } }, (course.lecciones || []).map((lesson) => /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson))))), normalized.courses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No hay cursos publicados."))
+        /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.courses.map((course) => /* @__PURE__ */ React.createElement("button", { className: "rrhh-modern-card", key: course.id, type: "button", style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openEmployeeReader({ icon: "fa-graduation-cap", accent: "#7c3aed", title: course.titulo, subtitle: `Perfil: ${course.perfil || "Todos"} · Aprobacion minima ${course.aprobadoMinimo || 0}%`, content: course.descripcion || course.contenido || "Revisa las lecciones del curso y confirma con tu encargado cualquier duda antes de aplicar el procedimiento.", lessons: course.lecciones || [], fileUrl: course.archivoDataUrl, fileType: course.archivoTipo, fileName: course.archivoNombre, tags: [{ label: course.estado || "Publicado", className: "pill pill-azul" }] }); } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, course.titulo), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, course.aprobadoMinimo || 0, "%")), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, "Perfil: ", course.perfil), /* @__PURE__ */ React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6 } }, (course.lecciones || []).slice(0, 3).map((lesson) => /* @__PURE__ */ React.createElement("li", { key: lesson }, lesson))), /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline", style: { justifySelf: "start" } }, "Abrir curso"))), normalized.courses.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "No hay cursos publicados."))
       ),
       tab === "horarios" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-calendar-days", "Horarios y descansos", "Consulta tu semana laboral, dias libres, vacaciones y permisos visibles.", "linear-gradient(135deg,#0891b2,#16a34a)"),
@@ -8622,7 +8920,7 @@
       ),
       tab === "anuncios" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-bullhorn", "Anuncios", "Comunicaciones internas, prioridades y avisos publicados para el equipo.", "linear-gradient(135deg,#f59e0b,#ef4444)"),
-        /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.announcements.filter((a) => a.estado === "Publicado").map((ann) => /* @__PURE__ */ React.createElement("div", { key: ann.id, className: "rrhh-modern-card " + (ann.prioridad === "Alta" ? "is-alert" : "") }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, ann.titulo), /* @__PURE__ */ React.createElement("span", { className: ann.prioridad === "Alta" ? "pill pill-rojo" : "pill pill-azul" }, ann.prioridad || "Normal")), /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, ann.contenido), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => markAnnouncementRead(ann), style: { justifySelf: "start" } }, "Marcar leido"))), normalized.announcements.filter((a) => a.estado === "Publicado").length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin anuncios publicados."))
+        /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.announcements.filter((a) => a.estado === "Publicado").map((ann) => /* @__PURE__ */ React.createElement("button", { key: ann.id, type: "button", className: "rrhh-modern-card " + (ann.prioridad === "Alta" ? "is-alert" : ""), style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openEmployeeReader({ icon: "fa-bullhorn", accent: ann.prioridad === "Alta" ? "#ef4444" : "#f59e0b", title: ann.titulo, subtitle: `Prioridad: ${ann.prioridad || "Normal"}`, content: ann.contenido, fileUrl: ann.archivoDataUrl, fileType: ann.archivoTipo, fileName: ann.archivoNombre, tags: [{ label: ann.prioridad || "Normal", className: ann.prioridad === "Alta" ? "pill pill-rojo" : "pill pill-azul" }], action: /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: function() { markAnnouncementRead(ann); setActiveEmployeeReader(null); } }, "Marcar leido") }); } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, ann.titulo), /* @__PURE__ */ React.createElement("span", { className: ann.prioridad === "Alta" ? "pill pill-rojo" : "pill pill-azul" }, ann.prioridad || "Normal")), /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, ann.contenido), /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline", style: { justifySelf: "start" } }, "Abrir anuncio"))), normalized.announcements.filter((a) => a.estado === "Publicado").length === 0 && /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin anuncios publicados."))
       ),
       tab === "equipos" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-shirt", "Uniformes y equipos", "Codigo de vestimenta, piezas asignadas y articulos entregados al colaborador.", "linear-gradient(135deg,#0f766e,#38bdf8)"),
@@ -8630,7 +8928,7 @@
       ),
       tab === "desempeno" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-award", "Desempeno", "Reconocimientos y competencias visibles para tu crecimiento dentro de WTF.", "linear-gradient(135deg,#f59e0b,#2563eb)"),
-        /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Mis reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-modern-grid" }, visibleRecognitions.length ? visibleRecognitions.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, className: "rrhh-modern-card" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.titulo), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.fecha || "-"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion), row.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: row.archivoDataUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, row.archivoNombre || "Abrir adjunto"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos visibles."))), /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-modern-grid" }, visibleCompetencies.length ? visibleCompetencies.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, className: "rrhh-modern-card" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.nombre), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.categoria || "-", " · Nivel ", row.nivelEsperado || "-"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas."))))
+        /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Mis reconocimientos")), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-modern-grid" }, visibleRecognitions.length ? visibleRecognitions.map((row) => /* @__PURE__ */ React.createElement("button", { key: row.id, type: "button", className: "rrhh-modern-card", style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openEmployeeReader({ icon: "fa-award", accent: "#f59e0b", title: row.titulo, subtitle: row.fecha || "Reconocimiento", content: row.descripcion || "Reconocimiento visible para el colaborador.", fileUrl: row.archivoDataUrl, fileType: row.archivoTipo, fileName: row.archivoNombre, tags: [{ label: "Reconocimiento", className: "pill pill-verde" }] }); } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.titulo), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.fecha || "-"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion), row.archivoDataUrl && /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline", style: { justifySelf: "start" } }, row.archivoNombre || "Adjunto"), /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline", style: { justifySelf: "start" } }, "Abrir"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin reconocimientos visibles."))), /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Competencias")), /* @__PURE__ */ React.createElement("div", { className: "card-body rrhh-modern-grid" }, visibleCompetencies.length ? visibleCompetencies.map((row) => /* @__PURE__ */ React.createElement("button", { key: row.id, type: "button", className: "rrhh-modern-card", style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openEmployeeReader({ icon: "fa-chart-line", accent: "#2563eb", title: row.nombre, subtitle: `${row.categoria || "Competencia"} · Nivel ${row.nivelEsperado || "-"}`, content: row.descripcion || "Competencia cargada para reforzar el perfil laboral.", fileUrl: row.archivoDataUrl, fileType: row.archivoTipo, fileName: row.archivoNombre, tags: [{ label: row.categoria || "Competencia", className: "pill pill-azul" }, { label: `Nivel ${row.nivelEsperado || "-"}`, className: "pill pill-gris" }] }); } }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.nombre), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.categoria || "-", " · Nivel ", row.nivelEsperado || "-"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion), /* @__PURE__ */ React.createElement("span", { className: "btn btn-sm btn-outline", style: { justifySelf: "start" } }, "Abrir"))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin competencias cargadas."))))
       ),
       tab === "expediente" && /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in", style: { overflow: "hidden", border: "1px solid #c7d2fe", boxShadow: "0 18px 45px rgba(15,23,42,0.08)" } },
         /* @__PURE__ */ React.createElement("div", { style: { background: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 55%, #14b8a6 100%)", color: "#fff", padding: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" } },
@@ -8794,7 +9092,7 @@
             ))
           ),
           renderScheduleWeekTable(activeEmployees, "Tabla semanal asignada"),
-          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de asignaciones")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Colaborador", "Hoja de tiempo", "Vigente desde", "Notas"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.schedules.slice(0, 100).map(function(row) { return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.usuario), /* @__PURE__ */ React.createElement("td", null, row.templateName), /* @__PURE__ */ React.createElement("td", null, row.effectiveFrom), /* @__PURE__ */ React.createElement("td", null, row.notes || "-")); }))))),
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial de asignaciones")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Colaborador", "Hoja de tiempo", "Vigente desde", "Notas"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.schedules.slice(0, 100).map(function(row) { return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", null, row.usuario), /* @__PURE__ */ React.createElement("td", null, row.templateName), /* @__PURE__ */ React.createElement("td", null, formatDateDDMMYYYY(row.effectiveFrom)), /* @__PURE__ */ React.createElement("td", null, row.notes || "-")); }))))),
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Descansos y vacaciones registrados")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Colaborador", "Tipo", "Desde", "Hasta", "Estado", "Accion"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.timeOff.slice(0, 150).map(function(row) { return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.usuario || row.userId), /* @__PURE__ */ React.createElement("td", null, row.tipo), /* @__PURE__ */ React.createElement("td", null, row.desde), /* @__PURE__ */ React.createElement("td", null, row.hasta), /* @__PURE__ */ React.createElement("td", null, row.estado || "Activo"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: function() { editTimeOff(row); } }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: row.estado === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: function() { setEmployeeCenterRowStatus("timeOff", row.id, row.estado === "Archivado" ? "Activo" : "Archivado"); } }, row.estado === "Archivado" ? "Reactivar" : "Eliminar")))); })))))
         ),
         adminSection === "induccion" && /* @__PURE__ */ React.createElement(React.Fragment, null,
@@ -9285,10 +9583,15 @@
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+        const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
+        const mergedSignature = serializeAppState(mergedState);
         lastRemoteSignatureRef.current = remoteSignature;
-        applyRemoteState(remoteState);
+        applyRemoteState(mergedState);
+        if (mergedSignature !== remoteSignature) {
+          scheduleFirebaseWrite(mergedState, mergedSignature, 350, `${reason || "foreground"}-protected-merge`);
+        }
         setFirebaseStatus("connected");
-        setFirebaseMessage(reason === "foreground-interval" ? "Nube aplicada en primer plano" : "Nube aplicada al volver");
+        setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano con proteccion" : "Sincronizado al volver con proteccion");
         if (data && data.updatedAt) {
           const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
           setLastSyncedAt(formatDatetime(date));
@@ -9592,7 +9895,9 @@
           const remoteState = decodeFirebaseAppState(data);
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
-              const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
+              const migratedRemoteState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
+              const migratedState = mergeRemoteAppStateWithLocal(migratedRemoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
+              migratedState.dataVersion = DATA_VERSION;
               applyRemoteState(migratedState);
               const migrationDoc = createFirebaseWriteDoc(migratedState, "web-migration-cloud-first");
               lastRemoteSignatureRef.current = migrationDoc.signature;
@@ -9644,10 +9949,15 @@
                   scheduleFirebaseWrite(mergedState, mergedSignature, 500, "web-client-merge");
                 }
               } else {
+                const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
+                const mergedSignature = serializeAppState(mergedState);
                 pendingLocalSignatureRef.current = "";
                 pendingLocalAtRef.current = 0;
                 hasSessionLocalChangeRef.current = false;
-                applyRemoteState(remoteState);
+                applyRemoteState(mergedState);
+                if (mergedSignature !== remoteSignature) {
+                  scheduleFirebaseWrite(mergedState, mergedSignature, 500, "web-client-cloud-local-merge");
+                }
               }
               setFirebaseMessage("Sincronizado en tiempo real");
             } else {
@@ -10523,7 +10833,7 @@ Solicitado: ${cantidad}`);
       costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData }),
       finanzas: /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
-      employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
+      employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
       usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData }),
       aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
@@ -14877,7 +15187,7 @@ Solicitado: ${cantidad}`);
     const [editingCommitmentId, setEditingCommitmentId] = useState("");
     const [tipForm, setTipForm] = useState({ periodStart: period.start, periodEnd: period.end, fechaPago: new Date().toISOString().slice(0, 10), efectivo: "", tarjeta: "", transferencia: "", dolares: "", tasaDolar: normalized.settings.defaultUsdRate || "", fianza: "", wtfPct: normalized.settings.tipWtfDefaultPct || "" });
     const [tipParticipantForm, setTipParticipantForm] = useState({ empleadoId: "", porcentaje: "", sueldoBase: "" });
-    const [tipParticipants, setTipParticipants] = useState([]);
+    const [tipParticipants, setTipParticipants] = useState(() => Array.isArray(normalized.tipParticipantTemplates) ? normalized.tipParticipantTemplates : []);
     const [attendanceForm, setAttendanceForm] = useState({ empleadoId: "", fecha: new Date().toISOString().slice(0, 10), entradaProgramada: "", entradaReal: "", salidaProgramada: "", salidaReal: "", dispositivo: "", observacion: "" });
     const [terminalRows, setTerminalRows] = useState(normalized.authorizedTerminals || []);
     const [terminalAuditRows, setTerminalAuditRows] = useState(normalized.terminalAuditLogs || []);
@@ -14897,6 +15207,11 @@ Solicitado: ${cantidad}`);
     const salePreview = calculateFinancialSaleDetail(saleForm, normalized.settings);
     const payrollPreview = calculatePayrollDetail(payrollForm, normalized.settings);
     const tipPreview = calculateFinancialTipRun(tipForm, tipParticipants, normalized.settings);
+    useEffect(function() {
+      if (active !== "propina" || tipParticipants.length) return;
+      const templateRows = Array.isArray(normalized.tipParticipantTemplates) ? normalized.tipParticipantTemplates : [];
+      if (templateRows.length) setTipParticipants(templateRows);
+    }, [active, normalized.tipParticipantTemplates.length]);
     useEffect(function() {
       if (active === "asistencia" && isAdmin) refreshTerminals();
     }, [active, isAdmin]);
@@ -15070,21 +15385,76 @@ Solicitado: ${cantidad}`);
         toast("No se pudo consultar la tasa. Puede escribirla manualmente.", "error");
       }
     }
+    function persistTipParticipantTemplate(rows) {
+      const now = new Date().toISOString();
+      const cleanRows = (Array.isArray(rows) ? rows : []).map(function(row) {
+        return Object.assign({}, row, {
+          id: row.id || row.empleadoId || `tip-user-${Date.now()}`,
+          updatedAt: now
+        });
+      });
+      updateData((prev) => Object.assign({}, prev, { tipParticipantTemplates: cleanRows }));
+    }
+    function loadTipTemplate() {
+      const rows = Array.isArray(normalized.tipParticipantTemplates) ? normalized.tipParticipantTemplates : [];
+      if (!rows.length) return toast("No hay modelo guardado todavia.", "error");
+      setTipParticipants(rows);
+      toast("Modelo de propina cargado.", "ok");
+    }
+    function editTipParticipant(row) {
+      setTipParticipantForm({ empleadoId: row.id || row.empleadoId || "", porcentaje: row.porcentaje || "", sueldoBase: row.sueldoBase || "" });
+    }
+    function deleteTipParticipant(row) {
+      if (!confirm(`Eliminar a ${row.empleado || "este colaborador"} del modelo de propina?`)) return;
+      const nextRows = tipParticipants.filter((item) => String(item.id) !== String(row.id));
+      setTipParticipants(nextRows);
+      persistTipParticipantTemplate(nextRows);
+      toast("Colaborador eliminado del modelo.", "ok");
+    }
     function addTipParticipant() {
       if (!tipParticipantForm.empleadoId) return toast("Selecciona colaborador.", "error");
       const user = activeUsers.find((u) => String(u.id || u.email) === String(tipParticipantForm.empleadoId));
       const pct = parseCostNumber(tipParticipantForm.porcentaje);
       if (!(pct > 0)) return toast("Indica porcentaje.", "error");
-      const row = { id: tipParticipantForm.empleadoId, empleado: user ? getUserDisplayLabel(user) : tipParticipantForm.empleadoId, porcentaje: pct, sueldoBase: parseCostNumber(tipParticipantForm.sueldoBase) };
-      setTipParticipants((prev) => [row].concat(prev.filter((item) => item.id !== row.id)));
+      const row = { id: tipParticipantForm.empleadoId, empleadoId: tipParticipantForm.empleadoId, empleado: user ? getUserDisplayLabel(user) : tipParticipantForm.empleadoId, porcentaje: pct, sueldoBase: parseCostNumber(tipParticipantForm.sueldoBase) };
+      const nextRows = [row].concat(tipParticipants.filter((item) => item.id !== row.id));
+      setTipParticipants(nextRows);
+      persistTipParticipantTemplate(nextRows);
       setTipParticipantForm({ empleadoId: "", porcentaje: "", sueldoBase: "" });
     }
     function saveTipRun() {
       if (!(tipPreview.propinaLey > 0)) return toast("Indica ventas para calcular propina.", "error");
       if (!tipParticipants.length) return toast("Agrega colaboradores a la distribucion.", "error");
-      const row = Object.assign({}, tipForm, tipPreview, { id: `tip-${Date.now()}`, estado: "Registrada", usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString() });
+      const row = Object.assign({}, tipForm, tipPreview, { id: `tip-${Date.now()}`, participants: tipParticipants, estado: "Registrada", usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString() });
       updateData((prev) => Object.assign({}, prev, { tipRuns: [row].concat(prev.tipRuns || []) }), { accion: "Registrar propina de ley", detalle: `${tipForm.periodStart} - ${tipForm.periodEnd} ${formatAssetCurrency(tipPreview.propinaLey)}` });
+      persistTipParticipantTemplate(tipParticipants);
       toast("Calculo de propina guardado.", "ok");
+    }
+    function loadTipRunAsDraft(row) {
+      const participants = Array.isArray(row.participants) && row.participants.length ? row.participants : Array.isArray(row.rows) ? row.rows : [];
+      setTipForm((prev) => Object.assign({}, prev, {
+        periodStart: row.periodStart || prev.periodStart,
+        periodEnd: row.periodEnd || prev.periodEnd,
+        fechaPago: row.fechaPago || prev.fechaPago,
+        efectivo: row.efectivo || "",
+        tarjeta: row.tarjeta || "",
+        transferencia: row.transferencia || "",
+        dolares: row.dolares || "",
+        tasaDolar: row.tasaDolar || normalized.settings.defaultUsdRate || "",
+        fianza: row.fianza || row.descontarOfertas || "",
+        wtfPct: row.wtfPct || normalized.settings.tipWtfDefaultPct || ""
+      }));
+      setTipParticipants(participants);
+      setActive("propina");
+      toast("Calculo cargado como borrador nuevo. Al guardar se creara otro historial.", "ok");
+    }
+    function deleteTipRun(row) {
+      if (!confirm(`Eliminar/anular calculo de propina ${formatDateDDMMYYYY(row.periodStart)} - ${formatDateDDMMYYYY(row.periodEnd)}?`)) return;
+      const now = new Date().toISOString();
+      updateData((prev) => Object.assign({}, prev, {
+        tipRuns: (prev.tipRuns || []).map((item) => item.id === row.id ? Object.assign({}, item, { estado: "Anulado", updatedAt: now, anuladoPor: getUserDisplayLabel(currentUser) }) : item)
+      }), { accion: "Anular calculo propina", detalle: `${row.periodStart || ""} - ${row.periodEnd || ""}` });
+      toast("Calculo de propina anulado sin borrar el registro.", "ok");
     }
     function payCommitment(row) {
       const balance = Math.max(0, Number(row.montoDop || row.montoReal || row.montoEstimado || 0) - Number(row.pagado || 0));
@@ -15138,9 +15508,9 @@ Solicitado: ${cantidad}`);
       toast("Periodo cerrado.", "ok");
     }
     function stat(label, value, color, title) {
-      return /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 5 }, title },
-        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 800 } }, label),
-        /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 21, color: color || "#111827" } }, value)
+      return /* @__PURE__ */ React.createElement("div", { className: "finance-stat", title, style: { "--finance-accent": color || "#0f172a" } },
+        /* @__PURE__ */ React.createElement("span", null, label),
+        /* @__PURE__ */ React.createElement("strong", null, value)
       );
     }
     function field(label, value, setValue, props) {
@@ -15149,23 +15519,71 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("input", Object.assign({ className: "form-control", value, onChange: (e) => setValue(e.target.value) }, props || {}))
       );
     }
+    function renderTipParticipantTable(rows, options) {
+      const dataRows = Array.isArray(rows) ? rows : [];
+      const readOnly = options && options.readOnly;
+      const parentRun = options && options.run;
+      if (!dataRows.length) return /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin colaboradores para mostrar.");
+      return /* @__PURE__ */ React.createElement("div", { className: "table-wrap finance-table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+        /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Colaborador", "%", "Monto propina", "Sueldo base", "Total con sueldo", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))),
+        /* @__PURE__ */ React.createElement("tbody", null, dataRows.map(function(row, index) {
+          return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.empleadoId || index },
+            /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.empleado || row.nombre || row.id || "-"),
+            /* @__PURE__ */ React.createElement("td", null, `${parseCostNumber(row.porcentaje)}%`),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoPropina || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.sueldoBase || 0)),
+            /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 900 } }, formatAssetCurrency(row.totalConSueldo || 0)),
+            /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } },
+              readOnly ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar usando este calculo como base nueva", onClick: () => loadTipRunAsDraft(parentRun) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })) : /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar colaborador", onClick: () => editTipParticipant(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })),
+              readOnly ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar/anular calculo", disabled: parentRun && parentRun.estado === "Anulado", onClick: () => deleteTipRun(parentRun) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })) : /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar del modelo", onClick: () => deleteTipParticipant(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+            ))
+          );
+        }))
+      ));
+    }
+    function renderTipHistory() {
+      const rows = (normalized.tipRuns || []).slice(0, 50);
+      if (!rows.length) return /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
+      return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } }, rows.map(function(run) {
+        const detailRows = Array.isArray(run.rows) && run.rows.length ? run.rows : calculateFinancialTipRun(run, run.participants || [], normalized.settings).rows;
+        return /* @__PURE__ */ React.createElement("div", { key: run.id, className: "card", style: { boxShadow: "none", borderColor: run.estado === "Anulado" ? "#fecaca" : "var(--borde)", opacity: run.estado === "Anulado" ? 0.72 : 1 } },
+          /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } },
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" } },
+              /* @__PURE__ */ React.createElement("div", null,
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, color: "#111827" } }, formatDateDDMMYYYY(run.periodStart), " - ", formatDateDDMMYYYY(run.periodEnd)),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, "Venta neta ", formatAssetCurrency(run.ventasNetas || 0), " · Propina ", formatAssetCurrency(run.propinaLey || 0), " · Descontar ofertas ", formatAssetCurrency(run.fianza || run.descontarOfertas || 0))
+              ),
+              /* @__PURE__ */ React.createElement("span", { className: `pill ${run.estado === "Anulado" ? "pill-rojo" : "pill-verde"}` }, run.estado || "Registrada")
+            ),
+            renderTipParticipantTable(detailRows, { readOnly: true, run })
+          )
+        );
+      }));
+    }
     const tabs = [["dashboard", "Dashboard"], ["estado", "Estado de Resultados"], ["ventas", "Ventas"], ["gastos", "Compras y Gastos"], ["inventario", "Inventario Valorado"], ["flujo", "Flujo de Caja"], ["nomina", "Nomina"], ["propina", "Propina 10%"], ["compromisos", "Compromisos"], ["asistencia", "Control Horario"], ["cierres", "Historial / Cierres"], ["config", "Configuracion"]];
-    return /* @__PURE__ */ React.createElement("div", null,
-      /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" } },
-        /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: "#111827" } }, "Finanzas"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Control financiero administrativo: utilidad, flujo de caja, compromisos, nomina e inventario valorizado.")),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: period.start, onChange: (e) => setPeriod((p) => Object.assign({}, p, { start: e.target.value })), style: { width: 150 } }),
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: period.end, onChange: (e) => setPeriod((p) => Object.assign({}, p, { end: e.target.value })), style: { width: 150 } }),
-          /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setPeriod(getFinancialMonthRange(new Date())) }, "Mes actual")
+    return /* @__PURE__ */ React.createElement("div", { className: "finance-shell" },
+      /* @__PURE__ */ React.createElement("div", { className: "card finance-hero" }, /* @__PURE__ */ React.createElement("div", { className: "card-body" },
+        /* @__PURE__ */ React.createElement("div", null,
+          /* @__PURE__ */ React.createElement("div", { className: "finance-kicker" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sack-dollar" }), "Administracion financiera"),
+          /* @__PURE__ */ React.createElement("h1", { className: "finance-title" }, "Finanzas WTF"),
+          /* @__PURE__ */ React.createElement("div", { className: "finance-subtitle" }, "Utilidad, flujo de caja, compromisos, nomina, propina e inventario valorizado en una vista ejecutiva para tomar decisiones con datos.")
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "finance-period-panel" },
+          /* @__PURE__ */ React.createElement("div", { style: { color: "rgba(255,255,255,.78)", fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: ".06em" } }, "Periodo de analisis"),
+          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
+            field("Desde", period.start, (v) => setPeriod((p) => Object.assign({}, p, { start: v })), { type: "date" }),
+            field("Hasta", period.end, (v) => setPeriod((p) => Object.assign({}, p, { end: v })), { type: "date" })
+          ),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setPeriod(getFinancialMonthRange(new Date())), style: { background: "rgba(255,255,255,.92)", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day" }), "Mes actual")
         )
       )),
-      /* @__PURE__ */ React.createElement("div", { className: "grid-4" },
+      /* @__PURE__ */ React.createElement("div", { className: "finance-stat-grid" },
         stat("Ventas netas", formatAssetCurrency(statement.sales.ventasNetas), "#15803d", "Ventas brutas menos descuentos y devoluciones."),
         stat("Costo mercancia", formatAssetCurrency(statement.costoMercancia), "#b45309", "Inventario inicial + compras - inventario final."),
         stat("Resultado operativo", formatAssetCurrency(statement.resultadoOperativo), statement.resultadoOperativo >= 0 ? "#15803d" : "#b91c1c"),
         stat("Flujo neto caja", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#4338ca" : "#b91c1c", "Dinero real entrado menos salidas reales.")
       ),
-      /* @__PURE__ */ React.createElement("div", { className: "tabs", style: { marginTop: 12 } }, tabs.map((tab) => /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${active === tab[0] ? "active" : ""}`, onClick: () => setActive(tab[0]) }, tab[1]))),
+      /* @__PURE__ */ React.createElement("div", { className: "tabs finance-tabs" }, tabs.map((tab) => /* @__PURE__ */ React.createElement("button", { key: tab[0], className: `tab ${active === tab[0] ? "active" : ""}`, onClick: () => setActive(tab[0]) }, tab[1]))),
       active === "dashboard" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } },
         /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Lectura del periodo")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } },
           ["Ventas netas: " + formatAssetCurrency(statement.sales.ventasNetas), "Utilidad bruta: " + formatAssetCurrency(statement.utilidadBruta), "Gastos operativos: " + formatAssetCurrency(statement.gastosOperativos), "Nomina total: " + formatAssetCurrency(statement.payroll.totalCost), "Margen administrativo: " + statement.margenNeto + "%", "Inventario disponible: " + formatAssetCurrency(statement.inventarioFinal), "Compromisos pendientes: " + formatAssetCurrency(statement.commitments.pendingTotal)].map((line) => /* @__PURE__ */ React.createElement("div", { key: line, className: "pill pill-gris", style: { justifyContent: "flex-start" } }, line)),
@@ -15178,28 +15596,51 @@ Solicitado: ${cantidad}`);
         ))
       ),
       active === "estado" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Estado de Resultados")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("tbody", null, [["Ventas brutas", statement.sales.ventaBruta], ["Descuentos / devoluciones", -(statement.sales.descuentos + statement.sales.devoluciones)], ["Ventas netas", statement.sales.ventasNetas], ["Costo mercancia consumida", -statement.costoMercancia], ["Utilidad bruta", statement.utilidadBruta], ["Gastos operativos", -statement.gastosOperativos], ["Nomina", -statement.payroll.totalCost], ["Resultado del periodo", statement.resultadoOperativo]].map((row) => /* @__PURE__ */ React.createElement("tr", { key: row[0] }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row[0]), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontWeight: 800, color: row[1] >= 0 ? "#15803d" : "#b91c1c" } }, formatAssetCurrency(row[1])))))))),
-      active === "ventas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar venta / cierre")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", saleForm.fecha, (v) => setSaleForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: saleForm.canal, onChange: (e) => setSaleForm((p) => Object.assign({}, p, { canal: e.target.value })) }, ["Caja / cierre diario"].concat(normalized.settings.salesChannels).map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Efectivo", saleForm.efectivo, (v) => setSaleForm((p) => Object.assign({}, p, { efectivo: v })), { type: "number" }), field("Tarjeta", saleForm.tarjeta, (v) => setSaleForm((p) => Object.assign({}, p, { tarjeta: v })), { type: "number" }), field("Transferencia", saleForm.transferencia, (v) => setSaleForm((p) => Object.assign({}, p, { transferencia: v })), { type: "number" }), field("Dolares", saleForm.dolares, (v) => setSaleForm((p) => Object.assign({}, p, { dolares: v })), { type: "number" }), field("Tasa dolar", saleForm.tasaDolar, (v) => setSaleForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), field("Uber Eats recibido", saleForm.uber, (v) => setSaleForm((p) => Object.assign({}, p, { uber: v })), { type: "number" }), field("Fianza caja", saleForm.fianza, (v) => setSaleForm((p) => Object.assign({}, p, { fianza: v })), { type: "number" }), field("Descuentos / devoluciones", saleForm.descuentos, (v) => setSaleForm((p) => Object.assign({}, p, { descuentos: v })), { type: "number" })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("Venta bruta", formatAssetCurrency(salePreview.ventaBruta), "#111827"), stat("Venta neta", formatAssetCurrency(salePreview.ventasNetas), "#15803d"), stat("Ret. ITBIS tarjeta", formatAssetCurrency(salePreview.tarjetaRetencionItbis), "#b45309"), stat("Verifone", formatAssetCurrency(salePreview.tarjetaComisionVerifone), "#b45309"), stat("Neto recibido", formatAssetCurrency(salePreview.netoRecibido), "#4338ca")), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Tarjeta descuenta 2.00% retencion ITBIS y 3.60% Verifone. Uber usa la formula solicitada: recibido / 70% - recibido * 18%."), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSale }, "Guardar venta"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Ventas del periodo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, statement.salesRows.length)), renderSimpleFinanceTable(statement.salesRows.slice(0, 80).map((row) => Object.assign({}, row, calculateFinancialSaleDetail(row, normalized.settings))), ["fecha", "canal", "ventaBruta", "fianza", "ventasNetas", "netoRecibido", "fuente"]))),
+      active === "ventas" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar venta / cierre")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", saleForm.fecha, (v) => setSaleForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: saleForm.canal, onChange: (e) => setSaleForm((p) => Object.assign({}, p, { canal: e.target.value })) }, ["Caja / cierre diario"].concat(normalized.settings.salesChannels).map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Efectivo", saleForm.efectivo, (v) => setSaleForm((p) => Object.assign({}, p, { efectivo: v })), { type: "number" }), field("Tarjeta", saleForm.tarjeta, (v) => setSaleForm((p) => Object.assign({}, p, { tarjeta: v })), { type: "number" }), field("Transferencia", saleForm.transferencia, (v) => setSaleForm((p) => Object.assign({}, p, { transferencia: v })), { type: "number" }), field("Dolares", saleForm.dolares, (v) => setSaleForm((p) => Object.assign({}, p, { dolares: v })), { type: "number" }), field("Tasa dolar", saleForm.tasaDolar, (v) => setSaleForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), field("Uber Eats recibido", saleForm.uber, (v) => setSaleForm((p) => Object.assign({}, p, { uber: v })), { type: "number" }), field("Descontar ofertas", saleForm.fianza, (v) => setSaleForm((p) => Object.assign({}, p, { fianza: v })), { type: "number" }), field("Descuentos / devoluciones", saleForm.descuentos, (v) => setSaleForm((p) => Object.assign({}, p, { descuentos: v })), { type: "number" })), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("Venta bruta", formatAssetCurrency(salePreview.ventaBruta), "#111827"), stat("Venta neta", formatAssetCurrency(salePreview.ventasNetas), "#15803d"), stat("Ret. ITBIS tarjeta", formatAssetCurrency(salePreview.tarjetaRetencionItbis), "#b45309"), stat("Verifone", formatAssetCurrency(salePreview.tarjetaComisionVerifone), "#b45309"), stat("Neto recibido", formatAssetCurrency(salePreview.netoRecibido), "#4338ca")), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Tarjeta descuenta 2.00% retencion ITBIS y 3.60% Verifone. Uber usa la formula solicitada: recibido / 70% - recibido * 18%."), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSale }, "Guardar venta"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Ventas del periodo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, statement.salesRows.length)), renderSimpleFinanceTable(statement.salesRows.slice(0, 80).map((row) => Object.assign({}, row, calculateFinancialSaleDetail(row, normalized.settings))), ["fecha", "canal", "ventaBruta", "fianza", "ventasNetas", "netoRecibido", "fuente"]))),
       active === "gastos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar compra o gasto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", expenseForm.fecha, (v) => setExpenseForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.tipo, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Gasto", "Compra de inventario", "Nomina", "Impuesto", "Retiro propietario", "Aporte propietario", "Transferencia interna", "Otro"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.categoria, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { categoria: e.target.value })) }, normalized.settings.expenseCategories.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Monto", expenseForm.monto, (v) => setExpenseForm((p) => Object.assign({}, p, { monto: v })), { type: "number" }), field("Proveedor / beneficiario", expenseForm.proveedor, (v) => setExpenseForm((p) => Object.assign({}, p, { proveedor: v }))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addExpense }, "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Gastos del periodo")), renderSimpleFinanceTable(statement.manualExpenses.slice(0, 80), ["fecha", "tipo", "categoria", "monto", "proveedor"]))),
       active === "inventario" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Inventario Valorado"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, formatAssetCurrency(inventoryValue.total))), renderSimpleFinanceTable(inventoryValue.details.slice(0, 160).map((row) => ({ producto: row.product.nombre, area: row.area, ubicacion: row.ubicacion, existencia: row.existencia, valor: row.value, estado: row.ok ? "OK" : row.costInfo.reason })), ["producto", "area", "ubicacion", "existencia", "valor", "estado"])),
       active === "flujo" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, stat("Entradas de efectivo", formatAssetCurrency(statement.flujoEntradas), "#15803d", "Neto recibido real de ventas mas aportes."), stat("Salidas de efectivo", formatAssetCurrency(statement.flujoSalidas), "#b91c1c", "Gastos pagados, nomina y aportes empresa."), stat("Flujo neto", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#15803d" : "#b91c1c"), stat("Diferencia utilidad vs caja", formatAssetCurrency(statement.resultadoOperativo - statement.flujoNeto), "#4338ca")), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("strong", null, "Como leerlo: "), "el flujo de caja no es ganancia. Es dinero que entro menos dinero que salio. Puede verse alto si hay ventas cobradas pero aun no se pagaron compromisos, compras o nomina; puede verse bajo aunque haya ganancia si se pagaron deudas o inventario.")),
       active === "nomina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar nomina")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: payrollForm.empleadoId, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Fecha de pago", payrollForm.fechaPago, (v) => setPayrollForm((p) => Object.assign({}, p, { fechaPago: v })), { type: "date" }), field("Salario bruto", payrollForm.salarioBruto, (v) => setPayrollForm((p) => Object.assign({}, p, { salarioBruto: v })), { type: "number" }), field("Otros ingresos", payrollForm.otrosIngresos, (v) => setPayrollForm((p) => Object.assign({}, p, { otrosIngresos: v })), { type: "number" }), field("Productividad", payrollForm.productividad, (v) => setPayrollForm((p) => Object.assign({}, p, { productividad: v })), { type: "number" }), field("Compras comida", payrollForm.deduccionComida, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionComida: v })), { type: "number" }), field("Dias/horas no trabajadas", payrollForm.deduccionAusencia, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionAusencia: v })), { type: "number" }), field("Prestamo", payrollForm.deduccionPrestamo, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionPrestamo: v })), { type: "number" }), field("Otras deducciones", payrollForm.otrasDeducciones, (v) => setPayrollForm((p) => Object.assign({}, p, { otrasDeducciones: v })), { type: "number" })), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: payrollForm.aplicaTss !== false, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { aplicaTss: e.target.checked })) }), "Aplicar deducciones y aportes TSS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("TSS colaborador", formatAssetCurrency(payrollPreview.employeeTss), "#b45309"), stat("Deducciones total", formatAssetCurrency(payrollPreview.deductions), "#b91c1c"), stat("Neto a pagar", formatAssetCurrency(payrollPreview.net), "#15803d"), stat("Aportes empresa", formatAssetCurrency(payrollPreview.company), "#4338ca")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addPayroll }, "Guardar nomina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nomina del periodo")), renderSimpleFinanceTable(statement.payrollRows.slice(0, 80).map((row) => Object.assign({}, row, { estado: row.estado === "Borrador" ? "Registrada" : row.estado || "Registrada" })), ["fechaPago", "empleado", "salarioBruto", "otrosIngresos", "productividad", "deducciones", "netoPagar", "aportesEmpresa", "estado"]))),
-      active === "propina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Calculo propina de ley 10%")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Desde", tipForm.periodStart, (v) => setTipForm((p) => Object.assign({}, p, { periodStart: v })), { type: "date" }), field("Hasta", tipForm.periodEnd, (v) => setTipForm((p) => Object.assign({}, p, { periodEnd: v })), { type: "date" }), field("Efectivo", tipForm.efectivo, (v) => setTipForm((p) => Object.assign({}, p, { efectivo: v })), { type: "number" }), field("Tarjeta", tipForm.tarjeta, (v) => setTipForm((p) => Object.assign({}, p, { tarjeta: v })), { type: "number" }), field("Transferencia", tipForm.transferencia, (v) => setTipForm((p) => Object.assign({}, p, { transferencia: v })), { type: "number" }), field("Dolares", tipForm.dolares, (v) => setTipForm((p) => Object.assign({}, p, { dolares: v })), { type: "number" }), field("Tasa dolar", tipForm.tasaDolar, (v) => setTipForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), field("Fianza caja", tipForm.fianza, (v) => setTipForm((p) => Object.assign({}, p, { fianza: v })), { type: "number" }), field("% WTF / reposiciones", tipForm.wtfPct, (v) => setTipForm((p) => Object.assign({}, p, { wtfPct: v })), { type: "number" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar tasa USD"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("Ventas netas base", formatAssetCurrency(tipPreview.ventasNetas), "#111827"), stat("Propina 10%", formatAssetCurrency(tipPreview.propinaLey), "#15803d"), stat("Pool colaboradores", formatAssetCurrency(tipPreview.pool), "#4338ca"), stat("WTF", formatAssetCurrency(tipPreview.wtfMonto), "#b45309")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, borderTop: "1px solid var(--borde)", paddingTop: 10 } }, /* @__PURE__ */ React.createElement("strong", null, "Colaboradores y porcentajes"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 240 }, value: tipParticipantForm.empleadoId, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 120 }, type: "number", placeholder: "%", value: tipParticipantForm.porcentaje, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { porcentaje: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 150 }, type: "number", placeholder: "Sueldo base", value: tipParticipantForm.sueldoBase, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { sueldoBase: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: addTipParticipant }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")), renderSimpleFinanceTable(tipPreview.rows, ["empleado", "porcentaje", "montoPropina", "sueldoBase", "totalConSueldo"]), /* @__PURE__ */ React.createElement("div", { className: tipPreview.restantePct < 0 ? "alert alert-danger" : "alert alert-info", style: { marginBottom: 0 } }, "Porcentaje asignado: ", tipPreview.assignedPct, "%. Restante para ajustar/WTF: ", tipPreview.restantePct, "%")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveTipRun }, "Guardar calculo de propina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial propina")), renderSimpleFinanceTable((normalized.tipRuns || []).slice(0, 50), ["periodStart", "periodEnd", "ventasNetas", "propinaLey", "pool", "wtfMonto", "estado"]))),
-      active === "compromisos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCommitmentId ? "Editar compromiso" : "Nuevo compromiso")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Descripcion", commitmentForm.descripcion, (v) => setCommitmentForm((p) => Object.assign({}, p, { descripcion: v }))), field("Beneficiario", commitmentForm.beneficiario, (v) => setCommitmentForm((p) => Object.assign({}, p, { beneficiario: v }))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Monto estimado", commitmentForm.montoEstimado, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoEstimado: v })), { type: "number" }), field("Monto real", commitmentForm.montoReal, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoReal: v })), { type: "number" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 130 }, value: commitmentForm.moneda, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { moneda: e.target.value })) }, ["DOP", "USD"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Tasa USD", commitmentForm.tasaDolar, (v) => setCommitmentForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar")), field("Vencimiento", commitmentForm.fechaVencimiento, (v) => setCommitmentForm((p) => Object.assign({}, p, { fechaVencimiento: v })), { type: "date" }), field("Recordar dias antes", commitmentForm.reminderDays, (v) => setCommitmentForm((p) => Object.assign({}, p, { reminderDays: v })), { type: "number" }), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: commitmentForm.recurrente !== false, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { recurrente: e.target.checked })) }), "Compromiso recurrente mensual"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addCommitment }, editingCommitmentId ? "Guardar cambios" : "Guardar compromiso"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Pendientes"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, formatAssetCurrency(statement.commitments.pendingTotal))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Descripcion", "Vence", "Monto", "Pagado", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, statement.commitments.pending.slice(0, 80).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.descripcion, row.moneda === "USD" && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "USD · tasa ", row.tasaDolar || "-")), /* @__PURE__ */ React.createElement("td", null, row.fechaVencimiento, row.reminderDays && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Avisar ", row.reminderDays, " dia(s) antes")), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoDop || row.montoReal || row.montoEstimado)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.pagado || 0)), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => payCommitment(row) }, "Pagar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar", onClick: () => editCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar", onClick: () => deleteCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
+      active === "propina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Calculo propina de ley 10%")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Desde", tipForm.periodStart, (v) => setTipForm((p) => Object.assign({}, p, { periodStart: v })), { type: "date" }), field("Hasta", tipForm.periodEnd, (v) => setTipForm((p) => Object.assign({}, p, { periodEnd: v })), { type: "date" }), field("Efectivo", tipForm.efectivo, (v) => setTipForm((p) => Object.assign({}, p, { efectivo: v })), { type: "number" }), field("Tarjeta", tipForm.tarjeta, (v) => setTipForm((p) => Object.assign({}, p, { tarjeta: v })), { type: "number" }), field("Transferencia", tipForm.transferencia, (v) => setTipForm((p) => Object.assign({}, p, { transferencia: v })), { type: "number" }), field("Dolares", tipForm.dolares, (v) => setTipForm((p) => Object.assign({}, p, { dolares: v })), { type: "number" }), field("Tasa dolar", tipForm.tasaDolar, (v) => setTipForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), field("Descontar ofertas", tipForm.fianza, (v) => setTipForm((p) => Object.assign({}, p, { fianza: v })), { type: "number" }), field("% WTF / reposiciones", tipForm.wtfPct, (v) => setTipForm((p) => Object.assign({}, p, { wtfPct: v })), { type: "number" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar tasa USD"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("Ventas netas base", formatAssetCurrency(tipPreview.ventasNetas), "#111827"), stat("Propina 10%", formatAssetCurrency(tipPreview.propinaLey), "#15803d"), stat("Pool colaboradores", formatAssetCurrency(tipPreview.pool), "#4338ca"), stat("WTF", formatAssetCurrency(tipPreview.wtfMonto), "#b45309")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, borderTop: "1px solid var(--borde)", paddingTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("strong", null, "Colaboradores y porcentajes"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: loadTipTemplate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-import" }), "Cargar modelo guardado")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 240 }, value: tipParticipantForm.empleadoId, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 120 }, type: "number", placeholder: "%", value: tipParticipantForm.porcentaje, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { porcentaje: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 150 }, type: "number", placeholder: "Sueldo base", value: tipParticipantForm.sueldoBase, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { sueldoBase: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: addTipParticipant }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar/actualizar")), renderTipParticipantTable(tipPreview.rows), /* @__PURE__ */ React.createElement("div", { className: tipPreview.restantePct < 0 ? "alert alert-danger" : "alert alert-info", style: { marginBottom: 0 } }, "Porcentaje asignado: ", tipPreview.assignedPct, "%. Restante para ajustar/WTF: ", tipPreview.restantePct, "%")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveTipRun }, "Guardar calculo de propina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial propina")), renderTipHistory())),
+      active === "compromisos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCommitmentId ? "Editar compromiso" : "Nuevo compromiso")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Descripcion", commitmentForm.descripcion, (v) => setCommitmentForm((p) => Object.assign({}, p, { descripcion: v }))), field("Beneficiario", commitmentForm.beneficiario, (v) => setCommitmentForm((p) => Object.assign({}, p, { beneficiario: v }))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Monto estimado", commitmentForm.montoEstimado, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoEstimado: v })), { type: "number" }), field("Monto real", commitmentForm.montoReal, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoReal: v })), { type: "number" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 130 }, value: commitmentForm.moneda, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { moneda: e.target.value })) }, ["DOP", "USD"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Tasa USD", commitmentForm.tasaDolar, (v) => setCommitmentForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar")), field("Vencimiento", commitmentForm.fechaVencimiento, (v) => setCommitmentForm((p) => Object.assign({}, p, { fechaVencimiento: v })), { type: "date" }), field("Recordar dias antes", commitmentForm.reminderDays, (v) => setCommitmentForm((p) => Object.assign({}, p, { reminderDays: v })), { type: "number" }), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: commitmentForm.recurrente !== false, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { recurrente: e.target.checked })) }), "Compromiso recurrente mensual"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addCommitment }, editingCommitmentId ? "Guardar cambios" : "Guardar compromiso"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Pendientes"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, formatAssetCurrency(statement.commitments.pendingTotal))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Descripcion", "Vence", "Monto", "Pagado", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, statement.commitments.pending.slice(0, 80).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.descripcion, row.moneda === "USD" && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "USD · tasa ", row.tasaDolar || "-")), /* @__PURE__ */ React.createElement("td", null, formatDateDDMMYYYY(row.fechaVencimiento), row.reminderDays && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Avisar ", row.reminderDays, " dia(s) antes")), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoDop || row.montoReal || row.montoEstimado)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.pagado || 0)), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => payCommitment(row) }, "Pagar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar", onClick: () => editCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar", onClick: () => deleteCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
       active === "asistencia" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar marcacion")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: attendanceForm.empleadoId, onChange: (e) => setAttendanceForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Fecha", attendanceForm.fecha, (v) => setAttendanceForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), field("Entrada programada", attendanceForm.entradaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaProgramada: v })), { type: "time" }), field("Entrada real", attendanceForm.entradaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaReal: v })), { type: "time" }), field("Salida programada", attendanceForm.salidaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaProgramada: v })), { type: "time" }), field("Salida real", attendanceForm.salidaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaReal: v })), { type: "time" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addAttendance }, "Guardar marcacion"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistencia reciente")), renderSimpleFinanceTable(normalized.attendance.slice(0, 100).map((row) => Object.assign({}, row, { metodo: row.validationMethod === "AUTHORIZED_TERMINAL" ? `Terminal: ${row.terminalName || row.terminalId || "WTF"}` : row.validationMethod === "GPS" ? `GPS ${row.distanceMeters ? row.distanceMeters + " m" : ""}` : row.validationMethod || "-" })), ["fecha", "empleado", "entradaReal", "salidaReal", "metodo", "horasTrabajadas", "minutosTarde", "estado"]))),
       active === "asistencia" && isAdmin && /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop", style: { marginRight: 7, color: "var(--azul)" } }), "Terminales autorizadas"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", disabled: terminalBusy, onClick: refreshTerminals }, /* @__PURE__ */ React.createElement("i", { className: terminalBusy ? "fas fa-spinner fa-spin" : "fas fa-rotate" }), "Actualizar")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, "Las terminales activas pueden iniciar sesion y registrar asistencia aunque la ubicacion del navegador sea imprecisa. El radio GPS de 200 m permanece activo para dispositivos no autorizados."), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Nombre", "Identificador", "Sucursal", "Estado", "Autorizo", "Ultima IP", "Ultima actividad", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, terminalRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.terminalId }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.name || "Terminal WTF", /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, row.requestedBy || row.requestedByEmail || "")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, wordBreak: "break-all" } }, row.terminalId), /* @__PURE__ */ React.createElement("td", null, row.branchName || row.branchId || "-"), /* @__PURE__ */ React.createElement("td", null, terminalStatusPill(row.status)), /* @__PURE__ */ React.createElement("td", null, row.authorizedBy || "-"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11 } }, row.lastObservedIp || "-"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, row.lastSeenAt && row.lastSeenAt.toDate ? formatDatetime(row.lastSeenAt.toDate()) : row.lastSeenAt ? formatDatetime(row.lastSeenAt) : "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Cambiar nombre", disabled: terminalBusy, onClick: () => renameTerminal(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), row.status !== "active" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", disabled: terminalBusy, onClick: () => updateTerminal(row, "authorize") }, "Autorizar"), row.status === "active" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-naranja", disabled: terminalBusy, onClick: () => updateTerminal(row, "block") }, "Bloquear"), row.status === "blocked" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", disabled: terminalBusy, onClick: () => updateTerminal(row, "reactivate") }, "Reactivar"), row.status !== "revoked" && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", disabled: terminalBusy, onClick: () => updateTerminal(row, "revoke") }, "Revocar"))))), !terminalRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 8, style: { textAlign: "center", color: "var(--gris)", padding: 24 } }, "Sin terminales registradas."))))), terminalAuditRows.length ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Ultimos eventos: ", terminalAuditRows.slice(0, 5).map((log) => `${log.type || "EVENTO"} ${log.terminalId || ""}`).join(" · ")) : null)),
       active === "cierres" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Cierres financieros"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: closePeriod }, "Cerrar periodo")), renderSimpleFinanceTable(normalized.closings.slice(0, 80), ["label", "periodStart", "periodEnd", "ventasNetas", "resultadoOperativo", "inventarioFinal", "flujoNeto", "estado"])),
       active === "config" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion financiera")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, "Las tasas de nomina, cuentas y categorias quedan configurables. No se guardan credenciales NGTeco en el navegador ni en Git."), /* @__PURE__ */ React.createElement("div", null, "Perfiles RRHH disponibles: ", employeeProfiles.length), /* @__PURE__ */ React.createElement("div", null, "Cuentas: ", normalized.settings.accounts.join(", ")), /* @__PURE__ */ React.createElement("div", null, "Canales venta: ", normalized.settings.salesChannels.join(", "))))
     );
   }
+  function getFinanceColumnLabel(col) {
+    const labels = {
+      periodStart: "Desde",
+      periodEnd: "Hasta",
+      fechaPago: "Fecha de pago",
+      fechaVencimiento: "Vencimiento",
+      ventaBruta: "Venta bruta",
+      ventasNetas: "Venta neta",
+      netoRecibido: "Neto recibido",
+      fianza: "Descontar ofertas",
+      descontarOfertas: "Descontar ofertas",
+      propinaLey: "Propina 10%",
+      wtfMonto: "WTF",
+      totalConSueldo: "Total con sueldo"
+    };
+    return labels[col] || col;
+  }
+  function formatFinanceCellValue(col, value) {
+    if (value == null || value === "") return "-";
+    if (/fecha|date|period|desde|hasta|vencimiento|pago/i.test(col) && typeof value !== "number") return formatDateDDMMYYYY(value);
+    if (typeof value === "number" && /monto|venta|neto|salario|deducciones|aportes|valor|costo|flujo|resultado|inventario|fianza|propina|pool/i.test(col)) return formatAssetCurrency(value);
+    return String(value);
+  }
   function renderSimpleFinanceTable(rows, columns) {
     const dataRows = Array.isArray(rows) ? rows : [];
-    return dataRows.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+    return dataRows.length ? /* @__PURE__ */ React.createElement("div", { className: "table-wrap finance-table-wrap" },
       /* @__PURE__ */ React.createElement("table", null,
-        /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, col)))),
+        /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, getFinanceColumnLabel(col))))),
         /* @__PURE__ */ React.createElement("tbody", null, dataRows.map(function(row, index) {
           return /* @__PURE__ */ React.createElement("tr", { key: row.id || index }, columns.map(function(col) {
             const value = row[col];
-            const formatted = typeof value === "number" && /monto|venta|neto|salario|deducciones|aportes|valor|costo|flujo|resultado|inventario/i.test(col) ? formatAssetCurrency(value) : value == null || value === "" ? "-" : String(value);
+            const formatted = formatFinanceCellValue(col, value);
             return /* @__PURE__ */ React.createElement("td", { key: col }, formatted);
           }));
         }))
