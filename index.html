@@ -5728,8 +5728,30 @@
   function getAssetPhotoSource(item) {
     return item && (item.fotoUrl || item.foto || item.imageUrl || item.photoUrl || "");
   }
+  function isUsableAssetPhotoSignature(signature) {
+    return Boolean(signature && signature.hash && signature.dHash && signature.edgeHash);
+  }
+  async function normalizeAssetPhotoSource(src) {
+    if (!src) throw new Error("Imagen vacia");
+    const text = String(src || "");
+    if (text.startsWith("data:") || text.startsWith("blob:")) return text;
+    try {
+      const response = await fetch(text, { mode: "cors", cache: "force-cache" });
+      if (!response.ok) throw new Error("No se pudo descargar la foto del activo");
+      const blob = await response.blob();
+      if (!String(blob.type || "").startsWith("image/")) throw new Error("El archivo del activo no es una imagen");
+      return await new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function() { resolve(reader.result); };
+        reader.onerror = function() { reject(new Error("No se pudo preparar la foto del activo")); };
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      return text;
+    }
+  }
   function assetImageSignatureFromSource(src) {
-    return new Promise(function(resolve, reject) {
+    return new Promise(async function(resolve, reject) {
       if (!src) return reject(new Error("Imagen vacia"));
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -5793,6 +5815,7 @@
           };
           const dHash = [];
           const edgeHash = [];
+          const pHashValues = [];
           for (let y = 0; y < smallSize; y++) {
             for (let x = 0; x < smallSize - 1; x++) {
               dHash.push(grayAt(x, y) > grayAt(x + 1, y) ? 1 : 0);
@@ -5805,6 +5828,13 @@
               edgeHash.push(gx + gy > 34 ? 1 : 0);
             }
           }
+          for (let y = 0; y < smallSize; y++) {
+            for (let x = 0; x < smallSize; x++) {
+              pHashValues.push(grayAt(x, y));
+            }
+          }
+          const pAvg = pHashValues.reduce((acc, value) => acc + value, 0) / Math.max(1, pHashValues.length);
+          const pHash = pHashValues.map((value) => value >= pAvg ? 1 : 0).join("");
           const box = sample.reduce((acc, p) => ({
             minX: Math.min(acc.minX, p.x),
             maxX: Math.max(acc.maxX, p.x),
@@ -5815,6 +5845,7 @@
             hash: values.map((value) => value >= avg ? 1 : 0).join(""),
             dHash: dHash.join(""),
             edgeHash: edgeHash.join(""),
+            pHash,
             color,
             hist: normalizedHist,
             contrast,
@@ -5826,7 +5857,11 @@
         }
       };
       img.onerror = function() { reject(new Error("No se pudo leer la imagen")); };
-      img.src = src;
+      try {
+        img.src = await normalizeAssetPhotoSource(src);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
   function assetImageSignatureFromFile(file) {
@@ -5862,17 +5897,18 @@
     const hashScore = same / Math.max(1, len);
     const dHashScore = compareBits(a.dHash, b.dHash);
     const edgeScore = compareBits(a.edgeHash, b.edgeHash);
+    const pHashScore = compareBits(a.pHash, b.pHash);
     const colorDist = Math.sqrt([0, 1, 2].reduce((acc, i) => acc + Math.pow((a.color[i] || 0) - (b.color[i] || 0), 2), 0));
     const colorScore = Math.max(0, 1 - colorDist / 255);
     const contrastScore = Math.max(0, 1 - Math.abs(Number(a.contrast || 0) - Number(b.contrast || 0)) / 80);
     const aspectScore = Math.max(0, 1 - Math.abs(Number(a.aspect || 1) - Number(b.aspect || 1)) / 1.8);
     const foregroundScore = Math.max(0, 1 - Math.abs(Number(a.foregroundRatio || 1) - Number(b.foregroundRatio || 1)) / 0.65);
-    const combined = hashScore * 0.18 + dHashScore * 0.24 + edgeScore * 0.19 + colorScore * 0.15 + histScore(a.hist, b.hist) * 0.14 + contrastScore * 0.05 + aspectScore * 0.03 + foregroundScore * 0.02;
+    const combined = hashScore * 0.13 + dHashScore * 0.20 + edgeScore * 0.17 + pHashScore * 0.18 + colorScore * 0.11 + histScore(a.hist, b.hist) * 0.11 + contrastScore * 0.04 + aspectScore * 0.03 + foregroundScore * 0.03;
     const score = Math.round(Math.max(0, Math.min(1, combined)) * 100);
     return {
       score,
-      confidence: score >= 92 ? "Alta" : score >= 84 ? "Media" : "Baja",
-      details: { hashScore, dHashScore, edgeScore, colorScore }
+      confidence: score >= 86 ? "Alta" : score >= 70 ? "Media" : "Baja",
+      details: { hashScore, dHashScore, edgeScore, pHashScore, colorScore }
     };
   }
   function formatAssetCurrency(value) {
@@ -6015,6 +6051,7 @@
     const [assetAdminAction, setAssetAdminAction] = useState(null);
     const [assetPhotoSearchBusy, setAssetPhotoSearchBusy] = useState("");
     const [assetPhotoMatches, setAssetPhotoMatches] = useState({ movement: [], count: [], incident: [] });
+    const [assetPhotoSearchMessages, setAssetPhotoSearchMessages] = useState({ movement: "", count: "", incident: "" });
     const activeItems = normalized.items.filter((item) => item && item.deleted !== true);
     const filteredItems = activeItems.filter(function(item) {
       const q = normalizar(search);
@@ -6043,7 +6080,13 @@
       setAssetPhotoBusy(true);
       try {
         const compressed = await compressImageToJpeg(file, maxMb, { maxSide: 1400, quality: 0.84 });
-        let payload = { foto: compressed.dataUrl, fotoMime: compressed.mime, fotoSize: compressed.size, fotoStoragePath: "", fotoOriginalName: compressed.originalName };
+        let fotoFirma = null;
+        try {
+          fotoFirma = await assetImageSignatureFromSource(compressed.dataUrl);
+        } catch (signatureError) {
+          fotoFirma = null;
+        }
+        let payload = { foto: compressed.dataUrl, fotoFirma, fotoMime: compressed.mime, fotoSize: compressed.size, fotoStoragePath: "", fotoOriginalName: compressed.originalName };
         if (shouldUpload) {
           const categoryFolder = sanitizeStorageName(itemForm.categoria || "Otros");
           const baseName = sanitizeStorageName([itemForm.codigo, itemForm.nombre, compressed.originalName].filter(Boolean).join("-"));
@@ -6091,7 +6134,7 @@
         updatedBy: getUserDisplayLabel(currentUser)
       });
       updateData((prev) => Object.assign({}, prev, { items: editingItem ? prev.items.map((row) => row.id === editingItem.id ? item : row) : [item].concat(prev.items || []) }), { accion: editingItem ? "Editar activo" : "Crear activo", registro: item.codigo, detalle: `${editingItem ? "Activo actualizado" : "Activo creado"}: ${item.nombre}` });
-      setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", marca: "", modelo: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", proveedor: "", notas: "", foto: "", fotoUrl: "", fotoStoragePath: "", fotoStatus: "", fotoSize: 0 }));
+      setItemForm((prev) => Object.assign({}, prev, { nombre: "", descripcion: "", marca: "", modelo: "", cantidadInicial: "", cantidadTeorica: "", cantidadFisica: "", cantidadMinima: "", cantidadMaxima: "", costoUnitario: "", proveedor: "", notas: "", foto: "", fotoFirma: null, fotoUrl: "", fotoStoragePath: "", fotoStatus: "", fotoSize: 0 }));
       setEditingAssetId("");
       toast(editingItem ? "Activo actualizado." : "Activo registrado.", "success");
     }
@@ -6131,16 +6174,17 @@
     async function searchAssetByPhoto(file, target) {
       if (!file) return;
       setAssetPhotoSearchBusy(target);
+      setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "Analizando fotografia del activo..." }));
       try {
         const input = await assetImageSignatureFromFile(file);
         const candidates = [];
         for (const item of activeItems) {
           const src = getAssetPhotoSource(item);
-          if (!src) continue;
+          if (!src && !isUsableAssetPhotoSignature(item.fotoFirma)) continue;
           try {
-            const signature = await assetImageSignatureFromSource(src);
+            const signature = isUsableAssetPhotoSignature(item.fotoFirma) ? item.fotoFirma : await assetImageSignatureFromSource(src);
             const match = scoreAssetImageSignature(input.signature, signature);
-            if (match.score >= 84) candidates.push({ item, score: match.score, confidence: match.confidence, src });
+            if (match.score >= 65) candidates.push({ item, score: match.score, confidence: match.confidence, src });
           } catch (error) {
           }
         }
@@ -6148,17 +6192,21 @@
         setAssetPhotoMatches((prev) => Object.assign({}, prev, { [target]: ordered }));
         const top = ordered[0];
         const runnerUp = ordered[1];
-        const hasProfessionalMatch = top && top.score >= 92 && (!runnerUp || top.score - runnerUp.score >= 5);
+        const hasProfessionalMatch = top && top.score >= 86 && (!runnerUp || top.score - runnerUp.score >= 4);
         if (hasProfessionalMatch) {
           const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
           setter((prev) => Object.assign({}, prev, { itemId: top.item.id }));
+          setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: `Activo encontrado con alta confianza: ${top.item.nombre} (${top.score}%).` }));
           toast(`Coincidencia de alta confianza: ${top.item.nombre} (${top.score}%).`, "success");
         } else if (top) {
+          setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "Hay varias coincidencias posibles. Selecciona manualmente la correcta." }));
           toast("Hay posibles coincidencias, pero requieren verificacion manual.", "info");
         } else {
+          setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "No encontre un activo parecido. Intenta con mejor luz, el activo centrado y menos fondo." }));
           toast("No encontre coincidencias confiables en el catalogo.", "info");
         }
       } catch (error) {
+        setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "La imagen no se pudo procesar. Prueba con otra fotografia clara del activo." }));
         toast(error.message || "No se pudo buscar por fotografia.", "error");
       } finally {
         setAssetPhotoSearchBusy("");
@@ -6167,7 +6215,8 @@
     function renderAssetPhotoSearch(target) {
       const busy = assetPhotoSearchBusy === target;
       const matches = assetPhotoMatches[target] || [];
-      const reliableMatches = matches.filter((match) => Number(match.score || 0) >= 84);
+      const statusMessage = assetPhotoSearchMessages[target] || "";
+      const reliableMatches = matches.filter((match) => Number(match.score || 0) >= 65);
       const applyItem = function(item) {
         const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
         setter((prev) => Object.assign({}, prev, { itemId: item.id }));
@@ -6175,13 +6224,14 @@
       };
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, border: "1px dashed #cbd5e1", borderRadius: 10, padding: 10, background: "#f8fafc" } },
         /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: "#374151" } }, "Buscar activo por fotografia"),
-        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#64748b", lineHeight: 1.45 } }, "Solo se selecciona automaticamente si la coincidencia es de alta confianza. Si la foto no es clara, el sistema pedira verificacion manual."),
+        /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#64748b", lineHeight: 1.45 } }, "Toma una foto clara del activo. Si hay una coincidencia fuerte se selecciona automaticamente; si hay dudas, elige una sugerencia manualmente."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
           /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${busy ? "fa-spinner fa-spin" : "fa-camera"}` }), "Usar camara", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) })),
           /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", disabled: busy, style: { display: "none" }, onChange: (e) => searchAssetByPhoto(e.target.files && e.target.files[0], target) }))
         ),
-        reliableMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, reliableMatches.map((match, index) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left", borderColor: index === 0 && match.score >= 92 ? "#16a34a" : "#cbd5e1", background: index === 0 && match.score >= 92 ? "#f0fdf4" : "#fff" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", null, match.item.codigo, " · ", match.item.nombre), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, match.score, "%"), /* @__PURE__ */ React.createElement("small", { style: { color: match.score >= 92 ? "#15803d" : "#92400e", fontWeight: 800 } }, match.confidence || "Media"))))),
-        !busy && matches.length > 0 && reliableMatches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", fontWeight: 700 } }, "La foto no alcanzo el nivel minimo para sugerir un activo con seguridad.")
+        statusMessage && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: busy ? "#4338ca" : reliableMatches.length ? "#166534" : "#92400e", fontWeight: 800 } }, statusMessage),
+        reliableMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, reliableMatches.map((match, index) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left", borderColor: index === 0 && match.score >= 86 ? "#16a34a" : "#cbd5e1", background: index === 0 && match.score >= 86 ? "#f0fdf4" : "#fff" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", null, match.item.codigo, " · ", match.item.nombre), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, match.score, "%"), /* @__PURE__ */ React.createElement("small", { style: { color: match.score >= 86 ? "#15803d" : "#92400e", fontWeight: 800 } }, match.confidence || "Media"))))),
+        !busy && matches.length > 0 && reliableMatches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", fontWeight: 700 } }, "La foto no alcanzo el nivel minimo. Intenta con mejor luz, el activo centrado y menos fondo.")
       );
     }
     function registerMovement() {
@@ -18301,6 +18351,7 @@ Solicitado: ${cantidad}`);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
     const [bulkRows, setBulkRows] = useState([]);
+    const [productListQuery, setProductListQuery] = useState("");
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
       salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
@@ -18372,6 +18423,11 @@ Solicitado: ${cantidad}`);
       const locations = Array.isArray(info && info.locations) ? info.locations : info ? [info] : [];
       const selected = locations.find(function(loc) { return loc.storageKey === row.storageKey; }) || (locations.length === 1 ? locations[0] : null);
       return { info, locations, selected };
+    }
+    function getVisibleProductOptions() {
+      const q = normalizar(productListQuery || producto || "");
+      const source = q ? productos.filter((p) => normalizar(p.nombre).includes(q) || normalizar(p.storageLabel || "").includes(q) || normalizar(p.medida || "").includes(q)) : productos;
+      return source.slice(0, 8);
     }
     function resolveMovementResponsible() {
       if (!requiresResponsiblePassword) return currentUser;
@@ -18463,7 +18519,10 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("tbody", null, bulkRows.map(function(row) {
                   const resolved = getBulkProductInfo(row);
                   return /* @__PURE__ */ React.createElement("tr", { key: row.id },
-                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "prod-list", value: row.producto, onChange: (e) => updateBulkRow(row.id, { producto: e.target.value, storageKey: "" }), placeholder: "Producto" })),
+                    /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "prod-list", value: row.producto, onFocus: () => setProductListQuery(row.producto || ""), onChange: (e) => {
+                      setProductListQuery(e.target.value);
+                      updateBulkRow(row.id, { producto: e.target.value, storageKey: "" });
+                    }, placeholder: "Producto" })),
                     /* @__PURE__ */ React.createElement("td", null, resolved.locations.length > 1 ? /* @__PURE__ */ React.createElement("select", { className: "form-control", value: row.storageKey, onChange: (e) => updateBulkRow(row.id, { storageKey: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar"), resolved.locations.map(function(loc) { return /* @__PURE__ */ React.createElement("option", { key: loc.storageKey, value: loc.storageKey }, loc.storageLabel, " - ", formatQty4(loc.existencia || 0), " ", loc.medida || ""); })) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: "var(--gris)", fontWeight: 700 } }, resolved.selected ? resolved.selected.storageLabel : "Sin vinculo")),
                     /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.0001", value: row.cantidad, onChange: (e) => updateBulkRow(row.id, { cantidad: e.target.value }), placeholder: "0.00" })),
                     /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris btn-icon btn-sm", title: "Quitar linea", onClick: () => setBulkRows((prev) => prev.filter((item) => item.id !== row.id)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))
@@ -18482,11 +18541,12 @@ Solicitado: ${cantidad}`);
               className: `form-control ${error && !producto ? "error" : ""}`,
               list: "prod-list",
               value: producto,
-              onChange: (e) => { setProducto(e.target.value); setSelectedStorageKey(""); setError(""); setSuccess(""); },
+              onFocus: () => setProductListQuery(producto || ""),
+              onChange: (e) => { setProductListQuery(e.target.value); setProducto(e.target.value); setSelectedStorageKey(""); setError(""); setSuccess(""); },
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
-            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " — ", p.storageLabel || "Inventario", " — ", formatQty4(p.existencia), " ", p.medida))),
+            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, getVisibleProductOptions().map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " — ", p.storageLabel || "Inventario", " — ", formatQty4(p.existencia), " ", p.medida))),
             prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 14px" } },
               /* @__PURE__ */ React.createElement("span", null, "Existencia total: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, formatQty4(prodInfo.existencia), " ", prodInfo.medida)),
               getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia) && /* @__PURE__ */ React.createElement("span", null, "Equivalente: ", getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia)),
@@ -19028,6 +19088,7 @@ Solicitado: ${cantidad}`);
   function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
     const [error, setError] = useState("");
+    const [activeProductRow, setActiveProductRow] = useState(0);
     const miseOptions = useMemo(function() {
       return normalizeMiseItems(miseAnPlace);
     }, [miseAnPlace]);
@@ -19040,6 +19101,12 @@ Solicitado: ${cantidad}`);
         p: value,
         u: selected && selected.medida ? normalizarMedidaMise(selected.medida) : row.u
       });
+    }
+    function getVisibleMiseOptions() {
+      const row = filas[activeProductRow] || {};
+      const q = normalizar(row.p || "");
+      const source = q ? miseOptions.filter((m) => normalizar(m.producto).includes(q)) : miseOptions;
+      return source.slice(0, 8);
     }
     function guardar() {
       setError("");
@@ -19088,17 +19155,27 @@ Solicitado: ${cantidad}`);
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => {
+      setActiveProductRow(i);
+      setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x));
+    }, placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
   function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
+    const [activeProductRow, setActiveProductRow] = useState(0);
     const miseOptions = useMemo(function() {
       return normalizeMiseItems(miseAnPlace);
     }, [miseAnPlace]);
     const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
     function applySelectedMiseProductUnit(value, row) {
       return Object.assign({}, row, { p: value });
+    }
+    function getVisibleMiseOptions() {
+      const row = filas[activeProductRow] || {};
+      const q = normalizar(row.p || "");
+      const source = q ? miseOptions.filter((m) => normalizar(m.producto).includes(q)) : miseOptions;
+      return source.slice(0, 8);
     }
     function guardar() {
       setError("");
@@ -19193,7 +19270,10 @@ Solicitado: ${cantidad}`);
       toast(`Salida r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt", style: { color: "var(--azul)", marginRight: 7 } }), "Salida R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-sal-list" }, miseOptions.map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-sal-list", value: f.p, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x)), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Registrar salida r\xE1pida"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt", style: { color: "var(--azul)", marginRight: 7 } }), "Salida R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-sal-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-sal-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => {
+      setActiveProductRow(i);
+      setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x));
+    }, placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Registrar salida r\xE1pida"))));
   }
   function ConfirmNeveraModal({ items, onConfirm, onCancel }) {
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { color: "var(--azul)", marginRight: 7 } }), "Actualizar neveras"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, marginBottom: 12, color: "#374151" } }, "Hay existencias en neveras que podr\xEDan no estar directamente relacionadas con este movimiento. \xBFDescontar tambi\xE9n de las neveras?"), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "En neveras"), /* @__PURE__ */ React.createElement("th", null, "Cambio"))), /* @__PURE__ */ React.createElement("tbody", null, items.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, it.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "exist-ok" }, it.totalEnNeveras)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--rojo)", fontWeight: 600 } }, it.delta))))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }), "No, mantener nevera"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: onConfirm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "S\xED, actualizar nevera"))));
