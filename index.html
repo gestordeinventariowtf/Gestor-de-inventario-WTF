@@ -7862,7 +7862,6 @@
     const [editingEquipmentId, setEditingEquipmentId] = useState("");
     const [activeOnboardingStage, setActiveOnboardingStage] = useState(null);
     const [activeEmployeeReader, setActiveEmployeeReader] = useState(null);
-    const [employeeReaderMaximized, setEmployeeReaderMaximized] = useState(false);
     const profileName = getEmployeeProfileName(currentUser) || "Colaborador";
     const supervisor = usuarios.find((u) => String(u.id) === String(currentUser && currentUser.supervisorId));
     const onboardingPercent = getOnboardingProgressPercent(normalized, currentUser);
@@ -8632,7 +8631,6 @@
       }, { accion: "Actualizar visibilidad RRHH", registro: id, detalle: `${listName}: ${visible ? "Visible" : "No visible"}` });
     }
     function openEmployeeReader(config) {
-      setEmployeeReaderMaximized(false);
       setActiveEmployeeReader(config || null);
     }
     function renderEmployeeReaderModal() {
@@ -8643,11 +8641,10 @@
       const hasVideo = item.fileUrl && fileType.startsWith("video/");
       const hasDocument = item.fileUrl && !hasImage && !hasVideo;
       return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
-        /* @__PURE__ */ React.createElement("div", { className: `modal-content rrhh-modal-pop rrhh-reader-modal ${employeeReaderMaximized ? "is-maximized" : ""}` },
+        /* @__PURE__ */ React.createElement("div", { className: "modal-content rrhh-modal-pop rrhh-reader-modal" },
           /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
             /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon || "fa-book-open"}`, style: { color: item.accent || "#2563eb", marginRight: 7 } }), item.title || "Detalle"),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } },
-              /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", title: employeeReaderMaximized ? "Restaurar" : "Maximizar", onClick: function() { setEmployeeReaderMaximized((value) => !value); } }, /* @__PURE__ */ React.createElement("i", { className: employeeReaderMaximized ? "fas fa-compress" : "fas fa-expand" })),
               /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", title: "Cerrar", onClick: function() { setActiveEmployeeReader(null); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
             )
           ),
@@ -8656,8 +8653,8 @@
               (item.tags || []).map(function(tag) { return /* @__PURE__ */ React.createElement("span", { key: tag.label, className: tag.className || "pill pill-azul" }, tag.label); })
             ),
             item.subtitle && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 850, color: "#334155", lineHeight: 1.5 } }, item.subtitle),
-            hasVideo && /* @__PURE__ */ React.createElement("video", { controls: true, src: item.fileUrl, style: { width: "100%", borderRadius: 12, background: "#111827", maxHeight: employeeReaderMaximized ? "58dvh" : "42dvh" } }),
-            hasImage && /* @__PURE__ */ React.createElement("img", { src: item.fileUrl, alt: item.fileName || item.title || "Recurso", style: { maxWidth: "100%", borderRadius: 12, border: "1px solid #e5e7eb", maxHeight: employeeReaderMaximized ? "58dvh" : "42dvh", objectFit: "contain", background: "#f8fafc" } }),
+            hasVideo && /* @__PURE__ */ React.createElement("video", { controls: true, src: item.fileUrl, style: { width: "100%", borderRadius: 12, background: "#111827", maxHeight: "42dvh" } }),
+            hasImage && /* @__PURE__ */ React.createElement("img", { src: item.fileUrl, alt: item.fileName || item.title || "Recurso", style: { maxWidth: "100%", borderRadius: 12, border: "1px solid #e5e7eb", maxHeight: "42dvh", objectFit: "contain", background: "#f8fafc" } }),
             hasDocument && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: item.fileUrl, target: "_blank", rel: "noreferrer", style: { justifySelf: "start" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), item.fileName || "Abrir adjunto"),
             item.lessons && item.lessons.length ? /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#f8fafc" } },
               /* @__PURE__ */ React.createElement("strong", { style: { display: "block", color: "#111827", marginBottom: 8 } }, "Contenido del curso"),
@@ -11094,7 +11091,7 @@ Solicitado: ${cantidad}`);
     const [recipeMainInstruction, setRecipeMainInstruction] = useState("");
     const [recipeAllowedUserIds, setRecipeAllowedUserIds] = useState([]);
     const [productionRuns, setProductionRuns] = useState("1");
-    const [respectRecipeQuantityLocks, setRespectRecipeQuantityLocks] = useState(true);
+    const [productionRunsLocked, setProductionRunsLocked] = useState(false);
     const [miseProductTarget, setMiseProductTarget] = useState("");
     const [hiddenRecipeMatchName, setHiddenRecipeMatchName] = useState("");
     const [hiddenProductionMatchName, setHiddenProductionMatchName] = useState("");
@@ -12141,7 +12138,7 @@ Solicitado: ${cantidad}`);
       setRecipeInstructions("");
       setRecipeAllowedUserIds([]);
       setProductionRuns("1");
-      setRespectRecipeQuantityLocks(true);
+      setProductionRunsLocked(false);
       setMiseProductTarget("");
       setHiddenRecipeMatchName("");
       setHiddenProductionMatchName("");
@@ -12189,7 +12186,7 @@ Solicitado: ${cantidad}`);
         recipeMainInstruction,
         recipeInstructions,
         productionRuns,
-        respectRecipeQuantityLocks,
+        productionRunsLocked,
         miseProductTarget,
         usuario: getUserDisplayLabel(currentUser),
         updatedAt: new Date().toISOString()
@@ -12258,7 +12255,7 @@ Solicitado: ${cantidad}`);
       setRecipeMainInstruction(hold.recipeMainInstruction || "");
       setRecipeInstructions(hold.recipeInstructions || "");
       setProductionRuns(hold.productionRuns || "1");
-      setRespectRecipeQuantityLocks(hold.respectRecipeQuantityLocks !== false);
+      setProductionRunsLocked(Boolean(hold.productionRunsLocked));
       setMiseProductTarget(hold.miseProductTarget || "");
       setBusqueda("");
       setError("");
@@ -12491,6 +12488,7 @@ Solicitado: ${cantidad}`);
       setRecipeAllowedUserIds(getRecipeAllowedUserIds(targetRecipe));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
+      setProductionRunsLocked(Boolean(targetRecipe.bloquearVecesProduccion || targetRecipe.bloquearMultiplicadorProduccion || targetRecipe.lockProductionRuns));
       setBusqueda("");
       setError("");
       setEditingRecipeId(targetRecipe.id);
@@ -13125,6 +13123,7 @@ Solicitado: ${cantidad}`);
         miseProducto: selectedMiseProductTarget ? selectedMiseProductTarget.producto : String(miseProductTarget || "").trim(),
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
+        bloquearVecesProduccion: Boolean(productionRunsLocked),
         recetaProporcionalPorGramos: recetaItems.some(function(item) { return item.conversionComoMultiplicador || item.convertirLibrasAGramos; }),
         notaOperacion: recetaItems.some(function(item) { return item.conversionComoMultiplicador || item.convertirLibrasAGramos; }) ? "Coloca las libras reales de la proteina, pulsa Convertir a gramos y el sistema multiplicara los demas insumos segun el peso convertido. Las cantidades guardadas no son por libra, son proporcionales al gramo base." : "",
         insumos: recetaItems
@@ -13229,7 +13228,7 @@ Solicitado: ${cantidad}`);
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
-      setRespectRecipeQuantityLocks(true);
+      setProductionRunsLocked(Boolean(receta.bloquearVecesProduccion || receta.bloquearMultiplicadorProduccion || receta.lockProductionRuns));
       setHiddenRecipeMatchName(receta.nombre || "");
       setHiddenProductionMatchName(receta.nombre || "");
       setBusqueda("");
@@ -13907,11 +13906,8 @@ Solicitado: ${cantidad}`);
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
                   /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                     /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "¿Por cuántas veces realizarás la producción?"),
-                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", value: productionRuns, onChange: function(e) { updateProductionRuns(e.target.value); }, placeholder: "1" }),
-                    /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, marginTop: 8, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" } },
-                      /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: respectRecipeQuantityLocks, onChange: function(e) { setRespectRecipeQuantityLocks(e.target.checked); }, style: { marginTop: 2 } }),
-                      /* @__PURE__ */ React.createElement("span", null, "Respetar bloqueo de cantidades manuales en insumos marcados")
-                    )
+                    /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", value: productionRuns, readOnly: productionRunsLocked, disabled: productionRunsLocked, onChange: function(e) { updateProductionRuns(e.target.value); }, placeholder: "1", title: productionRunsLocked ? "Este campo esta bloqueado por la configuracion de la receta." : "", style: productionRunsLocked ? { background: "#f3f4f6", color: "#6b7280", cursor: "not-allowed", fontWeight: 800 } : void 0 }),
+                    productionRunsLocked && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", fontWeight: 800, marginTop: 5 } }, "Bloqueado desde la configuracion de esta receta.")
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item) {
@@ -13920,7 +13916,7 @@ Solicitado: ${cantidad}`);
                       const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
-                      const quantityManualLocked = item.fromRecipe && Boolean(item.bloquearCantidadManual) && respectRecipeQuantityLocks;
+                      const quantityManualLocked = item.fromRecipe && Boolean(item.bloquearCantidadManual);
                       return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
@@ -14201,6 +14197,10 @@ Solicitado: ${cantidad}`);
                           })
                         )
                       )
+                    ),
+                    /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" } },
+                      /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: productionRunsLocked, onChange: function(e) { setProductionRunsLocked(e.target.checked); }, style: { marginTop: 2 } }),
+                      /* @__PURE__ */ React.createElement("span", null, "Bloquear el campo ¿Por cuántas veces realizarás la producción? al usar esta receta")
                     )
                   )
                 )
@@ -15183,6 +15183,7 @@ Solicitado: ${cantidad}`);
     const [saleForm, setSaleForm] = useState({ fecha: new Date().toISOString().slice(0, 10), canal: "Caja / cierre diario", efectivo: "", tarjeta: "", transferencia: "", dolares: "", tasaDolar: normalized.settings.defaultUsdRate || "", uber: "", fianza: normalized.settings.defaultCashBond || "", ventaBruta: "", descuentos: "", devoluciones: "", comisiones: "", retenciones: "", netoRecibido: "", observacion: "" });
     const [expenseForm, setExpenseForm] = useState({ fecha: new Date().toISOString().slice(0, 10), tipo: "Gasto", categoria: "Alquiler", monto: "", cuenta: normalized.settings.defaultAccount || "Caja", proveedor: "", metodoPago: "", observacion: "" });
     const [payrollForm, setPayrollForm] = useState({ empleadoId: "", fechaPago: new Date().toISOString().slice(0, 10), periodStart: period.start, periodEnd: period.end, salarioBruto: "", otrosIngresos: "", productividad: "", deduccionComida: "", deduccionAusencia: "", deduccionPrestamo: "", otrasDeducciones: "", deducciones: "", aplicaTss: true, estado: "Registrada", observacion: "" });
+    const [editingPayrollId, setEditingPayrollId] = useState("");
     const [commitmentForm, setCommitmentForm] = useState({ descripcion: "", categoria: "Alquiler", beneficiario: "", montoEstimado: "", montoReal: "", moneda: "DOP", tasaDolar: normalized.settings.defaultUsdRate || "", fechaVencimiento: new Date().toISOString().slice(0, 10), frecuencia: "Mensual", recurrente: true, reminderDays: normalized.settings.commitmentReminderDays || 3, cuenta: normalized.settings.defaultAccount || "Caja", estado: "Pendiente", observacion: "" });
     const [editingCommitmentId, setEditingCommitmentId] = useState("");
     const [tipForm, setTipForm] = useState({ periodStart: period.start, periodEnd: period.end, fechaPago: new Date().toISOString().slice(0, 10), efectivo: "", tarjeta: "", transferencia: "", dolares: "", tasaDolar: normalized.settings.defaultUsdRate || "", fianza: "", wtfPct: normalized.settings.tipWtfDefaultPct || "" });
@@ -15334,10 +15335,48 @@ Solicitado: ${cantidad}`);
       if (!(gross > 0)) return toast("Indica el salario bruto.", "error");
       const user = activeUsers.find((u) => String(u.id || u.email) === String(payrollForm.empleadoId));
       const detail = calculatePayrollDetail(payrollForm, normalized.settings);
-      const row = Object.assign({}, payrollForm, { id: `payroll-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", salarioBruto: gross, deducciones: detail.deductions, aportesEmpresa: detail.company, netoPagar: detail.net, detalleNomina: detail, usuario: getUserDisplayLabel(currentUser), createdAt: new Date().toISOString(), estado: "Registrada" });
-      updateData((prev) => Object.assign({}, prev, { payrollRuns: [row].concat(prev.payrollRuns || []) }), { accion: "Registrar nomina", detalle: `${row.empleado} ${formatAssetCurrency(row.netoPagar)}` });
+      const now = new Date().toISOString();
+      const row = Object.assign({}, payrollForm, { id: editingPayrollId || `payroll-${Date.now()}`, empleado: user ? getUserDisplayLabel(user) : "Colaborador", salarioBruto: gross, deducciones: detail.deductions, aportesEmpresa: detail.company, netoPagar: detail.net, detalleNomina: detail, usuario: getUserDisplayLabel(currentUser), updatedAt: now, createdAt: editingPayrollId ? void 0 : now, estado: "Registrada" });
+      updateData((prev) => {
+        const rows = Array.isArray(prev.payrollRuns) ? prev.payrollRuns : [];
+        if (editingPayrollId) {
+          return Object.assign({}, prev, { payrollRuns: rows.map((item) => item.id === editingPayrollId ? Object.assign({}, item, row, { createdAt: item.createdAt || now }) : item) });
+        }
+        return Object.assign({}, prev, { payrollRuns: [row].concat(rows) });
+      }, { accion: editingPayrollId ? "Editar nomina" : "Registrar nomina", detalle: `${row.empleado} ${formatAssetCurrency(row.netoPagar)}` });
       setPayrollForm((p) => Object.assign({}, p, { salarioBruto: "", otrosIngresos: "", productividad: "", deduccionComida: "", deduccionAusencia: "", deduccionPrestamo: "", otrasDeducciones: "", deducciones: "", observacion: "" }));
-      toast("Nómina registrada.", "ok");
+      setEditingPayrollId("");
+      toast(editingPayrollId ? "Nómina actualizada." : "Nómina registrada.", "ok");
+    }
+    function editPayroll(row) {
+      setEditingPayrollId(row.id || "");
+      setPayrollForm(Object.assign({}, payrollForm, {
+        empleadoId: row.empleadoId || "",
+        fechaPago: row.fechaPago || new Date().toISOString().slice(0, 10),
+        periodStart: row.periodStart || period.start,
+        periodEnd: row.periodEnd || period.end,
+        salarioBruto: row.salarioBruto || "",
+        otrosIngresos: row.otrosIngresos || "",
+        productividad: row.productividad || "",
+        deduccionComida: row.deduccionComida || "",
+        deduccionAusencia: row.deduccionAusencia || "",
+        deduccionPrestamo: row.deduccionPrestamo || "",
+        otrasDeducciones: row.otrasDeducciones || "",
+        deducciones: row.deducciones || "",
+        aplicaTss: row.aplicaTss !== false,
+        estado: row.estado || "Registrada",
+        observacion: row.observacion || ""
+      }));
+      setActive("nomina");
+      toast("Nómina cargada para edición.", "ok");
+    }
+    function deletePayroll(row) {
+      if (!confirm(`Eliminar/anular nómina de ${row.empleado || "este colaborador"}?`)) return;
+      const now = new Date().toISOString();
+      updateData((prev) => Object.assign({}, prev, {
+        payrollRuns: (prev.payrollRuns || []).map((item) => item.id === row.id ? Object.assign({}, item, { estado: "Anulado", updatedAt: now, anuladoPor: getUserDisplayLabel(currentUser) }) : item)
+      }), { accion: "Anular nomina", detalle: row.empleado || "" });
+      toast("Nómina anulada.", "ok");
     }
     function addCommitment() {
       const rawAmount = parseCostNumber(commitmentForm.montoReal) || parseCostNumber(commitmentForm.montoEstimado);
@@ -15519,6 +15558,30 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("input", Object.assign({ className: "form-control", value, onChange: (e) => setValue(e.target.value) }, props || {}))
       );
     }
+    function renderPayrollTable(rows) {
+      const dataRows = Array.isArray(rows) ? rows : [];
+      if (!dataRows.length) return /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
+      return /* @__PURE__ */ React.createElement("div", { className: "table-wrap finance-table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+        /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha de pago", "Empleado", "Salario bruto", "Otros ingresos", "Productividad", "Deducciones", "Neto pagar", "Aportes empresa", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))),
+        /* @__PURE__ */ React.createElement("tbody", null, dataRows.map(function(row, index) {
+          return /* @__PURE__ */ React.createElement("tr", { key: row.id || index },
+            /* @__PURE__ */ React.createElement("td", null, formatDateDDMMYYYY(row.fechaPago)),
+            /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.empleado || "-"),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.salarioBruto || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.otrosIngresos || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.productividad || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.deducciones || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.netoPagar || 0)),
+            /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.aportesEmpresa || 0)),
+            /* @__PURE__ */ React.createElement("td", null, row.estado === "Borrador" ? "Registrada" : row.estado || "Registrada"),
+            /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar nomina", disabled: row.estado === "Anulado", onClick: () => editPayroll(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar/anular nomina", disabled: row.estado === "Anulado", onClick: () => deletePayroll(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+            ))
+          );
+        }))
+      ));
+    }
     function renderTipParticipantTable(rows, options) {
       const dataRows = Array.isArray(rows) ? rows : [];
       const readOnly = options && options.readOnly;
@@ -15600,7 +15663,7 @@ Solicitado: ${cantidad}`);
       active === "gastos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar compra o gasto")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Fecha", expenseForm.fecha, (v) => setExpenseForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.tipo, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Gasto", "Compra de inventario", "Nomina", "Impuesto", "Retiro propietario", "Aporte propietario", "Transferencia interna", "Otro"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: expenseForm.categoria, onChange: (e) => setExpenseForm((p) => Object.assign({}, p, { categoria: e.target.value })) }, normalized.settings.expenseCategories.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Monto", expenseForm.monto, (v) => setExpenseForm((p) => Object.assign({}, p, { monto: v })), { type: "number" }), field("Proveedor / beneficiario", expenseForm.proveedor, (v) => setExpenseForm((p) => Object.assign({}, p, { proveedor: v }))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addExpense }, "Guardar movimiento"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Gastos del periodo")), renderSimpleFinanceTable(statement.manualExpenses.slice(0, 80), ["fecha", "tipo", "categoria", "monto", "proveedor"]))),
       active === "inventario" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Inventario Valorado"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, formatAssetCurrency(inventoryValue.total))), renderSimpleFinanceTable(inventoryValue.details.slice(0, 160).map((row) => ({ producto: row.product.nombre, area: row.area, ubicacion: row.ubicacion, existencia: row.existencia, valor: row.value, estado: row.ok ? "OK" : row.costInfo.reason })), ["producto", "area", "ubicacion", "existencia", "valor", "estado"])),
       active === "flujo" && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, stat("Entradas de efectivo", formatAssetCurrency(statement.flujoEntradas), "#15803d", "Neto recibido real de ventas mas aportes."), stat("Salidas de efectivo", formatAssetCurrency(statement.flujoSalidas), "#b91c1c", "Gastos pagados, nomina y aportes empresa."), stat("Flujo neto", formatAssetCurrency(statement.flujoNeto), statement.flujoNeto >= 0 ? "#15803d" : "#b91c1c"), stat("Diferencia utilidad vs caja", formatAssetCurrency(statement.resultadoOperativo - statement.flujoNeto), "#4338ca")), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("strong", null, "Como leerlo: "), "el flujo de caja no es ganancia. Es dinero que entro menos dinero que salio. Puede verse alto si hay ventas cobradas pero aun no se pagaron compromisos, compras o nomina; puede verse bajo aunque haya ganancia si se pagaron deudas o inventario.")),
-      active === "nomina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar nomina")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: payrollForm.empleadoId, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Fecha de pago", payrollForm.fechaPago, (v) => setPayrollForm((p) => Object.assign({}, p, { fechaPago: v })), { type: "date" }), field("Salario bruto", payrollForm.salarioBruto, (v) => setPayrollForm((p) => Object.assign({}, p, { salarioBruto: v })), { type: "number" }), field("Otros ingresos", payrollForm.otrosIngresos, (v) => setPayrollForm((p) => Object.assign({}, p, { otrosIngresos: v })), { type: "number" }), field("Productividad", payrollForm.productividad, (v) => setPayrollForm((p) => Object.assign({}, p, { productividad: v })), { type: "number" }), field("Compras comida", payrollForm.deduccionComida, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionComida: v })), { type: "number" }), field("Dias/horas no trabajadas", payrollForm.deduccionAusencia, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionAusencia: v })), { type: "number" }), field("Prestamo", payrollForm.deduccionPrestamo, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionPrestamo: v })), { type: "number" }), field("Otras deducciones", payrollForm.otrasDeducciones, (v) => setPayrollForm((p) => Object.assign({}, p, { otrasDeducciones: v })), { type: "number" })), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: payrollForm.aplicaTss !== false, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { aplicaTss: e.target.checked })) }), "Aplicar deducciones y aportes TSS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("TSS colaborador", formatAssetCurrency(payrollPreview.employeeTss), "#b45309"), stat("Deducciones total", formatAssetCurrency(payrollPreview.deductions), "#b91c1c"), stat("Neto a pagar", formatAssetCurrency(payrollPreview.net), "#15803d"), stat("Aportes empresa", formatAssetCurrency(payrollPreview.company), "#4338ca")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addPayroll }, "Guardar nomina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nomina del periodo")), renderSimpleFinanceTable(statement.payrollRows.slice(0, 80).map((row) => Object.assign({}, row, { estado: row.estado === "Borrador" ? "Registrada" : row.estado || "Registrada" })), ["fechaPago", "empleado", "salarioBruto", "otrosIngresos", "productividad", "deducciones", "netoPagar", "aportesEmpresa", "estado"]))),
+      active === "nomina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar nomina")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: payrollForm.empleadoId, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Fecha de pago", payrollForm.fechaPago, (v) => setPayrollForm((p) => Object.assign({}, p, { fechaPago: v })), { type: "date" }), field("Salario bruto", payrollForm.salarioBruto, (v) => setPayrollForm((p) => Object.assign({}, p, { salarioBruto: v })), { type: "number" }), field("Otros ingresos", payrollForm.otrosIngresos, (v) => setPayrollForm((p) => Object.assign({}, p, { otrosIngresos: v })), { type: "number" }), field("Productividad", payrollForm.productividad, (v) => setPayrollForm((p) => Object.assign({}, p, { productividad: v })), { type: "number" }), field("Compras comida", payrollForm.deduccionComida, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionComida: v })), { type: "number" }), field("Dias/horas no trabajadas", payrollForm.deduccionAusencia, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionAusencia: v })), { type: "number" }), field("Prestamo", payrollForm.deduccionPrestamo, (v) => setPayrollForm((p) => Object.assign({}, p, { deduccionPrestamo: v })), { type: "number" }), field("Otras deducciones", payrollForm.otrasDeducciones, (v) => setPayrollForm((p) => Object.assign({}, p, { otrasDeducciones: v })), { type: "number" })), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: payrollForm.aplicaTss !== false, onChange: (e) => setPayrollForm((p) => Object.assign({}, p, { aplicaTss: e.target.checked })) }), "Aplicar deducciones y aportes TSS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("TSS colaborador", formatAssetCurrency(payrollPreview.employeeTss), "#b45309"), stat("Deducciones total", formatAssetCurrency(payrollPreview.deductions), "#b91c1c"), stat("Neto a pagar", formatAssetCurrency(payrollPreview.net), "#15803d"), stat("Aportes empresa", formatAssetCurrency(payrollPreview.company), "#4338ca")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addPayroll }, editingPayrollId ? "Guardar cambios" : "Guardar nomina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Nomina del periodo")), renderPayrollTable(statement.payrollRows.slice(0, 80).map((row) => Object.assign({}, row, { estado: row.estado === "Borrador" ? "Registrada" : row.estado || "Registrada" }))))),
       active === "propina" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Calculo propina de ley 10%")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Desde", tipForm.periodStart, (v) => setTipForm((p) => Object.assign({}, p, { periodStart: v })), { type: "date" }), field("Hasta", tipForm.periodEnd, (v) => setTipForm((p) => Object.assign({}, p, { periodEnd: v })), { type: "date" }), field("Efectivo", tipForm.efectivo, (v) => setTipForm((p) => Object.assign({}, p, { efectivo: v })), { type: "number" }), field("Tarjeta", tipForm.tarjeta, (v) => setTipForm((p) => Object.assign({}, p, { tarjeta: v })), { type: "number" }), field("Transferencia", tipForm.transferencia, (v) => setTipForm((p) => Object.assign({}, p, { transferencia: v })), { type: "number" }), field("Dolares", tipForm.dolares, (v) => setTipForm((p) => Object.assign({}, p, { dolares: v })), { type: "number" }), field("Tasa dolar", tipForm.tasaDolar, (v) => setTipForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), field("Descontar ofertas", tipForm.fianza, (v) => setTipForm((p) => Object.assign({}, p, { fianza: v })), { type: "number" }), field("% WTF / reposiciones", tipForm.wtfPct, (v) => setTipForm((p) => Object.assign({}, p, { wtfPct: v })), { type: "number" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar tasa USD"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 } }, stat("Ventas netas base", formatAssetCurrency(tipPreview.ventasNetas), "#111827"), stat("Propina 10%", formatAssetCurrency(tipPreview.propinaLey), "#15803d"), stat("Pool colaboradores", formatAssetCurrency(tipPreview.pool), "#4338ca"), stat("WTF", formatAssetCurrency(tipPreview.wtfMonto), "#b45309")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, borderTop: "1px solid var(--borde)", paddingTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("strong", null, "Colaboradores y porcentajes"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: loadTipTemplate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-import" }), "Cargar modelo guardado")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 240 }, value: tipParticipantForm.empleadoId, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 120 }, type: "number", placeholder: "%", value: tipParticipantForm.porcentaje, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { porcentaje: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { maxWidth: 150 }, type: "number", placeholder: "Sueldo base", value: tipParticipantForm.sueldoBase, onChange: (e) => setTipParticipantForm((p) => Object.assign({}, p, { sueldoBase: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: addTipParticipant }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar/actualizar")), renderTipParticipantTable(tipPreview.rows), /* @__PURE__ */ React.createElement("div", { className: tipPreview.restantePct < 0 ? "alert alert-danger" : "alert alert-info", style: { marginBottom: 0 } }, "Porcentaje asignado: ", tipPreview.assignedPct, "%. Restante para ajustar/WTF: ", tipPreview.restantePct, "%")), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveTipRun }, "Guardar calculo de propina"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Historial propina")), renderTipHistory())),
       active === "compromisos" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingCommitmentId ? "Editar compromiso" : "Nuevo compromiso")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, field("Descripcion", commitmentForm.descripcion, (v) => setCommitmentForm((p) => Object.assign({}, p, { descripcion: v }))), field("Beneficiario", commitmentForm.beneficiario, (v) => setCommitmentForm((p) => Object.assign({}, p, { beneficiario: v }))), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, field("Monto estimado", commitmentForm.montoEstimado, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoEstimado: v })), { type: "number" }), field("Monto real", commitmentForm.montoReal, (v) => setCommitmentForm((p) => Object.assign({}, p, { montoReal: v })), { type: "number" })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 130 }, value: commitmentForm.moneda, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { moneda: e.target.value })) }, ["DOP", "USD"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), field("Tasa USD", commitmentForm.tasaDolar, (v) => setCommitmentForm((p) => Object.assign({}, p, { tasaDolar: v })), { type: "number" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: refreshUsdRate }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-dollar-sign" }), "Actualizar")), field("Vencimiento", commitmentForm.fechaVencimiento, (v) => setCommitmentForm((p) => Object.assign({}, p, { fechaVencimiento: v })), { type: "date" }), field("Recordar dias antes", commitmentForm.reminderDays, (v) => setCommitmentForm((p) => Object.assign({}, p, { reminderDays: v })), { type: "number" }), /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 12 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: commitmentForm.recurrente !== false, onChange: (e) => setCommitmentForm((p) => Object.assign({}, p, { recurrente: e.target.checked })) }), "Compromiso recurrente mensual"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addCommitment }, editingCommitmentId ? "Guardar cambios" : "Guardar compromiso"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Pendientes"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, formatAssetCurrency(statement.commitments.pendingTotal))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Descripcion", "Vence", "Monto", "Pagado", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, statement.commitments.pending.slice(0, 80).map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.descripcion, row.moneda === "USD" && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "USD · tasa ", row.tasaDolar || "-")), /* @__PURE__ */ React.createElement("td", null, formatDateDDMMYYYY(row.fechaVencimiento), row.reminderDays && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Avisar ", row.reminderDays, " dia(s) antes")), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.montoDop || row.montoReal || row.montoEstimado)), /* @__PURE__ */ React.createElement("td", null, formatAssetCurrency(row.pagado || 0)), /* @__PURE__ */ React.createElement("td", null, row.estado), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => payCommitment(row) }, "Pagar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar", onClick: () => editCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar", onClick: () => deleteCommitment(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))))))))))),
       active === "asistencia" && /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Registrar marcacion")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: attendanceForm.empleadoId, onChange: (e) => setAttendanceForm((p) => Object.assign({}, p, { empleadoId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeUsers.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), field("Fecha", attendanceForm.fecha, (v) => setAttendanceForm((p) => Object.assign({}, p, { fecha: v })), { type: "date" }), field("Entrada programada", attendanceForm.entradaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaProgramada: v })), { type: "time" }), field("Entrada real", attendanceForm.entradaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { entradaReal: v })), { type: "time" }), field("Salida programada", attendanceForm.salidaProgramada, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaProgramada: v })), { type: "time" }), field("Salida real", attendanceForm.salidaReal, (v) => setAttendanceForm((p) => Object.assign({}, p, { salidaReal: v })), { type: "time" }), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addAttendance }, "Guardar marcacion"))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Asistencia reciente")), renderSimpleFinanceTable(normalized.attendance.slice(0, 100).map((row) => Object.assign({}, row, { metodo: row.validationMethod === "AUTHORIZED_TERMINAL" ? `Terminal: ${row.terminalName || row.terminalId || "WTF"}` : row.validationMethod === "GPS" ? `GPS ${row.distanceMeters ? row.distanceMeters + " m" : ""}` : row.validationMethod || "-" })), ["fecha", "empleado", "entradaReal", "salidaReal", "metodo", "horasTrabajadas", "minutosTarde", "estado"]))),
