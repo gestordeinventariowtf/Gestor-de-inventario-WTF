@@ -5963,41 +5963,88 @@
       const linkCode = normalizar(icgCellText(row.CodArticulo || row.Codigo || ""));
       const linkReference = normalizar(icgCellText(row.Referencia || ""));
       const linkName = normalizar(icgCellText(row.ProductoICG || ""));
-      return linkCode && code && linkCode === code || linkReference && reference && linkReference === reference || linkName && description && linkName === description;
+      return Boolean(linkCode && code && linkCode === code) || Boolean(linkReference && reference && linkReference === reference) || Boolean(linkName && description && linkName === description);
     });
+  }
+  function normalizeExistingIcgConsumptionRow(row, index, normalizedData, bridge, copyIndex) {
+    const bridgeProduct = bridge ? icgCellText(bridge.ProductoWTF || bridge.ProductoMise) : "";
+    const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo) || row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo);
+    const unitsSold = parseIcgNumber(row.UnidadesVendidas != null ? row.UnidadesVendidas : row.Unidades != null ? row.Unidades : row.Cantidad);
+    const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta);
+    const previousDiscount = parseIcgNumber(row.CantidadDescontar != null ? row.CantidadDescontar : row.Cantidad != null ? row.Cantidad : row.UnidadesVendidas);
+    const productWtf = bridgeProduct || icgCellText(row.ProductoWTF || row.ProductoMise) || "";
+    const productMise = bridge && icgCellText(bridge.ProductoMise) || icgCellText(row.ProductoMise || row.ProductoWTF) || productWtf;
+    const fecha = icgCellText(row.Fecha || row.fecha) || normalizedData.updatedAt || new Date().toISOString().slice(0, 10);
+    const ticketValue = icgCellText(row.Ticket || row.TicketKey || row.Factura || "");
+    const code = bridge && icgCellText(bridge.CodArticulo || bridge.Codigo) || icgCellText(row.CodArticulo || row.Codigo) || "";
+    const reference = bridge && icgCellText(bridge.Referencia) || icgCellText(row.Referencia) || "";
+    const productIcg = bridge && icgCellText(bridge.ProductoICG) || icgCellText(row.ProductoICG || row.Descripcion) || "";
+    const sourceName = icgCellText(row.Archivo) || normalizedData.sourceName || "ICG FrontRest";
+    const importKey = bridge ? quickHashText([fecha, ticketValue, code, reference, productIcg, targetKey, productWtf, sourceName].join("|")) : row.ImportKey || quickHashText([fecha, code, reference, productIcg, index].join("|"));
+    const originalStatusKey = normalizar(row.Estado || "");
+    const estado = bridge && (originalStatusKey === "sin vinculo" || originalStatusKey === "producto wtf no encontrado") ? "Pendiente" : row.Estado || (bridge ? "Pendiente" : "Sin vinculo");
+    const rowId = bridge ? `${row._id || "consumo"}-${importKey}-${copyIndex || 0}` : row._id || importKey || `consumo-${index}-${copyIndex || 0}`;
+    return Object.assign({
+      _id: rowId,
+      Fecha: fecha,
+      Ticket: ticketValue,
+      ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+      targetKey,
+      ProductoWTF: productWtf,
+      ProductoMise: productMise,
+      CodArticulo: code,
+      Referencia: reference,
+      ProductoICG: productIcg,
+      UnidadesVendidas: Number(unitsSold.toFixed(4)),
+      CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
+      Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
+      Archivo: sourceName,
+      ImportKey: importKey,
+      Estado: estado
+    }, row, {
+      _id: rowId,
+      ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+      targetKey,
+      ProductoWTF: productWtf,
+      ProductoMise: productMise,
+      CodArticulo: code,
+      Referencia: reference,
+      ProductoICG: productIcg,
+      UnidadesVendidas: Number(unitsSold.toFixed(4)),
+      CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
+      Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
+      ImportKey: importKey,
+      Estado: estado
+    });
+  }
+  function rebuildExistingIcgConsumptionWithCurrentBridges(existingConsumption, bridges, normalizedData) {
+    const byKey = {};
+    (existingConsumption || []).forEach(function(row, index) {
+      const normalizedRow = normalizeExistingIcgConsumptionRow(row, index, normalizedData);
+      const applied = normalizar(normalizedRow.Estado) === "aplicado";
+      const matches = applied ? [] : findIcgBridgesForLine(normalizedRow, bridges);
+      const rowsToAdd = matches.length ? matches.map(function(bridge, bridgeIndex) {
+        return normalizeExistingIcgConsumptionRow(row, index, normalizedData, bridge, bridgeIndex);
+      }) : [normalizedRow];
+      rowsToAdd.forEach(function(nextRow, childIndex) {
+        const key = nextRow.ImportKey || `${index}-${childIndex}`;
+        if (!byKey[key]) byKey[key] = nextRow;
+      });
+    });
+    return Object.values(byKey).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
   }
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
     const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas");
     const lines = icgRows(normalizedData, "TiquetsLin");
+    const bridges = icgRows(normalizedData, "VinculosMiseICG").map(sanitizeIcgBridgeRow);
     const ticketMap = buildIcgSalesTickets(normalizedData).reduce(function(acc, ticket) {
       acc[ticket.ticketKey] = ticket;
       return acc;
     }, {});
     if (existingConsumption.length && !lines.length) {
-      return existingConsumption.map(function(row, index) {
-        const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo);
-        return Object.assign({
-          _id: row._id || row.ImportKey || `consumo-${index}`,
-          Fecha: row.Fecha || row.fecha || normalizedData.updatedAt || new Date().toISOString().slice(0, 10),
-          Ticket: row.Ticket || row.TicketKey || row.Factura || "",
-          ModuloWTF: row.ModuloWTF || ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
-          targetKey,
-          ProductoWTF: row.ProductoWTF || row.ProductoMise || "",
-          ProductoMise: row.ProductoMise || row.ProductoWTF || "",
-          CodArticulo: row.CodArticulo || row.Codigo || "",
-          Referencia: row.Referencia || "",
-          ProductoICG: row.ProductoICG || row.Descripcion || "",
-          UnidadesVendidas: parseIcgNumber(row.UnidadesVendidas || row.Unidades || row.Cantidad),
-          CantidadDescontar: parseIcgNumber(row.CantidadDescontar || row.Cantidad || row.UnidadesVendidas),
-          Unidad: row.Unidad || "Uni",
-          Archivo: row.Archivo || normalizedData.sourceName || "ICG FrontRest",
-          ImportKey: row.ImportKey || quickHashText([row.Fecha, row.CodArticulo, row.Referencia, row.ProductoICG, index].join("|")),
-          Estado: row.Estado || "Pendiente"
-        }, row, { targetKey });
-      }).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
+      return rebuildExistingIcgConsumptionWithCurrentBridges(existingConsumption, bridges, normalizedData);
     }
-    const bridges = icgRows(normalizedData, "VinculosMiseICG").map(sanitizeIcgBridgeRow);
     const sourceName = normalizedData.sourceName || "ICG FrontRest";
     const existingByImportKey = existingConsumption.reduce(function(acc, row) {
       const key = row && row.ImportKey;
@@ -18121,20 +18168,31 @@ Solicitado: ${cantidad}`);
       };
       updateDataset("VinculosMiseICG", function(ds) {
         const rows = Array.isArray(ds.rows) ? ds.rows : [];
+        const productKey = normalizar(row.ProductoWTF || row.ProductoMise);
+        const targetKey = normalizeIcgWtfTarget(row.ModuloWTF);
         return Object.assign({}, ds, {
           rows: [row].concat(rows.filter(function(item) {
-            return normalizar(item.ProductoMise) !== normalizar(row.ProductoMise);
+            const sameProduct = normalizar(item.ProductoWTF || item.ProductoMise) === productKey;
+            const sameTarget = normalizeIcgWtfTarget(item.ModuloWTF || item.DestinoWTF || item.Modulo) === targetKey;
+            return !(sameProduct && sameTarget && sameIcgRelation(item, row));
           }))
         });
       });
       toast("Vinculo Mise ICG creado.", "ok");
     }
-    function startEdit(row) {
+    function getIcgTableColumns(tableKey) {
+      const ds = normalized.datasets[tableKey] || {};
+      const def = ICG_TABLE_DEFS[tableKey] || {};
+      return ds.columns || def.columns || [];
+    }
+    function startEdit(row, tableKeyOverride) {
+      const targetTableKey = tableKeyOverride || activeTable;
+      const targetColumns = getIcgTableColumns(targetTableKey);
       setEditRecord({
         mode: row ? "edit" : "add",
-        tableKey: activeTable,
+        tableKey: targetTableKey,
         rowId: row && row._id ? row._id : "",
-        values: columns.reduce(function(acc, col) {
+        values: targetColumns.reduce(function(acc, col) {
           acc[col] = row ? icgCellText(row[col]) : "";
           return acc;
         }, {})
@@ -18149,7 +18207,7 @@ Solicitado: ${cantidad}`);
       }
       const normalizedValues = editRecord.tableKey === "VinculosMiseICG" ? sanitizeIcgBridgeRow(editRecord.values) : editRecord.values;
       const datasets = Object.assign({}, normalized.datasets);
-      const currentDs = Object.assign({}, datasets[editRecord.tableKey] || { rows: [], columns });
+      const currentDs = Object.assign({}, datasets[editRecord.tableKey] || { rows: [], columns: getIcgTableColumns(editRecord.tableKey) });
       const rows = Array.isArray(currentDs.rows) ? [...currentDs.rows] : [];
         if (editRecord.mode === "add") {
           rows.unshift(Object.assign({ _id: `${Date.now()}-${Math.random().toString(16).slice(2)}` }, normalizedValues));
@@ -18436,7 +18494,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
             /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto WTF, codigo ICG, referencia o destino...", value: bridgeQuery, onChange: (e) => setBridgeQuery(e.target.value) })
           ),
-          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(null); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Nuevo vinculo manual")
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(null, "VinculosMiseICG"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Nuevo vinculo manual")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
           /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
@@ -18451,7 +18509,7 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, row.ProductoWTF || row.ProductoMise || "-"),
                   /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, /* @__PURE__ */ React.createElement("strong", null, row.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", null, "Cod: ", row.CodArticulo || "-", " · Ref: ", row.Referencia || "-")),
                   /* @__PURE__ */ React.createElement("td", null, row.CantidadPorVenta || 1, " ", row.Unidad || "Uni"),
-                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar vinculo", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(row); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })))
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar vinculo", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(row, "VinculosMiseICG"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })))
                 );
               }), filteredBridgeRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: 18, color: "var(--gris)" } }, bridgeRows.length ? "No hay vinculos que coincidan con la busqueda." : "Aun no hay vinculos guardados.")))
             ))
