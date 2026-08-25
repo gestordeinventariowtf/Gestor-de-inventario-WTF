@@ -5,6 +5,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /wtfSistema/estadoGeneral/stateShards/{shardId} {
+      allow read, write: if true;
+    }
+
     match /pwaPushSubscriptions/{subscriptionId} {
       allow create, update: if subscriptionId.matches('^[A-Za-z0-9_-]{1,140}$')
         && request.resource.data.endpoint is string
