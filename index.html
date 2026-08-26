@@ -11499,6 +11499,7 @@ Solicitado: ${cantidad}`);
     const [recipeMainInstruction, setRecipeMainInstruction] = useState("");
     const [recipeAllowedUserIds, setRecipeAllowedUserIds] = useState([]);
     const [recipeCalcMode, setRecipeCalcMode] = useState("definida");
+    const [recipeModeDrafts, setRecipeModeDrafts] = useState({});
     const [recipeProcedures, setRecipeProcedures] = useState(["Procedimiento 1"]);
     const [productionRuns, setProductionRuns] = useState("1");
     const [productionRunUnit, setProductionRunUnit] = useState("");
@@ -11531,6 +11532,84 @@ Solicitado: ${cantidad}`);
         if (!list.some(function(existing) { return normalizar(existing) === normalizar(name); })) list.push(name);
       });
       return list.length ? list : ["Procedimiento 1"];
+    }
+    function getRecipeModeConfig(receta, mode) {
+      const normalizedMode = normalizeRecipeCalcMode(mode);
+      const variants = receta && (receta.modalidades || receta.modosReceta || receta.recipeModes) || {};
+      const direct = variants[normalizedMode] || variants[getRecipeCalcModeLabel(normalizedMode)] || null;
+      if (direct) {
+        return {
+          insumos: Array.isArray(direct.insumos) ? direct.insumos : [],
+          procedimientos: normalizeRecipeProcedures(direct.procedimientos || direct.recipeProcedures, direct.insumos)
+        };
+      }
+      return {
+        insumos: Array.isArray(receta && receta.insumos) ? receta.insumos : [],
+        procedimientos: normalizeRecipeProcedures(receta && (receta.procedimientos || receta.recipeProcedures), receta && receta.insumos)
+      };
+    }
+    function buildRecipeModeDrafts(receta) {
+      return {
+        definida: getRecipeModeConfig(receta, "definida"),
+        multiplicar: getRecipeModeConfig(receta, "multiplicar")
+      };
+    }
+    function cloneRecipeItemsForUi(items) {
+      return (Array.isArray(items) ? items : []).map(function(item) {
+        const origen = item.origen || "inventario";
+        const storageKey = item.storageKey || origen;
+        return Object.assign({}, item, {
+          rowId: `ins-${Date.now()}-${Math.random()}`,
+          productKey: item.productKey || `${storageKey}-${item.productId}`,
+          origen,
+          storageKey,
+          sourceModuleLabel: item.sourceModuleLabel || (storageKey.startsWith("other") ? otherModuleLabel : moduleLabel),
+          almacenLabel: item.almacenLabel || (storageKey === "mise" ? "Mise an Place" : origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
+          origenLabel: item.origenLabel || (storageKey === "mise" ? `${item.sourceModuleLabel || moduleLabel} · Mise an Place` : origen === "cuartoFrio" ? "Cuarto Frio" : "Inventario"),
+          procedimiento: normalizeRecipeProcedureName(item.procedimiento || item.procedure || item.paso || item.etapa, 0),
+          cantidad: String(item.cantidad || ""),
+          cantidadBaseReceta: String(item.cantidadBaseReceta || item.cantidad || ""),
+          mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
+          mermaEsperadaPorcentaje: String(item.mermaEsperadaPorcentaje ?? item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
+          mermaRealCantidad: item.mermaRealCantidad || "",
+          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
+          bloquearCantidadManual: Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity),
+          unidad: getStoredRecipeIngredientUnit(item),
+          unidadesPorEmpaque: item.unidadesPorEmpaque || item.contenidoPorEmpaque || item.unidadesInternasPorEmpaque || "",
+          unidadInternaEmpaque: item.unidadInternaEmpaque || item.unidadContenidoEmpaque || item.medidaInternaEmpaque || "Uni",
+          cantidadPorUnidadInterna: item.cantidadPorUnidadInterna || item.contenidoPorUnidadInterna || item.cantidadContenidoInterno || "",
+          unidadPorUnidadInterna: item.unidadPorUnidadInterna || item.unidadContenidoInterno || item.medidaContenidoInterno || "",
+          usaUnidadInternaEmpaque: Boolean(item.usaUnidadInternaEmpaque),
+          cantidadSalidaCompleta: item.cantidadSalidaCompleta || item.salidaCompletaCantidad || "",
+          salidaCompleta: Boolean(item.salidaCompleta),
+          fromRecipe: Boolean(item.fromRecipe)
+        });
+      });
+    }
+    function captureCurrentRecipeModeDraft(itemsOverride) {
+      const rows = Array.isArray(itemsOverride) ? itemsOverride : insumos;
+      return {
+        insumos: rows.map(function(item) { return Object.assign({}, item); }),
+        procedimientos: normalizeRecipeProcedures(recipeProcedures, rows)
+      };
+    }
+    function switchRecipeCalcMode(nextModeValue) {
+      const nextMode = normalizeRecipeCalcMode(nextModeValue);
+      const currentMode = normalizeRecipeCalcMode(recipeCalcMode);
+      if (nextMode === currentMode) return;
+      const currentDraft = captureCurrentRecipeModeDraft();
+      const nextDrafts = Object.assign({}, recipeModeDrafts, { [currentMode]: currentDraft });
+      const incoming = nextDrafts[nextMode] || currentDraft;
+      setRecipeModeDrafts(nextDrafts);
+      setRecipeCalcMode(nextMode);
+      setInsumos(cloneRecipeItemsForUi(incoming.insumos).map(function(item) {
+        return Object.assign({}, item, { fromRecipe: usingSavedRecipeProduction || Boolean(item.fromRecipe) });
+      }));
+      setRecipeProcedures(normalizeRecipeProcedures(incoming.procedimientos, incoming.insumos));
+      setProductionRuns("1");
+      setProductionRunUnit("");
+      setError("");
     }
     function groupRecipeItemsByProcedure(recipeItems, proceduresInput) {
       const items = Array.isArray(recipeItems) ? recipeItems : [];
@@ -11578,6 +11657,24 @@ Solicitado: ${cantidad}`);
         });
         return clean;
       });
+    }
+    function deleteRecipeProcedure(index) {
+      const rows = normalizeRecipeProcedures(recipeProcedures, insumos);
+      if (rows.length <= 1) {
+        toast("Debe quedar al menos un procedimiento en la receta.", "info");
+        return;
+      }
+      const oldName = rows[index] || "";
+      const remaining = rows.filter(function(_, rowIndex) { return rowIndex !== index; });
+      const fallback = remaining[0] || "Procedimiento 1";
+      setRecipeProcedures(remaining);
+      setInsumos(function(current) {
+        return current.map(function(item) {
+          if (normalizar(item.procedimiento) !== normalizar(oldName)) return item;
+          return Object.assign({}, item, { procedimiento: fallback });
+        });
+      });
+      setError("");
     }
     function buildSearchProducts(rows, origen, almacenLabel, storageKey, sourceModuleLabel) {
       return uniqueInventoryProductsForSearch(normalizeInventoryRows(rows), storageKey).filter(function(row) {
@@ -12617,6 +12714,7 @@ Solicitado: ${cantidad}`);
       setRecipeInstructions("");
       setRecipeAllowedUserIds([]);
       setRecipeCalcMode("definida");
+      setRecipeModeDrafts({});
       setRecipeProcedures(["Procedimiento 1"]);
       setProductionRuns("1");
       setProductionRunUnit("");
@@ -12668,6 +12766,7 @@ Solicitado: ${cantidad}`);
         recipeMainInstruction,
         recipeInstructions,
         recipeCalcMode,
+        recipeModeDrafts: Object.assign({}, recipeModeDrafts, { [normalizeRecipeCalcMode(recipeCalcMode)]: captureCurrentRecipeModeDraft() }),
         recipeProcedures: normalizeRecipeProcedures(recipeProcedures, insumos),
         productionRuns,
         productionRunUnit,
@@ -12740,6 +12839,7 @@ Solicitado: ${cantidad}`);
       setRecipeMainInstruction(hold.recipeMainInstruction || "");
       setRecipeInstructions(hold.recipeInstructions || "");
       setRecipeCalcMode(normalizeRecipeCalcMode(hold.recipeCalcMode || hold.tipoReceta || hold.recetaModoCalculo));
+      setRecipeModeDrafts(hold.recipeModeDrafts || hold.modalidades || {});
       setRecipeProcedures(normalizeRecipeProcedures(hold.recipeProcedures || hold.procedimientos, hold.insumos));
       setProductionRuns(hold.productionRuns || "1");
       setProductionRunUnit(hold.productionRunUnit || "");
@@ -12786,7 +12886,7 @@ Solicitado: ${cantidad}`);
       if (!hasProductionHoldContent(snapshot)) return;
       const id = upsertProductionHold(snapshot);
       if (id && !activeProductionHoldId) setActiveProductionHoldId(id);
-    }, [modalOpen, activeProductionHoldId, resultado, insumos, recipeInstructions, recipeCalcMode, recipeProcedures, productionRuns, productionRunUnit, miseProductTarget, moduleLabel]);
+    }, [modalOpen, activeProductionHoldId, resultado, insumos, recipeInstructions, recipeCalcMode, recipeModeDrafts, recipeProcedures, productionRuns, productionRunUnit, miseProductTarget, moduleLabel]);
     function formatProductionRecipeQty(value) {
       const number = Number(value);
       if (!Number.isFinite(number)) return "";
@@ -12937,6 +13037,9 @@ Solicitado: ${cantidad}`);
     function confirmarEditarReceta(recetaAutorizada) {
       const targetRecipe = recetaAutorizada || recipeEditRequest;
       if (!targetRecipe) return;
+      const initialRecipeMode = normalizeRecipeCalcMode(targetRecipe.tipoReceta || targetRecipe.recetaModoCalculo || (targetRecipe.recetaProporcionalPorGramos ? "multiplicar" : "definida"));
+      const initialRecipeDrafts = buildRecipeModeDrafts(targetRecipe);
+      const initialRecipeConfig = initialRecipeDrafts[initialRecipeMode] || getRecipeModeConfig(targetRecipe, initialRecipeMode);
       setInsumos((targetRecipe.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
         const storageKey = item.storageKey || origen;
@@ -12968,6 +13071,7 @@ Solicitado: ${cantidad}`);
           fromRecipe: true
         };
       }));
+      setInsumos(cloneRecipeItemsForUi(initialRecipeConfig.insumos));
       setResultado({
         nombre: targetRecipe.nombre || "",
         cantidad: targetRecipe.cantidadObjetivo ? String(targetRecipe.cantidadObjetivo) : "",
@@ -12976,8 +13080,9 @@ Solicitado: ${cantidad}`);
       setRecipeMainInstruction(String(targetRecipe.instruccionPrincipal || targetRecipe.instruccionLlamativa || targetRecipe.primerosPasos || ""));
       setRecipeInstructions(String(targetRecipe.instruccionesPreparacion || targetRecipe.instrucciones || ""));
       setRecipeAllowedUserIds(getRecipeAllowedUserIds(targetRecipe));
-      setRecipeCalcMode(normalizeRecipeCalcMode(targetRecipe.tipoReceta || targetRecipe.recetaModoCalculo || (targetRecipe.recetaProporcionalPorGramos ? "multiplicar" : "definida")));
-      setRecipeProcedures(normalizeRecipeProcedures(targetRecipe.procedimientos || targetRecipe.recipeProcedures, targetRecipe.insumos));
+      setRecipeCalcMode(initialRecipeMode);
+      setRecipeModeDrafts(initialRecipeDrafts);
+      setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
       setProductionRunUnit("");
@@ -13023,7 +13128,7 @@ Solicitado: ${cantidad}`);
         sourceModuleLabel: product.sourceModuleLabel || moduleLabel,
         almacenLabel: product.almacenLabel || "Inventario",
         origenLabel: product.origenLabel || "Inventario",
-        procedimiento: previous.procedimiento || normalizeRecipeProcedures(recipeProcedures, insumos)[0] || "Procedimiento 1",
+        procedimiento: previous.procedimiento || normalizeRecipeProcedures(recipeProcedures, insumos).slice(-1)[0] || "Procedimiento 1",
         cantidad: previous.cantidad || "",
         cantidadBaseReceta: previous.cantidadBaseReceta || previous.cantidad || "",
         mermaPorcentaje: previous.mermaPorcentaje ?? previous.mermaPct ?? previous.merma ?? "",
@@ -13644,6 +13749,15 @@ Solicitado: ${cantidad}`);
           salidaCompleta: Boolean(item.salidaCompleta) && normalizeUnit(product.medida) !== "uni"
         });
       }
+      const activeMode = normalizeRecipeCalcMode(recipeCalcMode);
+      const savedModeDrafts = Object.assign({}, recipeModeDrafts, {
+        [activeMode]: {
+          insumos: recetaItems,
+          procedimientos: normalizeRecipeProcedures(recipeProcedures, recetaItems)
+        }
+      });
+      if (!savedModeDrafts.definida) savedModeDrafts.definida = savedModeDrafts[activeMode];
+      if (!savedModeDrafts.multiplicar) savedModeDrafts.multiplicar = savedModeDrafts[activeMode];
       const recetaPayload = {
         fecha: new Date().toISOString(),
         modulo: moduleLabel,
@@ -13654,6 +13768,18 @@ Solicitado: ${cantidad}`);
         tipoReceta: normalizeRecipeCalcMode(recipeCalcMode),
         recetaModoCalculo: normalizeRecipeCalcMode(recipeCalcMode),
         procedimientos: normalizeRecipeProcedures(recipeProcedures, recetaItems),
+        modalidades: {
+          definida: {
+            tipoReceta: "definida",
+            procedimientos: normalizeRecipeProcedures(savedModeDrafts.definida.procedimientos, savedModeDrafts.definida.insumos),
+            insumos: (savedModeDrafts.definida.insumos || []).map(function(item) { return Object.assign({}, item); })
+          },
+          multiplicar: {
+            tipoReceta: "multiplicar",
+            procedimientos: normalizeRecipeProcedures(savedModeDrafts.multiplicar.procedimientos, savedModeDrafts.multiplicar.insumos),
+            insumos: (savedModeDrafts.multiplicar.insumos || []).map(function(item) { return Object.assign({}, item); })
+          }
+        },
         instruccionPrincipal: String(recipeMainInstruction || "").trim(),
         instruccionesPreparacion: String(recipeInstructions || "").trim(),
         usuariosAutorizados: Array.isArray(recipeAllowedUserIds) ? recipeAllowedUserIds.map(function(value) { return String(value || "").trim(); }).filter(Boolean) : [],
@@ -13723,6 +13849,9 @@ Solicitado: ${cantidad}`);
       }
       saveCurrentProductionHold();
       const holdId = getRecipeProductionHoldId(receta);
+      const initialRecipeMode = normalizeRecipeCalcMode(receta.tipoReceta || receta.recetaModoCalculo || (receta.recetaProporcionalPorGramos ? "multiplicar" : "definida"));
+      const initialRecipeDrafts = buildRecipeModeDrafts(receta);
+      const initialRecipeConfig = initialRecipeDrafts[initialRecipeMode] || getRecipeModeConfig(receta, initialRecipeMode);
       setActiveProductionHoldId(holdId);
       setInsumos((receta.insumos || []).map(function(item) {
         const origen = item.origen || "inventario";
@@ -13756,6 +13885,7 @@ Solicitado: ${cantidad}`);
           fromRecipe: true
         };
       }));
+      setInsumos(cloneRecipeItemsForUi(initialRecipeConfig.insumos).map(function(item) { return Object.assign({}, item, { fromRecipe: true }); }));
       setResultado({
         nombre: receta.nombre || "",
         cantidad: "",
@@ -13765,8 +13895,9 @@ Solicitado: ${cantidad}`);
       });
       setRecipeMainInstruction(String(receta.instruccionPrincipal || receta.instruccionLlamativa || receta.primerosPasos || ""));
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
-      setRecipeCalcMode(normalizeRecipeCalcMode(receta.tipoReceta || receta.recetaModoCalculo || (receta.recetaProporcionalPorGramos ? "multiplicar" : "definida")));
-      setRecipeProcedures(normalizeRecipeProcedures(receta.procedimientos || receta.recipeProcedures, receta.insumos));
+      setRecipeCalcMode(initialRecipeMode);
+      setRecipeModeDrafts(initialRecipeDrafts);
+      setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
       setProductionRunUnit("");
@@ -14460,6 +14591,13 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, insumos.length, " insumos")
                 ),
                 /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
+                  usingSavedRecipeProduction && /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                    /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tipo de receta a utilizar"),
+                    /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recipeCalcMode, onChange: function(e) { switchRecipeCalcMode(e.target.value); } },
+                      /* @__PURE__ */ React.createElement("option", { value: "definida" }, "Receta (Definida)"),
+                      /* @__PURE__ */ React.createElement("option", { value: "multiplicar" }, "Receta (Para multiplicar)")
+                    )
+                  ),
                   /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                     /* @__PURE__ */ React.createElement("label", { className: "form-label" }, normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? "¿Por cuántas libras, gramos u onzas realizarás la producción?" : "¿Por cuántas veces realizarás la producción?"),
                     normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? /* @__PURE__ */ React.createElement(React.Fragment, null,
@@ -14477,7 +14615,7 @@ Solicitado: ${cantidad}`);
                     productionRunsLocked && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", fontWeight: 800, marginTop: 5 } }, "Bloqueado desde la configuracion de esta receta.")
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
-                    insumos.map(function(item) {
+                    insumos.map(function(item, itemIndex) {
                       const product = findProductForInsumo(item);
                       const packageInfo = product ? getPackageConversionInfo(product, item, parseProductionNumber(item.cantidad)) : null;
                       const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
@@ -14485,7 +14623,12 @@ Solicitado: ${cantidad}`);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
                       const quantityManualLocked = item.fromRecipe && Boolean(item.bloquearCantidadManual);
                       const canUseCompleteOutput = product && normalizeUnit(product.medida) !== "uni";
-                      return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                      const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
+                      const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
+                      const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
+                      return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.rowId },
+                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
+                        /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
@@ -14548,6 +14691,7 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad completa a descontar"),
                             /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "0.0001", value: item.cantidadSalidaCompleta || 1, onChange: function(e) { updateInsumo(item.rowId, "cantidadSalidaCompleta", e.target.value); }, placeholder: "1" })
                           )
+                        )
                         )
                       );
                     }),
@@ -14665,7 +14809,7 @@ Solicitado: ${cantidad}`);
                   /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Tipo de receta"),
-                      /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recipeCalcMode, onChange: function(e) { setRecipeCalcMode(normalizeRecipeCalcMode(e.target.value)); setProductionRuns("1"); setProductionRunUnit(""); setError(""); } },
+                      /* @__PURE__ */ React.createElement("select", { className: "form-control", value: recipeCalcMode, onChange: function(e) { switchRecipeCalcMode(e.target.value); } },
                         /* @__PURE__ */ React.createElement("option", { value: "definida" }, "Receta (Definida)"),
                         /* @__PURE__ */ React.createElement("option", { value: "multiplicar" }, "Receta (Para multiplicar)")
                       )
@@ -14674,21 +14818,29 @@ Solicitado: ${cantidad}`);
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Procedimientos de la receta"),
                       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
                         normalizeRecipeProcedures(recipeProcedures, insumos).map(function(name, index) {
-                          return /* @__PURE__ */ React.createElement("input", { key: `recipe-procedure-${index}`, className: "form-control", value: name, onChange: function(e) { updateRecipeProcedure(index, e.target.value); }, placeholder: `Procedimiento ${index + 1}` });
+                          return /* @__PURE__ */ React.createElement("div", { key: `recipe-procedure-${index}`, style: { display: "grid", gridTemplateColumns: "1fr auto", gap: 6, alignItems: "center" } },
+                            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: name, onChange: function(e) { updateRecipeProcedure(index, e.target.value); }, placeholder: `Procedimiento ${index + 1}` }),
+                            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-rojo btn-icon", onClick: function() { deleteRecipeProcedure(index); }, title: "Eliminar procedimiento" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
+                          );
                         }),
                         /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: addRecipeProcedure }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar procedimiento")
                       )
                     )
                   ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
-                    insumos.map(function(item) {
+                    insumos.map(function(item, itemIndex) {
                       const product = findProductForInsumo(item);
                       const packageInfo = product ? getPackageConversionInfo(product, item, parseProductionNumber(item.cantidad)) : null;
                       const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
                       const canUseCompleteOutput = product && normalizeUnit(product.medida) !== "uni";
-                      return /* @__PURE__ */ React.createElement("div", { key: item.rowId, style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                      const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
+                      const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
+                      const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
+                      return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.rowId },
+                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
+                        /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
@@ -14701,14 +14853,7 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                           )
                         ),
-                        /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
-                          /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Procedimiento donde se usa"),
-                          /* @__PURE__ */ React.createElement("select", { className: "form-control", value: item.procedimiento || normalizeRecipeProcedures(recipeProcedures, insumos)[0] || "Procedimiento 1", onChange: function(e) { updateInsumo(item.rowId, "procedimiento", e.target.value); } },
-                            normalizeRecipeProcedures(recipeProcedures, insumos).map(function(name) {
-                              return /* @__PURE__ */ React.createElement("option", { key: name, value: name }, name);
-                            })
-                          )
-                        ),
+                        /* @__PURE__ */ React.createElement("div", { style: { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontWeight: 800 } }, item.procedimiento || "Procedimiento 1"),
                         product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 5 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque configurado"),
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", fontWeight: 700 } }, "1 ", getPackageOuterUnit(product, item), " = ", getPackageUnitsPerPack(product, item), " ", getPackageInternalUnit(product, item), getPackageInnerContentQty(product, item) > 0 && getPackageInnerContentUnit(product, item) ? [" · 1 ", getPackageInternalUnit(product, item), " = ", getPackageInnerContentQty(product, item), " ", getPackageInnerContentUnit(product, item)] : ""),
@@ -14758,6 +14903,7 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cantidad completa a descontar"),
                             /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "0.0001", value: item.cantidadSalidaCompleta || 1, onChange: function(e) { updateInsumo(item.rowId, "cantidadSalidaCompleta", e.target.value); }, placeholder: "1" })
                           )
+                        )
                         )
                       );
                     }),
