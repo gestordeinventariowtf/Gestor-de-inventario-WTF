@@ -2265,6 +2265,7 @@
     googleConfig: "wtf_google_config",
     usuarios: "wtf_usuarios",
     authUser: "wtf_auth_user",
+    appSecurity: "wtf_app_security",
     systemLogs: "wtf_system_logs",
     assetManagement: "wtf_asset_management",
     employeeCenter: "wtf_employee_center",
@@ -4111,6 +4112,7 @@
     next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
     next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
     next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
+    next.appSecurity = mergeAppSecurity(localState && localState.appSecurity, remoteState && remoteState.appSecurity);
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
     return next;
@@ -4168,6 +4170,7 @@
       neveras: state.neveras || [],
       correos: state.correos || [],
       usuarios: ensureAdminUser(state.usuarios || []),
+      appSecurity: normalizeAppSecurity(state.appSecurity),
       systemLogs: normalizeSystemLogs(state.systemLogs || []),
       barInventario: normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario),
       barCuartoFrioInventario: normalizeInventoryRowsForDisplay(state.barCuartoFrioInventario || [], deletedKeys.barCuartoFrioInventario),
@@ -4443,6 +4446,52 @@
   }
   function isAdminUser(user) {
     return Boolean(user) && user.role === "admin";
+  }
+  function normalizeAppSecurity(input) {
+    const data = input && typeof input === "object" ? input : {};
+    return {
+      adminSessionsRevokedAt: data.adminSessionsRevokedAt || "",
+      adminSessionsRevokedBy: data.adminSessionsRevokedBy || "",
+      adminSessionsRevokedByEmail: data.adminSessionsRevokedByEmail || "",
+      adminSessionsRevokedReason: data.adminSessionsRevokedReason || ""
+    };
+  }
+  function mergeAppSecurity(localSecurity, remoteSecurity) {
+    const local = normalizeAppSecurity(localSecurity);
+    const remote = normalizeAppSecurity(remoteSecurity);
+    const localAt = local.adminSessionsRevokedAt ? new Date(local.adminSessionsRevokedAt).getTime() : 0;
+    const remoteAt = remote.adminSessionsRevokedAt ? new Date(remote.adminSessionsRevokedAt).getTime() : 0;
+    return remoteAt >= localAt ? remote : local;
+  }
+  function getAdminSessionStartedStorageKey(email) {
+    return `wtf_admin_session_started_at_${normalizar(email || "unknown").replace(/[^a-z0-9._-]/g, "_")}`;
+  }
+  function readAdminSessionStartedAt(email) {
+    try {
+      return localStorage.getItem(getAdminSessionStartedStorageKey(email)) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+  function writeAdminSessionStartedAt(email, iso) {
+    try {
+      localStorage.setItem(getAdminSessionStartedStorageKey(email), iso || new Date().toISOString());
+    } catch (_) {}
+  }
+  function clearAdminSessionStartedAt(email) {
+    try {
+      localStorage.removeItem(getAdminSessionStartedStorageKey(email));
+    } catch (_) {}
+  }
+  function isAdminSessionRevoked(user, security) {
+    if (!isAdminUser(user)) return false;
+    const revocation = normalizeAppSecurity(security).adminSessionsRevokedAt;
+    if (!revocation) return false;
+    const revokedAt = new Date(revocation).getTime();
+    if (!Number.isFinite(revokedAt) || revokedAt <= 0) return false;
+    const startedAtText = readAdminSessionStartedAt(user.email);
+    const startedAt = startedAtText ? new Date(startedAtText).getTime() : 0;
+    return !Number.isFinite(startedAt) || startedAt <= revokedAt;
   }
   function degreesToRadians(value) {
     return Number(value || 0) * Math.PI / 180;
@@ -9721,6 +9770,7 @@
       { nombre: "NEVERA 3", items: [] }
     ]));
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
+    const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
     const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
@@ -9836,6 +9886,7 @@
       neveras,
       correos,
       usuarios,
+      appSecurity,
       systemLogs,
       barInventario,
       barCuartoFrioInventario,
@@ -9994,6 +10045,7 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
+      if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(normalizeInventoryRowsForDisplay(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario));
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
@@ -10059,6 +10111,7 @@
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
+    useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
     useEffect(() => save(PRODUCTION_HISTORY_DELETED_KEYS_STORAGE, normalizeProductionHistoryDeletedKeys(productionHistoryDeletedKeys)), [productionHistoryDeletedKeys]);
@@ -10143,6 +10196,23 @@
       });
       return found || null;
     }, [usuarios, authUserEmail]);
+    useEffect(() => {
+      if (!currentUser || !isAdminUser(currentUser)) return;
+      const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
+      if (!readAdminSessionStartedAt(currentUser.email) && !revocation) {
+        writeAdminSessionStartedAt(currentUser.email, new Date().toISOString());
+      }
+      if (!isAdminSessionRevoked(currentUser, appSecurity)) return;
+      resetGoogleSession();
+      clearAdminSessionStartedAt(currentUser.email);
+      setAuthUserEmail("");
+      clearStoredWelcomeCoverSeen();
+      setWelcomeCoverDismissedKey("");
+      sessionStorage.removeItem("wtf_modulo");
+      setModulo(null);
+      setPage("dashboard");
+      toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
+    }, [currentUser, appSecurity]);
     function resetGoogleSession() {
       accessTokenRef.current = "";
       accessTokenExpiryRef.current = 0;
@@ -10210,7 +10280,34 @@
           accion: "Cierre de sesion",
           detalle: "El usuario cerro sesion en el sistema."
         });
+        if (isAdminUser(currentUser)) clearAdminSessionStartedAt(currentUser.email);
       }
+      setAuthUserEmail("");
+      clearStoredWelcomeCoverSeen();
+      setWelcomeCoverDismissedKey("");
+      sessionStorage.removeItem("wtf_modulo");
+      setModulo(null);
+      setPage("dashboard");
+    }
+    function revokeAdminSessionsEverywhere() {
+      if (!isAdminUser(currentUser)) return;
+      const now = new Date().toISOString();
+      setAppSecurity(function(prev) {
+        return normalizeAppSecurity(Object.assign({}, prev, {
+          adminSessionsRevokedAt: now,
+          adminSessionsRevokedBy: getUserDisplayLabel(currentUser),
+          adminSessionsRevokedByEmail: currentUser.email || "",
+          adminSessionsRevokedReason: "Revocacion manual desde Usuarios y Permisos"
+        }));
+      });
+      addSystemLog({
+        modulo: "Usuarios y Permisos",
+        accion: "Cerrar sesiones administradoras",
+        detalle: `Se cerro la sesion de administradores en todos los dispositivos. Ordenado por ${getUserDisplayLabel(currentUser)}.`
+      });
+      toast("Sesiones de administrador cerradas en todos los dispositivos. Este equipo tambien saldra de la sesion.", "ok", 8e3);
+      resetGoogleSession();
+      clearAdminSessionStartedAt(currentUser.email);
       setAuthUserEmail("");
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
@@ -10229,6 +10326,7 @@
       } catch (_) {}
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
+      if (isAdminUser(user)) writeAdminSessionStartedAt(user.email, new Date().toISOString());
       setAuthUserEmail(user.email);
       const loginDetail = locationCheck && locationCheck.reason === "authorized-terminal" ? `Acceso confirmado desde terminal autorizada: ${locationCheck.terminalName || locationCheck.terminalId || "Terminal WTF"}.` : locationCheck && locationCheck.bypass ? "Acceso confirmado con correo y contrasena. Validacion de ubicacion omitida por rol administrador." : `Acceso confirmado dentro del rango WTF. Distancia aprox.: ${locationCheck.distanceMeters} m. Precision: ${locationCheck.accuracyMeters} m.`;
       addSystemLog({
@@ -10461,7 +10559,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -10478,7 +10576,7 @@
         window.removeEventListener("wtf:pwa-resume", handlePwaSync);
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, firebaseStatus]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, firebaseStatus]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -10629,29 +10727,55 @@
         };
       }
       let privacyTimer = null;
-      function flashPrivacyOverlay() {
+      let metaPrivacyActive = false;
+      function flashPrivacyOverlay(duration) {
         setScreenPrivacyOverlay(true);
         if (privacyTimer) clearTimeout(privacyTimer);
         privacyTimer = setTimeout(function() {
+          if (!metaPrivacyActive) setScreenPrivacyOverlay(false);
+        }, duration || 2200);
+      }
+      function hidePrivacyOverlaySoon() {
+        metaPrivacyActive = false;
+        if (privacyTimer) clearTimeout(privacyTimer);
+        privacyTimer = setTimeout(function() {
           setScreenPrivacyOverlay(false);
-        }, 2200);
+        }, 900);
       }
       function handleKeyDown(event) {
         const key = String(event.key || "").toLowerCase();
+        const isMetaKey = key === "meta" || key === "os";
+        if (isMetaKey) {
+          metaPrivacyActive = true;
+          setScreenPrivacyOverlay(true);
+          return;
+        }
         if (key === "printscreen" || (event.ctrlKey || event.metaKey) && (key === "p" || key === "s")) {
           event.preventDefault();
           flashPrivacyOverlay();
         }
       }
-      function handleBlur() {
-        flashPrivacyOverlay();
+      function handleKeyUp(event) {
+        const key = String(event.key || "").toLowerCase();
+        if (key === "meta" || key === "os") hidePrivacyOverlaySoon();
+      }
+      function handleBeforePrint(event) {
+        if (event && typeof event.preventDefault === "function") event.preventDefault();
+        flashPrivacyOverlay(3500);
+      }
+      function handleAfterPrint() {
+        hidePrivacyOverlaySoon();
       }
       window.addEventListener("keydown", handleKeyDown, true);
-      window.addEventListener("blur", handleBlur);
+      window.addEventListener("keyup", handleKeyUp, true);
+      window.addEventListener("beforeprint", handleBeforePrint);
+      window.addEventListener("afterprint", handleAfterPrint);
       return function() {
         document.body.classList.remove("screen-print-blocked");
         window.removeEventListener("keydown", handleKeyDown, true);
-        window.removeEventListener("blur", handleBlur);
+        window.removeEventListener("keyup", handleKeyUp, true);
+        window.removeEventListener("beforeprint", handleBeforePrint);
+        window.removeEventListener("afterprint", handleAfterPrint);
         if (privacyTimer) clearTimeout(privacyTimer);
       };
     }, [currentUser]);
@@ -11323,7 +11447,7 @@ Solicitado: ${cantidad}`);
       finanzas: /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
-      usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData }),
+      usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
       aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
@@ -11975,17 +12099,17 @@ Solicitado: ${cantidad}`);
       });
     }, [moduleLabel, recetas, producciones, miseAnPlace]);
     useEffect(function() {
-      function handleBlur() {
-        if (recetarioOpen || recipeSheet) setSecureRecipeHidden(true);
+      function handleVisibilityChange() {
+        if (document.visibilityState === "hidden" && (recetarioOpen || recipeSheet)) {
+          setSecureRecipeHidden(true);
+        }
+        if (document.visibilityState === "visible") {
+          setSecureRecipeHidden(false);
+        }
       }
-      function handleFocus() {
-        setSecureRecipeHidden(false);
-      }
-      window.addEventListener("blur", handleBlur);
-      window.addEventListener("focus", handleFocus);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
       return function() {
-        window.removeEventListener("blur", handleBlur);
-        window.removeEventListener("focus", handleFocus);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
       };
     }, [recetarioOpen, recipeSheet]);
     const produccionProgramadaBase = useMemo(function() {
@@ -17979,12 +18103,14 @@ Solicitado: ${cantidad}`);
       )
     );
   }
-  function UsuariosPage({ usuarios, setUsuarios, employeeCenterData = null }) {
+  function UsuariosPage({ usuarios, setUsuarios, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null }) {
     const toast = useToast();
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
+    const securityInfo = normalizeAppSecurity(appSecurity);
     const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", perfilLaboral: "", cargoVisible: "", bienvenidaActiva: true, bienvenidaDias: 7 };
     const [form, setForm] = useState(emptyForm);
     const [editingId, setEditingId] = useState("");
+    const [adminSessionRevokeRequest, setAdminSessionRevokeRequest] = useState(false);
     const usuariosVisibles = useMemo(function() {
       return usuarios.filter(function(user) {
         return !isRootAdmin(user);
@@ -18135,7 +18261,7 @@ Solicitado: ${cantidad}`);
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "Usa esta opcion si dejaste una sesion administradora abierta en otra computadora. Los administradores deberan iniciar sesion nuevamente.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
@@ -18148,7 +18274,7 @@ Solicitado: ${cantidad}`);
         });
         return found ? found.label : key;
       }).join(", ") || "Sin permisos"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${user.activo === false ? "pill-gris" : "pill-verde"}` }, user.activo === false ? "Inactivo" : "Activo")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => startEdit(user) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => toggleActivo(user) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${user.activo === false ? "fa-toggle-on" : "fa-toggle-off"}` }), user.activo === false ? "Activar" : "Desactivar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: () => deleteUser(user) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar"))));
-    }))))));
+    })))))), adminSessionRevokeRequest && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: "Cerrar sesiones de administradores", usuarios, onClose: () => setAdminSessionRevokeRequest(false), onConfirm: function() { setAdminSessionRevokeRequest(false); if (typeof onRevokeAdminSessions === "function") onRevokeAdminSessions(); } }));
   }
   function SelfAccessModal({ currentUser, onClose, onSave }) {
     const [email, setEmail] = useState(currentUser && currentUser.email ? currentUser.email : "");
