@@ -4999,6 +4999,8 @@
         stockMinimoLunesJueves: getMiseStockMinLJ(item),
         stockMinimoViernesDomingo: getMiseStockMinVD(item),
         usarEnProduccion: item && item.usarEnProduccion === true,
+        esKitMise: item && (item.esKitMise === true || item.tipoMise === "kit" || item.tipoProductoMise === "kit"),
+        kitComponentes: normalizeMiseKitComponents(item && (item.kitComponentes || item.componentesKit || item.componentes)),
         __sourceIndex: index
       });
       const stableKey = getMiseMergeKey(clean);
@@ -5060,6 +5062,54 @@
         codArticulo: code
       });
     });
+  }
+  function normalizeMiseKitComponents(input) {
+    return (Array.isArray(input) ? input : []).map(function(row) {
+      const producto = String(row && (row.producto || row.nombre || row.productoMise || row.componentProduct) || "").trim();
+      const productoId = row && (row.productoId || row.miseProductoId || row.idProducto || "");
+      const cantidad = Number(String(row && (row.cantidadPorServicio ?? row.cantidad ?? row.qty ?? row.cantidadUsada) || "").replace(",", "."));
+      const medida = normalizarMedidaMise(row && (row.medida || row.unidad || row.unit) || "Uni");
+      return {
+        id: row && row.id || `kit-comp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        productoId,
+        producto,
+        cantidadPorServicio: Number.isFinite(cantidad) && cantidad > 0 ? Number(cantidad.toFixed(4)) : "",
+        medida
+      };
+    }).filter(function(row) {
+      return row.producto && Number(row.cantidadPorServicio) > 0;
+    });
+  }
+  function isMiseKit(item) {
+    return Boolean(item && (item.esKitMise === true || item.tipoMise === "kit" || item.tipoProductoMise === "kit"));
+  }
+  function getMiseKitAvailability(item, allMiseRows) {
+    if (!isMiseKit(item)) return getMiseSafeNumber(item && item.existencia, 0);
+    const components = normalizeMiseKitComponents(item.kitComponentes || item.componentesKit || item.componentes);
+    if (!components.length) return 0;
+    let minServices = Infinity;
+    components.forEach(function(component) {
+      const target = (Array.isArray(allMiseRows) ? allMiseRows : []).find(function(row) {
+        if (!row || row.id === item.id) return false;
+        if (component.productoId && String(row.id) === String(component.productoId)) return true;
+        return normalizar(row.producto || row.nombre) === normalizar(component.producto);
+      });
+      if (!target) {
+        minServices = 0;
+        return;
+      }
+      const neededInTargetUnit = convertMeasureQuantity(Number(component.cantidadPorServicio || 0), component.medida || target.medida || "Uni", target.medida || "Uni");
+      if (neededInTargetUnit == null || !(neededInTargetUnit > 0)) {
+        minServices = 0;
+        return;
+      }
+      minServices = Math.min(minServices, getMiseSafeNumber(target.existencia, 0) / neededInTargetUnit);
+    });
+    if (!Number.isFinite(minServices) || minServices < 0) return 0;
+    return Number(Math.floor(minServices * 1e4) / 1e4);
+  }
+  function getMiseDisplayExistencia(item, allMiseRows) {
+    return isMiseKit(item) ? getMiseKitAvailability(item, allMiseRows) : getMiseSafeNumber(item && item.existencia, 0);
   }
   function initMise() {
     var rows = [
@@ -12078,8 +12128,12 @@ Solicitado: ${cantidad}`);
       if (nextMode === currentMode) return;
       const currentDraft = captureCurrentRecipeModeDraft();
       const nextDrafts = Object.assign({}, recipeModeDrafts, { [currentMode]: currentDraft });
-      if (nextMode === "multiplicar" && currentMode === "definida" && !nextDrafts[nextMode]) {
-        nextDrafts.multiplicar = recipeMultiplicarAutoCalc ? buildMultiplicarDraftFromDefinida(currentDraft) : currentDraft;
+      if (nextMode === "multiplicar" && currentMode === "definida") {
+        if (recipeModalOpen && recipeMultiplicarAutoCalc) {
+          nextDrafts.multiplicar = buildMultiplicarDraftFromDefinida(currentDraft);
+        } else if (!nextDrafts[nextMode]) {
+          nextDrafts.multiplicar = currentDraft;
+        }
       }
       const incoming = nextDrafts[nextMode] || currentDraft;
       setRecipeModeDrafts(nextDrafts);
@@ -13668,10 +13722,6 @@ Solicitado: ${cantidad}`);
       setProductionRuns(value);
       const times = getProductionRunFactor(value, unitOverride);
       if (!Number.isFinite(times) || times <= 0) return;
-      if (normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !recipeMultiplicarAutoCalc) {
-        setError("");
-        return;
-      }
       setInsumos(function(prev) {
         return prev.map(function(item) {
           if (item.rowId === excludeRowId) return item;
@@ -13730,7 +13780,7 @@ Solicitado: ${cantidad}`);
           if (field === "cantidad") {
             const times = getProductionRunFactor(productionRuns, productionRunUnit);
             const typedQty = Number(String(value || "").replace(",", "."));
-            next.cantidadBaseReceta = normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !recipeMultiplicarAutoCalc ? value : Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
+            next.cantidadBaseReceta = Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
           }
           return next;
         });
@@ -13747,20 +13797,23 @@ Solicitado: ${cantidad}`);
     function updateRecipeMultiplicarAutoCalc(checked) {
       const enabled = Boolean(checked);
       setRecipeMultiplicarAutoCalc(enabled);
-      if (!enabled || normalizeRecipeCalcMode(recipeCalcMode) !== "multiplicar") return;
-      const times = getProductionRunFactor(productionRuns, productionRunUnit);
-      if (!Number.isFinite(times) || times <= 0) return;
-      setInsumos(function(prev) {
-        return prev.map(function(item) {
-          const baseSource = item.cantidadBaseReceta !== void 0 && item.cantidadBaseReceta !== null && String(item.cantidadBaseReceta) !== "" ? item.cantidadBaseReceta : item.cantidad;
-          const base = Number(String(baseSource || "").replace(",", "."));
-          if (!Number.isFinite(base) || base <= 0) return item;
-          return Object.assign({}, item, {
-            cantidadBaseReceta: formatProductionRecipeQty(base),
-            cantidad: formatProductionRecipeQty(base * times)
-          });
-        });
-      });
+      if (!recipeModalOpen) return;
+      const currentMode = normalizeRecipeCalcMode(recipeCalcMode);
+      const currentDraft = captureCurrentRecipeModeDraft();
+      const nextDrafts = Object.assign({}, recipeModeDrafts, { [currentMode]: currentDraft });
+      if (enabled) {
+        const definedDraft = currentMode === "definida" ? currentDraft : nextDrafts.definida;
+        if (definedDraft && Array.isArray(definedDraft.insumos)) {
+          const generatedDraft = buildMultiplicarDraftFromDefinida(definedDraft);
+          nextDrafts.multiplicar = generatedDraft;
+          if (currentMode === "multiplicar") {
+            setInsumos(cloneRecipeItemsForUi(generatedDraft.insumos));
+            setRecipeProcedures(normalizeRecipeProcedures(generatedDraft.procedimientos, generatedDraft.insumos));
+            setRecipeLockAllInsumos((generatedDraft.insumos || []).length > 0 && (generatedDraft.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
+          }
+        }
+      }
+      setRecipeModeDrafts(nextDrafts);
     }
     function moveInsumo(rowId, direction) {
       setInsumos(function(prev) {
@@ -14106,7 +14159,7 @@ Solicitado: ${cantidad}`);
         setError("La cantidad producida debe ser mayor a cero.");
         return;
       }
-      if (usingSavedRecipeProduction && normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && recipeMultiplicarAutoCalc && !String(productionRunUnit || "").trim()) {
+      if (usingSavedRecipeProduction && normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !String(productionRunUnit || "").trim()) {
         setError("Selecciona si realizaras la produccion en Libras, Gramos u Onzas para poder multiplicar la receta.");
         return;
       }
@@ -14153,7 +14206,7 @@ Solicitado: ${cantidad}`);
           calculoAutomaticoMultiplicar: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? Boolean(recipeMultiplicarAutoCalc) : false,
           productionRuns: Number(String(productionRuns || "0").replace(",", ".")) || "",
           productionRunUnit: productionRunUnit || "",
-          productionRunFactorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && recipeMultiplicarAutoCalc ? getProductionRunFactor(productionRuns, productionRunUnit) || "" : "",
+          productionRunFactorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? getProductionRunFactor(productionRuns, productionRunUnit) || "" : "",
           cantidadProducidaMiseEstimada: producedQtyForMise != null ? Number(producedQtyForMise.toFixed(4)) : "",
           medidaProducidaMiseEstimada: productionMiseTarget ? miseTargetUnit : "",
           conversionMiseAutomatica: Boolean(productionMiseTarget && normalizarMedidaMise(producedUnit) !== miseTargetUnit),
@@ -14321,7 +14374,7 @@ Solicitado: ${cantidad}`);
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
         bloquearVecesProduccion: Boolean(productionRunsLocked),
         recetaProporcionalPorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar",
-        notaOperacion: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? recipeMultiplicarAutoCalc ? "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor." : "Receta para multiplicar en modo manual: el usuario ajusta las cantidades de insumos sin recalculo automatico." : "",
+        notaOperacion: recipeMultiplicarAutoCalc ? "La modalidad Receta (Para multiplicar) se genero automaticamente desde Receta (Definida) dividiendo cada insumo entre el primer insumo." : "La modalidad Receta (Para multiplicar) fue configurada manualmente.",
         insumos: recetaItems
       };
       recetaPayload.updatedAt = recetaPayload.fecha;
@@ -15143,11 +15196,7 @@ Solicitado: ${cantidad}`);
                           /* @__PURE__ */ React.createElement("option", { value: "Oz" }, "Onzas")
                         )
                       ),
-                      /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: recipeMultiplicarAutoCalc ? "#15803d" : "#92400e", fontWeight: 800, marginTop: 8, background: recipeMultiplicarAutoCalc ? "#f0fdf4" : "#fff7ed", border: recipeMultiplicarAutoCalc ? "1px solid #bbf7d0" : "1px solid #fed7aa", borderRadius: 8, padding: "8px 10px" } },
-                        /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeMultiplicarAutoCalc, onChange: function(e) { updateRecipeMultiplicarAutoCalc(e.target.checked); }, style: { marginTop: 2 } }),
-                        /* @__PURE__ */ React.createElement("span", null, recipeMultiplicarAutoCalc ? "Cálculo automático activo: la cantidad indicada multiplica todos los insumos." : "Cálculo automático apagado: puedes ajustar cada insumo manualmente.")
-                      ),
-                      recipeMultiplicarAutoCalc ? getProductionRunFactor(productionRuns, productionRunUnit) ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#15803d", fontWeight: 800, marginTop: 5 } }, "Equivalente interno: ", formatQty4(getProductionRunFactor(productionRuns, productionRunUnit)), " G para multiplicar los insumos.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", fontWeight: 800, marginTop: 5 } }, "Selecciona Libras, Gramos u Onzas para calcular la producción.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", fontWeight: 800, marginTop: 5 } }, "Modo manual: el valor de producción no modifica las cantidades de los insumos.")
+                      getProductionRunFactor(productionRuns, productionRunUnit) ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#15803d", fontWeight: 800, marginTop: 5 } }, "Equivalente interno: ", formatQty4(getProductionRunFactor(productionRuns, productionRunUnit)), " G para multiplicar los insumos.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", fontWeight: 800, marginTop: 5 } }, "Selecciona Libras, Gramos u Onzas para calcular la producción.")
                     ) : /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", value: productionRuns, readOnly: productionRunsLocked, disabled: productionRunsLocked, onChange: function(e) { updateProductionRuns(e.target.value); }, placeholder: "1", title: productionRunsLocked ? "Este campo esta bloqueado por la configuracion de la receta." : "", style: productionRunsLocked ? { background: "#f3f4f6", color: "#6b7280", cursor: "not-allowed", fontWeight: 800 } : void 0 }),
                     productionRunsLocked && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", fontWeight: 800, marginTop: 5 } }, "Bloqueado desde la configuracion de esta receta.")
                   ),
@@ -15361,9 +15410,9 @@ Solicitado: ${cantidad}`);
                       )
                     )
                   ),
-                  normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: recipeMultiplicarAutoCalc ? "#15803d" : "#92400e", fontWeight: 800, background: recipeMultiplicarAutoCalc ? "#f0fdf4" : "#fff7ed", border: recipeMultiplicarAutoCalc ? "1px solid #bbf7d0" : "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px" } },
+                  normalizeRecipeCalcMode(recipeCalcMode) === "definida" && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: recipeMultiplicarAutoCalc ? "#15803d" : "#92400e", fontWeight: 800, background: recipeMultiplicarAutoCalc ? "#f0fdf4" : "#fff7ed", border: recipeMultiplicarAutoCalc ? "1px solid #bbf7d0" : "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px" } },
                     /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeMultiplicarAutoCalc, onChange: function(e) { updateRecipeMultiplicarAutoCalc(e.target.checked); }, style: { marginTop: 2 } }),
-                    /* @__PURE__ */ React.createElement("span", null, recipeMultiplicarAutoCalc ? "Activar cálculo automático en Receta (Para multiplicar)" : "Cálculo automático apagado: la modalidad Para multiplicar se editará manualmente")
+                    /* @__PURE__ */ React.createElement("span", null, recipeMultiplicarAutoCalc ? "Generar automáticamente Receta (Para multiplicar) desde Receta (Definida)" : "Generación automática apagada: Receta (Para multiplicar) se editará manualmente")
                   ),
                   /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 800, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 10px" } },
                     /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeLockAllInsumos, onChange: function(e) { const checked = e.target.checked; setRecipeLockAllInsumos(checked); setInsumos(function(prev) { return prev.map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: checked }); }); }); }, style: { marginTop: 2 } }),
@@ -21195,7 +21244,7 @@ Solicitado: ${cantidad}`);
     const [modalAdd, setModalAdd] = useState(false);
     const [editItem, setEditItem] = useState(null);
     const [busqueda, setBusqueda] = useState("");
-    const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, medida: "Uni", unidadEmpaque: "Paq", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", usarEnProduccion: false, icgLinks: [createBlankIcgLink("Uni")] });
+    const [newProd, setNewProd] = useState({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, medida: "Uni", unidadEmpaque: "Paq", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", usarEnProduccion: false, esKitMise: false, kitComponentes: [], icgLinks: [createBlankIcgLink("Uni")] });
     const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
     const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
     const icgArticleRows = getIcgArticleRowsForLinks(normalizedIcgData);
@@ -21249,7 +21298,12 @@ Solicitado: ${cantidad}`);
       const id = Math.max(0, ...miseRows.map((m) => Number(m.id) || 0)) + 1;
       const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, "Uni");
       const now = new Date().toISOString();
-      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: getMiseSafeNumber(newProd.existencia, 0), medida: normalizarMedidaMise(newProd.medida || "Uni"), unidadEmpaque: newProd.unidadEmpaque || "Paq", unidadesPorEmpaque: newProd.unidadesPorEmpaque || "", unidadInternaEmpaque: newProd.unidadInternaEmpaque || "Uni", cantidadPorUnidadInterna: newProd.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: newProd.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), usarEnProduccion: newProd.usarEnProduccion === true, icgLinks: cleanIcgLinks, createdAt: now, updatedAt: now }]);
+      const kitComponentes = normalizeMiseKitComponents(newProd.kitComponentes);
+      if (newProd.esKitMise === true && !kitComponentes.length) {
+        toast("Agrega al menos un componente para el Kit de Mise an Place.", "error");
+        return;
+      }
+      setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: newProd.esKitMise === true ? 0 : getMiseSafeNumber(newProd.existencia, 0), medida: normalizarMedidaMise(newProd.medida || "Uni"), unidadEmpaque: newProd.unidadEmpaque || "Paq", unidadesPorEmpaque: newProd.unidadesPorEmpaque || "", unidadInternaEmpaque: newProd.unidadInternaEmpaque || "Uni", cantidadPorUnidadInterna: newProd.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: newProd.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), usarEnProduccion: newProd.usarEnProduccion === true, esKitMise: newProd.esKitMise === true, tipoMise: newProd.esKitMise === true ? "kit" : "producto", kitComponentes, icgLinks: cleanIcgLinks, createdAt: now, updatedAt: now }]);
       saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise");
       if (typeof onSystemLog === "function") {
         onSystemLog({
@@ -21259,7 +21313,7 @@ Solicitado: ${cantidad}`);
           detalle: `Producto agregado al Mise an Place ${moduleLabel}. CodArticulo: ${String(id).padStart(3, "0")}.`
         }, currentUser);
       }
-      setNewProd({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, medida: "Uni", unidadEmpaque: "Paq", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", usarEnProduccion: false, icgLinks: [createBlankIcgLink("Uni")] });
+      setNewProd({ producto: "", existencia: 0, stockMinimoLunesJueves: 0, stockMinimoViernesDomingo: 0, medida: "Uni", unidadEmpaque: "Paq", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", usarEnProduccion: false, esKitMise: false, kitComponentes: [], icgLinks: [createBlankIcgLink("Uni")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -21290,7 +21344,7 @@ Solicitado: ${cantidad}`);
         const previousKey = normalizar(previousName);
         const nextKey = normalizar(nextItem.producto);
         const nextCod = normalizar(getMiseCodArticulo(nextItem, 0));
-        const editedRows = (Array.isArray(prev) ? prev : []).map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: getMiseSafeNumber(m.existencia, 0), medida: normalizarMedidaMise(nextItem.medida), unidadEmpaque: nextItem.unidadEmpaque || "", unidadesPorEmpaque: nextItem.unidadesPorEmpaque || "", unidadInternaEmpaque: nextItem.unidadInternaEmpaque || "", cantidadPorUnidadInterna: nextItem.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: nextItem.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem), usarEnProduccion: nextItem.usarEnProduccion === true, updatedAt: now } : m);
+        const editedRows = (Array.isArray(prev) ? prev : []).map((m, index) => m.id === nextItem.id ? { ...m, ...nextItem, codArticulo: getMiseCodArticulo(nextItem, index), producto: nextItem.producto, existencia: nextItem.esKitMise === true ? 0 : getMiseSafeNumber(m.existencia, 0), medida: normalizarMedidaMise(nextItem.medida), unidadEmpaque: nextItem.unidadEmpaque || "", unidadesPorEmpaque: nextItem.unidadesPorEmpaque || "", unidadInternaEmpaque: nextItem.unidadInternaEmpaque || "", cantidadPorUnidadInterna: nextItem.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: nextItem.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseStockMinLJ(nextItem), stockMinimoViernesDomingo: getMiseStockMinVD(nextItem), usarEnProduccion: nextItem.usarEnProduccion === true, esKitMise: nextItem.esKitMise === true, tipoMise: nextItem.esKitMise === true ? "kit" : "producto", kitComponentes: normalizeMiseKitComponents(nextItem.kitComponentes), updatedAt: now } : m);
         return normalizeMiseItems(editedRows.filter(function(row) {
           if (!row || row.id === nextItem.id) return true;
           const rowName = normalizar(row.producto || row.nombre || "");
@@ -21397,12 +21451,14 @@ Solicitado: ${cantidad}`);
       });
     }
     const tableRows = miseFiltrada.map((m, i) => {
-      const stockAlert = getMiseStockAlert(m);
-      const existenciaClass = stockAlert.active ? "mise-prod-alert" : m.existencia <= 0 ? "mise-stock-zero" : m.existencia <= 5 ? "mise-stock-low" : "exist-ok";
-      const rowClass = stockAlert.active ? "tr-mise-prod-alert" : m.existencia <= 0 ? "tr-mise-zero" : m.existencia <= 5 ? "tr-mise-low" : "";
+      const displayExistencia = getMiseDisplayExistencia(m, miseRows);
+      const displayRow = isMiseKit(m) ? Object.assign({}, m, { existencia: displayExistencia }) : m;
+      const stockAlert = getMiseStockAlert(displayRow);
+      const existenciaClass = stockAlert.active ? "mise-prod-alert" : displayExistencia <= 0 ? "mise-stock-zero" : displayExistencia <= 5 ? "mise-stock-low" : "exist-ok";
+      const rowClass = stockAlert.active ? "tr-mise-prod-alert" : displayExistencia <= 0 ? "tr-mise-zero" : displayExistencia <= 5 ? "tr-mise-low" : "";
       const stockLjClass = stockAlert.active && stockAlert.periodo === "L-J" ? "pill pill-rojo" : "pill pill-gris";
       const stockVdClass = stockAlert.active && stockAlert.periodo === "V-D" ? "pill pill-rojo" : "pill pill-gris";
-      return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getMiseCodArticulo(m, i)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto, stockAlert.active && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 800 } }, "Producir: faltan ", formatMiseQty(stockAlert.faltante), " ", m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockLjClass }, formatMiseQty(getMiseStockMinLJ(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockVdClass }, formatMiseQty(getMiseStockMinVD(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, formatMiseQty(m.existencia)), getPackageEquivalentText(m, m.existencia) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3, fontWeight: 700 } }, "Equiv.: ", getPackageEquivalentText(m, m.existencia))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 700, color: m.usarEnProduccion ? "var(--verde)" : "var(--gris)", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: m.usarEnProduccion === true, onChange: (e) => toggleUseInProduction(m, e.target.checked) }), m.usarEnProduccion ? "Activo" : "No")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar producto y vinculos ICG", onClick: () => setEditItem(Object.assign({}, m, { icgLinks: getExistingIcgLinksForMise(m) })) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+      return /* @__PURE__ */ React.createElement("tr", { key: m.id, className: rowClass }, /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 11, fontWeight: 700 } }, getMiseCodArticulo(m, i)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, m.producto, isMiseKit(m) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#4338ca", marginTop: 3, fontWeight: 900 } }, "Kit de Mise an Place · ", normalizeMiseKitComponents(m.kitComponentes).length, " componentes"), stockAlert.active && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#991b1b", marginTop: 3, fontWeight: 800 } }, "Producir: faltan ", formatMiseQty(stockAlert.faltante), " ", m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockLjClass }, formatMiseQty(getMiseStockMinLJ(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: stockVdClass }, formatMiseQty(getMiseStockMinVD(m)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: existenciaClass }, formatMiseQty(displayExistencia)), isMiseKit(m) ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#4338ca", marginTop: 3, fontWeight: 800 } }, "Calculado por componentes") : getPackageEquivalentText(m, m.existencia) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", marginTop: 3, fontWeight: 700 } }, "Equiv.: ", getPackageEquivalentText(m, m.existencia))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, m.medida || "Uni")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 700, color: m.usarEnProduccion ? "var(--verde)" : "var(--gris)", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: m.usarEnProduccion === true, onChange: (e) => toggleUseInProduction(m, e.target.checked) }), m.usarEnProduccion ? "Activo" : "No")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar producto y vinculos ICG", onClick: () => setEditItem(Object.assign({}, m, { icgLinks: getExistingIcgLinksForMise(m) })) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => deleteProd(m.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
     });
     if (miseRows.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "8", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, "Sin productos en Mise an Place")));
@@ -21436,7 +21492,7 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Existencia inicial"),
-              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.existencia, onChange: (e) => setNewProd((p) => ({ ...p, existencia: e.target.value })) })
+              /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: newProd.existencia, disabled: newProd.esKitMise === true, title: newProd.esKitMise === true ? "La existencia del kit se calcula desde sus componentes." : "", onChange: (e) => setNewProd((p) => ({ ...p, existencia: e.target.value })), style: newProd.esKitMise === true ? { background: "#f3f4f6", color: "#6b7280", cursor: "not-allowed", fontWeight: 800 } : void 0 })
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
@@ -21445,7 +21501,11 @@ Solicitado: ${cantidad}`);
               )
             )
           ),
-          renderPackageContentEditor(newProd, setNewProd, newProd.medida || "Uni", { title: "Contenido de empaque para entradas" }),
+          /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 800, color: newProd.esKitMise ? "var(--azul)" : "var(--gris)", marginBottom: 10, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 10px" } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newProd.esKitMise === true, onChange: (e) => setNewProd((p) => ({ ...p, esKitMise: e.target.checked, existencia: e.target.checked ? 0 : p.existencia })) }),
+            "Kit de Mise an Place"
+          ),
+          newProd.esKitMise === true && /* @__PURE__ */ React.createElement(MiseKitComponentsEditor, { data: newProd, setData: setNewProd, miseRows, currentId: null }),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Stock Minimo L-J"),
@@ -21468,13 +21528,89 @@ Solicitado: ${cantidad}`);
         )
       )
     ) : null;
-    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, icgArticles: icgArticleRows, icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
+    const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, miseRows, icgArticles: icgArticleRows, icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
     const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
     const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
     const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
-  function EditMiseItemModal({ item, icgArticles = [], icgLinkGroups = [], setIcgFrontRestData = null, toast = null, onClose, onSave }) {
+  function MiseKitComponentsEditor({ data, setData, miseRows = [], currentId = null }) {
+    function normalizeMiseKitDrafts(input) {
+      return (Array.isArray(input) ? input : []).map(function(row) {
+        return {
+          id: row && row.id || `kit-comp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          productoId: row && (row.productoId || row.miseProductoId || row.idProducto || ""),
+          producto: String(row && (row.producto || row.nombre || row.productoMise || row.componentProduct) || ""),
+          cantidadPorServicio: row && (row.cantidadPorServicio ?? row.cantidad ?? row.qty ?? row.cantidadUsada) || "",
+          medida: normalizarMedidaMise(row && (row.medida || row.unidad || row.unit) || data && data.medida || "Uni")
+        };
+      });
+    }
+    const components = normalizeMiseKitDrafts(data && data.kitComponentes);
+    const options = normalizeMiseItems(miseRows).filter(function(row) {
+      if (!row) return false;
+      if (currentId != null && String(row.id) === String(currentId)) return false;
+      if (normalizar(row.producto) === normalizar(data && data.producto)) return false;
+      return !isMiseKit(row);
+    });
+    function updateComponent(index, patch) {
+      setData(function(prev) {
+        const rows = normalizeMiseKitDrafts(prev.kitComponentes);
+        const current = rows[index] || { id: `kit-comp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, producto: "", cantidadPorServicio: "", medida: prev.medida || "Uni" };
+        let next = Object.assign({}, current, patch);
+        if (patch.producto) {
+          const selected = options.find(function(row) { return normalizar(row.producto) === normalizar(patch.producto); });
+          if (selected) {
+            next = Object.assign({}, next, { producto: selected.producto, productoId: selected.id, medida: selected.medida || next.medida || "Uni" });
+          }
+        }
+        rows[index] = next;
+        return Object.assign({}, prev, { kitComponentes: rows });
+      });
+    }
+    function addComponent() {
+      setData(function(prev) {
+        return Object.assign({}, prev, { kitComponentes: normalizeMiseKitDrafts(prev.kitComponentes).concat([{ id: `kit-comp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, producto: "", cantidadPorServicio: "", medida: prev.medida || "Uni" }]) });
+      });
+    }
+    function removeComponent(index) {
+      setData(function(prev) {
+        return Object.assign({}, prev, { kitComponentes: normalizeMiseKitDrafts(prev.kitComponentes).filter(function(_, i) { return i !== index; }) });
+      });
+    }
+    const rows = components.length ? components : [{ id: "kit-empty", producto: "", cantidadPorServicio: "", medida: data && data.medida || "Uni" }];
+    const datalistId = `mise-kit-components-${currentId || "new"}`;
+    return /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #c7d2fe", background: "#eef2ff", borderRadius: 10, padding: 12, display: "grid", gap: 10, marginBottom: 12 } },
+      /* @__PURE__ */ React.createElement("datalist", { id: datalistId }, options.map(function(row) {
+        return /* @__PURE__ */ React.createElement("option", { key: row.id, value: row.producto }, row.producto, " — ", formatMiseQty(getMiseSafeNumber(row.existencia, 0)), " ", row.medida || "Uni");
+      })),
+      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+        /* @__PURE__ */ React.createElement("strong", { style: { color: "#3730a3" } }, "Componentes del Kit de Mise an Place"),
+        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: addComponent }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar componente")
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#4338ca", fontWeight: 700 } }, "La existencia del kit se calcula con el componente que alcance para menos servicios. Al dar salida al kit, se descuentan sus componentes."),
+      rows.map(function(component, index) {
+        return /* @__PURE__ */ React.createElement("div", { key: component.id || index, style: { display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(90px,.7fr) minmax(90px,.7fr) auto", gap: 8, alignItems: "end" } },
+          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Componente"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: component.producto || "", onChange: function(e) { updateComponent(index, { producto: e.target.value }); }, placeholder: "Ej: Alitas, Chuleta, Longaniza" })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Cant. por servicio"),
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.0001", step: "0.0001", value: component.cantidadPorServicio || "", onChange: function(e) { updateComponent(index, { cantidadPorServicio: e.target.value }); }, placeholder: "0.00" })
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+            /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
+            /* @__PURE__ */ React.createElement("select", { className: "form-control", value: component.medida || "Uni", onChange: function(e) { updateComponent(index, { medida: e.target.value }); } }, MISE_MEDIDAS.map(function(option) {
+              return /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option);
+            }))
+          ),
+          /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris btn-icon", onClick: function() { removeComponent(index); }, title: "Quitar componente" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        );
+      })
+    );
+  }
+  function EditMiseItemModal({ item, miseRows = [], icgArticles = [], icgLinkGroups = [], setIcgFrontRestData = null, toast = null, onClose, onSave }) {
     const [codArticulo, setCodArticulo] = useState(getMiseCodArticulo(item, 0));
     const [producto, setProducto] = useState(item.producto || "");
     const [medida, setMedida] = useState(item.medida || "Uni");
@@ -21488,6 +21624,12 @@ Solicitado: ${cantidad}`);
     const [stockMinimoLunesJueves, setStockMinimoLunesJueves] = useState(String(getMiseStockMinLJ(item)));
     const [stockMinimoViernesDomingo, setStockMinimoViernesDomingo] = useState(String(getMiseStockMinVD(item)));
     const [usarEnProduccion, setUsarEnProduccion] = useState(item.usarEnProduccion === true);
+    const [kitData, setKitData] = useState({
+      esKitMise: isMiseKit(item),
+      producto: item.producto || "",
+      medida: item.medida || "Uni",
+      kitComponentes: normalizeMiseKitComponents(item.kitComponentes)
+    });
     const [icgLinks, setIcgLinks] = useState(function() {
       const rows = Array.isArray(item.icgLinks) && item.icgLinks.length ? item.icgLinks : [{ value: "", CantidadPorVenta: 1, Unidad: item.medida || "Uni", Activo: "Si", Notas: "" }];
       return rows.map(function(row) {
@@ -21532,7 +21674,9 @@ Solicitado: ${cantidad}`);
       }).filter(function(link) {
         return String(link.value || link.CodArticulo || link.Referencia || link.ProductoICG || "").trim();
       });
-      onSave({ ...item, ...packageData, codArticulo: String(codArticulo || "").trim() || getMiseCodArticulo(item, 0), producto: nombre, existencia: item.existencia, medida: normalizarMedidaMise(medida), stockMinimoLunesJueves: minLj, stockMinimoViernesDomingo: minVd, usarEnProduccion: usarEnProduccion === true, icgLinks: cleanLinks });
+      const kitComponentes = normalizeMiseKitComponents(kitData.kitComponentes);
+      if (kitData.esKitMise === true && !kitComponentes.length) return setError("Agrega al menos un componente para el Kit de Mise an Place.");
+      onSave({ ...item, ...packageData, codArticulo: String(codArticulo || "").trim() || getMiseCodArticulo(item, 0), producto: nombre, existencia: item.existencia, medida: normalizarMedidaMise(medida), stockMinimoLunesJueves: minLj, stockMinimoViernesDomingo: minVd, usarEnProduccion: usarEnProduccion === true, esKitMise: kitData.esKitMise === true, tipoMise: kitData.esKitMise === true ? "kit" : "producto", kitComponentes, icgLinks: cleanLinks });
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" },
       /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() },
@@ -21548,7 +21692,7 @@ Solicitado: ${cantidad}`);
           ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
-            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: producto, onChange: (e) => setProducto(e.target.value) })
+            /* @__PURE__ */ React.createElement("input", { className: "form-control", value: producto, onChange: (e) => { setProducto(e.target.value); setKitData((p) => ({ ...p, producto: e.target.value })); } })
           ),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
@@ -21563,20 +21707,24 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Unidad"),
-              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: medida, onChange: (e) => { setMedida(e.target.value); setPackageData((p) => ({ ...p, unidadInternaEmpaque: p.unidadInternaEmpaque || e.target.value })); } },
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: medida, onChange: (e) => { setMedida(e.target.value); setPackageData((p) => ({ ...p, unidadInternaEmpaque: p.unidadInternaEmpaque || e.target.value })); setKitData((p) => ({ ...p, medida: e.target.value })); } },
                 MISE_MEDIDAS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))
               )
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Existencia actual"),
-              /* @__PURE__ */ React.createElement("div", { className: "pill pill-gris", title: "La existencia solo cambia por entradas, salidas, produccion o decomisos.", style: { display: "inline-flex", alignItems: "center", minHeight: 36, fontSize: 13 } }, formatMiseQty(item.existencia), " ", item.medida || "Uni")
+              /* @__PURE__ */ React.createElement("div", { className: kitData.esKitMise ? "pill pill-azul" : "pill pill-gris", title: kitData.esKitMise ? "La existencia del kit se calcula desde sus componentes." : "La existencia solo cambia por entradas, salidas, produccion o decomisos.", style: { display: "inline-flex", alignItems: "center", minHeight: 36, fontSize: 13 } }, formatMiseQty(kitData.esKitMise ? getMiseDisplayExistencia(item, miseRows) : item.existencia), " ", item.medida || "Uni")
             )
           ),
           /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 700, color: "var(--gris)", marginBottom: 10 } },
             /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: usarEnProduccion, onChange: (e) => setUsarEnProduccion(e.target.checked) }),
             "Usar en Produccion"
           ),
-          renderPackageContentEditor(packageData, setPackageData, medida || "Uni", { title: "Contenido de empaque para entradas" }),
+          /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 800, color: kitData.esKitMise ? "var(--azul)" : "var(--gris)", marginBottom: 10, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 10px" } },
+            /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: kitData.esKitMise === true, onChange: (e) => setKitData((p) => ({ ...p, esKitMise: e.target.checked })) }),
+            "Kit de Mise an Place"
+          ),
+          kitData.esKitMise === true && /* @__PURE__ */ React.createElement(MiseKitComponentsEditor, { data: kitData, setData: setKitData, miseRows, currentId: item.id }),
           renderIcgLinksEditor({ idPrefix: `mise-edit-${item.id}`, links: icgLinks, setLinks: setIcgLinks, icgArticles, defaultUnit: medida || "Uni", icgLinkGroups, setIcgFrontRestData, toast })
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
@@ -21708,6 +21856,7 @@ Solicitado: ${cantidad}`);
         const key = normalizar(f.p);
         const info = miseOptions.find((m) => normalizar(m.producto) === key);
         if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
+        if (isMiseKit(info)) return setError(`"${info.producto}" es un Kit de Mise an Place. Su existencia se calcula desde sus componentes.`);
         const unidadFila = normalizarMedidaMise(f.u);
         const unidadObjetivo = (acum[key] == null ? void 0 : acum[key].medida) || normalizarMedidaMise(info.medida || "Uni");
         const cantidadConvertida = convertPackageAwareQtyToStock(info, c, unidadFila);
@@ -21779,21 +21928,51 @@ Solicitado: ${cantidad}`);
         if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
         acum[key] = roundMiseQty((acum[key] || 0) + c);
       }
+      const componentAcum = {};
       for (const [k, total] of Object.entries(acum)) {
         const info = miseOptions.find((m) => normalizar(m.producto) === k);
-        if (total > Number(info.existencia || 0)) return setError(`Salida excede existencia de "${info.producto}" (${info.existencia}).`);
+        if (isMiseKit(info)) {
+          const disponibleKit = getMiseKitAvailability(info, miseOptions);
+          if (total > disponibleKit) return setError(`Salida excede disponibilidad del kit "${info.producto}" (${formatMiseQty(disponibleKit)} servicios).`);
+          const components = normalizeMiseKitComponents(info.kitComponentes);
+          if (!components.length) return setError(`"${info.producto}" no tiene componentes configurados.`);
+          for (const component of components) {
+            const target = miseOptions.find(function(row) {
+              if (!row || row.id === info.id) return false;
+              if (component.productoId && String(row.id) === String(component.productoId)) return true;
+              return normalizar(row.producto) === normalizar(component.producto);
+            });
+            if (!target) return setError(`No se encontro el componente "${component.producto}" del kit "${info.producto}".`);
+            const required = convertMeasureQuantity(total * Number(component.cantidadPorServicio || 0), component.medida || target.medida || "Uni", target.medida || "Uni");
+            if (required == null) return setError(`No se puede convertir el componente "${component.producto}" para el kit "${info.producto}".`);
+            const componentKey = normalizar(target.producto);
+            componentAcum[componentKey] = roundMiseQty((componentAcum[componentKey] || 0) + required);
+          }
+        } else if (total > Number(info.existencia || 0)) {
+          return setError(`Salida excede existencia de "${info.producto}" (${info.existencia}).`);
+        }
+      }
+      for (const [k, total] of Object.entries(componentAcum)) {
+        const info = miseOptions.find((m) => normalizar(m.producto) === k);
+        const directQty = isMiseKit(info) ? 0 : Number(acum[k] || 0);
+        const requiredTotal = roundMiseQty(total + directQty);
+        if (requiredTotal > Number(info.existencia || 0)) return setError(`Salida excede existencia del componente "${info.producto}" (${formatMiseQty(info.existencia)}).`);
       }
       const fecha = (/* @__PURE__ */ new Date()).toISOString();
       const registros = Object.entries(acum).map(([k, total]) => {
         const prod = miseOptions.find((m) => normalizar(m.producto) === k) || {};
         const cantidad = roundMiseQty(total);
-        const existenciaAnterior = roundMiseQty(prod.existencia);
+        const existenciaAnterior = roundMiseQty(getMiseDisplayExistencia(prod, miseOptions));
         return {
           id: `sal-rap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           fecha,
           producto: prod.producto || k,
           medida: prod.medida || "Uni",
           cantidad,
+          tipoMovimiento: isMiseKit(prod) ? "Kit de Mise an Place" : "Producto Mise",
+          componentesKit: isMiseKit(prod) ? normalizeMiseKitComponents(prod.kitComponentes).map(function(component) {
+            return `${component.producto}: ${formatMiseQty(Number(component.cantidadPorServicio || 0) * cantidad)} ${component.medida || "Uni"}`;
+          }).join(" | ") : "",
           existenciaAnterior,
           existenciaNueva: roundMiseQty(existenciaAnterior - cantidad),
           usuario: getUserDisplayLabel(currentUser)
@@ -21801,7 +21980,10 @@ Solicitado: ${cantidad}`);
       });
       setMise((p) => p.map((m) => {
         const k = normalizar(m.producto);
-        return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - acum[k]), updatedAt: fecha } : m;
+        const directQty = isMiseKit(m) ? 0 : Number(acum[k] || 0);
+        const componentQty = Number(componentAcum[k] || 0);
+        const delta = roundMiseQty(directQty + componentQty);
+        return delta > 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - delta), updatedAt: fecha } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
       if (setProducciones) {
@@ -21816,7 +21998,12 @@ Solicitado: ${cantidad}`);
               cantidadProducidaOriginal: originalQty
             });
           });
-          for (const [k, total] of Object.entries(acum)) {
+          const productionConsumption = Object.assign({}, componentAcum);
+          Object.entries(acum).forEach(function([key, value]) {
+            const info = miseOptions.find((m) => normalizar(m.producto) === key);
+            if (!isMiseKit(info)) productionConsumption[key] = roundMiseQty((productionConsumption[key] || 0) + value);
+          });
+          for (const [k, total] of Object.entries(productionConsumption)) {
             const miseInfo = miseOptions.find(function(item) {
               return normalizar(item.producto) === k;
             });
