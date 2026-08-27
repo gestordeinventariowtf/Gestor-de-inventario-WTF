@@ -216,6 +216,37 @@ function mergeBackupArticlesIntoIcgData(icg: AnyRecord, articles: AnyRecord[]): 
   });
 }
 
+function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[]): void {
+  if (!Array.isArray(salePrices) || !salePrices.length) return;
+  const current = icg.datasets.PreciosVenta || { key: "PreciosVenta", label: "Precios de venta", columns: DATASET_COLUMNS.PreciosVenta, rows: [] };
+  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const byKey = new Map<string, AnyRecord>();
+  existingRows.forEach((row: AnyRecord) => {
+    const key = [
+      row.CodArticulo || row.CODARTICULO || "",
+      row.CodFormato || row.CODFORMATO || "",
+      row.IDTarifaV || row.IDTARIFAV || ""
+    ].map((value) => normalizar(value)).join("|");
+    if (key.replace(/\|/g, "")) byKey.set(key, row);
+  });
+  salePrices.forEach((row) => {
+    const key = [
+      row.CodArticulo || row.CODARTICULO || "",
+      row.CodFormato || row.CODFORMATO || "",
+      row.IDTarifaV || row.IDTARIFAV || ""
+    ].map((value) => normalizar(value)).join("|");
+    if (!key.replace(/\|/g, "")) return;
+    byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
+      _source: "Backup SQL ICG",
+      _updatedAt: new Date().toISOString()
+    }));
+  });
+  icg.datasets.PreciosVenta = Object.assign({}, current, {
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor"])),
+    rows: Array.from(byKey.values()).sort((a, b) => String(a.CodArticulo || a.CODARTICULO || "").localeCompare(String(b.CodArticulo || b.CODARTICULO || ""), undefined, { numeric: true }))
+  });
+}
+
 function documentUrl(config: ServiceConfig): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/${encodeURIComponent(config.firebaseDocumentId)}`;
 }
@@ -406,12 +437,13 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   rows: IcgBackupConsumptionRow[];
   tableCounts: Record<string, number>;
   articles: AnyRecord[];
+  salePrices: AnyRecord[];
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
   const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
-  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS') GROUP BY t.name;";
+  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS','PRECIOSVENTA') GROUP BY t.name;";
   const articlesSql = `
 SELECT
   CAST(CODARTICULO AS varchar(30)) AS CodArticulo,
@@ -433,14 +465,42 @@ SELECT
   ISNULL(CONVERT(varchar(19),FECHAMODIFICADO,120),'') AS FechaModificado
 FROM ARTICULOS
 ORDER BY CODARTICULO;`;
+  const salePricesSql = `
+IF OBJECT_ID('PRECIOSVENTA','U') IS NOT NULL
+BEGIN
+  SELECT
+    CAST(CODARTICULO AS varchar(30)) AS CODARTICULO,
+    CAST(CODARTICULO AS varchar(30)) AS CodArticulo,
+    ISNULL(CAST(CODFORMATO AS varchar(30)),'') AS CODFORMATO,
+    ISNULL(CAST(CODFORMATO AS varchar(30)),'') AS CodFormato,
+    ISNULL(CAST(IDTARIFAV AS varchar(30)),'') AS IDTARIFAV,
+    ISNULL(CAST(VALOR AS varchar(30)),'') AS VALOR,
+    ISNULL(CAST(VALOR AS varchar(30)),'') AS Valor
+  FROM PRECIOSVENTA
+  WHERE VALOR IS NOT NULL AND VALOR > 0
+  ORDER BY CODARTICULO, IDTARIFAV, CODFORMATO;
+END
+ELSE
+BEGIN
+  SELECT TOP 0
+    CAST('' AS varchar(30)) AS CODARTICULO,
+    CAST('' AS varchar(30)) AS CodArticulo,
+    CAST('' AS varchar(30)) AS CODFORMATO,
+    CAST('' AS varchar(30)) AS CodFormato,
+    CAST('' AS varchar(30)) AS IDTARIFAV,
+    CAST('' AS varchar(30)) AS VALOR,
+    CAST('' AS varchar(30)) AS Valor;
+END`;
   const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
   const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
+  const salePrices = parseSqlRows(await runSql(config, databaseName, salePricesSql)).filter((row) => parseNumber(row.VALOR || row.Valor) > 0);
   if (!latest) {
     return {
       fecha: "",
       rows: [],
       tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
       articles,
+      salePrices,
       closures
     };
   }
@@ -474,6 +534,7 @@ ORDER BY tc.CODARTICULO,tc.CODALMACEN;`;
     })).filter((row) => row.consumo > 0 && row.codArticulo),
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
     articles,
+    salePrices,
     closures
   };
 }
@@ -514,7 +575,7 @@ function createBackupMovement(
   };
 }
 
-export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
+export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
@@ -533,6 +594,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
   mergeBackupArticlesIntoIcgData(icg, articles);
+  mergeBackupSalePricesIntoIcgData(icg, salePrices);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
   if (closures.length) {
     icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
@@ -715,10 +777,10 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
     data = await readLatestBackupConsumption(activeConfig);
   }
   if (!data.fecha || !data.rows.length) {
-    if (data.closures.length) {
-      const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10);
-      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures);
-      result.message = "Cierres diarios ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
+    if (data.closures.length || data.articles.length || data.salePrices.length) {
+      const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures, data.salePrices);
+      result.message = "Datos ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
       return result;
     }
     return {
@@ -735,5 +797,5 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
       tableCounts: data.tableCounts
     };
   }
-  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures);
+  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures, data.salePrices);
 }

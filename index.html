@@ -4202,7 +4202,7 @@
     const columnsByKey = {
       Articulos: ["CodArticulo", "Referencia", "Descripcion", "UnidadMedida", "Unidades", "SeCompra", "SeVende", "UsaStocks", "Suspendido", "Descatalogado", "FechaModificado"],
       Referencias: ["Referencia", "Codigo", "TipoRef", "CodProveedor"],
-      PreciosVenta: ["CodArticulo", "CodFormato", "IDTarifaV", "Valor", "Precio", "PrecioIva", "PrecioDefecto"]
+      PreciosVenta: ["CodArticulo", "CODARTICULO", "CodFormato", "CODFORMATO", "IDTarifaV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioDefecto", "PRECIODEFECTO"]
     };
     const columns = columnsByKey[key] || (Array.isArray(base.columns) && base.columns.length ? base.columns : (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].columns) || []);
     return {
@@ -5384,7 +5384,7 @@
     PreciosVenta: {
       label: "Precios de venta",
       icon: "fa-tags",
-      columns: ["CodArticulo", "CodFormato", "IDTarifaV", "Valor", "Precio", "PrecioIva", "PrecioDefecto"]
+      columns: ["CodArticulo", "CODARTICULO", "CodFormato", "CODFORMATO", "IDTarifaV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioDefecto", "PRECIODEFECTO"]
     },
     Clientes: {
       label: "Clientes ICG",
@@ -8267,11 +8267,12 @@
     function normalizeDisciplinaryStatus(status) {
       const value = String(status || "").trim();
       if (!value || value === "En revision") return "Abierto";
+      if (["A firma", "Firma requerida", "Pendiente de firma", "Pendiente firma"].includes(value)) return "Abierto";
       return value;
     }
     function getDisciplinaryStatusClass(status) {
       const value = normalizeDisciplinaryStatus(status);
-      return value === "Cerrado" ? "pill pill-verde" : value === "Archivado" ? "pill pill-gris" : value === "En seguimiento" ? "pill pill-naranja" : "pill pill-azul";
+      return value === "Cerrado" ? "pill pill-verde" : value === "Archivado" ? "pill pill-gris" : value === "En seguimiento" ? "pill pill-azul" : "pill pill-naranja";
     }
     function updateData(updater, logPayload) {
       if (typeof onLocalMutation === "function") onLocalMutation("employee-center");
@@ -8438,21 +8439,47 @@
       setAdminSection("induccion");
     }
     function signDocument(doc) {
-      updateData((prev) => Object.assign({}, prev, { signatures: [{ id: `sig-${Date.now()}`, userId, usuario: getUserDisplayLabel(currentUser), documentId: doc.id, titulo: doc.titulo, version: doc.version, fecha: new Date().toISOString(), dispositivo: navigator.userAgent.slice(0, 140) }].concat(prev.signatures || []) }), { accion: "Firma digital", registro: doc.titulo, detalle: `Documento firmado version ${doc.version}` });
+      const signedAt = new Date().toISOString();
+      updateData((prev) => {
+        const targetCaseId = String(doc.disciplinaryCaseId || "").trim();
+        const targetDocumentId = String(doc.id || "").trim();
+        const currentSignatures = (prev.signatures || []).filter((sig) => !(String(sig.userId) === String(userId) && String(sig.documentId) === targetDocumentId && String(sig.version) === String(doc.version)));
+        const next = Object.assign({}, prev, { signatures: [{ id: `sig-${Date.now()}`, userId, usuario: getUserDisplayLabel(currentUser), documentId: doc.id, titulo: doc.titulo, version: doc.version, fecha: signedAt, dispositivo: navigator.userAgent.slice(0, 140) }].concat(currentSignatures) });
+        if (targetCaseId || targetDocumentId.startsWith("disciplina-")) {
+          next.disciplinaryCases = (prev.disciplinaryCases || []).map((row) => {
+            const rowDocumentId = `disciplina-${row.id}`;
+            const isTargetCase = String(row.id) === targetCaseId || rowDocumentId === targetDocumentId;
+            return isTargetCase ? Object.assign({}, row, { estado: "En seguimiento", firmadoPor: getUserDisplayLabel(currentUser), firmadoPorId: userId, firmadoAt: signedAt, vistoAt: signedAt, signatureVersion: doc.version, updatedAt: signedAt }) : row;
+          });
+        }
+        return next;
+      }, { accion: "Firma digital", registro: doc.titulo, detalle: `Documento firmado version ${doc.version}` });
       toast("Firma registrada.", "success");
     }
     function getDisciplinarySignatureDoc(row) {
-      return { id: `disciplina-${row.id}`, titulo: row.titulo || "Caso disciplinario", version: row.updatedAt || row.createdAt || row.fecha || "1" };
+      return { id: `disciplina-${row.id}`, disciplinaryCaseId: row.id, titulo: row.titulo || "Caso disciplinario", version: row.signatureVersion || row.updatedAt || row.createdAt || row.fecha || "1" };
     }
     function isDisciplinaryCaseSigned(row) {
       const doc = getDisciplinarySignatureDoc(row);
-      return normalized.signatures.some((sig) => sig.userId === userId && sig.documentId === doc.id && sig.version === doc.version);
+      return normalized.signatures.some((sig) => String(sig.userId) === String(userId) && String(sig.documentId) === String(doc.id) && String(sig.version) === String(doc.version));
     }
-    function openDisciplinaryCaseReader(row) {
-      const status = normalizeDisciplinaryStatus(row.estado);
+    function isDisciplinaryCaseSignedByUser(row, targetUserId) {
+      const doc = getDisciplinarySignatureDoc(row);
+      const expectedUserId = String(targetUserId || row.userId || "").trim();
+      return !!expectedUserId && normalized.signatures.some((sig) => String(sig.userId) === expectedUserId && String(sig.documentId) === String(doc.id) && String(sig.version) === String(doc.version));
+    }
+    function getDisciplinaryEffectiveStatus(row) {
+      const status = normalizeDisciplinaryStatus(row && row.estado);
+      if (status === "Archivado" || status === "Cerrado") return status;
+      if (row && (row.firmadoAt || isDisciplinaryCaseSignedByUser(row, row.userId))) return "En seguimiento";
+      return status;
+    }
+    function openDisciplinaryCaseReader(row, options) {
+      const readerOptions = options && typeof options === "object" ? options : {};
+      const status = getDisciplinaryEffectiveStatus(row);
       const signatureDoc = getDisciplinarySignatureDoc(row);
       const signed = isDisciplinaryCaseSigned(row);
-      const needsSignature = !signed && ["Abierto", "En seguimiento"].includes(status);
+      const needsSignature = readerOptions.allowSignature !== false && !signed && status !== "Archivado";
       const content = [
         row.descripcion ? `Descripcion:\n${row.descripcion}` : "",
         row.accionCorrectiva ? `\nAccion correctiva / acuerdo:\n${row.accionCorrectiva}` : "",
@@ -8468,8 +8495,8 @@
         fileType: row.archivoTipo,
         fileName: row.archivoNombre,
         tags: [
-          { label: status, className: getDisciplinaryStatusClass(row.estado) },
-          { label: signed ? "Firmado" : "Firma requerida", className: signed ? "pill pill-verde" : "pill pill-naranja" }
+          { label: status, className: getDisciplinaryStatusClass(status) },
+          readerOptions.allowSignature === false ? { label: row.usuario || row.userId || "Colaborador", className: "pill pill-azul" } : { label: signed ? "Firmado" : "Firma requerida", className: signed ? "pill pill-verde" : "pill pill-naranja" }
         ],
         action: needsSignature ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: function() { signDocument(signatureDoc); setActiveEmployeeReader(null); } }, "Firmar digitalmente") : signed ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", disabled: true }, "Firmado") : null
       });
@@ -8527,7 +8554,8 @@
       const user = usuarios.find((row) => String(row.id || row.email) === String(disciplinaryForm.userId));
       const titulo = String(disciplinaryForm.titulo || "").trim();
       if (!disciplinaryForm.userId || !titulo) return toast("Seleccione colaborador e indique el caso.", "error");
-      const payload = Object.assign({}, disciplinaryForm, { estado: normalizeDisciplinaryStatus(disciplinaryForm.estado), usuario: user ? getUserDisplayLabel(user) : disciplinaryForm.userId, updatedAt: new Date().toISOString() });
+      const updatedAt = new Date().toISOString();
+      const payload = Object.assign({}, disciplinaryForm, { estado: normalizeDisciplinaryStatus(disciplinaryForm.estado), usuario: user ? getUserDisplayLabel(user) : disciplinaryForm.userId, updatedAt, signatureVersion: updatedAt });
       updateData((prev) => Object.assign({}, prev, { disciplinaryCases: editingDisciplinaryId ? (prev.disciplinaryCases || []).map((row) => row.id === editingDisciplinaryId ? Object.assign({}, row, payload) : row) : [Object.assign({ id: `disc-${Date.now()}`, createdAt: new Date().toISOString() }, payload)].concat(prev.disciplinaryCases || []) }), { accion: editingDisciplinaryId ? "Editar caso disciplinario" : "Crear caso disciplinario", registro: titulo, detalle: `Caso privado para ${payload.usuario}` });
       setEditingDisciplinaryId("");
       setDisciplinaryForm({ userId: "", titulo: "", tipo: "Observacion", fecha: new Date().toISOString().slice(0, 10), descripcion: "", accionCorrectiva: "", estado: "Abierto", archivoNombre: "", archivoTipo: "", archivoDataUrl: "" });
@@ -9691,7 +9719,7 @@
         ),
         adminSection === "disciplina" && /* @__PURE__ */ React.createElement(React.Fragment, null,
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingDisciplinaryId ? "Editar gestion disciplinaria" : "Gestion disciplinaria")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, "Uso recomendado: documentar observaciones, llamados de atencion, compromisos y seguimiento. No aplica sanciones automaticas; deja trazabilidad para revision humana."), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: disciplinaryForm.userId, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { userId: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Seleccionar colaborador"), activeEmployees.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: u.id || u.email }, getUserDisplayLabel(u)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo del caso", value: disciplinaryForm.titulo, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: disciplinaryForm.tipo, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { tipo: e.target.value })) }, ["Observacion", "Llamado de atencion", "Compromiso", "Seguimiento", "Incidente"].map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: disciplinaryForm.estado, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { estado: e.target.value })) }, disciplinaryStatusOptions.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v)))), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: disciplinaryForm.fecha, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { fecha: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Descripcion objetiva de lo ocurrido", value: disciplinaryForm.descripcion, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { descripcion: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Accion correctiva, acuerdo o seguimiento", value: disciplinaryForm.accionCorrectiva, onChange: (e) => setDisciplinaryForm((p) => Object.assign({}, p, { accionCorrectiva: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), disciplinaryForm.archivoNombre ? "Adjunto: " + disciplinaryForm.archivoNombre : "Adjuntar evidencia/documento", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,.pdf,.doc,.docx", style: { display: "none" }, onChange: (e) => readEmployeeAttachment(e.target.files && e.target.files[0], (fileData) => setDisciplinaryForm((p) => Object.assign({}, p, fileData))) })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: saveDisciplinaryCase }, editingDisciplinaryId ? "Guardar caso" : "Registrar caso"))),
-          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Colaborador", "Caso", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.disciplinaryCases.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.fecha || "-"), /* @__PURE__ */ React.createElement("td", null, row.usuario || row.userId), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("strong", null, row.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.tipo || "-", " · ", row.descripcion || "")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(row.estado) }, normalizeDisciplinaryStatus(row.estado))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, row.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: row.archivoDataUrl, target: "_blank", rel: "noreferrer" }, "Adjunto"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => editDisciplinaryCase(row) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: () => setEmployeeCenterRowStatus("disciplinaryCases", row.id, normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "Abierto" : "Archivado") }, normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "Reactivar" : "Eliminar")))))))))
+          /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Colaborador", "Caso", "Estado", "Acciones"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.disciplinaryCases.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, row.fecha || "-"), /* @__PURE__ */ React.createElement("td", null, row.usuario || row.userId), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("strong", null, row.titulo), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, row.tipo || "-", " · ", row.descripcion || "")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(getDisciplinaryEffectiveStatus(row)) }, getDisciplinaryEffectiveStatus(row))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, row.archivoDataUrl && /* @__PURE__ */ React.createElement("a", { className: "btn btn-sm btn-outline", href: row.archivoDataUrl, target: "_blank", rel: "noreferrer" }, "Adjunto"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => editDisciplinaryCase(row) }, "Editar"), /* @__PURE__ */ React.createElement("button", { className: normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "btn btn-sm btn-verde" : "btn btn-sm btn-rojo", onClick: () => setEmployeeCenterRowStatus("disciplinaryCases", row.id, normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "Abierto" : "Archivado") }, normalizeDisciplinaryStatus(row.estado) === "Archivado" ? "Reactivar" : "Eliminar")))))))))
         ),
         adminSection === "documentos" && /* @__PURE__ */ React.createElement(React.Fragment, null,
           /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, editingManualId ? "Editar documento" : "Manual / Politicas")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Titulo", value: manualForm.titulo, onChange: (e) => setManualForm((p) => Object.assign({}, p, { titulo: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Categoria", value: manualForm.categoria, onChange: (e) => setManualForm((p) => Object.assign({}, p, { categoria: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", placeholder: "Contenido", value: manualForm.contenido, onChange: (e) => setManualForm((p) => Object.assign({}, p, { contenido: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-paperclip" }), manualForm.archivoNombre ? "Adjunto: " + manualForm.archivoNombre : "Adjuntar archivo o foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*,.pdf,.doc,.docx,.xlsx,.xls,.csv", style: { display: "none" }, onChange: (e) => handleManualAttachment(e.target.files && e.target.files[0]) })), /* @__PURE__ */ React.createElement("label", { className: "checkbox-row" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: manualForm.firmaObligatoria, onChange: (e) => setManualForm((p) => Object.assign({}, p, { firmaObligatoria: e.target.checked })) }), "Requiere firma"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: addManual }, editingManualId ? "Guardar cambios" : "Publicar documento"), editingManualId && /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: function() { setEditingManualId(""); setManualForm({ titulo: "", categoria: "Politicas", contenido: "", obligatorio: true, firmaObligatoria: false, archivoNombre: "", archivoTipo: "", archivoDataUrl: "" }); } }, "Cancelar")))),
@@ -9707,11 +9735,11 @@
         renderRrhhModuleHero("fa-scale-balanced", "Gestion disciplinaria", "Casos asignados para lectura, seguimiento y firma digital.", "linear-gradient(135deg,#991b1b,#f59e0b)"),
         /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, visibleDisciplinaryCases.length ? visibleDisciplinaryCases.map(function(row) {
           const signed = isDisciplinaryCaseSigned(row);
-          const status = normalizeDisciplinaryStatus(row.estado);
-          return /* @__PURE__ */ React.createElement("button", { key: row.id, type: "button", className: "rrhh-modern-card " + (!signed && ["Abierto", "En seguimiento"].includes(status) ? "is-alert" : ""), style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openDisciplinaryCaseReader(row); } },
+          const status = getDisciplinaryEffectiveStatus(row);
+          return /* @__PURE__ */ React.createElement("button", { key: row.id, type: "button", className: "rrhh-modern-card " + (!signed && status !== "Archivado" ? "is-alert" : ""), style: { textAlign: "left", cursor: "pointer" }, onClick: function() { openDisciplinaryCaseReader(row); } },
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" } },
               /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.titulo || "Caso disciplinario"),
-              /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(row.estado) }, status)
+              /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(status) }, status)
             ),
             /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.tipo || "Gestion disciplinaria", " · ", row.fecha || "Sin fecha"),
             row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion),
@@ -9726,7 +9754,7 @@
       ),
       isAdmin && tab === "disciplina" && /* @__PURE__ */ React.createElement(React.Fragment, null,
         renderRrhhModuleHero("fa-scale-balanced", "Gestion disciplinaria", "Casos privados para seguimiento administrativo, acuerdos y revision humana.", "linear-gradient(135deg,#991b1b,#f59e0b)"),
-        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, "Este submodulo es solo para administradores. No genera sanciones ni descuentos automaticos; conserva casos como borradores auditables para revision humana."), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.disciplinaryCases.length ? normalized.disciplinaryCases.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, className: "rrhh-modern-card is-alert" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.titulo || "Caso disciplinario"), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.usuario || row.userId || "-", " · ", row.fecha || "Sin fecha"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion), /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(row.estado), style: { justifySelf: "start" } }, normalizeDisciplinaryStatus(row.estado)))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin casos disciplinarios."))))
+        /* @__PURE__ */ React.createElement("div", { className: "card rrhh-animate-in" }, /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, "Este submodulo es solo para administradores. No genera sanciones ni descuentos automaticos; conserva casos como borradores auditables para revision humana."), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-grid" }, normalized.disciplinaryCases.length ? normalized.disciplinaryCases.map((row) => /* @__PURE__ */ React.createElement("div", { key: row.id, className: "rrhh-modern-card is-alert" }, /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-card-title" }, row.titulo || "Caso disciplinario"), /* @__PURE__ */ React.createElement("div", { className: "rrhh-modern-meta" }, row.usuario || row.userId || "-", " · ", row.fecha || "Sin fecha"), row.descripcion && /* @__PURE__ */ React.createElement("p", { className: "rrhh-modern-copy" }, row.descripcion), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: getDisciplinaryStatusClass(getDisciplinaryEffectiveStatus(row)), style: { justifySelf: "start" } }, getDisciplinaryEffectiveStatus(row)), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: function() { openDisciplinaryCaseReader(row, { allowSignature: false }); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-up-right-from-square" }), "Abrir")))) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin casos disciplinarios."))))
       ),
       tab === "config" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Configuracion y geocerca")), /* @__PURE__ */ React.createElement("div", { className: "card-body grid-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Dias de bienvenida"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: normalized.settings.welcomeDays, disabled: !isAdmin, onChange: (e) => updateData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, { welcomeDays: Number(e.target.value || 7) }) }), { accion: "Configuracion", registro: "welcomeDays", detalle: "Dias de bienvenida actualizados" }) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Ruta Storage evidencias"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: normalized.settings.storagePath, disabled: true })), /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { gridColumn: "1 / -1" } }, "La geolocalizacion del navegador puede ser inexacta o manipulable. Debe usarse como control complementario, no como unica prueba."))),
       tab === "auditoria" && /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Auditoria")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Usuario", "Accion", "Registro", "Detalle"].map((h) => /* @__PURE__ */ React.createElement("th", { key: h }, h)))), /* @__PURE__ */ React.createElement("tbody", null, normalized.auditLogs.slice(0, 300).map((log) => /* @__PURE__ */ React.createElement("tr", { key: log.id }, /* @__PURE__ */ React.createElement("td", null, formatDatetime(log.fecha)), /* @__PURE__ */ React.createElement("td", null, log.usuario), /* @__PURE__ */ React.createElement("td", null, log.accion), /* @__PURE__ */ React.createElement("td", null, log.registro), /* @__PURE__ */ React.createElement("td", null, log.detalle)))))))
@@ -15307,8 +15335,30 @@ Solicitado: ${cantidad}`);
     );
   }
   function parseCostNumber(value) {
-    const number = Number(String(value == null ? "" : value).replace(/[$,\s]/g, ""));
+    if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : 0;
+    let text = String(value == null ? "" : value).replace(/[^\d,.-]/g, "").trim();
+    if (text.includes(",") && text.includes(".")) {
+      text = text.lastIndexOf(",") > text.lastIndexOf(".") ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
+    } else if (text.includes(",")) {
+      text = text.replace(",", ".");
+    }
+    const number = Number(text);
     return Number.isFinite(number) && number > 0 ? number : 0;
+  }
+  function getCostField(row, names) {
+    if (!row || typeof row !== "object") return void 0;
+    for (const name of names) {
+      if (Object.prototype.hasOwnProperty.call(row, name)) return row[name];
+    }
+    const lowerMap = Object.keys(row).reduce(function(acc, key) {
+      acc[normalizar(key)] = row[key];
+      return acc;
+    }, {});
+    for (const name of names) {
+      const value = lowerMap[normalizar(name)];
+      if (value !== void 0) return value;
+    }
+    return void 0;
   }
   function getInventoryPurchaseCost(product) {
     return parseCostNumber(product && (product.costoCompra ?? product.precioCompra ?? product.ultimoCosto ?? product.UltimoCoste ?? product.CosteMedio ?? product.PCoste ?? product.costo ?? product.coste ?? product.cost));
@@ -15598,21 +15648,22 @@ Solicitado: ${cantidad}`);
   }
   function buildIcgPriceIndex(priceRows) {
     return (Array.isArray(priceRows) ? priceRows : []).reduce(function(acc, row) {
-      const code = normalizar(row && (row.CodArticulo || row.CODARTICULO || row.Codigo || ""));
+      const code = normalizar(getCostField(row, ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO"]));
       if (!code) return acc;
-      const price = parseCostNumber(row.PrecioIva ?? row.Precio ?? row.Valor ?? row.PrecioDefecto ?? row.PVP ?? row.PVenta);
+      const price = parseCostNumber(getCostField(row, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
       if (!(price > 0)) return acc;
-      const isDefault = normalizar(row.PrecioDefecto || row.Defecto || row.EsDefecto || "").match(/^(1|si|sí|true)$/);
-      if (!acc[code] || isDefault || price > parseCostNumber(acc[code].PrecioIva ?? acc[code].Precio ?? acc[code].Valor)) acc[code] = row;
+      const isDefault = normalizar(getCostField(row, ["PrecioDefecto", "PRECIODEFECTO", "Defecto", "EsDefecto"]) || "").match(/^(1|si|sí|true)$/);
+      const currentPrice = parseCostNumber(getCostField(acc[code], ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
+      if (!acc[code] || isDefault || price > currentPrice) acc[code] = row;
       return acc;
     }, {});
   }
   function getIcgArticleSalePrice(row, priceIndex) {
-    const ownPrice = parseCostNumber(row && (row.PrecioIva ?? row.Precio ?? row.PVP ?? row.PVenta ?? row.Valor ?? row.PrecioVenta));
+    const ownPrice = parseCostNumber(getCostField(row, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "PVP", "PVenta", "Valor", "VALOR", "PrecioVenta", "PRECIOVENTA"]));
     if (ownPrice > 0) return ownPrice;
     const code = normalizar(getIcgArticleCode(row));
     const priceRow = code && priceIndex ? priceIndex[code] : null;
-    return parseCostNumber(priceRow && (priceRow.PrecioIva ?? priceRow.Precio ?? priceRow.Valor ?? priceRow.PrecioDefecto));
+    return parseCostNumber(getCostField(priceRow, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
   }
   function getIcgArticleDirectCost(row) {
     return parseCostNumber(row && (row.PCoste ?? row.CosteMedio ?? row.UltimoCoste ?? row.Coste ?? row.Costo ?? row.CostoCompra));
@@ -22362,7 +22413,4 @@ Cantidad solicitada: ${newCantidad}`);
 </script>
 </body>
 </html>
-
-
-
 
