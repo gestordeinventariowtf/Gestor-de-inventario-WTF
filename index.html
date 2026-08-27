@@ -11670,7 +11670,7 @@ Solicitado: ${cantidad}`);
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios }),
       historialMermas: /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
-      costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData }),
+      costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData, unifiedAccess: hasCocinaBarLinkAccess, linkedModuleLabel: otherModuleLabel, linkedInventario: otherInventario, linkedCuartoFrioInventario: otherCuartoFrio, linkedMiseAnPlace: esBar ? miseAnPlace : barMiseAnPlace, linkedRecetas: esBar ? recetasProduccion : barRecetasProduccion }),
       finanzas: /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
@@ -11943,6 +11943,7 @@ Solicitado: ${cantidad}`);
     const [recipeModeDrafts, setRecipeModeDrafts] = useState({});
     const [recipeProcedures, setRecipeProcedures] = useState(["Procedimiento 1"]);
     const [recipeLockAllInsumos, setRecipeLockAllInsumos] = useState(false);
+    const [recipeMultiplicarAutoCalc, setRecipeMultiplicarAutoCalc] = useState(true);
     const [productionRuns, setProductionRuns] = useState("1");
     const [productionRunUnit, setProductionRunUnit] = useState("");
     const [productionRunsLocked, setProductionRunsLocked] = useState(false);
@@ -11989,6 +11990,21 @@ Solicitado: ${cantidad}`);
         insumos: Array.isArray(receta && receta.insumos) ? receta.insumos : [],
         procedimientos: normalizeRecipeProcedures(receta && (receta.procedimientos || receta.recipeProcedures), receta && receta.insumos)
       };
+    }
+    function getRecipeMultiplicarAutoCalc(receta) {
+      const variants = receta && (receta.modalidades || receta.modosReceta || receta.recipeModes) || {};
+      const multiplicar = variants.multiplicar || variants[getRecipeCalcModeLabel("multiplicar")] || {};
+      const raw = receta && (
+        receta.calculoAutomaticoMultiplicar ??
+        receta.multiplicarCalculoAutomatico ??
+        receta.autoCalcularMultiplicar ??
+        multiplicar.calculoAutomatico ??
+        multiplicar.autoCalcular ??
+        multiplicar.autoCalc
+      );
+      if (raw == null || raw === "") return true;
+      const key = normalizar(raw);
+      return !(raw === false || key === "false" || key === "no" || key === "0" || key === "manual");
     }
     function buildRecipeModeDrafts(receta) {
       return {
@@ -12063,7 +12079,7 @@ Solicitado: ${cantidad}`);
       const currentDraft = captureCurrentRecipeModeDraft();
       const nextDrafts = Object.assign({}, recipeModeDrafts, { [currentMode]: currentDraft });
       if (nextMode === "multiplicar" && currentMode === "definida" && !nextDrafts[nextMode]) {
-        nextDrafts.multiplicar = buildMultiplicarDraftFromDefinida(currentDraft);
+        nextDrafts.multiplicar = recipeMultiplicarAutoCalc ? buildMultiplicarDraftFromDefinida(currentDraft) : currentDraft;
       }
       const incoming = nextDrafts[nextMode] || currentDraft;
       setRecipeModeDrafts(nextDrafts);
@@ -13184,6 +13200,7 @@ Solicitado: ${cantidad}`);
       setRecipeModeDrafts({});
       setRecipeProcedures(["Procedimiento 1"]);
       setRecipeLockAllInsumos(false);
+      setRecipeMultiplicarAutoCalc(true);
       setProductionRuns("1");
       setProductionRunUnit("");
       setProductionRunsLocked(false);
@@ -13236,6 +13253,7 @@ Solicitado: ${cantidad}`);
         recipeCalcMode,
         recipeModeDrafts: Object.assign({}, recipeModeDrafts, { [normalizeRecipeCalcMode(recipeCalcMode)]: captureCurrentRecipeModeDraft() }),
         recipeProcedures: normalizeRecipeProcedures(recipeProcedures, insumos),
+        recipeMultiplicarAutoCalc,
         productionRuns,
         productionRunUnit,
         productionRunsLocked,
@@ -13309,6 +13327,7 @@ Solicitado: ${cantidad}`);
       setRecipeCalcMode(normalizeRecipeCalcMode(hold.recipeCalcMode || hold.tipoReceta || hold.recetaModoCalculo));
       setRecipeModeDrafts(hold.recipeModeDrafts || hold.modalidades || {});
       setRecipeLockAllInsumos(Array.isArray(hold.insumos) && hold.insumos.length > 0 && hold.insumos.every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
+      setRecipeMultiplicarAutoCalc(hold.recipeMultiplicarAutoCalc == null ? true : Boolean(hold.recipeMultiplicarAutoCalc));
       setRecipeProcedures(normalizeRecipeProcedures(hold.recipeProcedures || hold.procedimientos, hold.insumos));
       setProductionRuns(hold.productionRuns || "1");
       setProductionRunUnit(hold.productionRunUnit || "");
@@ -13355,7 +13374,7 @@ Solicitado: ${cantidad}`);
       if (!hasProductionHoldContent(snapshot)) return;
       const id = upsertProductionHold(snapshot);
       if (id && !activeProductionHoldId) setActiveProductionHoldId(id);
-    }, [modalOpen, activeProductionHoldId, resultado, insumos, recipeInstructions, recipeCalcMode, recipeModeDrafts, recipeProcedures, productionRuns, productionRunUnit, miseProductTarget, moduleLabel]);
+    }, [modalOpen, activeProductionHoldId, resultado, insumos, recipeInstructions, recipeCalcMode, recipeModeDrafts, recipeProcedures, recipeMultiplicarAutoCalc, productionRuns, productionRunUnit, miseProductTarget, moduleLabel]);
     function formatProductionRecipeQty(value) {
       const number = Number(value);
       if (!Number.isFinite(number)) return "";
@@ -13552,6 +13571,7 @@ Solicitado: ${cantidad}`);
       setRecipeCalcMode(initialRecipeMode);
       setRecipeModeDrafts(initialRecipeDrafts);
       setRecipeLockAllInsumos((initialRecipeConfig.insumos || []).length > 0 && (initialRecipeConfig.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
+      setRecipeMultiplicarAutoCalc(getRecipeMultiplicarAutoCalc(targetRecipe));
       setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
@@ -13648,6 +13668,10 @@ Solicitado: ${cantidad}`);
       setProductionRuns(value);
       const times = getProductionRunFactor(value, unitOverride);
       if (!Number.isFinite(times) || times <= 0) return;
+      if (normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !recipeMultiplicarAutoCalc) {
+        setError("");
+        return;
+      }
       setInsumos(function(prev) {
         return prev.map(function(item) {
           if (item.rowId === excludeRowId) return item;
@@ -13706,7 +13730,7 @@ Solicitado: ${cantidad}`);
           if (field === "cantidad") {
             const times = getProductionRunFactor(productionRuns, productionRunUnit);
             const typedQty = Number(String(value || "").replace(",", "."));
-            next.cantidadBaseReceta = Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
+            next.cantidadBaseReceta = normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !recipeMultiplicarAutoCalc ? value : Number.isFinite(times) && times > 0 && Number.isFinite(typedQty) ? formatProductionRecipeQty(typedQty / times) : value;
           }
           return next;
         });
@@ -13719,6 +13743,24 @@ Solicitado: ${cantidad}`);
     function updateProductionRunUnit(unit) {
       setProductionRunUnit(unit);
       if (String(productionRuns || "").trim()) applyProductionRunMultiplier(productionRuns, void 0, unit);
+    }
+    function updateRecipeMultiplicarAutoCalc(checked) {
+      const enabled = Boolean(checked);
+      setRecipeMultiplicarAutoCalc(enabled);
+      if (!enabled || normalizeRecipeCalcMode(recipeCalcMode) !== "multiplicar") return;
+      const times = getProductionRunFactor(productionRuns, productionRunUnit);
+      if (!Number.isFinite(times) || times <= 0) return;
+      setInsumos(function(prev) {
+        return prev.map(function(item) {
+          const baseSource = item.cantidadBaseReceta !== void 0 && item.cantidadBaseReceta !== null && String(item.cantidadBaseReceta) !== "" ? item.cantidadBaseReceta : item.cantidad;
+          const base = Number(String(baseSource || "").replace(",", "."));
+          if (!Number.isFinite(base) || base <= 0) return item;
+          return Object.assign({}, item, {
+            cantidadBaseReceta: formatProductionRecipeQty(base),
+            cantidad: formatProductionRecipeQty(base * times)
+          });
+        });
+      });
     }
     function moveInsumo(rowId, direction) {
       setInsumos(function(prev) {
@@ -14064,7 +14106,7 @@ Solicitado: ${cantidad}`);
         setError("La cantidad producida debe ser mayor a cero.");
         return;
       }
-      if (usingSavedRecipeProduction && normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && !String(productionRunUnit || "").trim()) {
+      if (usingSavedRecipeProduction && normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && recipeMultiplicarAutoCalc && !String(productionRunUnit || "").trim()) {
         setError("Selecciona si realizaras la produccion en Libras, Gramos u Onzas para poder multiplicar la receta.");
         return;
       }
@@ -14108,9 +14150,10 @@ Solicitado: ${cantidad}`);
           cantidadProducidaOriginal: Number(cantidadProducidaInput.toFixed(4)),
           medidaProducida: producedUnit,
           tipoReceta: normalizeRecipeCalcMode(recipeCalcMode),
+          calculoAutomaticoMultiplicar: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? Boolean(recipeMultiplicarAutoCalc) : false,
           productionRuns: Number(String(productionRuns || "0").replace(",", ".")) || "",
           productionRunUnit: productionRunUnit || "",
-          productionRunFactorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? getProductionRunFactor(productionRuns, productionRunUnit) || "" : "",
+          productionRunFactorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && recipeMultiplicarAutoCalc ? getProductionRunFactor(productionRuns, productionRunUnit) || "" : "",
           cantidadProducidaMiseEstimada: producedQtyForMise != null ? Number(producedQtyForMise.toFixed(4)) : "",
           medidaProducidaMiseEstimada: productionMiseTarget ? miseTargetUnit : "",
           conversionMiseAutomatica: Boolean(productionMiseTarget && normalizarMedidaMise(producedUnit) !== miseTargetUnit),
@@ -14240,7 +14283,7 @@ Solicitado: ${cantidad}`);
       });
       if (!savedModeDrafts.definida) savedModeDrafts.definida = savedModeDrafts[activeMode];
       if (activeMode === "definida") {
-        savedModeDrafts.multiplicar = buildMultiplicarDraftFromDefinida(savedModeDrafts.definida);
+        savedModeDrafts.multiplicar = recipeMultiplicarAutoCalc ? buildMultiplicarDraftFromDefinida(savedModeDrafts.definida) : savedModeDrafts.multiplicar || savedModeDrafts.definida;
       } else if (!savedModeDrafts.multiplicar) {
         savedModeDrafts.multiplicar = savedModeDrafts[activeMode];
       }
@@ -14253,6 +14296,8 @@ Solicitado: ${cantidad}`);
         medidaObjetivo: normalizeProductionUnitLabel(resultado.medida),
         tipoReceta: normalizeRecipeCalcMode(recipeCalcMode),
         recetaModoCalculo: normalizeRecipeCalcMode(recipeCalcMode),
+        calculoAutomaticoMultiplicar: Boolean(recipeMultiplicarAutoCalc),
+        multiplicarCalculoAutomatico: Boolean(recipeMultiplicarAutoCalc),
         procedimientos: normalizeRecipeProcedures(recipeProcedures, recetaItems),
         modalidades: {
           definida: {
@@ -14262,6 +14307,8 @@ Solicitado: ${cantidad}`);
           },
           multiplicar: {
             tipoReceta: "multiplicar",
+            calculoAutomatico: Boolean(recipeMultiplicarAutoCalc),
+            autoCalcular: Boolean(recipeMultiplicarAutoCalc),
             procedimientos: normalizeRecipeProcedures(savedModeDrafts.multiplicar.procedimientos, savedModeDrafts.multiplicar.insumos),
             insumos: (savedModeDrafts.multiplicar.insumos || []).map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: Boolean(recipeLockAllInsumos) }); })
           }
@@ -14274,7 +14321,7 @@ Solicitado: ${cantidad}`);
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
         bloquearVecesProduccion: Boolean(productionRunsLocked),
         recetaProporcionalPorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar",
-        notaOperacion: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor." : "",
+        notaOperacion: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? recipeMultiplicarAutoCalc ? "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor." : "Receta para multiplicar en modo manual: el usuario ajusta las cantidades de insumos sin recalculo automatico." : "",
         insumos: recetaItems
       };
       recetaPayload.updatedAt = recetaPayload.fecha;
@@ -14384,6 +14431,7 @@ Solicitado: ${cantidad}`);
       setRecipeCalcMode(initialRecipeMode);
       setRecipeModeDrafts(initialRecipeDrafts);
       setRecipeLockAllInsumos((initialRecipeConfig.insumos || []).length > 0 && (initialRecipeConfig.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
+      setRecipeMultiplicarAutoCalc(getRecipeMultiplicarAutoCalc(receta));
       setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
@@ -15095,7 +15143,11 @@ Solicitado: ${cantidad}`);
                           /* @__PURE__ */ React.createElement("option", { value: "Oz" }, "Onzas")
                         )
                       ),
-                      getProductionRunFactor(productionRuns, productionRunUnit) ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#15803d", fontWeight: 800, marginTop: 5 } }, "Equivalente interno: ", formatQty4(getProductionRunFactor(productionRuns, productionRunUnit)), " G para multiplicar los insumos.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", fontWeight: 800, marginTop: 5 } }, "Selecciona Libras, Gramos u Onzas para calcular la producción.")
+                      /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: recipeMultiplicarAutoCalc ? "#15803d" : "#92400e", fontWeight: 800, marginTop: 8, background: recipeMultiplicarAutoCalc ? "#f0fdf4" : "#fff7ed", border: recipeMultiplicarAutoCalc ? "1px solid #bbf7d0" : "1px solid #fed7aa", borderRadius: 8, padding: "8px 10px" } },
+                        /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeMultiplicarAutoCalc, onChange: function(e) { updateRecipeMultiplicarAutoCalc(e.target.checked); }, style: { marginTop: 2 } }),
+                        /* @__PURE__ */ React.createElement("span", null, recipeMultiplicarAutoCalc ? "Cálculo automático activo: la cantidad indicada multiplica todos los insumos." : "Cálculo automático apagado: puedes ajustar cada insumo manualmente.")
+                      ),
+                      recipeMultiplicarAutoCalc ? getProductionRunFactor(productionRuns, productionRunUnit) ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#15803d", fontWeight: 800, marginTop: 5 } }, "Equivalente interno: ", formatQty4(getProductionRunFactor(productionRuns, productionRunUnit)), " G para multiplicar los insumos.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#9a3412", fontWeight: 800, marginTop: 5 } }, "Selecciona Libras, Gramos u Onzas para calcular la producción.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e", fontWeight: 800, marginTop: 5 } }, "Modo manual: el valor de producción no modifica las cantidades de los insumos.")
                     ) : /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", step: "1", value: productionRuns, readOnly: productionRunsLocked, disabled: productionRunsLocked, onChange: function(e) { updateProductionRuns(e.target.value); }, placeholder: "1", title: productionRunsLocked ? "Este campo esta bloqueado por la configuracion de la receta." : "", style: productionRunsLocked ? { background: "#f3f4f6", color: "#6b7280", cursor: "not-allowed", fontWeight: 800 } : void 0 }),
                     productionRunsLocked && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", fontWeight: 800, marginTop: 5 } }, "Bloqueado desde la configuracion de esta receta.")
                   ),
@@ -15308,6 +15360,10 @@ Solicitado: ${cantidad}`);
                         /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: addRecipeProcedure }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar procedimiento")
                       )
                     )
+                  ),
+                  normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: recipeMultiplicarAutoCalc ? "#15803d" : "#92400e", fontWeight: 800, background: recipeMultiplicarAutoCalc ? "#f0fdf4" : "#fff7ed", border: recipeMultiplicarAutoCalc ? "1px solid #bbf7d0" : "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px" } },
+                    /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeMultiplicarAutoCalc, onChange: function(e) { updateRecipeMultiplicarAutoCalc(e.target.checked); }, style: { marginTop: 2 } }),
+                    /* @__PURE__ */ React.createElement("span", null, recipeMultiplicarAutoCalc ? "Activar cálculo automático en Receta (Para multiplicar)" : "Cálculo automático apagado: la modalidad Para multiplicar se editará manualmente")
                   ),
                   /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 800, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 10px" } },
                     /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeLockAllInsumos, onChange: function(e) { const checked = e.target.checked; setRecipeLockAllInsumos(checked); setInsumos(function(prev) { return prev.map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: checked }); }); }); }, style: { marginTop: 2 } }),
@@ -15610,19 +15666,31 @@ Solicitado: ${cantidad}`);
   function getInventoryPackagePurchaseCost(product) {
     return parseCostNumber(product && (product.costoCompraPaquete ?? product.costoPaquete ?? product.precioPaquete ?? product.costoCompraCaja ?? product.costoCaja ?? product.packageCost));
   }
+  function getCostModuleKey(moduleLabel) {
+    return getIcgWtfTargetArea(moduleLabel || "Cocina").toLowerCase();
+  }
+  function getCostItemModuleKey(item) {
+    const raw = item && (item.sourceModuleLabel || item.moduloLabel || item.moduleLabel || item.ModuloWTF || item.DestinoWTF || item.Modulo || item.targetKey || "");
+    return raw ? getCostModuleKey(raw) : "";
+  }
   function buildCostProductRows(inventario = [], cuartoFrioInventario = [], miseAnPlace = [], moduleLabel = "Cocina") {
+    const moduleKey = getCostModuleKey(moduleLabel);
     const invRows = normalizeInventoryRowsForDisplay(inventario).filter(function(row) { return row && row.tipo === "producto"; }).map(function(row) {
       return Object.assign({}, row, {
-        productKey: `inventario-${row.id}`,
+        productKey: `${moduleKey}-inventario-${row.id}`,
         storageKey: "inventario",
+        sourceModuleLabel: moduleLabel,
+        sourceModuleKey: moduleKey,
         origenLabel: `${moduleLabel} - Inventario`,
         displayName: row.nombre || ""
       });
     });
     const coldRows = normalizeInventoryRowsForDisplay(cuartoFrioInventario).filter(function(row) { return row && row.tipo === "producto"; }).map(function(row) {
       return Object.assign({}, row, {
-        productKey: `cuartoFrio-${row.id}`,
+        productKey: `${moduleKey}-cuartoFrio-${row.id}`,
         storageKey: "cuartoFrio",
+        sourceModuleLabel: moduleLabel,
+        sourceModuleKey: moduleKey,
         origenLabel: `${moduleLabel} - Cuarto Frio`,
         displayName: row.nombre || ""
       });
@@ -15633,8 +15701,10 @@ Solicitado: ${cantidad}`);
       const nombre = row.producto || row.nombre || "";
       return Object.assign({}, row, {
         nombre,
-        productKey: `mise-${row.id}`,
+        productKey: `${moduleKey}-mise-${row.id}`,
         storageKey: "mise",
+        sourceModuleLabel: moduleLabel,
+        sourceModuleKey: moduleKey,
         origenLabel: `${moduleLabel} - Mise an Place`,
         displayName: nombre,
         medida: normalizeProductionUnitLabel(row.medida || "Uni")
@@ -15643,23 +15713,31 @@ Solicitado: ${cantidad}`);
     return invRows.concat(coldRows, miseRows);
   }
   function buildCostProductMaps(products) {
-    const maps = { byKey: {}, byLegacyKey: {}, byName: {} };
+    const maps = { byKey: {}, byLegacyKey: {}, byName: {}, byAreaName: {} };
     (Array.isArray(products) ? products : []).forEach(function(product) {
       if (!product) return;
       if (product.productKey) maps.byKey[product.productKey] = product;
-      if (product.storageKey && product.id != null) maps.byLegacyKey[`${product.storageKey}-${product.id}`] = product;
-      if (product.storageKey === "inventario" && product.id != null) maps.byLegacyKey[`inventario-${product.id}`] = product;
-      if (product.storageKey === "cuartoFrio" && product.id != null) maps.byLegacyKey[`cuartoFrio-${product.id}`] = product;
-      if (product.storageKey === "mise" && product.id != null) maps.byLegacyKey[`mise-${product.id}`] = product;
+      if (product.storageKey && product.id != null) {
+        const legacyKey = `${product.storageKey}-${product.id}`;
+        const areaKey = `${product.sourceModuleKey || getCostModuleKey(product.sourceModuleLabel)}-${product.storageKey}-${product.id}`;
+        if (!maps.byLegacyKey[legacyKey]) maps.byLegacyKey[legacyKey] = product;
+        maps.byLegacyKey[areaKey] = product;
+      }
+      if (product.storageKey === "inventario" && product.id != null && !maps.byLegacyKey[`inventario-${product.id}`]) maps.byLegacyKey[`inventario-${product.id}`] = product;
+      if (product.storageKey === "cuartoFrio" && product.id != null && !maps.byLegacyKey[`cuartoFrio-${product.id}`]) maps.byLegacyKey[`cuartoFrio-${product.id}`] = product;
+      if (product.storageKey === "mise" && product.id != null && !maps.byLegacyKey[`mise-${product.id}`]) maps.byLegacyKey[`mise-${product.id}`] = product;
       const nameKey = normalizar(product.displayName || product.nombre || product.producto || "");
       if (nameKey && !maps.byName[nameKey]) maps.byName[nameKey] = product;
+      if (nameKey) maps.byAreaName[`${product.sourceModuleKey || getCostModuleKey(product.sourceModuleLabel)}::${nameKey}`] = product;
     });
     return maps;
   }
   function resolveCostIngredientProduct(item, productMaps) {
     if (!item || !productMaps) return null;
+    const itemModuleKey = getCostItemModuleKey(item);
     const keys = [
       item.productKey,
+      itemModuleKey && item.storageKey && item.productId != null ? `${itemModuleKey}-${item.storageKey}-${item.productId}` : "",
       item.storageKey && item.productId != null ? `${item.storageKey}-${item.productId}` : "",
       item.origen && item.productId != null ? `${item.origen}-${item.productId}` : "",
       item.productId != null ? `inventario-${item.productId}` : ""
@@ -15669,6 +15747,9 @@ Solicitado: ${cantidad}`);
       if (productMaps.byLegacyKey[key]) return productMaps.byLegacyKey[key];
     }
     const nameKey = normalizar(item.producto || item.nombre || item.productName || "");
+    if (itemModuleKey && nameKey && productMaps.byAreaName && productMaps.byAreaName[`${itemModuleKey}::${nameKey}`]) {
+      return productMaps.byAreaName[`${itemModuleKey}::${nameKey}`];
+    }
     return nameKey ? productMaps.byName[nameKey] || null : null;
   }
   function getProductCostInfo(product) {
@@ -16017,13 +16098,14 @@ Solicitado: ${cantidad}`);
   function getIcgArticleDirectCost(row) {
     return parseCostNumber(row && (row.PCoste ?? row.CosteMedio ?? row.UltimoCoste ?? row.Coste ?? row.Costo ?? row.CostoCompra));
   }
-  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel, costeoConfig, priceIndex, recipeCostLookup) {
+  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel, costeoConfig, priceIndex, recipeCostLookup, allowedModuleLabels) {
+    const allowedLabels = Array.isArray(allowedModuleLabels) && allowedModuleLabels.length ? allowedModuleLabels : [moduleLabel];
     const code = normalizar(getIcgArticleCode(article));
     const reference = normalizar(getIcgArticleReference(article));
     const description = normalizar(getIcgArticleDescription(article));
     const links = (Array.isArray(bridgeRows) ? bridgeRows : []).filter(function(row) {
       if (!isIcgLinkActive(row)) return false;
-      if (!icgWtfTargetMatchesArea(row.ModuloWTF || row.DestinoWTF || row.Modulo || "", moduleLabel)) return false;
+      if (!allowedLabels.some(function(label) { return icgWtfTargetMatchesArea(row.ModuloWTF || row.DestinoWTF || row.Modulo || row.targetKey || "", label); })) return false;
       const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
       const linkReference = normalizar(row.Referencia || "");
       const linkName = normalizar(row.ProductoICG || "");
@@ -16034,7 +16116,8 @@ Solicitado: ${cantidad}`);
         producto: link.ProductoWTF || link.ProductoMise || "",
         nombre: link.ProductoWTF || link.ProductoMise || "",
         cantidad: link.CantidadPorVenta || link.CantidadDescontar || 1,
-        unidad: link.Unidad || "Uni"
+        unidad: link.Unidad || "Uni",
+        sourceModuleLabel: link.ModuloWTF || link.DestinoWTF || link.Modulo || link.targetKey || ""
       };
       const directCost = calculateCostIngredient(item, productMaps);
       if (directCost.ok) return Object.assign({ link }, directCost);
@@ -16066,7 +16149,21 @@ Solicitado: ${cantidad}`);
     const financials = calculateCosteoFinancials({ total, missing, details: enrichedDetails }, salePrice, costeoConfig);
     return { links, details: enrichedDetails, total, missing, salePrice, margin, marginPercent, financials, directIcgCost };
   }
-  function CosteoPlatosPage({ moduleLabel = "Cocina", inventario = [], cuartoFrioInventario = [], miseAnPlace = [], recetas = [], icgFrontRestData = null, setIcgFrontRestData = null }) {
+  function CosteoPlatosPage({
+    moduleLabel = "Cocina",
+    inventario = [],
+    cuartoFrioInventario = [],
+    miseAnPlace = [],
+    recetas = [],
+    icgFrontRestData = null,
+    setIcgFrontRestData = null,
+    unifiedAccess = false,
+    linkedModuleLabel = "",
+    linkedInventario = [],
+    linkedCuartoFrioInventario = [],
+    linkedMiseAnPlace = [],
+    linkedRecetas = []
+  }) {
     const [activeTab, setActiveTab] = useState("recetas");
     const [busqueda, setBusqueda] = useState("");
     const [busquedaIcg, setBusquedaIcg] = useState("");
@@ -16092,21 +16189,36 @@ Solicitado: ${cantidad}`);
     useEffect(function() {
       save(getCosteoSnapshotStorageKey(moduleLabel), Array.isArray(costeoSnapshots) ? costeoSnapshots.slice(0, 250) : []);
     }, [costeoSnapshots, moduleLabel]);
+    const costeoModuleLabels = useMemo(function() {
+      const labels = [moduleLabel];
+      if (unifiedAccess && linkedModuleLabel) labels.push(linkedModuleLabel);
+      return Array.from(new Set(labels.filter(Boolean)));
+    }, [moduleLabel, unifiedAccess, linkedModuleLabel]);
     const products = useMemo(function() {
-      return buildCostProductRows(inventario, cuartoFrioInventario, miseAnPlace, moduleLabel);
-    }, [inventario, cuartoFrioInventario, miseAnPlace, moduleLabel]);
+      const baseRows = buildCostProductRows(inventario, cuartoFrioInventario, miseAnPlace, moduleLabel);
+      const linkedRows = unifiedAccess && linkedModuleLabel ? buildCostProductRows(linkedInventario, linkedCuartoFrioInventario, linkedMiseAnPlace, linkedModuleLabel) : [];
+      return baseRows.concat(linkedRows);
+    }, [inventario, cuartoFrioInventario, miseAnPlace, moduleLabel, unifiedAccess, linkedModuleLabel, linkedInventario, linkedCuartoFrioInventario, linkedMiseAnPlace]);
     const productMaps = useMemo(function() {
       return buildCostProductMaps(products);
     }, [products]);
     const recipeCosts = useMemo(function() {
-      return (Array.isArray(recetas) ? recetas : []).filter(function(receta) {
+      const recipeRows = (Array.isArray(recetas) ? recetas : []).map(function(row) {
+        return Object.assign({}, row, { sourceModuleLabel: row && row.sourceModuleLabel || moduleLabel });
+      }).concat(unifiedAccess && linkedModuleLabel ? (Array.isArray(linkedRecetas) ? linkedRecetas : []).map(function(row) {
+        return Object.assign({}, row, { sourceModuleLabel: row && row.sourceModuleLabel || linkedModuleLabel });
+      }) : []);
+      return recipeRows.filter(function(receta) {
         return receta && String(receta.nombre || "").trim();
       }).map(function(receta) {
         const costeo = calculateRecipeCost(receta, productMaps);
         const salePrice = getRecipeSalePrice(receta);
         const financials = calculateCosteoFinancials(costeo, salePrice, costeoConfig);
         const topDriver = getTopCostDriver(costeo);
+        const sourceModuleLabel = receta.sourceModuleLabel || moduleLabel;
         return Object.assign({}, receta, {
+          sourceModuleLabel,
+          costeoRecipeKey: `${getCostModuleKey(sourceModuleLabel)}-${receta.id || normalizar(receta.nombre || "")}`,
           costeo,
           salePrice,
           financials,
@@ -16116,7 +16228,7 @@ Solicitado: ${cantidad}`);
       }).sort(function(a, b) {
         return String(a.nombre || "").localeCompare(String(b.nombre || ""));
       });
-    }, [recetas, productMaps, costeoConfig]);
+    }, [recetas, linkedRecetas, unifiedAccess, linkedModuleLabel, moduleLabel, productMaps, costeoConfig]);
     const recipeCostLookup = useMemo(function() {
       return buildRecipeCostLookup(recipeCosts);
     }, [recipeCosts]);
@@ -16143,11 +16255,14 @@ Solicitado: ${cantidad}`);
       return ensureIcgFrontRestData(icgFrontRestData);
     }, [icgFrontRestData]);
     const bridgeRows = useMemo(function() {
+      const localBridgeRows = buildIcgBridgeRowsFromWtfSources({ moduleLabel, inventario, cuartoFrioInventario, miseAnPlace }).concat(
+        unifiedAccess && linkedModuleLabel ? buildIcgBridgeRowsFromWtfSources({ moduleLabel: linkedModuleLabel, inventario: linkedInventario, cuartoFrioInventario: linkedCuartoFrioInventario, miseAnPlace: linkedMiseAnPlace }) : []
+      );
       return mergeIcgBridgeRows(
         icgRows(normalizedIcgData, "VinculosMiseICG"),
-        buildIcgBridgeRowsFromWtfSources({ moduleLabel, inventario, cuartoFrioInventario, miseAnPlace })
+        localBridgeRows
       );
-    }, [normalizedIcgData, moduleLabel, inventario, cuartoFrioInventario, miseAnPlace]);
+    }, [normalizedIcgData, moduleLabel, inventario, cuartoFrioInventario, miseAnPlace, unifiedAccess, linkedModuleLabel, linkedInventario, linkedCuartoFrioInventario, linkedMiseAnPlace]);
     const icgPriceIndex = useMemo(function() {
       return buildIcgPriceIndex(icgRows(normalizedIcgData, "PreciosVenta"));
     }, [normalizedIcgData]);
@@ -16158,11 +16273,11 @@ Solicitado: ${cantidad}`);
         if (!q) return true;
         return normalizar(getIcgArticleCode(row)).includes(q) || normalizar(getIcgArticleReference(row)).includes(q) || normalizar(getIcgArticleDescription(row)).includes(q) || normalizar(getCostIcgArticleCategory(row)).includes(q);
       }).map(function(row) {
-        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel, costeoConfig, icgPriceIndex, recipeCostLookup) });
+        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel, costeoConfig, icgPriceIndex, recipeCostLookup, costeoModuleLabels) });
       }).sort(function(a, b) {
         return a._category.localeCompare(b._category) || getIcgArticleDescription(a).localeCompare(getIcgArticleDescription(b));
       });
-    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg, costeoConfig, icgPriceIndex, recipeCostLookup]);
+    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg, costeoConfig, icgPriceIndex, recipeCostLookup, costeoModuleLabels]);
     const icgGroups = useMemo(function() {
       return icgArticleCards.reduce(function(groups, row) {
         const category = row._category || "Sin categoria";
@@ -16172,7 +16287,7 @@ Solicitado: ${cantidad}`);
       }, {});
     }, [icgArticleCards]);
     const selectedIcgArticle = icgArticleCards.find(function(row) { return row._costKey === selectedIcgKey; }) || icgArticleCards[0] || null;
-    const selectedRecipe = recipeCosts.find(function(row) { return String(row.id) === String(selectedRecipeId); }) || recipeCosts[0] || null;
+    const selectedRecipe = recipeCosts.find(function(row) { return String(row.costeoRecipeKey || row.id) === String(selectedRecipeId); }) || recipeCosts[0] || null;
     const selectedCost = selectedRecipe ? selectedRecipe.costeo : null;
     const salePrice = parseCostNumber(precioVenta);
     const marginAmount = selectedCost && salePrice > 0 ? Number((salePrice - selectedCost.total).toFixed(2)) : null;
@@ -16259,10 +16374,14 @@ Solicitado: ${cantidad}`);
       /* @__PURE__ */ React.createElement("div", { className: "card" },
         /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
           /* @__PURE__ */ React.createElement("div", null,
-            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18, color: "#111827", marginBottom: 4 } }, "Costeo de Platos - ", moduleLabel),
-            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, "Calcula costos desde Inventario y Cuarto Frio del modulo activo. Cocina y Bar se mantienen separados.")
+            /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, fontSize: 18, color: "#111827", marginBottom: 4 } }, "Costeo de Platos - ", unifiedAccess && linkedModuleLabel ? "Cocina y Bar" : moduleLabel),
+            /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)" } }, unifiedAccess && linkedModuleLabel ? "Vista unificada por permiso Enlazar Cocina y Bar. Puedes costear productos vinculados de ambos modulos." : "Calcula costos desde Inventario, Cuarto Frio y Mise an Place del modulo activo.")
           ),
-          /* @__PURE__ */ React.createElement("span", { className: moduleLabel === "Bar" ? "pill pill-naranja" : "pill pill-verde" }, moduleLabel)
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("span", { className: moduleLabel === "Bar" ? "pill pill-naranja" : "pill pill-verde" }, moduleLabel),
+            unifiedAccess && linkedModuleLabel && /* @__PURE__ */ React.createElement("span", { className: linkedModuleLabel === "Bar" ? "pill pill-naranja" : "pill pill-verde" }, linkedModuleLabel),
+            unifiedAccess && linkedModuleLabel && /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Enlazar Cocina y Bar")
+          )
         )
       ),
       /* @__PURE__ */ React.createElement("div", { className: "grid-4" },
@@ -16297,8 +16416,8 @@ Solicitado: ${cantidad}`);
               const cost = row.costeo;
               const financials = row.financials;
               const driver = row.topDriver;
-              return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.nombre, className: cost.missing.length ? "tr-out-stock" : "" },
-                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.nombre || "-", /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3, fontWeight: 600 } }, row.costeoExplanation)),
+              return /* @__PURE__ */ React.createElement("tr", { key: row.costeoRecipeKey || row.id || row.nombre, className: cost.missing.length ? "tr-out-stock" : "" },
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, row.nombre || "-", unifiedAccess && row.sourceModuleLabel && /* @__PURE__ */ React.createElement("span", { className: row.sourceModuleLabel === "Bar" ? "pill pill-naranja" : "pill pill-verde", style: { marginLeft: 6 } }, row.sourceModuleLabel), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3, fontWeight: 600 } }, row.costeoExplanation)),
                 /* @__PURE__ */ React.createElement("td", null, (cost.details || []).slice(0, 4).map(function(item) {
                   return /* @__PURE__ */ React.createElement("div", { key: `${row.id}-${item.name}-${item.qtyText}`, style: { fontSize: 12 } }, item.name, " - ", item.qtyText || "-", item.ok ? ` - ${formatAssetCurrency(item.cost)} (${item.percentOfTotal}%)` : ` - ${item.problem}`);
                 }), cost.details.length > 4 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "+", cost.details.length - 4, " insumos mas")),
@@ -16437,7 +16556,7 @@ Solicitado: ${cantidad}`);
                     );
                   }))
                 )
-              ) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Este articulo ICG no tiene productos WTF relacionados para ", moduleLabel, ". Vinculalo desde Inventario, Cuarto Frio o Mise an Place."),
+              ) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, "Este articulo ICG no tiene productos WTF relacionados para ", unifiedAccess && linkedModuleLabel ? "Cocina y Bar" : moduleLabel, ". Vinculalo desde Inventario, Cuarto Frio o Mise an Place."),
               selectedIcgArticle._costeo.missing.length ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-danger" }, "El costeo no esta completo porque hay productos WTF sin costo, sin contenido o sin conversion valida.") : null
             ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Selecciona un producto ICG para ver su costeo.")
           )
@@ -16506,8 +16625,8 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } },
             /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Receta"),
-              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: selectedRecipe ? String(selectedRecipe.id) : "", onChange: function(e) { setSelectedRecipeId(e.target.value); } },
-                recipeCosts.map(function(row) { return /* @__PURE__ */ React.createElement("option", { key: row.id || row.nombre, value: row.id }, row.nombre); })
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: selectedRecipe ? String(selectedRecipe.costeoRecipeKey || selectedRecipe.id) : "", onChange: function(e) { setSelectedRecipeId(e.target.value); } },
+                recipeCosts.map(function(row) { return /* @__PURE__ */ React.createElement("option", { key: row.costeoRecipeKey || row.id || row.nombre, value: row.costeoRecipeKey || row.id }, unifiedAccess && row.sourceModuleLabel ? `${row.nombre} - ${row.sourceModuleLabel}` : row.nombre); })
               )
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
