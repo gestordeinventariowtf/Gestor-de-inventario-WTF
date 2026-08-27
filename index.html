@@ -2536,6 +2536,13 @@
     if (packageConversion && !packageConversion.missing) return packageConversion.convertedQty;
     return convertMeasureQuantity(qty, inputUnit, product && product.medida);
   }
+  function canUseCompleteOutputForInsumo(product, item) {
+    if (!product) return false;
+    const productUnit = normalizeUnit(product.medida || "Uni");
+    const recipeUnit = normalizeUnit(item && (item.unidad || item.medida || item.unidadReceta));
+    if (productUnit === "uni") return Boolean(recipeUnit && recipeUnit !== "uni");
+    return true;
+  }
   function getMovementUnitOptions(product) {
     if (!product) return [];
     const baseUnit = normalizeProductionUnitLabel(product.medida || "Uni");
@@ -13606,7 +13613,7 @@ Solicitado: ${cantidad}`);
         cantidadPorUnidadInterna: previous.cantidadPorUnidadInterna || getPackageInnerContentQty(product, null) || "",
         unidadPorUnidadInterna: previous.unidadPorUnidadInterna || getPackageInnerContentUnit(product, null) || "",
         cantidadSalidaCompleta: previous.cantidadSalidaCompleta || previous.salidaCompletaCantidad || "",
-        salidaCompleta: normalizeUnit(product.medida) !== "uni" && Boolean(previous.salidaCompleta),
+        salidaCompleta: canUseCompleteOutputForInsumo(product, previous) && Boolean(previous.salidaCompleta),
         fromRecipe: Boolean(previous.fromRecipe)
       };
     }
@@ -13750,7 +13757,7 @@ Solicitado: ${cantidad}`);
       const inputUnit = item.unidad;
       const packageConversion = getPackageConversionInfo(product, item, qty);
       const validPackageConversion = packageConversion && !packageConversion.missing;
-      const useCompleteOutput = Boolean(item.salidaCompleta) && normalizeUnit(product.medida) !== "uni";
+      const useCompleteOutput = Boolean(item.salidaCompleta) && canUseCompleteOutputForInsumo(product, item);
       if (packageConversion && packageConversion.missing && !useCompleteOutput) {
         return { error: `${product.nombre} esta en ${product.medida}. Indica cuantas unidades internas trae cada ${product.medida} para descontar correctamente.` };
       }
@@ -14145,7 +14152,7 @@ Solicitado: ${cantidad}`);
               cantidadMerma: Number(mermaStock.toFixed(4)),
               cantidadNeta: Number(Math.max(0, baseQty - mermaStock).toFixed(4)),
               unidadInventario: entry.product.medida,
-              salidaCompleta: Boolean(entry.salidaCompleta) && normalizeUnit(entry.product.medida) !== "uni",
+              salidaCompleta: Boolean(entry.salidaCompleta) && canUseCompleteOutputForInsumo(entry.product, entry),
               referenciaRecetaSinDescuento: Boolean(entry.savedRecipeReference)
             };
           }),
@@ -14221,7 +14228,7 @@ Solicitado: ${cantidad}`);
           usaUnidadInternaEmpaque: canUseInternalUnits(product, item) && getPackageUnitsPerPack(product, item) > 0,
           medidaInventario: product.medida,
           cantidadSalidaCompleta: item.cantidadSalidaCompleta || item.salidaCompletaCantidad || "",
-          salidaCompleta: Boolean(item.salidaCompleta) && normalizeUnit(product.medida) !== "uni"
+          salidaCompleta: Boolean(item.salidaCompleta) && canUseCompleteOutputForInsumo(product, item)
         });
       }
       const activeMode = normalizeRecipeCalcMode(recipeCalcMode);
@@ -15100,7 +15107,7 @@ Solicitado: ${cantidad}`);
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
                       const quantityManualLocked = item.fromRecipe && Boolean(item.bloquearCantidadManual);
-                      const canUseCompleteOutput = product && normalizeUnit(product.medida) !== "uni";
+                      const canUseCompleteOutput = canUseCompleteOutputForInsumo(product, item);
                       const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
                       const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
                       const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
@@ -15313,7 +15320,7 @@ Solicitado: ${cantidad}`);
                       const cannotConvertUnit = product && !packageInfo && convertMeasureQuantity(1, item.unidad, product.medida) == null;
                       const mermaPorcentaje = getInsumoMermaPercent(item);
                       const mermaValues = calculateMermaValues(parseProductionNumber(item.cantidad), mermaPorcentaje);
-                      const canUseCompleteOutput = product && normalizeUnit(product.medida) !== "uni";
+                      const canUseCompleteOutput = canUseCompleteOutputForInsumo(product, item);
                       const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
                       const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
                       const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
