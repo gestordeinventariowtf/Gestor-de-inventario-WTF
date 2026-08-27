@@ -2479,9 +2479,12 @@
     return raw ? normalizeProductionUnitLabel(raw) : "";
   }
   function canUseInternalUnits(product, item) {
-    if (!product || !isPackageInventoryUnit(product.medida)) return false;
+    if (!product) return false;
+    const unitsPerPack = getPackageUnitsPerPack(product, item);
+    if (unitsPerPack <= 0) return false;
     const inputUnit = normalizeUnit(item && item.unidad);
     if (inputUnit === normalizeUnit(getPackageInternalUnit(product, item))) return true;
+    if (inputUnit === normalizeUnit(getPackageOuterUnit(product, item))) return true;
     const innerQty = getPackageInnerContentQty(product, item);
     const innerUnit = getPackageInnerContentUnit(product, item);
     if (innerQty > 0 && innerUnit && inputUnit === normalizeUnit(innerUnit)) return true;
@@ -2494,8 +2497,19 @@
     if (unitsPerPack <= 0) return { missing: true, unitsPerPack: 0, convertedQty: null };
     const inputUnit = normalizeUnit(item && item.unidad);
     const internalUnit = getPackageInternalUnit(product, item);
+    const outerUnit = getPackageOuterUnit(product, item);
     const innerQty = getPackageInnerContentQty(product, item);
     const innerUnit = getPackageInnerContentUnit(product, item);
+    if (inputUnit === normalizeUnit(outerUnit)) {
+      return {
+        missing: false,
+        unitsPerPack,
+        internalUnit,
+        innerQty,
+        innerUnit,
+        convertedQty: Number((Number(qty || 0) * unitsPerPack).toFixed(4))
+      };
+    }
     if (innerQty > 0 && innerUnit && inputUnit !== normalizeUnit(internalUnit)) {
       const qtyInInnerUnit = inputUnit === normalizeUnit(innerUnit) ? Number(qty || 0) : convertMeasureQuantity(qty, item && item.unidad, innerUnit);
       if (qtyInInnerUnit == null) return { missing: true, unitsPerPack, internalUnit, innerQty, innerUnit, convertedQty: null };
@@ -15660,7 +15674,7 @@ Solicitado: ${cantidad}`);
     const innerQty = getPackageInnerContentQty(product, null);
     const innerUnit = getPackageInnerContentUnit(product, null);
     const hasInternalContent = unitsPerPack > 0 && internalUnit && normalizeUnit(internalUnit) !== normalizeUnit(baseUnit);
-    const purchaseCost = hasInternalContent && packagePurchaseCost > 0 ? packagePurchaseCost : unitPurchaseCost;
+    const purchaseCost = hasInternalContent && packagePurchaseCost > 0 ? packagePurchaseCost : unitPurchaseCost > 0 ? unitPurchaseCost : packagePurchaseCost;
     if (!(purchaseCost > 0)) {
       return { ok: false, reason: "Falta costo de compra", purchaseCost: 0, baseUnit, costPerBase: 0, usableUnit: baseUnit, costPerUsable: 0, detail: "Registra el costo del producto comprado." };
     }
@@ -15674,7 +15688,7 @@ Solicitado: ${cantidad}`);
       costPerBase = packagePurchaseCost > 0 ? purchaseCost : unitPurchaseCost * unitsPerPack;
       detail = `1 ${baseUnit} = ${unitsPerPack} ${internalUnit}`;
     } else if (unitsPerPack > 0 && normalizeUnit(baseUnit) === normalizeUnit(internalUnit) && normalizeUnit(outerUnit) !== normalizeUnit(baseUnit)) {
-      costPerBase = purchaseCost / unitsPerPack;
+      costPerBase = packagePurchaseCost > 0 ? packagePurchaseCost / unitsPerPack : unitPurchaseCost;
       usableUnit = internalUnit;
       costPerUsable = costPerBase;
       detail = `1 ${outerUnit} = ${unitsPerPack} ${internalUnit}`;
