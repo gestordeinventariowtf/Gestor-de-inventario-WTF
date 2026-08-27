@@ -20,7 +20,7 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   Stocks: ["CODARTICULO", "CODALMACEN", "STOCK", "PEDIDO", "ASERVIR", "MINIMO", "FECHAMODIFICADO"],
   ComprasCab: ["SERIE", "NUMERO", "N", "FECHA", "CODPROVEEDOR", "CODALMACEN", "SUFACTURA", "TOTALBRUTO", "TOTALNETO"],
   ComprasLin: ["SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "REFERENCIA", "DESCRIPCION", "UDSTOTAL", "PRECIO", "TOTAL", "CODALMACEN"],
-  PreciosVenta: ["CODARTICULO", "CODFORMATO", "IDTARIFAV", "VALOR"],
+  PreciosVenta: ["CODARTICULO", "CodArticulo", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"]
 };
@@ -274,7 +274,7 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     }));
   });
   icg.datasets.PreciosVenta = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor"])),
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])),
     rows: Array.from(byKey.values()).sort((a, b) => String(a.CodArticulo || a.CODARTICULO || "").localeCompare(String(b.CodArticulo || b.CODARTICULO || ""), undefined, { numeric: true }))
   });
 

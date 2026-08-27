@@ -4263,7 +4263,7 @@
     const columnsByKey = {
       Articulos: ["CodArticulo", "Referencia", "Descripcion", "UnidadMedida", "Unidades", "SeCompra", "SeVende", "UsaStocks", "Suspendido", "Descatalogado", "FechaModificado"],
       Referencias: ["Referencia", "Codigo", "TipoRef", "CodProveedor"],
-      PreciosVenta: ["CodArticulo", "CODARTICULO", "CodFormato", "CODFORMATO", "IDTarifaV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioDefecto", "PRECIODEFECTO"]
+      PreciosVenta: ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "Referencia", "REFERENCIA", "CodFormato", "CODFORMATO", "IDTarifaV", "IDTARIFAV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "PrecioDefecto", "PRECIODEFECTO"]
     };
     const columns = columnsByKey[key] || (Array.isArray(base.columns) && base.columns.length ? base.columns : (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].columns) || []);
     return {
@@ -5445,7 +5445,7 @@
     PreciosVenta: {
       label: "Precios de venta",
       icon: "fa-tags",
-      columns: ["CodArticulo", "CODARTICULO", "CodFormato", "CODFORMATO", "IDTarifaV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioDefecto", "PRECIODEFECTO"]
+      columns: ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "Referencia", "REFERENCIA", "CodFormato", "CODFORMATO", "IDTarifaV", "IDTARIFAV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "PrecioDefecto", "PRECIODEFECTO"]
     },
     Clientes: {
       label: "Clientes ICG",
@@ -15955,24 +15955,43 @@ Solicitado: ${cantidad}`);
     const eliminado = normalizar(row && (row.EliminadoCosteo || row._costeoDeleted || ""));
     return !["si", "sí", "true", "1"].includes(descatalogado) && !["si", "sí", "true", "1"].includes(eliminado);
   }
+  const ICG_SALE_PRICE_FIELDS = ["PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "Precio", "PRECIO", "Valor", "VALOR", "Importe", "IMPORTE"];
+  function getIcgPriceRowKeys(row) {
+    const keys = [
+      getCostField(row, ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "CodProducto", "CODPRODUCTO"]),
+      getCostField(row, ["Referencia", "REFERENCIA", "Ref", "REF"])
+    ];
+    return Array.from(new Set(keys.map(function(value) {
+      return normalizar(value);
+    }).filter(Boolean)));
+  }
   function buildIcgPriceIndex(priceRows) {
     return (Array.isArray(priceRows) ? priceRows : []).reduce(function(acc, row) {
-      const code = normalizar(getCostField(row, ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO"]));
-      if (!code) return acc;
-      const price = parseCostNumber(getCostField(row, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
+      const keys = getIcgPriceRowKeys(row);
+      if (!keys.length) return acc;
+      const price = parseCostNumber(getCostField(row, ICG_SALE_PRICE_FIELDS));
       if (!(price > 0)) return acc;
       const isDefault = normalizar(getCostField(row, ["PrecioDefecto", "PRECIODEFECTO", "Defecto", "EsDefecto"]) || "").match(/^(1|si|sí|true)$/);
-      const currentPrice = parseCostNumber(getCostField(acc[code], ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
-      if (!acc[code] || isDefault || price > currentPrice) acc[code] = row;
+      keys.forEach(function(key) {
+        const currentPrice = parseCostNumber(getCostField(acc[key], ICG_SALE_PRICE_FIELDS));
+        if (!acc[key] || isDefault || price > currentPrice) acc[key] = row;
+      });
       return acc;
     }, {});
   }
   function getIcgArticleSalePrice(row, priceIndex) {
-    const ownPrice = parseCostNumber(getCostField(row, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "PVP", "PVenta", "Valor", "VALOR", "PrecioVenta", "PRECIOVENTA"]));
+    const ownPrice = parseCostNumber(getCostField(row, ICG_SALE_PRICE_FIELDS));
     if (ownPrice > 0) return ownPrice;
-    const code = normalizar(getIcgArticleCode(row));
-    const priceRow = code && priceIndex ? priceIndex[code] : null;
-    return parseCostNumber(getCostField(priceRow, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO", "Valor", "VALOR", "PrecioDefecto", "PRECIODEFECTO", "PVP", "PVenta"]));
+    const keys = getIcgPriceRowKeys({
+      CodArticulo: getIcgArticleCode(row),
+      Referencia: getIcgArticleReference(row)
+    });
+    for (const key of keys) {
+      const priceRow = priceIndex ? priceIndex[key] : null;
+      const price = parseCostNumber(getCostField(priceRow, ICG_SALE_PRICE_FIELDS));
+      if (price > 0) return price;
+    }
+    return 0;
   }
   function getIcgArticleDirectCost(row) {
     return parseCostNumber(row && (row.PCoste ?? row.CosteMedio ?? row.UltimoCoste ?? row.Coste ?? row.Costo ?? row.CostoCompra));
