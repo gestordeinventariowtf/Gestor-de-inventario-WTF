@@ -79,6 +79,71 @@ function targetProductName(row: AnyRecord, key: string): string {
     : String(row.producto || row.nombre || "");
 }
 
+function parseLocalIcgLinkValue(link: AnyRecord): AnyRecord {
+  const parts = String(link?.value || "").split("|").map((part) => part.trim()).filter(Boolean);
+  return {
+    CodArticulo: String(link?.CodArticulo || parts[0] || "").trim(),
+    Referencia: String(link?.Referencia || parts[1] || "").trim(),
+    ProductoICG: String(link?.ProductoICG || parts.slice(2).join(" | ") || parts[0] || "").trim()
+  };
+}
+
+function bridgeIdentity(row: AnyRecord): string {
+  return [
+    targetKey(row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
+    normalizar(row.ProductoWTF || row.ProductoMise || ""),
+    normalizar(row.CodArticulo || row.Codigo || ""),
+    normalizar(row.Referencia || ""),
+    normalizar(row.ProductoICG || row.Descripcion || "")
+  ].join("::");
+}
+
+function bridgeRowsFromTarget(appState: AnyRecord, key: string): AnyRecord[] {
+  const list: AnyRecord[] = Array.isArray(appState[key]) ? appState[key] : [];
+  return list.flatMap((item) => {
+    const productName = targetProductName(item, key).trim();
+    const links: AnyRecord[] = Array.isArray(item?.icgLinks) ? item.icgLinks : [];
+    if (!productName || !links.length) return [];
+    return links.map((link) => {
+      const parsed = parseLocalIcgLinkValue(link);
+      if (!parsed.CodArticulo && !parsed.Referencia && !parsed.ProductoICG) return null;
+      return {
+        _id: `local-${key}-${quickHashText([productName, parsed.CodArticulo, parsed.Referencia, parsed.ProductoICG].join("|"))}`,
+        ModuloWTF: targetLabel(key),
+        ProductoWTF: productName,
+        ProductoMise: productName,
+        CodArticulo: parsed.CodArticulo,
+        Referencia: parsed.Referencia,
+        ProductoICG: parsed.ProductoICG,
+        Metodo: link.Metodo || "Vinculo guardado en producto WTF",
+        CantidadPorVenta: parseNumber(link.CantidadPorVenta) || 1,
+        Unidad: link.Unidad || item.medida || "Uni",
+        Activo: link.Activo == null ? "Si" : link.Activo,
+        Notas: link.Notas || ""
+      };
+    }).filter(Boolean) as AnyRecord[];
+  });
+}
+
+function collectIcgBridgeRows(appState: AnyRecord): AnyRecord[] {
+  const centralRows = rows(appState, "VinculosMiseICG");
+  const localRows = [
+    "inventario",
+    "cuartoFrioInventario",
+    "miseAnPlace",
+    "barInventario",
+    "barCuartoFrioInventario",
+    "barMiseAnPlace"
+  ].flatMap((key) => bridgeRowsFromTarget(appState, key));
+  const seen = new Set<string>();
+  return centralRows.concat(localRows).filter((row) => {
+    const identity = bridgeIdentity(row);
+    if (!identity || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 function targetExistence(row: AnyRecord, key: string): number {
   if (key === "inventario" || key === "cuartoFrioInventario" || key === "barInventario" || key === "barCuartoFrioInventario") {
     return parseNumber(row.entrada) - parseNumber(row.salida) - parseNumber(row.decomiso);
@@ -475,7 +540,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       rows: mergeClosureRows(currentClosures.rows || [], closures)
     });
   }
-  const links = rows(appState, "VinculosMiseICG").filter(active);
+  const links = collectIcgBridgeRows(appState).filter(active);
   const appliedKeys = new Set((icg.appliedImports || []).map(String));
   const consumoRows: AnyRecord[] = icg.datasets.ConsumoMiseVentas.rows || [];
   const existingConsumptionKeys = new Set(consumoRows.map((row) => String(row.ImportKey || "")));

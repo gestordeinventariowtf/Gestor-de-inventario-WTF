@@ -5938,6 +5938,96 @@
     if (key.includes("inventario") || key.includes("cocina")) return "inventarioCocina";
     return value || "miseCocina";
   }
+  function getIcgWtfTargetArea(value) {
+    const target = normalizeIcgWtfTarget(value);
+    return String(target || "").toLowerCase().includes("bar") ? "Bar" : "Cocina";
+  }
+  function icgWtfTargetMatchesArea(targetValue, areaValue) {
+    return getIcgWtfTargetArea(targetValue) === getIcgWtfTargetArea(areaValue);
+  }
+  function getIcgBridgeIdentity(row) {
+    if (!row) return "";
+    const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Destino || row.Modulo);
+    return [
+      targetKey,
+      normalizar(row.ProductoWTF || row.ProductoMise || ""),
+      normalizar(row.CodArticulo || row.Codigo || ""),
+      normalizar(row.Referencia || ""),
+      normalizar(row.ProductoICG || row.Descripcion || "")
+    ].join("::");
+  }
+  function parseLocalIcgLinkValue(link) {
+    const parts = String(link && link.value || "").split("|").map(function(part) { return part.trim(); }).filter(Boolean);
+    return {
+      CodArticulo: String(link && link.CodArticulo || parts[0] || "").trim(),
+      Referencia: String(link && link.Referencia || parts[1] || "").trim(),
+      ProductoICG: String(link && link.ProductoICG || parts.slice(2).join(" | ") || parts[0] || "").trim()
+    };
+  }
+  function buildIcgBridgeRowsFromTargets(inventoryTargets) {
+    const rows = [];
+    (Array.isArray(inventoryTargets) ? inventoryTargets : []).forEach(function(target) {
+      const item = target && target.item || {};
+      const links = Array.isArray(item.icgLinks) ? item.icgLinks : [];
+      const productName = String(target && target.producto || item.producto || item.nombre || "").trim();
+      if (!productName || !links.length) return;
+      const targetKey = normalizeIcgWtfTarget(target.targetKey || target.modulo || "");
+      links.forEach(function(link) {
+        const parsed = parseLocalIcgLinkValue(link);
+        if (!parsed.CodArticulo && !parsed.Referencia && !parsed.ProductoICG) return;
+        rows.push(sanitizeIcgBridgeRow({
+          _id: `local-${targetKey}-${normalizar(productName)}-${normalizar(parsed.CodArticulo || parsed.Referencia || parsed.ProductoICG)}`,
+          ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+          ProductoWTF: productName,
+          ProductoMise: productName,
+          CodArticulo: parsed.CodArticulo,
+          Referencia: parsed.Referencia,
+          ProductoICG: parsed.ProductoICG,
+          Metodo: link.Metodo || "Vinculo guardado en producto WTF",
+          CantidadPorVenta: parseIcgNumber(link.CantidadPorVenta) || 1,
+          Unidad: link.Unidad || target.medida || item.medida || "Uni",
+          Activo: link.Activo == null ? "Si" : link.Activo,
+          Notas: link.Notas || ""
+        }));
+      });
+    });
+    return rows;
+  }
+  function buildIcgBridgeRowsFromWtfSources(options) {
+    const opts = options || {};
+    const moduleIsBar = normalizar(opts.moduleLabel || "").includes("bar");
+    const inventoryTarget = moduleIsBar ? "inventarioBar" : "inventarioCocina";
+    const coldTarget = moduleIsBar ? "cuartoFrioBar" : "cuartoFrioCocina";
+    const miseTarget = moduleIsBar ? "miseBar" : "miseCocina";
+    const targets = [
+      ...(Array.isArray(opts.inventario) ? opts.inventario : []).filter((item) => item && item.tipo === "producto").map((item) => ({ targetKey: inventoryTarget, producto: item.nombre, medida: item.medida, item })),
+      ...(Array.isArray(opts.cuartoFrioInventario) ? opts.cuartoFrioInventario : []).filter((item) => item && item.tipo === "producto").map((item) => ({ targetKey: coldTarget, producto: item.nombre, medida: item.medida, item })),
+      ...(Array.isArray(opts.miseAnPlace) ? opts.miseAnPlace : []).map((item) => ({ targetKey: miseTarget, producto: item.producto, medida: item.medida || "Uni", item }))
+    ];
+    return buildIcgBridgeRowsFromTargets(targets);
+  }
+  function mergeIcgBridgeRows(primaryRows, fallbackRows) {
+    const seen = new Set();
+    return (Array.isArray(primaryRows) ? primaryRows : []).concat(Array.isArray(fallbackRows) ? fallbackRows : []).filter(function(row) {
+      const clean = sanitizeIcgBridgeRow(row);
+      const identity = getIcgBridgeIdentity(clean);
+      if (!identity || seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    }).map(sanitizeIcgBridgeRow);
+  }
+  function withMergedIcgBridgeRows(data, bridgeRows) {
+    const normalized = ensureIcgFrontRestData(data);
+    const current = normalized.datasets.VinculosMiseICG || { key: "VinculosMiseICG", label: ICG_TABLE_DEFS.VinculosMiseICG.label, columns: ICG_TABLE_DEFS.VinculosMiseICG.columns, rows: [] };
+    return Object.assign({}, normalized, {
+      datasets: Object.assign({}, normalized.datasets, {
+        VinculosMiseICG: Object.assign({}, current, {
+          columns: Array.from(new Set([...(current.columns || []), ...ICG_TABLE_DEFS.VinculosMiseICG.columns])),
+          rows: mergeIcgBridgeRows(bridgeRows, current.rows)
+        })
+      })
+    });
+  }
   function getIcgLineCode(row) {
     return icgCellText(row && (row.CodArticulo || row.Codigo || row.Cod || row.CODARTICULO || "") || "").trim();
   }
@@ -15407,12 +15497,9 @@ Solicitado: ${cantidad}`);
     const code = normalizar(getIcgArticleCode(article));
     const reference = normalizar(getIcgArticleReference(article));
     const description = normalizar(getIcgArticleDescription(article));
-    const moduleIsBar = normalizar(moduleLabel).includes("bar");
     const links = (Array.isArray(bridgeRows) ? bridgeRows : []).filter(function(row) {
       if (!isIcgLinkActive(row)) return false;
-      const targetKey = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo || "");
-      const rowIsBar = targetKey.includes("Bar");
-      if (moduleIsBar !== rowIsBar) return false;
+      if (!icgWtfTargetMatchesArea(row.ModuloWTF || row.DestinoWTF || row.Modulo || "", moduleLabel)) return false;
       const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
       const linkReference = normalizar(row.Referencia || "");
       const linkName = normalizar(row.ProductoICG || "");
@@ -15526,8 +15613,11 @@ Solicitado: ${cantidad}`);
       return ensureIcgFrontRestData(icgFrontRestData);
     }, [icgFrontRestData]);
     const bridgeRows = useMemo(function() {
-      return icgRows(normalizedIcgData, "VinculosMiseICG");
-    }, [normalizedIcgData]);
+      return mergeIcgBridgeRows(
+        icgRows(normalizedIcgData, "VinculosMiseICG"),
+        buildIcgBridgeRowsFromWtfSources({ moduleLabel, inventario, cuartoFrioInventario, miseAnPlace })
+      );
+    }, [normalizedIcgData, moduleLabel, inventario, cuartoFrioInventario, miseAnPlace]);
     const icgPriceIndex = useMemo(function() {
       return buildIcgPriceIndex(icgRows(normalizedIcgData, "PreciosVenta"));
     }, [normalizedIcgData]);
@@ -18131,6 +18221,7 @@ Solicitado: ${cantidad}`);
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
     const [busy, setBusy] = useState(false);
+    const autoApplyIcgRef = useRef("");
     const totals = tableKeys.reduce(function(acc, key) {
       acc[key] = ((normalized.datasets[key] || {}).rows || []).length;
       return acc;
@@ -18138,10 +18229,14 @@ Solicitado: ${cantidad}`);
     const closureRows = useMemo(() => buildIcgDailyClosures(normalized), [data]);
     const ticketRows = useMemo(() => buildIcgSalesTickets(normalized), [data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
-    const bridgeRows = icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow);
+    const bridgeRows = mergeIcgBridgeRows(
+      icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
+      buildIcgBridgeRowsFromTargets(inventoryTargets)
+    );
+    const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
     const salesConsumptionRows = useMemo(function() {
-      return buildIcgSalesConsumption(normalized).map(function(row) {
+      return buildIcgSalesConsumption(normalizedWithBridgeRows).map(function(row) {
         const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
         const productName = row.ProductoWTF || row.ProductoMise || "";
         const target = (Array.isArray(inventoryTargets) ? inventoryTargets : []).find(function(item) {
@@ -18160,7 +18255,10 @@ Solicitado: ${cantidad}`);
           Estado: estado
         });
       });
-    }, [data, inventoryTargets, normalized.appliedImports]);
+    }, [data, inventoryTargets, normalized.appliedImports, bridgeRows.length]);
+    const salesConsumptionSignature = salesConsumptionRows.map(function(row) {
+      return [row.ImportKey, row.Estado, row.ProductoWTF || row.ProductoMise, row.CantidadDescontar, row.ExistenciaActual].join(":");
+    }).join("|");
     const icgBusinessDateKey = getIcgBusinessDateKey(new Date());
     const currentClosureRow = closureRows.find(function(row) {
       return icgDateKey(row.FechaCierre || row.Fecha) === icgBusinessDateKey;
@@ -18393,7 +18491,28 @@ Solicitado: ${cantidad}`);
       });
       setActiveTable("ConsumoMiseVentas");
       setTab("tablas");
-      toast(rows.length ? "Consumo por ventas generado para revision." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
+      toast(rows.length ? "Consumo por ventas generado. Las lineas validas se aplican automaticamente." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
+    }
+    function applyReadyConsumptionRows(pendingRows, options = {}) {
+      if (!pendingRows.length) return [];
+      if (typeof onApplyInventoryImpact !== "function") throw new Error("El puente ICG no tiene conexion activa con inventario.");
+      const appliedKeys = onApplyInventoryImpact(pendingRows);
+      const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...appliedKeys]));
+      const appliedSet = new Set(nextApplied);
+      const datasets = Object.assign({}, normalized.datasets);
+      datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
+        columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
+        rows: salesConsumptionRows.map(function(row, index) {
+          const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
+            Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
+          });
+          delete clean.targetKey;
+          return clean;
+        })
+      });
+      updateData({ appliedImports: nextApplied, datasets });
+      if (!options.silent) toast("Ventas ICG aplicadas automaticamente al inventario.", "ok");
+      return appliedKeys;
     }
     function applySalesConsumption() {
       const pendingRows = salesConsumptionRows.filter(function(row) {
@@ -18403,34 +18522,27 @@ Solicitado: ${cantidad}`);
         toast("No hay consumos pendientes listos para aplicar.", "info");
         return;
       }
-      setPendingAction({
-        title: "Aplicar ventas ICG al inventario",
-        run: function() {
-          try {
-            if (typeof onApplyInventoryImpact !== "function") throw new Error("El puente ICG no tiene conexion activa con inventario.");
-            const appliedKeys = onApplyInventoryImpact(pendingRows);
-            const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...appliedKeys]));
-            const appliedSet = new Set(nextApplied);
-            const datasets = Object.assign({}, normalized.datasets);
-            datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
-              columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
-              rows: salesConsumptionRows.map(function(row, index) {
-                const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
-                  Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
-                });
-                delete clean.targetKey;
-                return clean;
-              })
-            });
-            updateData({ appliedImports: nextApplied, datasets });
-            setPendingAction(null);
-            toast("Ventas ICG aplicadas al inventario y marcadas como aplicadas.", "ok");
-          } catch (err) {
-            toast(err && err.message ? err.message : "No se pudo aplicar el consumo ICG.", "error");
-          }
-        }
-      });
+      try {
+        applyReadyConsumptionRows(pendingRows);
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo aplicar el consumo ICG.", "error");
+      }
     }
+    useEffect(function() {
+      const pendingRows = salesConsumptionRows.filter(function(row) {
+        return row.Estado === "Pendiente";
+      });
+      if (!pendingRows.length || typeof onApplyInventoryImpact !== "function") return;
+      const signature = pendingRows.map(function(row) { return row.ImportKey; }).filter(Boolean).sort().join("|");
+      if (!signature || autoApplyIcgRef.current === signature) return;
+      autoApplyIcgRef.current = signature;
+      try {
+        const applied = applyReadyConsumptionRows(pendingRows, { silent: true });
+        if (applied.length) toast(`${applied.length} descuento(s) ICG aplicado(s) automaticamente.`, "ok");
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo aplicar automaticamente el consumo ICG.", "error");
+      }
+    }, [salesConsumptionSignature]);
     async function syncIcgArticlesFromLocalDb() {
       setBusy(true);
       try {
@@ -18513,7 +18625,7 @@ Solicitado: ${cantidad}`);
         });
       });
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
-        /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-shield-halved" }), "Importar no modifica inventario. Primero genera esta vista previa, revisa bloqueos y luego aplica con clave administradora."),
+        /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Las ventas ICG con vinculo valido descuentan automaticamente. Solo quedan bloqueadas las lineas sin mapeo, sin producto WTF o sin existencia suficiente."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderSalesFilterButton("todos", "Lineas consumo", groupedSalesRows.length, "#4338ca"),
           renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
@@ -18525,7 +18637,7 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar consumo por fecha, codigo, producto, destino o estado...", value: salesConsumptionQuery, onChange: (e) => setSalesConsumptionQuery(e.target.value) })
           ),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul", onClick: syncSalesConsumptionDataset }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-rotate" }), "Generar consumo desde ventas"),
-          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: applySalesConsumption, disabled: !readyRows.length, style: { opacity: readyRows.length ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Aplicar al inventario")
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: applySalesConsumption, disabled: !readyRows.length, style: { opacity: readyRows.length ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Aplicar ahora")
         ),
         ticketRows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
           /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "#4338ca" } }), "Facturas / tickets detectados"),
@@ -18551,21 +18663,22 @@ Solicitado: ${cantidad}`);
             const children = group.children || [group];
             const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
-            const renderChildLines = function(fn) {
-              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 190 } }, children.map(function(child, childIndex) {
-                return /* @__PURE__ */ React.createElement("div", { key: child.ImportKey || childIndex, style: { fontSize: 12, borderBottom: childIndex < children.length - 1 ? "1px dashed #e5e7eb" : "none", paddingBottom: childIndex < children.length - 1 ? 4 : 0 } }, fn(child));
+            const renderChildLines = function(fn, options = {}) {
+              const align = options.align || "left";
+              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 0, minWidth: options.minWidth || 190 } }, children.map(function(child, childIndex) {
+                return /* @__PURE__ */ React.createElement("div", { key: child.ImportKey || childIndex, style: { fontSize: 12, minHeight: 32, display: "flex", alignItems: "center", justifyContent: align === "right" ? "flex-end" : "flex-start", textAlign: align, whiteSpace: options.nowrap ? "nowrap" : "normal", borderBottom: childIndex < children.length - 1 ? "1px dashed #e5e7eb" : "none", padding: "4px 0" } }, fn(child));
               }));
             };
             return /* @__PURE__ */ React.createElement("tr", { key: group.groupKey || group.ImportKey || index, className: blocked ? "tr-out-stock" : "" },
               /* @__PURE__ */ React.createElement("td", null, group.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, group.Ticket || "-"),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, group.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", group.CodArticulo || "-", " / Ref: ", group.Referencia || "-")),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ModuloWTF || "-"; })),
-              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, renderChildLines(function(child) { return child.ProductoWTF || child.ProductoMise || "-"; })),
+              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ModuloWTF || "-"; }, { minWidth: 155 })),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, renderChildLines(function(child) { return child.ProductoWTF || child.ProductoMise || "-"; }, { minWidth: 230 })),
               /* @__PURE__ */ React.createElement("td", null, group.UnidadesVendidas || 0),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return `${child.CantidadDescontar || 0} ${child.Unidad || ""}`; })),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaActual === "" ? "-" : child.ExistenciaActual; })),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ExistenciaNueva === "" ? "-" : child.ExistenciaNueva; })),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return `${child.CantidadDescontar || 0} ${child.Unidad || ""}`; }, { align: "center", minWidth: 92, nowrap: true })),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return child.ExistenciaActual === "" ? "-" : child.ExistenciaActual; }, { align: "center", minWidth: 72, nowrap: true })),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return child.ExistenciaNueva === "" ? "-" : child.ExistenciaNueva; }, { align: "center", minWidth: 72, nowrap: true })),
               /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { const childClass = child.Estado === "Pendiente" ? "pill-verde" : child.Estado === "Aplicado" ? "pill-azul" : "pill-rojo"; return /* @__PURE__ */ React.createElement("span", { className: `pill ${childClass}` }, child.Estado || "-"); }), children.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, children.length, " descuentos")))
             );
           }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
@@ -18612,68 +18725,44 @@ Solicitado: ${cantidad}`);
       );
     }
     function renderMiseBridge() {
-      const q = normalizar(bridgeQuery);
-      const activeLinksCount = bridgeRows.filter(isIcgLinkActive).length;
-      const filteredBridgeRows = bridgeRows.filter(function(row) {
-        if (!q) return true;
-        return [row.ModuloWTF, row.ProductoWTF, row.ProductoMise, row.CodArticulo, row.Referencia, row.ProductoICG, row.Unidad, row.Notas].some(function(value) {
-          return normalizar(value).includes(q);
-        });
-      });
-      const filteredSuggestions = bridgeSuggestions.filter(function(item) {
-        if (!q) return true;
-        const product = item.icg || {};
-        return [item.productoMise, product.Descripcion, product.ProductoICG, product.CodArticulo, product.Codigo, product.Referencia].some(function(value) {
-          return normalizar(value).includes(q);
-        });
-      });
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
         /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link" }), "El vinculo recomendado es CodArticulo o Referencia de ICG. El nombre ayuda a encontrar coincidencias, pero el movimiento definitivo debe quedar amarrado al codigo."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderLabMetric("Mise actual", (Array.isArray(miseAnPlace) ? miseAnPlace : []).length, "#4338ca"),
           renderLabMetric("Articulos ICG", icgProductsForBridge.length, "#b45309"),
-          renderLabMetric("Vinculos activos", activeLinksCount, "#15803d"),
+          renderLabMetric("Vinculos guardados", bridgeRows.length, "#15803d"),
           renderLabMetric("Sugerencias", bridgeSuggestions.length, "#111827")
-        ),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
-          /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 460, width: "100%" } },
-            /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }),
-            /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto WTF, codigo ICG, referencia o destino...", value: bridgeQuery, onChange: (e) => setBridgeQuery(e.target.value) })
-          ),
-          /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(null, "VinculosMiseICG"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Nuevo vinculo manual")
         ),
         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
           /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
-            /* @__PURE__ */ React.createElement("strong", null, "Puente activo ICG -> WTF"),
+            /* @__PURE__ */ React.createElement("strong", null, "Vinculos activos"),
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Destino"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "ICG"), /* @__PURE__ */ React.createElement("th", null, "Descuento"), /* @__PURE__ */ React.createElement("th", null, ""))),
-              /* @__PURE__ */ React.createElement("tbody", null, filteredBridgeRows.slice(0, 120).map(function(row, index) {
-                const active = isIcgLinkActive(row);
+              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Destino"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Codigo"), /* @__PURE__ */ React.createElement("th", null, "Referencia"), /* @__PURE__ */ React.createElement("th", null, "ICG"))),
+              /* @__PURE__ */ React.createElement("tbody", null, bridgeRows.slice(0, 80).map(function(row, index) {
                 return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.ProductoMise}-${index}` },
-                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${active ? "pill-verde" : "pill-gris"}` }, active ? "Activo" : "Inactivo")),
                   /* @__PURE__ */ React.createElement("td", null, row.ModuloWTF || "Mise an Place Cocina"),
                   /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, row.ProductoWTF || row.ProductoMise || "-"),
-                  /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, /* @__PURE__ */ React.createElement("strong", null, row.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", null, "Cod: ", row.CodArticulo || "-", " · Ref: ", row.Referencia || "-")),
-                  /* @__PURE__ */ React.createElement("td", null, row.CantidadPorVenta || 1, " ", row.Unidad || "Uni"),
-                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar vinculo", onClick: () => { setActiveTable("VinculosMiseICG"); setTab("tablas"); startEdit(row, "VinculosMiseICG"); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })))
+                  /* @__PURE__ */ React.createElement("td", null, row.CodArticulo || "-"),
+                  /* @__PURE__ */ React.createElement("td", null, row.Referencia || "-"),
+                  /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.ProductoICG || "-")
                 );
-              }), filteredBridgeRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: 18, color: "var(--gris)" } }, bridgeRows.length ? "No hay vinculos que coincidan con la busqueda." : "Aun no hay vinculos guardados.")))
+              }), bridgeRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 18, color: "var(--gris)" } }, "Aun no hay vinculos guardados.")))
             ))
           ),
-          /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
+          /* @__PURE__ */ React.createElement("div", { style: Object.assign({}, labBoxStyle, { alignContent: "start", gap: 8, paddingTop: 10 }) },
             /* @__PURE__ */ React.createElement("strong", null, "Sugerencias por nombre"),
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
               /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Mise"), /* @__PURE__ */ React.createElement("th", null, "ICG sugerido"), /* @__PURE__ */ React.createElement("th", null, "%"), /* @__PURE__ */ React.createElement("th", null, ""))),
-              /* @__PURE__ */ React.createElement("tbody", null, filteredSuggestions.slice(0, 80).map(function(item) {
+              /* @__PURE__ */ React.createElement("tbody", null, bridgeSuggestions.slice(0, 80).map(function(item) {
                 const product = item.icg || {};
-                const label = getIcgArticleDescription(product) || getIcgArticleReference(product) || "-";
+                const label = product.Descripcion || product.ProductoICG || product.Nombre || product.Referencia || "-";
                 return /* @__PURE__ */ React.createElement("tr", { key: `${item.productoMise}-${getIcgArticleCode(product) || label}` },
                   /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, item.productoMise),
-                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 2 } }, /* @__PURE__ */ React.createElement("span", null, label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", getIcgArticleCode(product) || "-", " / Ref: ", getIcgArticleReference(product) || "-"))),
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 2 } }, /* @__PURE__ */ React.createElement("span", null, label), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", product.CodArticulo || product.Codigo || "-", " / Ref: ", product.Referencia || "-"))),
                   /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${item.score >= 75 ? "pill-verde" : "pill-naranja"}` }, item.score, "%")),
                   /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: () => addBridgeSuggestion(item) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link" }), "Vincular"))
                 );
-              }), filteredSuggestions.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: 18, color: "var(--gris)" } }, bridgeSuggestions.length ? "No hay sugerencias que coincidan con la busqueda." : "Importa articulos ICG para generar sugerencias.")))
+              }), bridgeSuggestions.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: 18, color: "var(--gris)" } }, "Importa articulos ICG para generar sugerencias.")))
             ))
           )
         )
@@ -18752,8 +18841,13 @@ Solicitado: ${cantidad}`);
     const toast = useToast();
     const normalizedIcg = ensureIcgFrontRestData(icgData);
     const [tab, setTab] = useState("dashboard");
-    const icgSalesRows = buildIcgSalesConsumption(normalizedIcg);
-    const activeBridgeRows = icgRows(normalizedIcg, "VinculosMiseICG").filter(isIcgLinkActive);
+    const hostBridgeRows = mergeIcgBridgeRows(
+      icgRows(normalizedIcg, "VinculosMiseICG"),
+      buildIcgBridgeRowsFromTargets(inventoryTargets)
+    );
+    const normalizedHostIcg = withMergedIcgBridgeRows(normalizedIcg, hostBridgeRows);
+    const icgSalesRows = buildIcgSalesConsumption(normalizedHostIcg);
+    const activeBridgeRows = hostBridgeRows.filter(isIcgLinkActive);
     const allEntries = [
       ...regEntradas.map((row, index) => ({ ...row, modulo: "Cocina", targetKey: "inventarioCocina", rowKey: `cocina-${row.fecha || index}-${row.producto}` })),
       ...barRegEntradas.map((row, index) => ({ ...row, modulo: "Bar", targetKey: "inventarioBar", rowKey: `bar-${row.fecha || index}-${row.producto}` }))
@@ -18782,16 +18876,16 @@ Solicitado: ${cantidad}`);
         cantidad: parseIcgNumber(row.cantidad),
         unidad: row.medida || target && target.medida || "Uni",
         usuario: row.usuario || "",
-        estado: codeSource ? "pendiente_revision" : "requiere_mapeo",
-        mensaje: codeSource ? "Listo para preparar importacion hacia ICG" : "Falta CodArticulo para ICG"
+        estado: codeSource ? "informativo" : "requiere_mapeo",
+        mensaje: codeSource ? "Entrada web detectada. No se exporta a ICG por configuracion actual." : "Falta CodArticulo para ICG"
       };
     });
     const icgToWebQueue = icgSalesRows.slice(0, 120).map(function(row) {
       const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
       const target = targetIndex[`${targetKey}::${normalizar(row.ProductoWTF || row.ProductoMise)}`] || null;
       const estadoOriginal = normalizar(row.Estado || "");
-      let estado = estadoOriginal.includes("aplicado") ? "sincronizado" : estadoOriginal.includes("sin vinculo") ? "requiere_mapeo" : "pendiente_revision";
-      let mensaje = row.Estado || "Listo para revisar antes de descontar";
+      let estado = estadoOriginal.includes("aplicado") ? "sincronizado" : estadoOriginal.includes("sin vinculo") ? "requiere_mapeo" : "listo_automatico";
+      let mensaje = estado === "sincronizado" ? "Descuento aplicado" : "Listo para descuento automatico";
       if (!row.ProductoWTF && !row.ProductoMise) {
         estado = "requiere_mapeo";
         mensaje = "No hay producto WTF vinculado";
@@ -18853,14 +18947,14 @@ Solicitado: ${cantidad}`);
         `Generado: ${formatDatetime(new Date())}`,
         "",
         "## Estado",
-        `- Modo: Manual con previsualizacion`,
+        `- Modo: Descuento automatico con bloqueo de errores`,
         `- Movimientos ICG -> Web: ${icgToWebQueue.length}`,
         `- Movimientos Web -> ICG: ${webToIcgQueue.length}`,
         `- Productos sin mapeo: ${productosSinMapeo.length}`,
         `- Vinculos activos: ${activeBridgeRows.length}`,
         "",
         "## Regla operativa",
-        "Importar o detectar movimientos no modifica inventario automaticamente. Primero se revisa, luego se aprueba.",
+        "Las ventas ICG con vinculo WTF valido se descuentan automaticamente. Las lineas sin mapeo, sin producto o sin existencia suficiente quedan bloqueadas para revision.",
         "",
         "## Modulos conectados",
         `- Inventario Cocina: ${hostPackage.audit.cocinaInventario}`,
@@ -18874,6 +18968,8 @@ Solicitado: ${cantidad}`);
       toast("Reporte de auditoria ICG Host exportado.", "ok");
     }
     const statusColor = function(status) {
+      if (status === "listo_automatico") return "pill-verde";
+      if (status === "informativo") return "pill-azul";
       if (status === "pendiente_revision") return "pill-naranja";
       if (status === "requiere_mapeo" || status === "error") return "pill-rojo";
       if (status === "sincronizado") return "pill-verde";
@@ -18918,7 +19014,7 @@ Solicitado: ${cantidad}`);
             return /* @__PURE__ */ React.createElement("button", { key, className: `tab ${tab === key ? "active" : ""}`, onClick: () => setTab(key) }, labels[key]);
           })),
           tab === "dashboard" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-            /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Estado operativo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, "Modo manual con previsualizacion"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)", lineHeight: 1.6 } }, "Los movimientos quedan pendientes hasta que un administrador los revise. El modo automatico no queda activo por defecto.")),
+            /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Estado operativo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Descuento automatico activo"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)", lineHeight: 1.6 } }, "Las ventas ICG con vinculo WTF valido se descuentan automaticamente. Solo se bloquean las lineas sin mapeo, sin producto o sin existencia suficiente.")),
             /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Conexion con modulos"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, ["Cocina", "Bar", "Mise an Place", "Entradas", "ICG FrontRest"].map((label) => /* @__PURE__ */ React.createElement("span", { key: label, className: "pill pill-verde" }, label))))
           ),
           tab === "icgWeb" && renderQueue(icgToWebQueue, "Sin ventas ICG pendientes para preparar descuento web."),
@@ -20452,7 +20548,10 @@ Solicitado: ${cantidad}`);
     const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
     const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
     const icgArticleRows = getIcgArticleRowsForLinks(normalizedIcgData);
-    const icgBridgeRows = icgRows(normalizedIcgData, "VinculosMiseICG");
+    const icgBridgeRows = mergeIcgBridgeRows(
+      icgRows(normalizedIcgData, "VinculosMiseICG"),
+      buildIcgBridgeRowsFromWtfSources({ moduleLabel, miseAnPlace })
+    );
     function setNewMiseIcgLinks(updater) {
       setNewProd(function(prev) {
         const current = Array.isArray(prev.icgLinks) && prev.icgLinks.length ? prev.icgLinks : [createBlankIcgLink("Uni")];
