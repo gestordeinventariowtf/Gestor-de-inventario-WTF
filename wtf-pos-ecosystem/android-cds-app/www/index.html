@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>WTF CDS</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="cds-body">
+    <main class="cds-shell">
+      <section class="cds-screen">
+        <div class="cds-brand">
+          <span class="kicker">WTF CDS</span>
+          <h1>Pantalla del cliente</h1>
+          <p id="ticket-label">Mesa 1</p>
+        </div>
+        <div id="customer-lines" class="cds-lines"></div>
+        <div class="cds-total-box">
+          <span>Total</span>
+          <strong id="customer-total">0.00</strong>
+        </div>
+        <div id="customer-message" class="cds-message">Esperando orden...</div>
+      </section>
+
+      <section class="panel cds-demo-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">Operacion</span>
+            <h2>Control local</h2>
+          </div>
+          <span class="badge">Seguro</span>
+        </div>
+        <button id="load-demo" class="btn primary close-btn">Cargar orden de prueba</button>
+        <button id="add-line" class="btn secondary close-btn">Agregar producto</button>
+        <button id="close-sale" class="btn secondary close-btn">Cerrar venta</button>
+        <button id="clear-screen" class="btn secondary close-btn">Limpiar pantalla</button>
+        <label class="field">
+          <span>URL del hub local</span>
+          <input id="hub-url" autocomplete="off" placeholder="http://192.168.1.10:8790">
+        </label>
+        <label class="field">
+          <span>Dato de emparejamiento</span>
+          <input id="pairing-data" autocomplete="off" placeholder="Pega el QR o wtfpos://pair?...">
+        </label>
+        <label class="field">
+          <span>Nombre del equipo</span>
+          <input id="device-name" autocomplete="off" placeholder="Pantalla cliente">
+        </label>
+        <label class="field">
+          <span>Ubicacion</span>
+          <input id="device-station" autocomplete="off" placeholder="Caja / mostrador">
+        </label>
+        <button id="test-hub" class="btn secondary close-btn">Probar hub</button>
+        <button id="apply-pairing" class="btn secondary close-btn">Aplicar emparejamiento</button>
+        <button id="scan-pairing" class="btn secondary close-btn">Escanear QR</button>
+        <button id="save-device" class="btn secondary close-btn">Guardar equipo</button>
+        <button id="kiosk-mode" class="btn secondary close-btn">Modo kiosco</button>
+        <button id="sync-hub" class="btn secondary close-btn">Sincronizar</button>
+        <div id="device-view" class="mini-list"></div>
+        <div id="audit-view" class="mini-list"></div>
+      </section>
+    </main>
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

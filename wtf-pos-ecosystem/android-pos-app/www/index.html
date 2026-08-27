@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>WTF POS Local</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="pos-shell">
+      <section class="panel catalog-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">WTF POS</span>
+            <h1>Caja operativa</h1>
+            <div id="operator-label" class="operator-label">Operador</div>
+          </div>
+          <span id="sync-state" class="badge">Operativo</span>
+        </div>
+        <label class="field">
+          <span>Buscar producto</span>
+          <input id="search" autocomplete="off" placeholder="Nombre, SKU o codigo">
+        </label>
+        <div class="dining-controls">
+          <label class="field">
+            <span>Opcion de consumo</span>
+            <select id="dining-option">
+              <option value="dineIn">Salon</option>
+              <option value="takeOut">Para llevar</option>
+              <option value="delivery">Delivery</option>
+            </select>
+          </label>
+          <div>
+            <span class="kicker">Mesas</span>
+            <div id="tables" class="table-grid"></div>
+          </div>
+        </div>
+        <div id="products" class="product-grid"></div>
+      </section>
+
+      <section class="panel cart-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">Carrito</span>
+            <h2 id="ticket-label">Mesa 1</h2>
+          </div>
+          <button id="send-kds" class="btn secondary">Enviar KDS</button>
+        </div>
+        <div id="cart-lines" class="cart-lines"></div>
+        <div class="totals">
+          <div><span>Subtotal</span><strong id="subtotal">0.00</strong></div>
+          <div><span>ITBIS</span><strong id="itbis">0.00</strong></div>
+          <div><span>Ley</span><strong id="ley">0.00</strong></div>
+          <div class="grand"><span>Total</span><strong id="total">0.00</strong></div>
+        </div>
+        <div class="pay-row">
+          <label class="field">
+            <span>Efectivo recibido</span>
+            <input id="cash" inputmode="decimal" type="number" min="0" step="0.01" value="1000">
+          </label>
+          <button id="pay" class="btn primary">Cobrar</button>
+        </div>
+      </section>
+
+      <section class="panel status-panel">
+        <div class="status-card">
+          <span class="kicker">CDS cliente</span>
+          <div id="cds-view" class="mini-screen"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">KDS cocina</span>
+          <div id="kds-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Sincronizacion</span>
+          <div id="backend-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Hub local</span>
+          <label class="field">
+            <span>URL del hub</span>
+            <input id="hub-url" autocomplete="off" placeholder="http://192.168.1.10:8790">
+          </label>
+          <label class="field">
+            <span>Dato de emparejamiento</span>
+            <input id="pairing-data" autocomplete="off" placeholder="Pega el QR o wtfpos://pair?...">
+          </label>
+          <button id="apply-pairing" class="btn secondary close-btn">Aplicar emparejamiento</button>
+          <button id="scan-pairing" class="btn secondary close-btn">Escanear QR</button>
+          <button id="test-hub" class="btn secondary close-btn">Probar conexion</button>
+          <div id="hub-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Dispositivo</span>
+          <label class="field">
+            <span>Nombre del equipo</span>
+            <input id="device-name" autocomplete="off" placeholder="Caja principal">
+          </label>
+          <label class="field">
+            <span>Estacion / area</span>
+            <input id="device-station" autocomplete="off" placeholder="Salon, barra, caja...">
+          </label>
+          <button id="save-device" class="btn secondary close-btn">Guardar dispositivo POS</button>
+          <button id="kiosk-mode" class="btn secondary close-btn">Modo kiosco</button>
+          <div id="device-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Cierre Z</span>
+          <label class="field">
+            <span>Conteo de caja</span>
+            <input id="counted-cash" inputmode="decimal" type="number" min="0" step="0.01" value="5000">
+          </label>
+          <button id="close-shift" class="btn secondary close-btn">Cerrar turno</button>
+          <div id="shift-close-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Cuentas</span>
+          <button id="split-last-line" class="btn secondary close-btn">Separar ultimo producto</button>
+          <button id="merge-split-ticket" class="btn secondary close-btn">Unir cuenta separada</button>
+          <div id="ticket-tools-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Auditoria POS</span>
+          <div id="audit-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Mantenimiento local</span>
+          <button id="reset-demo" class="btn secondary close-btn">Reiniciar datos locales</button>
+          <div class="mini-list">
+            <div class="mini-row"><span>Sin Firebase</span><strong>Seguro</strong></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>WTF KDS</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="kds-shell">
+      <section class="panel kds-board-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">WTF KDS</span>
+            <h1>Cocina</h1>
+            <div id="station-label" class="operator-label">Estacion principal</div>
+          </div>
+          <span id="sync-state" class="badge">ACK local</span>
+        </div>
+        <div class="kds-toolbar">
+          <button id="add-demo" class="btn primary">Nueva comanda</button>
+          <button id="retry-pending" class="btn secondary">Reintentar pendientes</button>
+          <button id="reset-demo" class="btn secondary">Reiniciar</button>
+        </div>
+        <div class="kds-toolbar">
+          <label class="field hub-field">
+            <span>URL del hub local</span>
+            <input id="hub-url" autocomplete="off" placeholder="http://192.168.1.10:8790">
+          </label>
+          <label class="field hub-field">
+            <span>Dato de emparejamiento</span>
+            <input id="pairing-data" autocomplete="off" placeholder="Pega el QR o wtfpos://pair?...">
+          </label>
+          <label class="field hub-field">
+            <span>Nombre del equipo</span>
+            <input id="device-name" autocomplete="off" placeholder="KDS cocina">
+          </label>
+          <label class="field hub-field">
+            <span>Estacion</span>
+            <input id="device-station" autocomplete="off" placeholder="Cocina caliente">
+          </label>
+          <button id="test-hub" class="btn secondary">Probar hub</button>
+          <button id="apply-pairing" class="btn secondary">Aplicar emparejamiento</button>
+          <button id="scan-pairing" class="btn secondary">Escanear QR</button>
+          <button id="save-device" class="btn secondary">Guardar equipo</button>
+          <button id="kiosk-mode" class="btn secondary">Modo kiosco</button>
+          <button id="sync-hub" class="btn secondary">Sincronizar</button>
+        </div>
+        <div class="kds-columns">
+          <div>
+            <span class="kicker">Recibidas</span>
+            <div id="received" class="kds-command-list"></div>
+          </div>
+          <div>
+            <span class="kicker">Preparando</span>
+            <div id="preparing" class="kds-command-list"></div>
+          </div>
+          <div>
+            <span class="kicker">Listas</span>
+            <div id="ready" class="kds-command-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel status-panel">
+        <div class="status-card">
+          <span class="kicker">Estado</span>
+          <div id="summary" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Dispositivo</span>
+          <div id="device-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">ACK / retry</span>
+          <div id="retry-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Auditoria KDS</span>
+          <div id="audit-view" class="mini-list"></div>
+        </div>
+      </section>
+    </main>
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

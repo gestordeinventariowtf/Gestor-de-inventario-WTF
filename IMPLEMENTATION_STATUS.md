@@ -1,0 +1,364 @@
+# Implementation Status - WTF POS Ecosystem
+
+## Estado actual
+
+`NOT_READY`
+
+## Hecho
+
+- Prompt Maestro recibido en partes.
+- Prompt consolidado localmente.
+- Auditoria inicial del repositorio.
+- Documentos base creados.
+- Workspace aislado `wtf-pos-ecosystem`.
+- Primer vertical slice tecnico local:
+  - apertura de turno;
+  - catalogo local;
+  - busqueda por nombre, SKU y barcode;
+  - carrito;
+  - calculo ITBIS/Ley;
+  - ordenes abiertas/hold;
+  - venta en efectivo;
+  - recibo;
+  - persistencia local JSON para desarrollo;
+  - outbox por lotes;
+  - retry cuando falla sincronizacion.
+- dashboard snapshot local de ventas, tickets y outbox.
+- KDS virtual local:
+  - comanda generada desde ticket abierto;
+  - cola de comandas;
+  - ACK;
+  - timeout;
+  - retry;
+  - proteccion contra comandas duplicadas.
+- CDS virtual local:
+  - snapshot seguro para pantalla de cliente;
+  - carrito y totales visibles;
+  - sincronizacion local;
+  - limpieza de pantalla al cerrar;
+  - proteccion para que snapshots viejos no pisen los mas recientes.
+- Backend/API transaccional minimo local:
+  - recepcion de lotes desde outbox;
+  - validacion de eventos;
+  - aplicacion todo-o-nada;
+  - idempotencia por evento;
+  - proteccion contra ventas y snapshots duplicados;
+  - adaptador de sincronizacion backend.
+- Puente de inventario POS -> WTF local:
+  - multiples productos WTF por producto POS;
+  - conversion de unidades con 4 decimales;
+  - alerta cuando falta mapeo;
+  - ledger local auditable;
+  - proteccion contra descuentos duplicados;
+  - recepcion de impactos en backend virtual.
+- UI POS local minima:
+  - busqueda de productos;
+  - seleccion por tarjetas;
+  - carrito y totales;
+  - envio a KDS virtual;
+  - vista CDS virtual;
+  - cobro en efectivo;
+  - sincronizacion a backend virtual;
+  - panel de impactos de inventario y alertas.
+- Adaptadores virtuales de pago e impresion:
+  - autorizacion de pago aprobada/rechazada;
+  - bloqueo de venta si el pago falla;
+  - recibo en cola de impresion;
+  - impresora virtual;
+  - retry cuando impresora falla;
+  - estado visual de recibos/trabajos de impresion en UI local.
+- Cierre de turno/caja y reporte Z virtual:
+  - conteo declarado de caja;
+  - calculo de efectivo esperado;
+  - ventas por turno;
+  - resumen por metodo de pago;
+  - diferencia balanceada o con alerta;
+  - cierre local y sincronizacion a backend virtual.
+- Gestion de usuarios/PIN y permisos POS:
+  - usuarios demo con PIN hasheado;
+  - autenticacion local por PIN;
+  - permisos por accion critica;
+  - bloqueo de cierre sin permiso;
+  - auditoria con responsable;
+  - operador visible en UI local.
+- Anulaciones/devoluciones POS y auditoria de reversos:
+  - anulacion completa sin borrar venta original;
+  - devolucion parcial por linea;
+  - reverso de movimientos de inventario;
+  - bloqueo por permiso;
+  - auditoria con responsable;
+  - panel de anulaciones demo en UI local.
+- Configuracion de mesas/zonas y opciones de consumo:
+  - zonas y mesas demo;
+  - estado libre/ocupado;
+  - transferencia de mesa;
+  - bloqueo de mesa ocupada;
+  - consumo salon / para llevar / delivery;
+  - controles visuales en UI local.
+- Unir/separar cuentas y mover productos entre tickets:
+  - separacion de linea completa o parcial;
+  - cuenta separada local;
+  - union de tickets;
+  - conservacion de precio e impuestos originales;
+  - auditoria de movimientos de cuentas;
+  - sincronizacion al backend virtual.
+- APK WTF POS Local demo:
+  - proyecto Capacitor Android separado;
+  - appId `com.wtf.poslocal`;
+  - UI POS estatica offline dentro de la APK;
+  - catalogo demo;
+  - mesas;
+  - carrito;
+  - KDS/CDS virtual;
+  - pago virtual;
+  - cierre Z virtual;
+  - dividir/unir cuentas;
+  - almacenamiento local del dispositivo;
+  - icono generado con logo WTF.
+- APK WTF KDS demo:
+  - proyecto Capacitor Android separado;
+  - appId `com.wtf.kds`;
+  - tablero de cocina local;
+  - comandas demo;
+  - ACK/retry;
+  - estados recibido, preparando, listo y entregado;
+  - auditoria local;
+  - icono generado con logo WTF.
+- APK WTF CDS demo:
+  - proyecto Capacitor Android separado;
+  - appId `com.wtf.cds`;
+  - pantalla del cliente;
+  - carrito y total visible;
+  - estado de orden abierta/cerrada;
+  - control demo local;
+  - icono generado con logo WTF.
+- Comunicacion local POS/KDS/CDS:
+  - hub local HTTP en red interna;
+  - endpoint de salud;
+  - publicacion de comandas POS -> KDS;
+  - ACK y actualizacion de estados KDS;
+  - publicacion de snapshot POS -> CDS;
+  - limpieza de pantalla CDS al cobrar;
+  - polling automatico desde KDS y CDS;
+  - prueba automatizada del flujo hub.
+- Registro/configuracion de dispositivos:
+  - registro de equipos POS/KDS/CDS en el hub;
+  - nombre de dispositivo;
+  - estacion o area;
+  - deviceId persistente por tablet;
+  - heartbeat cada 10 segundos;
+  - listado de dispositivos desde el hub;
+  - prueba automatizada de registro y heartbeat.
+- Emparejamiento local por QR/codigo corto:
+  - pantalla local del hub en `/`;
+  - QR con dato `wtfpos://pair`;
+  - codigo corto `WTF2026`;
+  - endpoint de emparejamiento;
+  - URLs LAN detectadas;
+  - lector QR en APK POS/KDS/CDS cuando el dispositivo lo soporte;
+  - opcion de pegar el dato del QR como respaldo;
+  - permiso de camara en APKs para escaneo;
+  - prueba automatizada de emparejamiento.
+- Modo kiosco/tablet dedicada y monitoreo de conexion:
+  - endpoint `/api/devices/monitor`;
+  - clasificacion online/warning/offline por heartbeat;
+  - resumen visible en la pantalla local del hub;
+  - refresco automatico del panel del hub;
+  - estado visible del hub en POS/KDS/CDS;
+  - ultimo latido visible en cada APK;
+  - boton de modo kiosco en POS/KDS/CDS;
+  - pantalla completa y wake lock cuando Android/WebView lo soporte;
+  - prueba automatizada de monitoreo.
+- Configuracion operativa avanzada POS:
+  - modulo de configuracion POS aislado;
+  - promociones activas/inactivas;
+  - descuento por porcentaje o monto;
+  - limite maximo de descuento por rol;
+  - motivo obligatorio por rol;
+  - descuento auditado por usuario;
+  - perfil de dispositivo POS;
+  - perfil virtual de impresora y pago por estacion;
+  - visualizacion demo de configuracion en UI local;
+  - pruebas de promocion, bloqueo por rol y hardware virtual.
+- Politicas y conectores de hardware:
+  - politica formal de impresora;
+  - politica formal de proveedor de pago;
+  - cola filtrable por impresora;
+  - recibos con impresora/estacion asignada;
+  - simulacion de comandos ESC/POS;
+  - bloqueo si la impresora configurada no coincide;
+  - bloqueo si el proveedor de pago esta desactivado;
+  - commandCount visible en resultado de impresion;
+  - pruebas de cola por impresora, ESC/POS y pago desactivado.
+- Matriz de hardware y diagnostico operativo:
+  - matriz de perfiles/dispositivos/perifericos;
+  - resumen de impresoras listas, pagos listos y bloqueos;
+  - checklist por estacion con ready/warning/blocker;
+  - diagnostico virtual de impresora;
+  - diagnostico virtual de proveedor de pago;
+  - endpoint local `/api/hardware/diagnostics`;
+  - panel local de hardware en el hub/UI POS;
+  - auditoria `pos_audit_hardware_diagnostic`;
+  - pruebas de matriz, diagnostico y auditoria.
+- Piloto operativo controlado:
+  - dominio `pos-pilot`;
+  - checklist formal por dispositivo;
+  - flujo completo POS -> KDS -> CDS -> pago -> recibo -> cierre Z;
+  - bitacora local `pilotRuns`;
+  - evento `pos_pilot_run_recorded`;
+  - coleccion `pilotRuns` en backend virtual;
+  - endpoint `/api/pilot/run`;
+  - tarjeta visual "Piloto controlado";
+  - auditoria `pos_audit_pilot_run_recorded`;
+  - pruebas de piloto completo y backend.
+- Laboratorio de hardware real:
+  - politica de impresora real por red;
+  - validacion `realPrintingEnabled`;
+  - bloqueo seguro si falta host/puerto;
+  - plan de laboratorio de impresora;
+  - adaptador `EscPosNetworkPrinterAdapter`;
+  - conversion de comandos ESC/POS a bytes;
+  - prueba con servidor local TCP;
+  - modo virtual se mantiene como respaldo por defecto.
+- Piloto interno con conciliacion:
+  - dominio `pilot-reconciliation`;
+  - comparacion de tickets, total, ITBIS, ley y movimientos;
+  - tolerancia configurable;
+  - estado `matched` o `difference`;
+  - coleccion local `pilotReconciliations`;
+  - coleccion backend virtual `pilotReconciliations`;
+  - endpoint `/api/pilot/reconcile`;
+  - panel visual de conciliacion piloto;
+  - auditoria `pos_audit_pilot_reconciliation_recorded`;
+  - pruebas de conciliacion exacta, diferencias, backend y UI.
+- Readiness para produccion:
+  - dominio `production-readiness`;
+  - evaluacion de hardware del dispositivo actual;
+  - evaluacion de piloto operativo;
+  - evaluacion de conciliacion;
+  - evaluacion de auditoria y backend virtual;
+  - estado `ready`, `pending` o `blocked`;
+  - siguiente accion recomendada;
+  - endpoint `/api/readiness`;
+  - tarjeta visual "Readiness produccion";
+  - pruebas de bloqueo, listo y UI engine.
+- Cutover y rollback operativo:
+  - dominio `cutover-plan`;
+  - checklist formal de cambio;
+  - ventana horaria de cambio;
+  - responsable autorizador;
+  - responsable de rollback;
+  - validacion de respaldo local;
+  - plan de reversa con criterios y pasos;
+  - coleccion local `cutoverPlans`;
+  - coleccion backend virtual `cutoverPlans`;
+  - endpoint `/api/cutover/plan`;
+  - tarjeta visual "Cutover / rollback";
+  - auditoria `pos_audit_cutover_plan_recorded`;
+  - pruebas de bloqueo, aprobacion, backend y UI.
+- Empaquetado de piloto interno:
+  - runbook `PILOT_RUNBOOK.md`;
+  - separacion de demo/piloto/produccion;
+  - comandos documentados;
+  - criterios para no avanzar;
+  - regla de seguridad para hardware real;
+  - comando `npm run pilot:verify`;
+  - verificador `src/pilot-verify.js`;
+  - ejecucion integrada de check y pruebas.
+- Guia de tablets APK y hub:
+  - runbook `TABLET_HUB_RUNBOOK.md`;
+  - pasos de instalacion de APK POS/KDS/CDS demo;
+  - pasos de emparejamiento con QR/codigo;
+  - verificacion de heartbeat;
+  - flujo POS -> KDS -> CDS;
+  - endpoint `/api/pilot/device-reports`;
+  - registro de validacion por tablet;
+  - panel visual "Piloto por tablet" en hub local;
+  - pruebas de registro y visualizacion de validacion.
+- Reporte final de piloto interno:
+  - dominio `pilot-final-report`;
+  - decision `ready_for_supervised_pilot`, `pending` o `blocked`;
+  - consolidacion de hardware, tablets, piloto, conciliacion, readiness, cutover y operaciones;
+  - coleccion local `pilotFinalReports`;
+  - coleccion backend virtual `pilotFinalReports`;
+  - endpoint `/api/pilot/final-report`;
+  - tarjeta visual "Reporte final piloto";
+  - auditoria `pos_audit_pilot_final_report_recorded`;
+  - pruebas de decision, backend y UI.
+- Paquete de evidencias exportable:
+  - dominio `pilot-evidence-package`;
+  - consolidacion exportable de reporte final, readiness, cutover, conciliacion, tablets, hardware, operaciones y auditoria;
+  - salida JSON para revision tecnica;
+  - salida HTML para revision administrativa;
+  - coleccion local `pilotEvidencePackages`;
+  - coleccion backend virtual `pilotEvidencePackages`;
+  - endpoint `/api/pilot/evidence-package`;
+  - tarjeta visual "Evidencias piloto";
+  - descargas automaticas JSON/HTML desde la UI local;
+  - auditoria `pos_audit_pilot_evidence_package_recorded`;
+  - pruebas de dominio, backend y UI.
+- Preparacion de produccion controlada:
+  - dominio `production-control`;
+  - modos `demo`, `pilot` y `production`;
+  - checklist administrativo obligatorio;
+  - bloqueo si falta evidencia, reporte final, cutover, rollback, respaldo ICG, aprobacion, responsable o ventana;
+  - bandera `productionAllowed` solo si todo esta aprobado;
+  - coleccion local `productionControls`;
+  - coleccion backend virtual `productionControls`;
+  - endpoint `/api/production/control`;
+  - tarjeta visual "Produccion controlada";
+  - auditoria `pos_audit_production_control_recorded`;
+  - pruebas de dominio, backend y UI.
+- Primer turno real supervisado en modo sombra:
+  - dominio `shadow-shift`;
+  - comparacion POS vs ICG por tickets, total y movimientos previstos;
+  - registro de incidentes del turno;
+  - bandera `affectsRealOperation: false`;
+  - coleccion local `shadowShiftReports`;
+  - coleccion backend virtual `shadowShiftReports`;
+  - endpoint `/api/shadow-shift/report`;
+  - tarjeta visual "Turno sombra";
+  - auditoria `pos_audit_shadow_shift_report_recorded`;
+  - pruebas de dominio, backend y UI.
+- Decision post-turno sombra:
+  - dominio `shadow-shift-decision`;
+  - decision `ready_for_real_hardware_lab` o `repeat_shadow_or_block`;
+  - bloqueo si hay diferencias, incidentes abiertos o falta responsable;
+  - coleccion local `shadowShiftDecisions`;
+  - coleccion backend virtual `shadowShiftDecisions`;
+  - endpoint `/api/shadow-shift/decision`;
+  - tarjeta visual "Decision sombra";
+  - auditoria `pos_audit_shadow_shift_decision_recorded`;
+  - pruebas de dominio, backend y UI.
+- Etapas operativas 10D-10J:
+  - dominio `operational-stage`;
+  - cadena validada desde laboratorio real controlado hasta paquete de entrega operativa;
+  - etapas 10D, 10E, 10F, 10G, 10H, 10I y 10J;
+  - bloqueo si falta decision previa, aprobador o evidencia;
+  - bandera `affectsRealOperation: false`;
+  - coleccion local `operationalStageReports`;
+  - coleccion backend virtual `operationalStageReports`;
+  - endpoint `/api/operational-stage/report`;
+  - tarjeta visual "Etapas operativas";
+  - auditoria `pos_audit_operational_stage_report_recorded`;
+  - pruebas de cadena completa, backend y UI.
+- Pruebas automatizadas iniciales: 115 pasando.
+- Demo local de recibo ejecutado correctamente.
+
+## No hecho todavia
+
+- No existe codigo POS productivo.
+- No existe KDS productivo.
+- No existe CDS productivo.
+- No existe backend POS transaccional productivo.
+- Existe APK POS demo local, no productiva.
+- Existe APK KDS demo local, no productiva.
+- Existe APK CDS demo local, no productiva.
+- No existe UI POS productiva.
+- No hay conexion con inventario real productivo.
+- No hay pagos reales.
+- No hay impresoras reales todavia.
+
+## Proximo paso recomendado
+
+Siguiente corte recomendado: revisar paquete completo, decidir si se crea una version instalable de piloto o si se integra esta base al sistema principal.

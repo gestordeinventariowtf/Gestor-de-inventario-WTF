@@ -874,6 +874,67 @@
     .uniform-transform-handle[data-handle="w"] { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-transform-handle[data-handle="w25"] { left: -7px; top: 25%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-transform-handle[data-handle="w75"] { left: -7px; top: 75%; transform: translateY(-50%); cursor: ew-resize; }
+    .asset-focus-stage {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      overflow: hidden;
+      border-radius: 10px;
+      background: #111827;
+      justify-self: center;
+      touch-action: none;
+      user-select: none;
+    }
+    .asset-focus-stage img {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      display: block;
+      pointer-events: none;
+    }
+    .asset-focus-box {
+      position: absolute;
+      border: 2px solid #22c55e;
+      box-shadow: 0 0 0 999px rgba(15,23,42,.42), 0 8px 18px rgba(15,23,42,.25);
+      border-radius: 10px;
+      cursor: move;
+      touch-action: none;
+    }
+    .asset-focus-box::before {
+      content: "";
+      position: absolute;
+      inset: 33.333% 0;
+      border-top: 1px solid rgba(255,255,255,.62);
+      border-bottom: 1px solid rgba(255,255,255,.62);
+      pointer-events: none;
+    }
+    .asset-focus-box::after {
+      content: "";
+      position: absolute;
+      inset: 0 33.333%;
+      border-left: 1px solid rgba(255,255,255,.62);
+      border-right: 1px solid rgba(255,255,255,.62);
+      pointer-events: none;
+    }
+    .asset-focus-handle {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid #fff;
+      background: #22c55e;
+      box-shadow: 0 2px 8px rgba(15,23,42,.32);
+      z-index: 2;
+      touch-action: none;
+    }
+    .asset-focus-handle[data-handle="nw"] { left: -9px; top: -9px; cursor: nwse-resize; }
+    .asset-focus-handle[data-handle="ne"] { right: -9px; top: -9px; cursor: nesw-resize; }
+    .asset-focus-handle[data-handle="sw"] { left: -9px; bottom: -9px; cursor: nesw-resize; }
+    .asset-focus-handle[data-handle="se"] { right: -9px; bottom: -9px; cursor: nwse-resize; }
+    .asset-focus-handle[data-handle="n"] { left: 50%; top: -9px; transform: translateX(-50%); cursor: ns-resize; }
+    .asset-focus-handle[data-handle="s"] { left: 50%; bottom: -9px; transform: translateX(-50%); cursor: ns-resize; }
+    .asset-focus-handle[data-handle="e"] { right: -9px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .asset-focus-handle[data-handle="w"] { left: -9px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
     .uniform-figure.has-template .hat,
     .uniform-figure.has-template .torso,
     .uniform-figure.has-template .torso-logo,
@@ -6439,9 +6500,10 @@
       sh: h / 100 * img.naturalHeight
     };
   }
-  function assetImageSignatureFromSource(src, manualBox) {
+  function assetImageSignatureFromSource(src, manualBox, options) {
     return new Promise(async function(resolve, reject) {
       if (!src) return reject(new Error("Imagen vacia"));
+      const opts = options && typeof options === "object" ? options : {};
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = function() {
@@ -6451,7 +6513,7 @@
           canvas.width = size;
           canvas.height = size;
           const ctx = canvas.getContext("2d", { willReadFrequently: true });
-          const objectBox = getAssetManualObjectBox(img, manualBox) || detectMainObjectBoxFromImage(img, 96);
+          const objectBox = opts.fullImage ? null : getAssetManualObjectBox(img, manualBox) || (!opts.disableAutoCrop ? detectMainObjectBoxFromImage(img, 96) : null);
           if (objectBox) ctx.drawImage(img, objectBox.sx, objectBox.sy, objectBox.sw, objectBox.sh, 0, 0, size, size);
           else ctx.drawImage(img, 0, 0, size, size);
           const data = ctx.getImageData(0, 0, size, size).data;
@@ -6593,6 +6655,37 @@
       reader.readAsDataURL(file);
     });
   }
+  async function assetImageSignatureVariantsFromSource(src, manualBox) {
+    const variants = [];
+    const seen = new Set();
+    const addVariant = async function(label, box, options) {
+      try {
+        const signature = await assetImageSignatureFromSource(src, box, options);
+        const key = [signature.hash, signature.dHash, signature.edgeHash, signature.pHash].join("|");
+        if (!seen.has(key)) {
+          seen.add(key);
+          variants.push(Object.assign({ _variant: label }, signature));
+        }
+      } catch (error) {
+      }
+    };
+    if (manualBox) await addVariant("enfoque-manual", manualBox, { disableAutoCrop: true });
+    await addVariant("enfoque-automatico", null, {});
+    await addVariant("foto-completa", null, { fullImage: true });
+    return variants;
+  }
+  async function assetImageSignatureVariantsFromFile(file, manualBox) {
+    if (!file) throw new Error("Seleccione una fotografia");
+    const dataUrl = await new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function() { resolve(String(reader.result || "")); };
+      reader.onerror = function() { reject(new Error("No se pudo abrir la fotografia")); };
+      reader.readAsDataURL(file);
+    });
+    const variants = await assetImageSignatureVariantsFromSource(dataUrl, manualBox);
+    if (!variants.length) throw new Error("No se pudo crear la huella visual de la fotografia");
+    return { variants, signature: variants[0], preview: dataUrl };
+  }
   function scoreAssetImageSignature(a, b) {
     if (!a || !b || !a.hash || !b.hash || !a.dHash || !b.dHash) return { score: 0, confidence: "Baja" };
     const compareBits = function(left, right) {
@@ -6641,6 +6734,20 @@
       possibleDamage,
       details: { hashScore, dHashScore, edgeScore, pHashScore, colorScore, radialScore, edgeGridScore }
     };
+  }
+  function scoreAssetImageSignatureBest(leftVariants, rightVariants) {
+    const left = Array.isArray(leftVariants) ? leftVariants.filter(Boolean) : [leftVariants].filter(Boolean);
+    const right = Array.isArray(rightVariants) ? rightVariants.filter(Boolean) : [rightVariants].filter(Boolean);
+    let best = { score: 0, confidence: "Baja", possibleDamage: false, details: {}, leftVariant: "", rightVariant: "" };
+    left.forEach(function(a) {
+      right.forEach(function(b) {
+        const current = scoreAssetImageSignature(a, b);
+        if (Number(current.score || 0) > Number(best.score || 0)) {
+          best = Object.assign({}, current, { leftVariant: a._variant || "", rightVariant: b._variant || "" });
+        }
+      });
+    });
+    return best;
   }
   function formatAssetCurrency(value) {
     return Number(value || 0).toLocaleString("es-DO", { style: "currency", currency: "DOP", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -6813,12 +6920,15 @@
       try {
         const compressed = await compressImageToJpeg(file, maxMb, { maxSide: 1400, quality: 0.84 });
         let fotoFirma = null;
+        let fotoFirmas = [];
         try {
-          fotoFirma = await assetImageSignatureFromSource(compressed.dataUrl);
+          fotoFirmas = await assetImageSignatureVariantsFromSource(compressed.dataUrl);
+          fotoFirma = fotoFirmas[0] || null;
         } catch (signatureError) {
           fotoFirma = null;
+          fotoFirmas = [];
         }
-        let payload = { foto: compressed.dataUrl, fotoFirma, fotoMime: compressed.mime, fotoSize: compressed.size, fotoStoragePath: "", fotoOriginalName: compressed.originalName };
+        let payload = { foto: compressed.dataUrl, fotoFirma, fotoFirmas, fotoMime: compressed.mime, fotoSize: compressed.size, fotoStoragePath: "", fotoOriginalName: compressed.originalName };
         if (shouldUpload) {
           const categoryFolder = sanitizeStorageName(itemForm.categoria || "Otros");
           const baseName = sanitizeStorageName([itemForm.codigo, itemForm.nombre, compressed.originalName].filter(Boolean).join("-"));
@@ -6949,24 +7059,89 @@
         return Object.assign({}, prev, { box });
       });
     }
+    function beginAssetFocusDrag(event, handle) {
+      if (!assetPhotoFocusDraft || !event.currentTarget) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const stage = event.currentTarget.closest(".asset-focus-stage");
+      if (!stage) return;
+      const rect = stage.getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startBox = Object.assign({}, assetPhotoFocusDraft.box);
+      const mode = handle || "move";
+      const pointerId = event.pointerId;
+      try {
+        event.currentTarget.setPointerCapture(pointerId);
+      } catch (error) {
+      }
+      const clampBox = function(box) {
+        const minSize = 8;
+        const next = {
+          x: Math.max(0, Math.min(100 - minSize, Number(box.x || 0))),
+          y: Math.max(0, Math.min(100 - minSize, Number(box.y || 0))),
+          w: Math.max(minSize, Number(box.w || minSize)),
+          h: Math.max(minSize, Number(box.h || minSize))
+        };
+        next.w = Math.max(minSize, Math.min(100 - next.x, next.w));
+        next.h = Math.max(minSize, Math.min(100 - next.y, next.h));
+        return next;
+      };
+      const onMove = function(moveEvent) {
+        const dx = (moveEvent.clientX - startX) / Math.max(1, rect.width) * 100;
+        const dy = (moveEvent.clientY - startY) / Math.max(1, rect.height) * 100;
+        let next = Object.assign({}, startBox);
+        if (mode === "move") {
+          next.x = startBox.x + dx;
+          next.y = startBox.y + dy;
+        } else {
+          if (mode.includes("w")) {
+            next.x = startBox.x + dx;
+            next.w = startBox.w - dx;
+          }
+          if (mode.includes("e")) next.w = startBox.w + dx;
+          if (mode.includes("n")) {
+            next.y = startBox.y + dy;
+            next.h = startBox.h - dy;
+          }
+          if (mode.includes("s")) next.h = startBox.h + dy;
+        }
+        next = clampBox(next);
+        setAssetPhotoFocusDraft(function(prev) {
+          return prev ? Object.assign({}, prev, { box: next }) : prev;
+        });
+      };
+      const onUp = function() {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
     async function searchAssetByPhoto(file, target, manualBox) {
       if (!file) return;
       setAssetPhotoSearchBusy(target);
       setAssetPhotoSearchMessages((prev) => Object.assign({}, prev, { [target]: "Analizando fotografia del activo..." }));
       try {
-        const input = await assetImageSignatureFromFile(file, manualBox);
+        const input = await assetImageSignatureVariantsFromFile(file, manualBox);
         const candidates = [];
         for (const item of activeItems) {
           const src = getAssetPhotoSource(item);
-          if (!src && !isUsableAssetPhotoSignature(item.fotoFirma)) continue;
+          const hasStoredVariants = Array.isArray(item.fotoFirmas) && item.fotoFirmas.some(isUsableAssetPhotoSignature);
+          if (!src && !isUsableAssetPhotoSignature(item.fotoFirma) && !hasStoredVariants) continue;
           try {
-            const signature = src ? await assetImageSignatureFromSource(src) : item.fotoFirma;
-            const match = scoreAssetImageSignature(input.signature, signature);
-            if (match.score >= 56) candidates.push({ item, score: match.score, confidence: match.confidence, possibleDamage: match.possibleDamage, details: match.details, src });
+            const storedVariants = Array.isArray(item.fotoFirmas) ? item.fotoFirmas.filter(isUsableAssetPhotoSignature) : [];
+            const liveVariants = src ? await assetImageSignatureVariantsFromSource(src) : [];
+            const targetVariants = [].concat(storedVariants, liveVariants, isUsableAssetPhotoSignature(item.fotoFirma) ? [item.fotoFirma] : []);
+            const match = scoreAssetImageSignatureBest(input.variants, targetVariants);
+            if (match.score >= 48) candidates.push({ item, score: match.score, confidence: match.confidence, possibleDamage: match.possibleDamage, details: match.details, src });
           } catch (error) {
-            if (isUsableAssetPhotoSignature(item.fotoFirma)) {
-              const match = scoreAssetImageSignature(input.signature, item.fotoFirma);
-              if (match.score >= 56) candidates.push({ item, score: match.score, confidence: match.confidence, possibleDamage: match.possibleDamage, details: match.details, src });
+            const storedFallback = [].concat(Array.isArray(item.fotoFirmas) ? item.fotoFirmas.filter(isUsableAssetPhotoSignature) : [], isUsableAssetPhotoSignature(item.fotoFirma) ? [item.fotoFirma] : []);
+            if (storedFallback.length) {
+              const match = scoreAssetImageSignatureBest(input.variants, storedFallback);
+              if (match.score >= 48) candidates.push({ item, score: match.score, confidence: match.confidence, possibleDamage: match.possibleDamage, details: match.details, src });
             }
           }
         }
@@ -6974,7 +7149,7 @@
         setAssetPhotoMatches((prev) => Object.assign({}, prev, { [target]: ordered }));
         const top = ordered[0];
         const runnerUp = ordered[1];
-        const hasProfessionalMatch = top && (top.score >= 82 && (!runnerUp || top.score - runnerUp.score >= 3) || top.score >= 76 && (!runnerUp || top.score - runnerUp.score >= 9));
+        const hasProfessionalMatch = top && (top.score >= 80 && (!runnerUp || top.score - runnerUp.score >= 3) || top.score >= 72 && (!runnerUp || top.score - runnerUp.score >= 10));
         if (hasProfessionalMatch) {
           const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
           setter((prev) => Object.assign({}, prev, { itemId: top.item.id }));
@@ -7000,7 +7175,7 @@
       const busy = assetPhotoSearchBusy === target;
       const matches = assetPhotoMatches[target] || [];
       const statusMessage = assetPhotoSearchMessages[target] || "";
-      const reliableMatches = matches.filter((match) => Number(match.score || 0) >= 56);
+      const reliableMatches = matches.filter((match) => Number(match.score || 0) >= 48);
       const applyItem = function(item) {
         const setter = target === "movement" ? setMovementForm : target === "count" ? setCountForm : setIncidentForm;
         setter((prev) => Object.assign({}, prev, { itemId: item.id }));
@@ -7015,12 +7190,14 @@
           /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline btn-sm", style: { cursor: busy ? "wait" : "pointer" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", disabled: busy, style: { display: "none" }, onChange: (e) => { prepareAssetPhotoFocus(e.target.files && e.target.files[0], target); e.target.value = ""; } }))
         ),
         assetPhotoFocusDraft && assetPhotoFocusDraft.target === target && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, border: "1px solid #bfdbfe", borderRadius: 10, padding: 8, background: "#eff6ff" } },
-          /* @__PURE__ */ React.createElement("div", { style: { position: "relative", width: "100%", maxWidth: 320, aspectRatio: assetPhotoFocusDraft.aspect || "1 / 1", overflow: "hidden", borderRadius: 8, background: "#111827", justifySelf: "center" } },
-            /* @__PURE__ */ React.createElement("img", { src: assetPhotoFocusDraft.dataUrl, alt: "Enfoque del activo", style: { width: "100%", height: "100%", objectFit: "fill", display: "block" } }),
-            /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", left: `${assetPhotoFocusDraft.box.x}%`, top: `${assetPhotoFocusDraft.box.y}%`, width: `${assetPhotoFocusDraft.box.w}%`, height: `${assetPhotoFocusDraft.box.h}%`, border: "2px solid #22c55e", boxShadow: "0 0 0 999px rgba(15,23,42,.42)", borderRadius: 8, pointerEvents: "none" } })
-          ),
-          /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-            [["x", "Mover horizontal"], ["y", "Mover vertical"], ["w", "Ancho"], ["h", "Alto"]].map(function(row) { return /* @__PURE__ */ React.createElement("label", { key: row[0], style: { display: "grid", gap: 3, fontSize: 11, fontWeight: 800, color: "#334155" } }, row[1], /* @__PURE__ */ React.createElement("input", { type: "range", min: "0", max: "100", value: assetPhotoFocusDraft.box[row[0]], onChange: function(e) { updateAssetFocusBox({ [row[0]]: Number(e.target.value) }); } })); })
+          /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#1d4ed8", fontWeight: 800, lineHeight: 1.45 } }, "Ajusta el enfoque directo sobre la foto: mueve el cuadro desde el centro o cambia el tamano arrastrando las esquinas y bordes."),
+          /* @__PURE__ */ React.createElement("div", { className: "asset-focus-stage", style: { aspectRatio: assetPhotoFocusDraft.aspect || "1 / 1" } },
+            /* @__PURE__ */ React.createElement("img", { src: assetPhotoFocusDraft.dataUrl, alt: "Enfoque del activo" }),
+            /* @__PURE__ */ React.createElement("div", { className: "asset-focus-box", onPointerDown: function(e) { beginAssetFocusDrag(e, "move"); }, style: { left: `${assetPhotoFocusDraft.box.x}%`, top: `${assetPhotoFocusDraft.box.y}%`, width: `${assetPhotoFocusDraft.box.w}%`, height: `${assetPhotoFocusDraft.box.h}%` } },
+              ["nw", "n", "ne", "e", "se", "s", "sw", "w"].map(function(handle) {
+                return /* @__PURE__ */ React.createElement("span", { key: handle, className: "asset-focus-handle", "data-handle": handle, onPointerDown: function(e) { beginAssetFocusDrag(e, handle); } });
+              })
+            )
           ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" } },
             /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-gris", onClick: function() { setAssetPhotoFocusDraft(null); } }, "Cancelar"),
@@ -7028,7 +7205,7 @@
           )
         ),
         statusMessage && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: busy ? "#4338ca" : reliableMatches.length ? "#166534" : "#92400e", fontWeight: 800 } }, statusMessage),
-        reliableMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, reliableMatches.map((match, index) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left", borderColor: index === 0 && match.score >= 82 ? "#16a34a" : "#cbd5e1", background: index === 0 && match.score >= 82 ? "#f0fdf4" : "#fff", alignItems: "flex-start" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", { style: { display: "grid", gap: 2 } }, /* @__PURE__ */ React.createElement("strong", null, match.item.codigo, " · ", match.item.nombre), match.possibleDamage && /* @__PURE__ */ React.createElement("small", { style: { color: "#b45309", fontWeight: 800 } }, "Posible dano visible; no afecta la identidad del activo")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, match.score, "%"), /* @__PURE__ */ React.createElement("small", { style: { color: match.score >= 82 ? "#15803d" : match.score >= 64 ? "#92400e" : "#64748b", fontWeight: 800 } }, match.confidence || "Media"))))),
+        reliableMatches.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } }, reliableMatches.map((match, index) => /* @__PURE__ */ React.createElement("button", { key: match.item.id, type: "button", className: "btn btn-sm btn-outline", style: { justifyContent: "space-between", textAlign: "left", borderColor: index === 0 && match.score >= 80 ? "#16a34a" : "#cbd5e1", background: index === 0 && match.score >= 80 ? "#f0fdf4" : "#fff", alignItems: "flex-start" }, onClick: () => applyItem(match.item) }, /* @__PURE__ */ React.createElement("span", { style: { display: "grid", gap: 2 } }, /* @__PURE__ */ React.createElement("strong", null, match.item.codigo, " · ", match.item.nombre), match.possibleDamage && /* @__PURE__ */ React.createElement("small", { style: { color: "#b45309", fontWeight: 800 } }, "Posible dano visible; no afecta la identidad del activo")), /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement("strong", null, match.score, "%"), /* @__PURE__ */ React.createElement("small", { style: { color: match.score >= 80 ? "#15803d" : match.score >= 62 ? "#92400e" : "#64748b", fontWeight: 800 } }, match.confidence || "Media"))))),
         !busy && matches.length > 0 && reliableMatches.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", fontWeight: 700 } }, "La foto no alcanzo el nivel minimo. Intenta con mejor luz, el activo centrado y menos fondo.")
       );
     }
@@ -11744,6 +11921,7 @@ Solicitado: ${cantidad}`);
     const [recipeCalcMode, setRecipeCalcMode] = useState("definida");
     const [recipeModeDrafts, setRecipeModeDrafts] = useState({});
     const [recipeProcedures, setRecipeProcedures] = useState(["Procedimiento 1"]);
+    const [recipeLockAllInsumos, setRecipeLockAllInsumos] = useState(false);
     const [productionRuns, setProductionRuns] = useState("1");
     const [productionRunUnit, setProductionRunUnit] = useState("");
     const [productionRunsLocked, setProductionRunsLocked] = useState(false);
@@ -11815,8 +11993,8 @@ Solicitado: ${cantidad}`);
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaEsperadaPorcentaje: String(item.mermaEsperadaPorcentaje ?? item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaRealCantidad: item.mermaRealCantidad || "",
-          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
-          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
+          convertirLibrasAGramos: false,
+          conversionComoMultiplicador: false,
           bloquearCantidadManual: Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity),
           unidad: getStoredRecipeIngredientUnit(item),
           unidadesPorEmpaque: item.unidadesPorEmpaque || item.contenidoPorEmpaque || item.unidadesInternasPorEmpaque || "",
@@ -11833,8 +12011,28 @@ Solicitado: ${cantidad}`);
     function captureCurrentRecipeModeDraft(itemsOverride) {
       const rows = Array.isArray(itemsOverride) ? itemsOverride : insumos;
       return {
-        insumos: rows.map(function(item) { return Object.assign({}, item); }),
+        insumos: rows.map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: Boolean(recipeLockAllInsumos || item.bloquearCantidadManual) }); }),
         procedimientos: normalizeRecipeProcedures(recipeProcedures, rows)
+      };
+    }
+    function buildMultiplicarDraftFromDefinida(definidaDraft) {
+      const baseRows = Array.isArray(definidaDraft && definidaDraft.insumos) ? definidaDraft.insumos : [];
+      const firstQty = parseProductionNumber(baseRows[0] && baseRows[0].cantidad);
+      if (!Number.isFinite(firstQty) || firstQty <= 0) return definidaDraft;
+      return {
+        tipoReceta: "multiplicar",
+        procedimientos: normalizeRecipeProcedures(definidaDraft && definidaDraft.procedimientos, baseRows),
+        insumos: baseRows.map(function(item) {
+          const qty = parseProductionNumber(item && item.cantidad);
+          const ratio = Number.isFinite(qty) && qty > 0 ? qty / firstQty : 0;
+          return Object.assign({}, item, {
+            cantidad: ratio > 0 ? formatProductionRecipeQty(ratio) : "",
+            cantidadBaseReceta: ratio > 0 ? formatProductionRecipeQty(ratio) : "",
+            convertirLibrasAGramos: false,
+            conversionComoMultiplicador: false,
+            bloquearCantidadManual: Boolean(recipeLockAllInsumos || item.bloquearCantidadManual)
+          });
+        })
       };
     }
     function switchRecipeCalcMode(nextModeValue) {
@@ -11843,12 +12041,16 @@ Solicitado: ${cantidad}`);
       if (nextMode === currentMode) return;
       const currentDraft = captureCurrentRecipeModeDraft();
       const nextDrafts = Object.assign({}, recipeModeDrafts, { [currentMode]: currentDraft });
+      if (nextMode === "multiplicar" && currentMode === "definida" && !nextDrafts[nextMode]) {
+        nextDrafts.multiplicar = buildMultiplicarDraftFromDefinida(currentDraft);
+      }
       const incoming = nextDrafts[nextMode] || currentDraft;
       setRecipeModeDrafts(nextDrafts);
       setRecipeCalcMode(nextMode);
       setInsumos(cloneRecipeItemsForUi(incoming.insumos).map(function(item) {
         return Object.assign({}, item, { fromRecipe: usingSavedRecipeProduction || Boolean(item.fromRecipe) });
       }));
+      setRecipeLockAllInsumos((incoming.insumos || []).length > 0 && (incoming.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
       setRecipeProcedures(normalizeRecipeProcedures(incoming.procedimientos, incoming.insumos));
       setProductionRuns("1");
       setProductionRunUnit("");
@@ -11999,12 +12201,13 @@ Solicitado: ${cantidad}`);
     }, [productosInventario]);
     const productosFiltrados = useMemo(function() {
       const q = normalizar(busqueda);
+      const activeProcedureName = normalizeRecipeProcedures(recipeProcedures, insumos).slice(-1)[0] || "Procedimiento 1";
       return productosInventario.filter(function(product) {
-        if (insumos.some(function(item) { return item.rowId !== replaceInsumoRowId && (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return false;
+        if (insumos.some(function(item) { return item.rowId !== replaceInsumoRowId && (item.productKey || `inventario-${item.productId}`) === product.productKey && normalizar(item.procedimiento) === normalizar(activeProcedureName); })) return false;
         if (!q) return true;
         return normalizar(product.nombre).includes(q) || normalizar(product.suplidor || "").includes(q) || normalizar(product.medida || "").includes(q) || normalizar(product.origenLabel || "").includes(q);
       });
-    }, [productosInventario, busqueda, insumos, replaceInsumoRowId]);
+    }, [productosInventario, busqueda, insumos, replaceInsumoRowId, recipeProcedures]);
     const usingSavedRecipeProduction = Boolean(String(resultado.sourceRecipeId || "").trim());
     const historial = useMemo(function() {
       return Array.isArray(producciones) ? [...producciones].reverse() : [];
@@ -12959,6 +13162,7 @@ Solicitado: ${cantidad}`);
       setRecipeCalcMode("definida");
       setRecipeModeDrafts({});
       setRecipeProcedures(["Procedimiento 1"]);
+      setRecipeLockAllInsumos(false);
       setProductionRuns("1");
       setProductionRunUnit("");
       setProductionRunsLocked(false);
@@ -13083,6 +13287,7 @@ Solicitado: ${cantidad}`);
       setRecipeInstructions(hold.recipeInstructions || "");
       setRecipeCalcMode(normalizeRecipeCalcMode(hold.recipeCalcMode || hold.tipoReceta || hold.recetaModoCalculo));
       setRecipeModeDrafts(hold.recipeModeDrafts || hold.modalidades || {});
+      setRecipeLockAllInsumos(Array.isArray(hold.insumos) && hold.insumos.length > 0 && hold.insumos.every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
       setRecipeProcedures(normalizeRecipeProcedures(hold.recipeProcedures || hold.procedimientos, hold.insumos));
       setProductionRuns(hold.productionRuns || "1");
       setProductionRunUnit(hold.productionRunUnit || "");
@@ -13301,8 +13506,8 @@ Solicitado: ${cantidad}`);
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaEsperadaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaRealCantidad: "",
-          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
-          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
+          convertirLibrasAGramos: false,
+          conversionComoMultiplicador: false,
           bloquearCantidadManual: Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity),
           unidad: getStoredRecipeIngredientUnit(item),
           unidadesPorEmpaque: item.unidadesPorEmpaque || item.contenidoPorEmpaque || item.unidadesInternasPorEmpaque || "",
@@ -13325,6 +13530,7 @@ Solicitado: ${cantidad}`);
       setRecipeAllowedUserIds(getRecipeAllowedUserIds(targetRecipe));
       setRecipeCalcMode(initialRecipeMode);
       setRecipeModeDrafts(initialRecipeDrafts);
+      setRecipeLockAllInsumos((initialRecipeConfig.insumos || []).length > 0 && (initialRecipeConfig.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
       setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(targetRecipe) || ((findRecipeMiseMatch(targetRecipe) || {}).producto || ""));
       setProductionRuns("1");
@@ -13377,8 +13583,8 @@ Solicitado: ${cantidad}`);
         mermaPorcentaje: previous.mermaPorcentaje ?? previous.mermaPct ?? previous.merma ?? "",
         mermaEsperadaPorcentaje: previous.mermaEsperadaPorcentaje ?? previous.mermaPorcentaje ?? previous.mermaPct ?? previous.merma ?? "",
         mermaRealCantidad: previous.mermaRealCantidad || "",
-        convertirLibrasAGramos: Boolean(previous.convertirLibrasAGramos),
-        conversionComoMultiplicador: Boolean(previous.conversionComoMultiplicador),
+        convertirLibrasAGramos: false,
+        conversionComoMultiplicador: false,
         bloquearCantidadManual: Boolean(previous.bloquearCantidadManual || previous.cantidadManualBloqueada || previous.lockManualQuantity),
         unidad: previous.unidad || inferProductionUnit(product.medida),
         unidadesPorEmpaque: previous.unidadesPorEmpaque || getPackageUnitsPerPack(product, null) || "",
@@ -13403,10 +13609,11 @@ Solicitado: ${cantidad}`);
           return prev.map(function(item) {
             return item.rowId === replaceInsumoRowId ? replacement : item;
           }).filter(function(item) {
-            return item.rowId === replaceInsumoRowId || (item.productKey || `inventario-${item.productId}`) !== replacementKey;
+            return item.rowId === replaceInsumoRowId || (item.productKey || `inventario-${item.productId}`) !== replacementKey || normalizar(item.procedimiento) !== normalizar(replacement.procedimiento);
           });
         }
-        if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey; })) return prev;
+        const procedureName = normalizeRecipeProcedures(recipeProcedures, prev).slice(-1)[0] || "Procedimiento 1";
+        if (prev.some(function(item) { return (item.productKey || `inventario-${item.productId}`) === product.productKey && normalizar(item.procedimiento) === normalizar(procedureName); })) return prev;
         return [...prev, buildInsumoFromProduct(product, { rowId: `ins-${Date.now()}-${Math.random()}` })];
       });
       if (replaceInsumoRowId && recipeModalOpen) {
@@ -13422,7 +13629,7 @@ Solicitado: ${cantidad}`);
       if (!Number.isFinite(times) || times <= 0) return;
       setInsumos(function(prev) {
         return prev.map(function(item) {
-          if (item.rowId === excludeRowId || item.conversionComoMultiplicador) return item;
+          if (item.rowId === excludeRowId) return item;
           const baseSource = item.cantidadBaseReceta !== void 0 && item.cantidadBaseReceta !== null && String(item.cantidadBaseReceta) !== "" ? item.cantidadBaseReceta : item.cantidad;
           const base = Number(String(baseSource || "").replace(",", "."));
           if (!Number.isFinite(base) || base <= 0) return item;
@@ -13461,6 +13668,17 @@ Solicitado: ${cantidad}`);
     }
     function updateInsumo(rowId, field, value) {
       setInsumos(function(prev) {
+        if (field === "procedimiento") {
+          const target = prev.find(function(item) { return item.rowId === rowId; });
+          const targetKey = target && (target.productKey || `inventario-${target.productId}`);
+          const duplicated = targetKey && prev.some(function(item) {
+            return item.rowId !== rowId && (item.productKey || `inventario-${item.productId}`) === targetKey && normalizar(item.procedimiento) === normalizar(value);
+          });
+          if (duplicated) {
+            toast("Ese insumo ya esta en el procedimiento seleccionado.", "info");
+            return prev;
+          }
+        }
         return prev.map(function(item) {
           if (item.rowId !== rowId) return item;
           const next = Object.assign({}, item, { [field]: value });
@@ -13515,7 +13733,7 @@ Solicitado: ${cantidad}`);
       if (!Number.isFinite(qty) || qty <= 0) return { error: `Indica una cantidad valida para ${product.nombre}.` };
       const mermaPorcentaje = getInsumoExpectedMermaPercent(item);
       const mermaRealCantidad = getInsumoRealMermaAmount(item);
-      const inputUnit = item.convertirLibrasAGramos && isPoundUnit(product.medida) ? "g" : item.unidad;
+      const inputUnit = item.unidad;
       const packageConversion = getPackageConversionInfo(product, item, qty);
       const validPackageConversion = packageConversion && !packageConversion.missing;
       const useCompleteOutput = Boolean(item.salidaCompleta) && normalizeUnit(product.medida) !== "uni";
@@ -13549,7 +13767,7 @@ Solicitado: ${cantidad}`);
           mermaPorcentaje,
           mermaEsperadaPorcentaje: mermaPorcentaje,
           mermaRealCantidad,
-          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+          convertirLibrasAGramos: false,
           unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
           unidadInternaEmpaque: validPackageConversion ? packageConversion.internalUnit : getPackageInternalUnit(product, item),
           cantidadPorUnidadInterna: getPackageInnerContentQty(product, item) || "",
@@ -13578,7 +13796,7 @@ Solicitado: ${cantidad}`);
             mermaPorcentaje,
             mermaEsperadaPorcentaje: mermaPorcentaje,
             mermaRealCantidad,
-            convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+            convertirLibrasAGramos: false,
             unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
             unidadInternaEmpaque: validPackageConversion ? packageConversion.internalUnit : getPackageInternalUnit(product, item),
             cantidadPorUnidadInterna: getPackageInnerContentQty(product, item) || "",
@@ -13609,7 +13827,7 @@ Solicitado: ${cantidad}`);
         mermaPorcentaje,
         mermaEsperadaPorcentaje: mermaPorcentaje,
         mermaRealCantidad,
-        convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
+        convertirLibrasAGramos: false,
         unidadesPorEmpaque: validPackageConversion ? packageConversion.unitsPerPack : "",
         unidadInternaEmpaque: validPackageConversion ? packageConversion.internalUnit : getPackageInternalUnit(product, item),
         cantidadPorUnidadInterna: getPackageInnerContentQty(product, item) || "",
@@ -13893,7 +14111,7 @@ Solicitado: ${cantidad}`);
               procedimiento: entry.procedimiento || "Procedimiento 1",
               cantidadUsada: Number(entry.qtyInput.toFixed(4)),
               unidadUsada: entry.inputUnit,
-              convertirLibrasAGramos: Boolean(entry.convertirLibrasAGramos),
+              convertirLibrasAGramos: false,
               cantidadDescontada: Number(entry.convertedQty.toFixed(4)),
               cantidadUsadaInventario: Number(baseQty.toFixed(4)),
               cantidadMermaStock: Number(mermaStock.toFixed(4)),
@@ -13979,9 +14197,9 @@ Solicitado: ${cantidad}`);
           cantidadMerma: calculateMermaValues(qty, mermaPorcentaje).merma,
           cantidadNeta: calculateMermaValues(qty, mermaPorcentaje).neta,
           unidad: normalizeProductionUnitLabel(item.unidad),
-          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
-          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
-          bloquearCantidadManual: Boolean(item.bloquearCantidadManual),
+          convertirLibrasAGramos: false,
+          conversionComoMultiplicador: false,
+          bloquearCantidadManual: Boolean(recipeLockAllInsumos),
           unidadesPorEmpaque: getPackageUnitsPerPack(product, item) || "",
           unidadInternaEmpaque: getPackageInternalUnit(product, item),
           cantidadPorUnidadInterna: getPackageInnerContentQty(product, item) || "",
@@ -14000,7 +14218,11 @@ Solicitado: ${cantidad}`);
         }
       });
       if (!savedModeDrafts.definida) savedModeDrafts.definida = savedModeDrafts[activeMode];
-      if (!savedModeDrafts.multiplicar) savedModeDrafts.multiplicar = savedModeDrafts[activeMode];
+      if (activeMode === "definida") {
+        savedModeDrafts.multiplicar = buildMultiplicarDraftFromDefinida(savedModeDrafts.definida);
+      } else if (!savedModeDrafts.multiplicar) {
+        savedModeDrafts.multiplicar = savedModeDrafts[activeMode];
+      }
       const recetaPayload = {
         fecha: new Date().toISOString(),
         modulo: moduleLabel,
@@ -14015,12 +14237,12 @@ Solicitado: ${cantidad}`);
           definida: {
             tipoReceta: "definida",
             procedimientos: normalizeRecipeProcedures(savedModeDrafts.definida.procedimientos, savedModeDrafts.definida.insumos),
-            insumos: (savedModeDrafts.definida.insumos || []).map(function(item) { return Object.assign({}, item); })
+            insumos: (savedModeDrafts.definida.insumos || []).map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: Boolean(recipeLockAllInsumos) }); })
           },
           multiplicar: {
             tipoReceta: "multiplicar",
             procedimientos: normalizeRecipeProcedures(savedModeDrafts.multiplicar.procedimientos, savedModeDrafts.multiplicar.insumos),
-            insumos: (savedModeDrafts.multiplicar.insumos || []).map(function(item) { return Object.assign({}, item); })
+            insumos: (savedModeDrafts.multiplicar.insumos || []).map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: Boolean(recipeLockAllInsumos) }); })
           }
         },
         instruccionPrincipal: String(recipeMainInstruction || "").trim(),
@@ -14030,8 +14252,8 @@ Solicitado: ${cantidad}`);
         miseProductoId: selectedMiseProductTarget ? selectedMiseProductTarget.id : null,
         miseCodArticulo: selectedMiseProductTarget ? getMiseCodArticulo(selectedMiseProductTarget, 0) : "",
         bloquearVecesProduccion: Boolean(productionRunsLocked),
-        recetaProporcionalPorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" || recetaItems.some(function(item) { return item.conversionComoMultiplicador || item.convertirLibrasAGramos; }),
-        notaOperacion: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor." : recetaItems.some(function(item) { return item.conversionComoMultiplicador || item.convertirLibrasAGramos; }) ? "Coloca las libras reales de la proteina, pulsa Convertir a gramos y el sistema multiplicara los demas insumos segun el peso convertido. Las cantidades guardadas no son por libra, son proporcionales al gramo base." : "",
+        recetaProporcionalPorGramos: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar",
+        notaOperacion: normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" ? "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor." : "",
         insumos: recetaItems
       };
       recetaPayload.updatedAt = recetaPayload.fecha;
@@ -14114,8 +14336,8 @@ Solicitado: ${cantidad}`);
           mermaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaEsperadaPorcentaje: String(item.mermaPorcentaje ?? item.mermaPct ?? item.merma ?? ""),
           mermaRealCantidad: "",
-          convertirLibrasAGramos: Boolean(item.convertirLibrasAGramos),
-          conversionComoMultiplicador: Boolean(item.conversionComoMultiplicador),
+          convertirLibrasAGramos: false,
+          conversionComoMultiplicador: false,
           bloquearCantidadManual: Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity),
           unidadesPorEmpaque: item.unidadesPorEmpaque || item.contenidoPorEmpaque || item.unidadesInternasPorEmpaque || "",
           unidadInternaEmpaque: item.unidadInternaEmpaque || item.unidadContenidoEmpaque || item.medidaInternaEmpaque || "Uni",
@@ -14140,6 +14362,7 @@ Solicitado: ${cantidad}`);
       setRecipeInstructions(String(receta.instruccionesPreparacion || receta.instrucciones || ""));
       setRecipeCalcMode(initialRecipeMode);
       setRecipeModeDrafts(initialRecipeDrafts);
+      setRecipeLockAllInsumos((initialRecipeConfig.insumos || []).length > 0 && (initialRecipeConfig.insumos || []).every(function(item) { return Boolean(item.bloquearCantidadManual || item.cantidadManualBloqueada || item.lockManualQuantity); }));
       setRecipeProcedures(normalizeRecipeProcedures(initialRecipeConfig.procedimientos, initialRecipeConfig.insumos));
       setMiseProductTarget(getRecipeMiseTargetName(receta) || ((findRecipeMiseMatch(receta) || {}).producto || ""));
       setProductionRuns("1");
@@ -14329,9 +14552,7 @@ Solicitado: ${cantidad}`);
       const receta = recipeSheet.receta;
       const instrucciones = getRecipeInstructions(receta);
       const instruccionPrincipal = String(receta.instruccionPrincipal || receta.instruccionLlamativa || receta.primerosPasos || "").trim();
-      const hasGramBaseMultiplier = Boolean(receta.recetaProporcionalPorGramos || receta.notaOperacion) || (receta.insumos || []).some(function(item) {
-        return Boolean(item.conversionComoMultiplicador || item.convertirLibrasAGramos);
-      });
+      const hasGramBaseMultiplier = Boolean(receta.recetaProporcionalPorGramos || receta.notaOperacion);
       const recipeProcedureGroups = groupRecipeItemsByProcedure(receta.insumos || [], receta.procedimientos || receta.recipeProcedures);
       const body = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 820, margin: "0 auto", background: "#fff", color: "#111827", minHeight: 760, padding: "34px 38px", border: "1px solid #d1d5db", boxShadow: "0 12px 36px rgba(15,23,42,.16)", display: "grid", gap: 22 } },
         /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #111827", paddingBottom: 16 } },
@@ -14345,7 +14566,7 @@ Solicitado: ${cantidad}`);
         ),
         hasGramBaseMultiplier && /* @__PURE__ */ React.createElement("section", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: 14, color: "#1e3a8a", fontSize: 13, fontWeight: 700, lineHeight: 1.5 } },
           /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info", style: { marginRight: 7 } }),
-          receta.notaOperacion || "Receta proporcional por gramos: coloca las libras reales de la proteina, pulsa Convertir a gramos y el sistema multiplicara los demas insumos segun ese peso convertido. Las cantidades guardadas no deben interpretarse como por cada libra."
+          receta.notaOperacion || "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor."
         ),
         instruccionPrincipal && /* @__PURE__ */ React.createElement("section", { style: { background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: 8, padding: 14, color: "#92400e", fontSize: 14, fontWeight: 800, lineHeight: 1.5 } },
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 900, textTransform: "uppercase", marginBottom: 6 } }, "Instruccion principal"),
@@ -14869,9 +15090,10 @@ Solicitado: ${cantidad}`);
                       const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
                       const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
                       const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
+                      const isRecipeMultiplicar = normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar";
                       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.rowId },
-                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
-                        /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: isRecipeMultiplicar ? "#fff7ed" : "#eef2ff", border: isRecipeMultiplicar ? "1px solid #fdba74" : "1px solid #c7d2fe", color: isRecipeMultiplicar ? "#c2410c" : "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
+                        /* @__PURE__ */ React.createElement("div", { style: { border: isRecipeMultiplicar ? "1px solid #fed7aa" : "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: isRecipeMultiplicar ? "#fffaf0" : "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
@@ -14881,7 +15103,7 @@ Solicitado: ${cantidad}`);
                         ),
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
                           /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, item.procedimiento || "Procedimiento 1"),
-                          normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar" && /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Multiplica por gramos")
+                          isRecipeMultiplicar && /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, "Multiplica por gramos")
                         ),
                         product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 5 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque configurado"),
@@ -14920,10 +15142,6 @@ Solicitado: ${cantidad}`);
                               /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
                             )
                           )
-                        ),
-                        product && isPoundUnit(product.medida) && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 10px" } },
-                          /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.convertirLibrasAGramos), onChange: function(e) { toggleConvertirLibrasAGramos(item.rowId, e.target.checked); }, style: { marginTop: 2 } }),
-                          /* @__PURE__ */ React.createElement("span", null, "Convertir a gramos")
                         ),
                         canUseCompleteOutput && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 7 } },
                           /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
@@ -15070,6 +15288,10 @@ Solicitado: ${cantidad}`);
                       )
                     )
                   ),
+                  /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 800, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "9px 10px" } },
+                    /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: recipeLockAllInsumos, onChange: function(e) { const checked = e.target.checked; setRecipeLockAllInsumos(checked); setInsumos(function(prev) { return prev.map(function(item) { return Object.assign({}, item, { bloquearCantidadManual: checked }); }); }); }, style: { marginTop: 2 } }),
+                    /* @__PURE__ */ React.createElement("span", null, "Bloquear edición manual de cantidades y unidades en todos los insumos al usar esta receta")
+                  ),
                   /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10 } },
                     insumos.map(function(item, itemIndex) {
                       const product = findProductForInsumo(item);
@@ -15081,9 +15303,10 @@ Solicitado: ${cantidad}`);
                       const procedureName = normalizeRecipeProcedureName(item.procedimiento, 0);
                       const previousProcedureName = itemIndex > 0 ? normalizeRecipeProcedureName(insumos[itemIndex - 1] && insumos[itemIndex - 1].procedimiento, 0) : "";
                       const showProcedureHeader = itemIndex === 0 || normalizar(procedureName) !== normalizar(previousProcedureName);
+                      const isRecipeMultiplicar = normalizeRecipeCalcMode(recipeCalcMode) === "multiplicar";
                       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.rowId },
-                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
-                        /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#f8fafc" } },
+                        showProcedureHeader && /* @__PURE__ */ React.createElement("div", { style: { marginTop: itemIndex ? 8 : 0, background: isRecipeMultiplicar ? "#fff7ed" : "#eef2ff", border: isRecipeMultiplicar ? "1px solid #fdba74" : "1px solid #c7d2fe", color: isRecipeMultiplicar ? "#c2410c" : "#3730a3", borderRadius: 10, padding: "10px 12px", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-list-ol" }), procedureName),
+                        /* @__PURE__ */ React.createElement("div", { style: { border: isRecipeMultiplicar ? "1px solid #fed7aa" : "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: isRecipeMultiplicar ? "#fffaf0" : "#f8fafc" } },
                         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" } },
                           /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } },
                             /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
@@ -15096,7 +15319,14 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { removeInsumo(item.rowId); }, title: "Eliminar insumo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))
                           )
                         ),
-                        /* @__PURE__ */ React.createElement("div", { style: { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 8, padding: "8px 10px", fontSize: 12, fontWeight: 800 } }, item.procedimiento || "Procedimiento 1"),
+                        /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
+                          /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Procedimiento del insumo"),
+                          /* @__PURE__ */ React.createElement("select", { className: "form-control", value: item.procedimiento || "Procedimiento 1", onChange: function(e) { updateInsumo(item.rowId, "procedimiento", e.target.value); }, style: { background: isRecipeMultiplicar ? "#fff7ed" : "#eef2ff", borderColor: isRecipeMultiplicar ? "#fdba74" : "#c7d2fe", color: isRecipeMultiplicar ? "#c2410c" : "#3730a3", fontWeight: 900 } },
+                            normalizeRecipeProcedures(recipeProcedures, insumos).map(function(name) {
+                              return /* @__PURE__ */ React.createElement("option", { key: name, value: name }, name);
+                            })
+                          )
+                        ),
                         product && canUseInternalUnits(product, item) && /* @__PURE__ */ React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "9px 10px", display: "grid", gap: 5 } },
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 800 } }, "Contenido del empaque configurado"),
                           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", fontWeight: 700 } }, "1 ", getPackageOuterUnit(product, item), " = ", getPackageUnitsPerPack(product, item), " ", getPackageInternalUnit(product, item), getPackageInnerContentQty(product, item) > 0 && getPackageInnerContentUnit(product, item) ? [" · 1 ", getPackageInternalUnit(product, item), " = ", getPackageInnerContentQty(product, item), " ", getPackageInnerContentUnit(product, item)] : ""),
@@ -15118,10 +15348,6 @@ Solicitado: ${cantidad}`);
                             )
                           )
                         ),
-                        /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" } },
-                          /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.bloquearCantidadManual), onChange: function(e) { updateInsumo(item.rowId, "bloquearCantidadManual", e.target.checked); }, style: { marginTop: 2 } }),
-                          /* @__PURE__ */ React.createElement("span", null, "Bloquear edición manual de esta cantidad al usar la receta")
-                        ),
                         /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
                           /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Merma esperada %"),
@@ -15132,10 +15358,6 @@ Solicitado: ${cantidad}`);
                             /* @__PURE__ */ React.createElement("span", null, "Merma: ", mermaValues.merma, " ", item.unidad || ""),
                             /* @__PURE__ */ React.createElement("span", null, "Neto usable: ", mermaValues.neta, " ", item.unidad || "")
                           )
-                        ),
-                        product && isPoundUnit(product.medida) && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#374151", fontWeight: 700, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 10px" } },
-                          /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(item.convertirLibrasAGramos), onChange: function(e) { toggleConvertirLibrasAGramos(item.rowId, e.target.checked); }, style: { marginTop: 2 } }),
-                          /* @__PURE__ */ React.createElement("span", null, "Convertir a gramos")
                         ),
                         canUseCompleteOutput && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 7 } },
                           /* @__PURE__ */ React.createElement("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: cannotConvertUnit ? "#92400e" : "var(--gris)", fontWeight: cannotConvertUnit ? 700 : 500 } },
@@ -15364,6 +15586,9 @@ Solicitado: ${cantidad}`);
   function getInventoryPurchaseCost(product) {
     return parseCostNumber(product && (product.costoCompra ?? product.precioCompra ?? product.ultimoCosto ?? product.UltimoCoste ?? product.CosteMedio ?? product.PCoste ?? product.costo ?? product.coste ?? product.cost));
   }
+  function getInventoryPackagePurchaseCost(product) {
+    return parseCostNumber(product && (product.costoCompraPaquete ?? product.costoPaquete ?? product.precioPaquete ?? product.costoCompraCaja ?? product.costoCaja ?? product.packageCost));
+  }
   function buildCostProductRows(inventario = [], cuartoFrioInventario = [], miseAnPlace = [], moduleLabel = "Cocina") {
     const invRows = normalizeInventoryRowsForDisplay(inventario).filter(function(row) { return row && row.tipo === "producto"; }).map(function(row) {
       return Object.assign({}, row, {
@@ -15426,13 +15651,16 @@ Solicitado: ${cantidad}`);
     return nameKey ? productMaps.byName[nameKey] || null : null;
   }
   function getProductCostInfo(product) {
-    const purchaseCost = getInventoryPurchaseCost(product);
+    const unitPurchaseCost = getInventoryPurchaseCost(product);
+    const packagePurchaseCost = getInventoryPackagePurchaseCost(product);
     const baseUnit = normalizeProductionUnitLabel(product && product.medida || "Uni");
     const unitsPerPack = getPackageUnitsPerPack(product, null);
     const internalUnit = getPackageInternalUnit(product, null);
     const outerUnit = getPackageOuterUnit(product, null);
     const innerQty = getPackageInnerContentQty(product, null);
     const innerUnit = getPackageInnerContentUnit(product, null);
+    const hasInternalContent = unitsPerPack > 0 && internalUnit && normalizeUnit(internalUnit) !== normalizeUnit(baseUnit);
+    const purchaseCost = hasInternalContent && packagePurchaseCost > 0 ? packagePurchaseCost : unitPurchaseCost;
     if (!(purchaseCost > 0)) {
       return { ok: false, reason: "Falta costo de compra", purchaseCost: 0, baseUnit, costPerBase: 0, usableUnit: baseUnit, costPerUsable: 0, detail: "Registra el costo del producto comprado." };
     }
@@ -15440,7 +15668,12 @@ Solicitado: ${cantidad}`);
     let usableUnit = baseUnit;
     let costPerUsable = purchaseCost;
     let detail = `Costo por ${baseUnit}`;
-    if (unitsPerPack > 0 && normalizeUnit(baseUnit) === normalizeUnit(internalUnit) && normalizeUnit(outerUnit) !== normalizeUnit(baseUnit)) {
+    if (hasInternalContent) {
+      usableUnit = internalUnit;
+      costPerUsable = packagePurchaseCost > 0 ? purchaseCost / unitsPerPack : unitPurchaseCost;
+      costPerBase = packagePurchaseCost > 0 ? purchaseCost : unitPurchaseCost * unitsPerPack;
+      detail = `1 ${baseUnit} = ${unitsPerPack} ${internalUnit}`;
+    } else if (unitsPerPack > 0 && normalizeUnit(baseUnit) === normalizeUnit(internalUnit) && normalizeUnit(outerUnit) !== normalizeUnit(baseUnit)) {
       costPerBase = purchaseCost / unitsPerPack;
       usableUnit = internalUnit;
       costPerUsable = costPerBase;
@@ -15454,9 +15687,9 @@ Solicitado: ${cantidad}`);
       const totalInner = unitsPerPack * innerQty;
       if (totalInner > 0) {
         usableUnit = innerUnit;
-        costPerUsable = purchaseCost / totalInner;
+        costPerUsable = (packagePurchaseCost > 0 ? packagePurchaseCost : purchaseCost) / totalInner;
         const totalBaseQty = normalizeUnit(baseUnit) === normalizeUnit(innerUnit) ? totalInner : convertMeasureQuantity(totalInner, innerUnit, baseUnit);
-        if (totalBaseQty != null && totalBaseQty > 0) costPerBase = purchaseCost / totalBaseQty;
+        if (totalBaseQty != null && totalBaseQty > 0) costPerBase = (packagePurchaseCost > 0 ? packagePurchaseCost : purchaseCost) / totalBaseQty;
         detail += ` - ${totalInner} ${innerUnit}`;
       }
     }
@@ -15464,6 +15697,8 @@ Solicitado: ${cantidad}`);
       ok: true,
       reason: "",
       purchaseCost,
+      unitPurchaseCost,
+      packagePurchaseCost,
       baseUnit,
       costPerBase,
       usableUnit,
@@ -15488,7 +15723,22 @@ Solicitado: ${cantidad}`);
     }
     const stockQty = convertInsumoQtyToStock(product, Object.assign({}, item, { unidad: unit }), qty, unit);
     if (stockQty == null) {
-      return { ok: false, name, product, cost: 0, problem: `No convierte ${unit} a ${costInfo.baseUnit}`, qtyText: `${formatMiseQty(qty)} ${unit}` };
+      const usableQty = convertMeasureQuantity(qty, unit, costInfo.usableUnit);
+      if (usableQty == null || !(costInfo.costPerUsable > 0)) {
+        return { ok: false, name, product, cost: 0, problem: `No convierte ${unit} a ${costInfo.baseUnit}`, qtyText: `${formatMiseQty(qty)} ${unit}` };
+      }
+      const cost = Number((Number(usableQty || 0) * Number(costInfo.costPerUsable || 0)).toFixed(4));
+      return {
+        ok: true,
+        name,
+        product,
+        cost,
+        problem: "",
+        qtyText: `${formatMiseQty(qty)} ${unit}`,
+        stockQty: usableQty,
+        stockUnit: costInfo.usableUnit,
+        costInfo: Object.assign({}, costInfo, { detail: `${costInfo.detail} - costeado por ${costInfo.usableUnit}` })
+      };
     }
     const cost = Number((Number(stockQty || 0) * Number(costInfo.costPerBase || 0)).toFixed(4));
     return {
@@ -15514,6 +15764,64 @@ Solicitado: ${cantidad}`);
     const rendimiento = Number(receta && (receta.cantidadObjetivo || receta.rendimiento || receta.cantidadProducida) || 0);
     const costPerUnit = rendimiento > 0 ? Number((total / rendimiento).toFixed(4)) : null;
     return { total, details: enrichedDetails, missing, rendimiento, costPerUnit };
+  }
+  function getRecipeCostLookupNames(receta) {
+    const names = [
+      receta && receta.nombre,
+      receta && receta.Nombre,
+      receta && receta.producto,
+      receta && receta.productoProducido,
+      receta && receta.productoMise,
+      receta && receta.ProductoMise,
+      receta && receta.miseProducto,
+      receta && receta.miseProductoNombre,
+      receta && receta.miseAnPlaceProducto,
+      receta && receta.productoRelacionado
+    ];
+    return Array.from(new Set(names.map(function(value) {
+      return String(value || "").trim();
+    }).filter(Boolean)));
+  }
+  function buildRecipeCostLookup(recipeCosts) {
+    return (Array.isArray(recipeCosts) ? recipeCosts : []).reduce(function(acc, receta) {
+      const costeo = receta && receta.costeo;
+      const isCosted = costeo && Array.isArray(costeo.missing) && costeo.missing.length === 0 && Number(costeo.total || 0) > 0;
+      if (!isCosted) return acc;
+      getRecipeCostLookupNames(receta).forEach(function(name) {
+        const key = normalizar(name);
+        if (key && !acc[key]) acc[key] = receta;
+      });
+      return acc;
+    }, {});
+  }
+  function calculateRecipeLinkedCostIngredient(link, recipeCostLookup) {
+    const name = String(link && (link.ProductoWTF || link.ProductoMise || link.ProductoWeb || "") || "").trim();
+    const receta = name && recipeCostLookup ? recipeCostLookup[normalizar(name)] : null;
+    const costeo = receta && receta.costeo;
+    if (!receta || !costeo || !(Number(costeo.total || 0) > 0)) return null;
+    const qty = parseCostNumber(link && (link.CantidadPorVenta ?? link.CantidadDescontar ?? link.Cantidad ?? 1)) || 1;
+    const linkUnit = normalizeProductionUnitLabel(link && (link.Unidad || link.Medida || "Uni"));
+    const targetUnit = normalizeProductionUnitLabel(receta.medidaObjetivo || receta.unidadObjetivo || receta.medida || "Uni");
+    let factor = qty;
+    if (costeo.costPerUnit != null && normalizeUnit(linkUnit) !== normalizeUnit(targetUnit)) {
+      const converted = convertMeasureQuantity(qty, linkUnit, targetUnit);
+      if (converted != null && Number.isFinite(converted)) factor = converted;
+    }
+    const unitCost = Number(costeo.costPerUnit || 0) > 0 ? Number(costeo.costPerUnit) : Number(costeo.total || 0);
+    const cost = Number((unitCost * factor).toFixed(4));
+    return {
+      ok: true,
+      name,
+      product: null,
+      cost,
+      problem: "",
+      qtyText: `${formatMiseQty(qty)} ${linkUnit}`,
+      stockQty: factor,
+      stockUnit: targetUnit,
+      costInfo: { detail: `Costo tomado desde la receta ${receta.nombre || name}` },
+      linkedRecipeId: receta.id || "",
+      linkedRecipeName: receta.nombre || name
+    };
   }
   const DEFAULT_COSTEO_CONFIG = {
     targetFoodCostPercent: 35,
@@ -15669,7 +15977,7 @@ Solicitado: ${cantidad}`);
   function getIcgArticleDirectCost(row) {
     return parseCostNumber(row && (row.PCoste ?? row.CosteMedio ?? row.UltimoCoste ?? row.Coste ?? row.Costo ?? row.CostoCompra));
   }
-  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel, costeoConfig, priceIndex) {
+  function buildIcgArticleCost(article, bridgeRows, productMaps, moduleLabel, costeoConfig, priceIndex, recipeCostLookup) {
     const code = normalizar(getIcgArticleCode(article));
     const reference = normalizar(getIcgArticleReference(article));
     const description = normalizar(getIcgArticleDescription(article));
@@ -15688,7 +15996,10 @@ Solicitado: ${cantidad}`);
         cantidad: link.CantidadPorVenta || link.CantidadDescontar || 1,
         unidad: link.Unidad || "Uni"
       };
-      return Object.assign({ link }, calculateCostIngredient(item, productMaps));
+      const directCost = calculateCostIngredient(item, productMaps);
+      if (directCost.ok) return Object.assign({ link }, directCost);
+      const recipeCost = calculateRecipeLinkedCostIngredient(link, recipeCostLookup);
+      return Object.assign({ link }, recipeCost || directCost);
     });
     const directIcgCost = getIcgArticleDirectCost(article);
     const directDetail = !details.length && directIcgCost > 0 ? [{
@@ -15766,6 +16077,9 @@ Solicitado: ${cantidad}`);
         return String(a.nombre || "").localeCompare(String(b.nombre || ""));
       });
     }, [recetas, productMaps, costeoConfig]);
+    const recipeCostLookup = useMemo(function() {
+      return buildRecipeCostLookup(recipeCosts);
+    }, [recipeCosts]);
     const filteredRecipes = useMemo(function() {
       const q = normalizar(busqueda);
       if (!q) return recipeCosts;
@@ -15804,11 +16118,11 @@ Solicitado: ${cantidad}`);
         if (!q) return true;
         return normalizar(getIcgArticleCode(row)).includes(q) || normalizar(getIcgArticleReference(row)).includes(q) || normalizar(getIcgArticleDescription(row)).includes(q) || normalizar(getCostIcgArticleCategory(row)).includes(q);
       }).map(function(row) {
-        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel, costeoConfig, icgPriceIndex) });
+        return Object.assign({}, row, { _costKey: getCostIcgArticleKey(row), _category: getCostIcgArticleCategory(row), _costeo: buildIcgArticleCost(row, bridgeRows, productMaps, moduleLabel, costeoConfig, icgPriceIndex, recipeCostLookup) });
       }).sort(function(a, b) {
         return a._category.localeCompare(b._category) || getIcgArticleDescription(a).localeCompare(getIcgArticleDescription(b));
       });
-    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg, costeoConfig, icgPriceIndex]);
+    }, [normalizedIcgData, bridgeRows, productMaps, moduleLabel, busquedaIcg, costeoConfig, icgPriceIndex, recipeCostLookup]);
     const icgGroups = useMemo(function() {
       return icgArticleCards.reduce(function(groups, row) {
         const category = row._category || "Sin categoria";

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>WTF POS Local</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="pos-shell">
+      <section class="panel catalog-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">WTF POS</span>
+            <h1>Venta local</h1>
+            <div id="operator-label" class="operator-label">Operador</div>
+          </div>
+          <span id="sync-state" class="badge">Local</span>
+        </div>
+        <label class="field">
+          <span>Buscar producto</span>
+          <input id="search" autocomplete="off" placeholder="Nombre, SKU o codigo">
+        </label>
+        <div class="dining-controls">
+          <label class="field">
+            <span>Opcion de consumo</span>
+            <select id="dining-option">
+              <option value="dineIn">Salon</option>
+              <option value="takeOut">Para llevar</option>
+              <option value="delivery">Delivery</option>
+            </select>
+          </label>
+          <div>
+            <span class="kicker">Mesas</span>
+            <div id="tables" class="table-grid"></div>
+          </div>
+        </div>
+        <div id="products" class="product-grid"></div>
+      </section>
+
+      <section class="panel cart-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">Carrito</span>
+            <h2 id="ticket-label">Mesa demo</h2>
+          </div>
+          <button id="send-kds" class="btn secondary">Enviar KDS</button>
+        </div>
+        <div id="cart-lines" class="cart-lines"></div>
+        <div class="totals">
+          <div><span>Subtotal</span><strong id="subtotal">0.00</strong></div>
+          <div><span>ITBIS</span><strong id="itbis">0.00</strong></div>
+          <div><span>Ley</span><strong id="ley">0.00</strong></div>
+          <div class="grand"><span>Total</span><strong id="total">0.00</strong></div>
+        </div>
+        <div class="pay-row">
+          <label class="field">
+            <span>Efectivo recibido</span>
+            <input id="cash" inputmode="decimal" type="number" min="0" step="0.01" value="1000">
+          </label>
+          <button id="pay" class="btn primary">Cobrar</button>
+        </div>
+      </section>
+
+      <section class="panel status-panel">
+        <div class="status-card">
+          <span class="kicker">CDS cliente</span>
+          <div id="cds-view" class="mini-screen"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">KDS cocina</span>
+          <div id="kds-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Inventario previsto</span>
+          <div id="inventory-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Backend virtual</span>
+          <div id="backend-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Pagos e impresion</span>
+          <div id="payment-print-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Configuracion POS</span>
+          <button id="apply-demo-promo" class="btn secondary close-btn">Aplicar promo demo</button>
+          <div id="pos-config-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Hardware</span>
+          <button id="run-hardware-diagnostics" class="btn secondary close-btn">Probar perifericos</button>
+          <div id="hardware-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Piloto controlado</span>
+          <button id="run-operational-pilot" class="btn primary close-btn">Ejecutar piloto</button>
+          <div id="pilot-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Conciliacion piloto</span>
+          <button id="run-pilot-reconciliation" class="btn secondary close-btn">Conciliar demo</button>
+          <div id="pilot-reconciliation-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Readiness produccion</span>
+          <div id="readiness-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Cutover / rollback</span>
+          <button id="create-cutover-plan" class="btn secondary close-btn">Crear plan demo</button>
+          <div id="cutover-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Reporte final piloto</span>
+          <button id="create-final-pilot-report" class="btn primary close-btn">Generar reporte</button>
+          <div id="pilot-final-report-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Evidencias piloto</span>
+          <button id="create-evidence-package" class="btn secondary close-btn">Crear paquete</button>
+          <div id="pilot-evidence-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Produccion controlada</span>
+          <button id="prepare-production-control" class="btn secondary close-btn">Preparar control</button>
+          <div id="production-control-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Turno sombra</span>
+          <button id="create-shadow-shift-report" class="btn secondary close-btn">Registrar sombra</button>
+          <div id="shadow-shift-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Decision sombra</span>
+          <button id="create-shadow-shift-decision" class="btn secondary close-btn">Evaluar avance</button>
+          <div id="shadow-decision-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Etapas operativas</span>
+          <button id="create-operational-stage" class="btn secondary close-btn">Avanzar etapa</button>
+          <div id="operational-stage-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Cierre Z virtual</span>
+          <label class="field">
+            <span>Conteo de caja</span>
+            <input id="counted-cash" inputmode="decimal" type="number" min="0" step="0.01" value="5000">
+          </label>
+          <button id="close-shift" class="btn secondary close-btn">Cerrar turno</button>
+          <div id="shift-close-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Auditoria POS</span>
+          <div id="audit-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Anulaciones demo</span>
+          <button id="void-last-sale" class="btn secondary close-btn">Anular ultima venta</button>
+          <div id="reversal-view" class="mini-list"></div>
+        </div>
+        <div class="status-card">
+          <span class="kicker">Cuentas</span>
+          <button id="split-last-line" class="btn secondary close-btn">Separar ultimo producto</button>
+          <button id="merge-split-ticket" class="btn secondary close-btn">Unir cuenta separada</button>
+          <div id="ticket-tools-view" class="mini-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

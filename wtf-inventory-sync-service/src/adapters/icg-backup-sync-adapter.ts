@@ -42,6 +42,38 @@ function active(row: AnyRecord): boolean {
   return value !== "false" && value !== "no" && value !== "0" && value !== "inactivo";
 }
 
+function firstText(row: AnyRecord | undefined | null, keys: string[]): string {
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function bridgeCode(row: AnyRecord): string {
+  return firstText(row, ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "Cod", "COD", "CodigoArticulo", "codigoArticulo"]);
+}
+
+function bridgeReference(row: AnyRecord): string {
+  return firstText(row, ["Referencia", "REFERENCIA", "CodigoBarras", "CODIGOBARRAS", "Barcode", "REF", "Ref"]);
+}
+
+function bridgeIcgProduct(row: AnyRecord): string {
+  return firstText(row, ["ProductoICG", "productoICG", "Descripcion", "DESCRIPCION", "DescripcionArticulo", "Articulo", "Nombre", "Producto"]);
+}
+
+function bridgeWtfProduct(row: AnyRecord): string {
+  return firstText(row, ["ProductoWTF", "productoWTF", "ProductoMise", "productoMise", "ProductoWebRelacionado", "ProductoWeb", "producto", "nombre"]);
+}
+
+function bridgeQuantity(row: AnyRecord): number {
+  return parseNumber(firstText(row, ["CantidadPorVenta", "cantidadPorVenta", "CantidadDescontar", "Cantidad", "cantidad", "Factor", "factor"]));
+}
+
+function bridgeUnit(row: AnyRecord, fallback = "Uni"): string {
+  return firstText(row, ["Unidad", "unidad", "Medida", "medida", "UnidadWTF", "unidadWTF"]) || fallback;
+}
+
 function quickHashText(text: string): string {
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) {
@@ -82,19 +114,19 @@ function targetProductName(row: AnyRecord, key: string): string {
 function parseLocalIcgLinkValue(link: AnyRecord): AnyRecord {
   const parts = String(link?.value || "").split("|").map((part) => part.trim()).filter(Boolean);
   return {
-    CodArticulo: String(link?.CodArticulo || parts[0] || "").trim(),
-    Referencia: String(link?.Referencia || parts[1] || "").trim(),
-    ProductoICG: String(link?.ProductoICG || parts.slice(2).join(" | ") || parts[0] || "").trim()
+    CodArticulo: bridgeCode(link) || parts[0] || "",
+    Referencia: bridgeReference(link) || parts[1] || "",
+    ProductoICG: bridgeIcgProduct(link) || parts.slice(2).join(" | ") || parts[0] || ""
   };
 }
 
 function bridgeIdentity(row: AnyRecord): string {
   return [
     targetKey(row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
-    normalizar(row.ProductoWTF || row.ProductoMise || ""),
-    normalizar(row.CodArticulo || row.Codigo || ""),
-    normalizar(row.Referencia || ""),
-    normalizar(row.ProductoICG || row.Descripcion || "")
+    normalizar(bridgeWtfProduct(row)),
+    normalizar(bridgeCode(row)),
+    normalizar(bridgeReference(row)),
+    normalizar(bridgeIcgProduct(row))
   ].join("::");
 }
 
@@ -116,8 +148,8 @@ function bridgeRowsFromTarget(appState: AnyRecord, key: string): AnyRecord[] {
         Referencia: parsed.Referencia,
         ProductoICG: parsed.ProductoICG,
         Metodo: link.Metodo || "Vinculo guardado en producto WTF",
-        CantidadPorVenta: parseNumber(link.CantidadPorVenta) || 1,
-        Unidad: link.Unidad || item.medida || "Uni",
+        CantidadPorVenta: bridgeQuantity(link) || 1,
+        Unidad: bridgeUnit(link, item.medida || "Uni"),
         Activo: link.Activo == null ? "Si" : link.Activo,
         Notas: link.Notas || ""
       };
@@ -245,6 +277,32 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor"])),
     rows: Array.from(byKey.values()).sort((a, b) => String(a.CodArticulo || a.CODARTICULO || "").localeCompare(String(b.CodArticulo || b.CODARTICULO || ""), undefined, { numeric: true }))
   });
+
+  const bestPriceByCode = new Map<string, number>();
+  Array.from(byKey.values()).forEach((row) => {
+    const code = normalizar(bridgeCode(row));
+    const price = parseNumber(row.VALOR ?? row.Valor ?? row.Precio ?? row.PRECIO ?? row.PrecioVenta ?? row.PRECIOVENTA);
+    if (!code || !(price > 0)) return;
+    const previous = bestPriceByCode.get(code) || 0;
+    if (price > previous) bestPriceByCode.set(code, price);
+  });
+  const articles = icg.datasets.Articulos;
+  if (!articles || !Array.isArray(articles.rows)) return;
+  articles.rows = articles.rows.map((row: AnyRecord) => {
+    const code = normalizar(bridgeCode(row));
+    const price = code ? bestPriceByCode.get(code) : 0;
+    if (!(price && price > 0)) return row;
+    return Object.assign({}, row, {
+      PrecioVenta: price,
+      PRECIOVENTA: price,
+      Precio: price,
+      PRECIO: price,
+      PVP: price,
+      _salePriceSource: "PRECIOSVENTA SQL ICG",
+      _salePriceUpdatedAt: new Date().toISOString()
+    });
+  });
+  articles.columns = Array.from(new Set([...(articles.columns || []), "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"]));
 }
 
 function documentUrl(config: ServiceConfig): string {
@@ -611,8 +669,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
 
   for (const line of rowsToApply) {
     const matchedLinks = links.filter((row) => {
-      const linkCode = normalizar(row.CodArticulo || row.Codigo || "");
-      const linkRef = normalizar(row.Referencia || "");
+      const linkCode = normalizar(bridgeCode(row));
+      const linkRef = normalizar(bridgeReference(row));
       return linkCode && normalizar(line.codArticulo) === linkCode || linkRef && normalizar(line.referencia) === linkRef;
     });
     const pendingImportKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
@@ -645,14 +703,14 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     }
     for (const link of matchedLinks) {
       const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
-      const producto = String(link.ProductoWTF || link.ProductoMise || "").trim();
+      const producto = bridgeWtfProduct(link);
       const importKey = quickHashText(["icg-bak", fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
       const alreadyAppliedWithLegacyKey = consumoRows.some((row) => {
         const rowTarget = targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "");
-        const rowProduct = String(row.ProductoWTF || row.ProductoMise || "").trim();
+        const rowProduct = bridgeWtfProduct(row);
         return normalizar(row.Fecha || "") === normalizar(fecha)
-          && normalizar(row.CodArticulo || "") === normalizar(line.codArticulo)
-          && normalizar(row.Referencia || "") === normalizar(line.referencia)
+          && normalizar(bridgeCode(row)) === normalizar(line.codArticulo)
+          && normalizar(bridgeReference(row)) === normalizar(line.referencia)
           && normalizar(row.CodAlmacen || "") === normalizar(line.codAlmacen)
           && rowTarget === target
           && normalizar(rowProduct) === normalizar(producto)
@@ -669,7 +727,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message));
         continue;
       }
-      const qtyFactor = parseNumber(link.CantidadPorVenta) || 1;
+      const qtyFactor = bridgeQuantity(link) || 1;
       const cantidad = Number((line.consumo * qtyFactor).toFixed(4));
       const list: AnyRecord[] = Array.isArray(appState[target]) ? appState[target] : [];
       const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
@@ -678,13 +736,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         ModuloWTF: targetLabel(target),
         targetKey: target,
         ProductoWTF: producto,
-        ProductoMise: String(link.ProductoMise || producto),
+        ProductoMise: firstText(link, ["ProductoMise", "productoMise"]) || producto,
         CodArticulo: line.codArticulo,
         Referencia: line.referencia,
         ProductoICG: line.descripcion,
         UnidadesVendidas: line.consumo,
         CantidadDescontar: cantidad,
-        Unidad: link.Unidad || link.Medida || "Uni",
+        Unidad: bridgeUnit(link, "Uni"),
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: importKey,
         Estado: "Pendiente",
