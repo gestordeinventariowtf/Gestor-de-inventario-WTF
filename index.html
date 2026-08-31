@@ -3816,7 +3816,13 @@
     const existingTime = getRowUpdateTime(existing);
     const rowTime = getRowUpdateTime(row);
     const preferRow = rowTime > existingTime || (preferLocal && rowTime === existingTime);
-    const movementSource = preferRow ? row : existing;
+    const existingResetTime = getRowUpdateTime({ updatedAt: existing && existing.resetMovementsAt });
+    const rowResetTime = getRowUpdateTime({ updatedAt: row && row.resetMovementsAt });
+    let movementSource = preferRow ? row : existing;
+    if (existingResetTime || rowResetTime) {
+      if (existingResetTime >= rowTime && existingResetTime >= rowResetTime) movementSource = existing;
+      else if (rowResetTime >= existingTime && rowResetTime >= existingResetTime) movementSource = row;
+    }
     const configSource = preferRow ? row : existing;
     const fallbackSource = preferRow ? existing : row;
     const merged = Object.assign({}, fallbackSource, configSource);
@@ -3828,6 +3834,10 @@
     ["entrada", "salida", "decomiso"].forEach(function(field) {
       merged[field] = roundQty4(movementSource && movementSource[field] || 0);
     });
+    if (movementSource && movementSource.resetMovementsAt) {
+      merged.resetMovementsAt = movementSource.resetMovementsAt;
+      merged.resetMovementsBy = movementSource.resetMovementsBy || merged.resetMovementsBy || "";
+    }
     ["stockLunesJueves", "stockViernesDomingo"].forEach(function(field) {
       merged[field] = configSource && configSource[field] !== void 0 && configSource[field] !== "" ? configSource[field] : fallbackSource && fallbackSource[field] || 0;
     });
@@ -11796,8 +11806,8 @@ Solicitado: ${cantidad}`);
       sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
       icg: /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
       icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento }),
+      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
@@ -20020,7 +20030,7 @@ Solicitado: ${cantidad}`);
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventarioPage({ inventario, setInventario, usuarios, currentUser = null, onSystemLog = null, moduleLabel = "Cocina", pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null, regEntradas = [], setRegEntradas = null, regSalidas = [], setRegSalidas = null, regDecomiso = [], setRegDecomiso = null, regRecuento = [], setRegRecuento = null }) {
+  function InventarioPage({ inventario, setInventario, usuarios, currentUser = null, onSystemLog = null, moduleLabel = "Cocina", pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null, regEntradas = [], setRegEntradas = null, regSalidas = [], setRegSalidas = null, regDecomiso = [], setRegDecomiso = null, regRecuento = [], setRegRecuento = null, movementStateKeys = {}, onMarkMovementRowsDeleted = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
@@ -20267,6 +20277,18 @@ Solicitado: ${cantidad}`);
         return normalizar(row && (row.producto || row.ProductoWTF || row.ProductoMise || row.nombre || "")) === productKey;
       }
       setInventario((p) => p.map((x) => x.id === r.id ? { ...x, entrada: 0, salida: 0, decomiso: 0, resetMovementsAt: now, resetMovementsBy: getUserDisplayLabel(currentUser), updatedAt: now } : x));
+      if (typeof onMarkMovementRowsDeleted === "function") {
+        const matchingEntradas = (Array.isArray(regEntradas) ? regEntradas : []).filter(isSameProduct);
+        const matchingSalidas = (Array.isArray(regSalidas) ? regSalidas : []).filter(isSameProduct);
+        const matchingDecomiso = (Array.isArray(regDecomiso) ? regDecomiso : []).filter(isSameProduct);
+        const matchingRecuentos = (Array.isArray(regRecuento) ? regRecuento : []).filter(function(row) {
+          return Array.isArray(row.detalles) && row.detalles.some(isSameProduct);
+        });
+        if (matchingEntradas.length && movementStateKeys.entradas) onMarkMovementRowsDeleted(movementStateKeys.entradas, matchingEntradas);
+        if (matchingSalidas.length && movementStateKeys.salidas) onMarkMovementRowsDeleted(movementStateKeys.salidas, matchingSalidas);
+        if (matchingDecomiso.length && movementStateKeys.decomiso) onMarkMovementRowsDeleted(movementStateKeys.decomiso, matchingDecomiso);
+        if (matchingRecuentos.length && movementStateKeys.recuento) onMarkMovementRowsDeleted(movementStateKeys.recuento, matchingRecuentos);
+      }
       if (typeof setRegEntradas === "function") setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !isSameProduct(row)));
       if (typeof setRegSalidas === "function") setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !isSameProduct(row)));
       if (typeof setRegDecomiso === "function") setRegDecomiso((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !isSameProduct(row)));
