@@ -1,4 +1,4 @@
-export type MovementType = "entrada" | "salida";
+export type MovementType = "entrada" | "salida" | "decomiso";
 
 export type MovementState =
   | "pendiente"
@@ -88,6 +88,13 @@ export interface ImportResult {
 
 export interface IcgBackupConsumptionRow {
   fecha: string;
+  fechaHora?: string;
+  fo?: string;
+  serie?: string;
+  numero?: string;
+  n?: string;
+  numLinea?: string;
+  tipoMovimiento?: "venta" | "devolucion";
   codArticulo: string;
   referencia: string;
   descripcion: string;
