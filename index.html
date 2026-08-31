@@ -3812,16 +3812,38 @@
       return deletedAt > 0 && (!createdAt || createdAt <= deletedAt);
     });
   }
+  function getInventoryMovementVersionTime(row) {
+    return Math.max(
+      getRowUpdateTime({ updatedAt: row && row.movementUpdatedAt }),
+      getRowUpdateTime({ updatedAt: row && row.resetMovementsAt }),
+      getRowUpdateTime({ updatedAt: row && row.movimientosActualizadosAt })
+    );
+  }
+  function withInventoryMovementStamp(row, now, userLabel, sourceLabel) {
+    return Object.assign({}, row, {
+      movementUpdatedAt: now,
+      movementUpdatedBy: userLabel || row && row.movementUpdatedBy || "",
+      movementSource: sourceLabel || row && row.movementSource || "Movimiento",
+      movimientosActualizadosAt: now,
+      updatedAt: now
+    });
+  }
   function mergeInventoryDuplicateRows(existing, row, preferLocal) {
     const existingTime = getRowUpdateTime(existing);
     const rowTime = getRowUpdateTime(row);
     const preferRow = rowTime > existingTime || (preferLocal && rowTime === existingTime);
     const existingResetTime = getRowUpdateTime({ updatedAt: existing && existing.resetMovementsAt });
     const rowResetTime = getRowUpdateTime({ updatedAt: row && row.resetMovementsAt });
+    const existingMovementTime = getInventoryMovementVersionTime(existing);
+    const rowMovementTime = getInventoryMovementVersionTime(row);
     let movementSource = preferRow ? row : existing;
+    if (existingMovementTime || rowMovementTime) {
+      if (rowMovementTime > existingMovementTime || (preferLocal && rowMovementTime === existingMovementTime)) movementSource = row;
+      else movementSource = existing;
+    }
     if (existingResetTime || rowResetTime) {
-      if (existingResetTime >= rowTime && existingResetTime >= rowResetTime) movementSource = existing;
-      else if (rowResetTime >= existingTime && rowResetTime >= existingResetTime) movementSource = row;
+      if (existingResetTime >= rowMovementTime && existingResetTime >= rowTime && existingResetTime >= rowResetTime) movementSource = existing;
+      else if (rowResetTime >= existingMovementTime && rowResetTime >= existingTime && rowResetTime >= existingResetTime) movementSource = row;
     }
     const configSource = preferRow ? row : existing;
     const fallbackSource = preferRow ? existing : row;
@@ -3838,6 +3860,9 @@
       merged.resetMovementsAt = movementSource.resetMovementsAt;
       merged.resetMovementsBy = movementSource.resetMovementsBy || merged.resetMovementsBy || "";
     }
+    ["movementUpdatedAt", "movementUpdatedBy", "movementSource", "movimientosActualizadosAt"].forEach(function(field) {
+      if (movementSource && movementSource[field] !== void 0) merged[field] = movementSource[field];
+    });
     ["stockLunesJueves", "stockViernesDomingo"].forEach(function(field) {
       merged[field] = configSource && configSource[field] !== void 0 && configSource[field] !== "" ? configSource[field] : fallbackSource && fallbackSource[field] || 0;
     });
@@ -4049,8 +4074,38 @@
     return typeof normalizeRows === "function" ? normalizeRows(merged) : merged;
   }
   function mergeMiseRows(localRows, remoteRows, deletedKeys) {
-    const merged = mergeStateRowsByKey(localRows, remoteRows, getMiseMergeKey, normalizeMiseItems);
-    return normalizeMiseItems(merged.filter(function(row) {
+    const map = new Map();
+    function addRows(rows, preferLocalOnTie) {
+      normalizeMiseItems(rows).forEach(function(row) {
+        const key = getMiseMergeKey(row);
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, Object.assign({}, row));
+          return;
+        }
+        const existingTime = getRowUpdateTime(existing);
+        const rowTime = getRowUpdateTime(row);
+        const preferRow = rowTime > existingTime || (preferLocalOnTie && rowTime === existingTime);
+        const configSource = preferRow ? row : existing;
+        const fallbackSource = preferRow ? existing : row;
+        const existingMovementTime = getInventoryMovementVersionTime(existing);
+        const rowMovementTime = getInventoryMovementVersionTime(row);
+        let movementSource = preferRow ? row : existing;
+        if (existingMovementTime || rowMovementTime) {
+          movementSource = rowMovementTime > existingMovementTime || (preferLocalOnTie && rowMovementTime === existingMovementTime) ? row : existing;
+        }
+        const merged = Object.assign({}, fallbackSource, configSource);
+        if (movementSource && movementSource.existencia !== void 0) merged.existencia = getMiseSafeNumber(movementSource.existencia, 0);
+        ["movementUpdatedAt", "movementUpdatedBy", "movementSource"].forEach(function(field) {
+          if (movementSource && movementSource[field] !== void 0) merged[field] = movementSource[field];
+        });
+        map.set(key, merged);
+      });
+    }
+    addRows(remoteRows, false);
+    addRows(localRows, true);
+    return normalizeMiseItems(Array.from(map.values()).filter(function(row) {
       return !isMiseRowDeleted(row, deletedKeys);
     }));
   }
@@ -11344,9 +11399,9 @@
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
-      if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad), updatedAt: now } : r)); setBarRegEntradas((p) => [...p, reg]); }
-      if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad), updatedAt: now } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
-      if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad), updatedAt: now } : r)); setBarRegDecomiso((p) => [...p, reg]); }
+      if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
+      if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
+      if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
     function addMovimiento(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -11374,16 +11429,16 @@ Solicitado: ${cantidad}`);
         usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
-        setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad), updatedAt: now } : r));
+        setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
         setRegEntradas((p) => [...p, reg]);
       }
       if (tipo === "salida") {
-        setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad), updatedAt: now } : r));
+        setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r));
         setRegSalidas((p) => [...p, reg]);
         if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Inventario Cocina", now);
       }
       if (tipo === "decomiso") {
-        setInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad), updatedAt: now } : r));
+        setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r));
         setRegDecomiso((p) => [...p, reg]);
       }
       syncNeveras({ nombre: prod.nombre, delta: tipo === "entrada" ? cantidad : -cantidad, existenciaAntes: exist });
@@ -11398,9 +11453,9 @@ Solicitado: ${cantidad}`);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
-      if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad), updatedAt: now } : r)); setBarRegEntradas((p) => [...p, reg]); }
-      if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad), updatedAt: now } : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
-      if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad), updatedAt: now } : r)); setBarRegDecomiso((p) => [...p, reg]); }
+      if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
+      if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
+      if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
     function addMovimientoCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -11424,16 +11479,16 @@ Solicitado: ${cantidad}`);
         usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
-        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, entrada: roundQty4((r.entrada || 0) + cantidad), updatedAt: now } : r));
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
         setRegEntradas((p) => [...p, reg]);
       }
       if (tipo === "salida") {
-        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, salida: roundQty4((r.salida || 0) + cantidad), updatedAt: now } : r));
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r));
         setRegSalidas((p) => [...p, reg]);
         if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Cuarto Frio Cocina", now);
       }
       if (tipo === "decomiso") {
-        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? { ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad), updatedAt: now } : r));
+        setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r));
         setRegDecomiso((p) => [...p, reg]);
       }
     }
@@ -11653,7 +11708,7 @@ Solicitado: ${cantidad}`);
       if (miseMoves.length) {
         setMise((prev) => prev.map(function(item) {
           const move = miseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
           return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Number((move.target.existencia - move.cantidad).toFixed(4)) };
@@ -11663,7 +11718,7 @@ Solicitado: ${cantidad}`);
       if (barMiseMoves.length) {
         setBarMise((prev) => prev.map(function(item) {
           const move = barMiseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
       }
       return candidates.map((row) => row.ImportKey).filter(Boolean);
@@ -20276,7 +20331,7 @@ Solicitado: ${cantidad}`);
       function isSameProduct(row) {
         return normalizar(row && (row.producto || row.ProductoWTF || row.ProductoMise || row.nombre || "")) === productKey;
       }
-      setInventario((p) => p.map((x) => x.id === r.id ? { ...x, entrada: 0, salida: 0, decomiso: 0, resetMovementsAt: now, resetMovementsBy: getUserDisplayLabel(currentUser), updatedAt: now } : x));
+      setInventario((p) => p.map((x) => x.id === r.id ? withInventoryMovementStamp({ ...x, entrada: 0, salida: 0, decomiso: 0, resetMovementsAt: now, resetMovementsBy: getUserDisplayLabel(currentUser) }, now, getUserDisplayLabel(currentUser), "Reinicio de movimientos") : x));
       if (typeof onMarkMovementRowsDeleted === "function") {
         const matchingEntradas = (Array.isArray(regEntradas) ? regEntradas : []).filter(isSameProduct);
         const matchingSalidas = (Array.isArray(regSalidas) ? regSalidas : []).filter(isSameProduct);
@@ -21066,7 +21121,7 @@ Solicitado: ${cantidad}`);
             });
             if (!row) return item;
             const nextExistence = Number((Number(item.existencia || 0) - Number(row.ajuste || 0)).toFixed(4));
-            return Object.assign({}, item, { existencia: nextExistence, updatedAt: now });
+            return Object.assign({}, item, { existencia: nextExistence, updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "Reverso de recuento", movimientosActualizadosAt: now });
           }));
         }
         return (Array.isArray(prev) ? prev : []).map(function(item) {
@@ -21076,8 +21131,8 @@ Solicitado: ${cantidad}`);
           });
           if (!row) return item;
           const ajuste = Number(row.ajuste || 0);
-          if (ajuste > 0) return Object.assign({}, item, { entrada: Math.max(0, Number((Number(item.entrada || 0) - ajuste).toFixed(4))), updatedAt: now });
-          if (ajuste < 0) return Object.assign({}, item, { salida: Math.max(0, Number((Number(item.salida || 0) - Math.abs(ajuste)).toFixed(4))), updatedAt: now });
+          if (ajuste > 0) return withInventoryMovementStamp(Object.assign({}, item, { entrada: Math.max(0, Number((Number(item.entrada || 0) - ajuste).toFixed(4))) }), now, getUserDisplayLabel(currentUser), "Reverso de recuento");
+          if (ajuste < 0) return withInventoryMovementStamp(Object.assign({}, item, { salida: Math.max(0, Number((Number(item.salida || 0) - Math.abs(ajuste)).toFixed(4))) }), now, getUserDisplayLabel(currentUser), "Reverso de recuento");
           return item;
         });
       });
@@ -21238,7 +21293,7 @@ Solicitado: ${cantidad}`);
             const row = adjustments.find(function(entry) {
               return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.producto);
             });
-            return row ? Object.assign({}, item, { existencia: row.existenciaAjustada, updatedAt: now }) : item;
+          return row ? Object.assign({}, item, { existencia: row.existenciaAjustada, updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: usuario, movementSource: "Recuento", movimientosActualizadosAt: now }) : item;
           }));
         });
         const entradas = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
@@ -21258,7 +21313,9 @@ Solicitado: ${cantidad}`);
               return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.nombre);
             });
             if (!row) return item;
-            return row.ajuste > 0 ? Object.assign({}, item, { entrada: Number((Number(item.entrada || 0) + row.ajuste).toFixed(4)), updatedAt: now }) : Object.assign({}, item, { salida: Number((Number(item.salida || 0) + Math.abs(row.ajuste)).toFixed(4)), updatedAt: now });
+            return row.ajuste > 0
+              ? withInventoryMovementStamp(Object.assign({}, item, { entrada: Number((Number(item.entrada || 0) + row.ajuste).toFixed(4)) }), now, usuario, "Recuento")
+              : withInventoryMovementStamp(Object.assign({}, item, { salida: Number((Number(item.salida || 0) + Math.abs(row.ajuste)).toFixed(4)) }), now, usuario, "Recuento");
           });
         });
         const entradaRegs = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
@@ -22143,7 +22200,7 @@ Solicitado: ${cantidad}`);
       if (!prodInfo) return setError(`"${data.producto}" no existe en Mise an Place.`);
       if (cant > prodInfo.existencia) return setError(`Excede la existencia actual (${prodInfo.existencia}).`);
       const now = new Date().toISOString();
-      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: m.existencia - cant, updatedAt: now } : m));
+      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: m.existencia - cant, updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: data.responsable || "Sistema", movementSource: "Decomiso Mise", movimientosActualizadosAt: now } : m));
       setHistDecomisoCocina((p) => [...p, { ...data, cantidad: cant }]);
       syncNeveras && syncNeveras({ nombre: data.producto, delta: -cant, existenciaAntes: prodInfo.existencia });
       toast(`Decomiso: ${data.producto} x${cant}`);
