@@ -7,20 +7,74 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="pos-shell">
-      <section class="panel catalog-panel">
-        <div class="panel-head">
-          <div>
-            <span class="kicker">WTF POS</span>
-            <h1>Caja operativa</h1>
-            <div id="operator-label" class="operator-label">Operador</div>
-          </div>
-          <span id="sync-state" class="badge">Operativo</span>
+    <header class="pos-topbar" aria-label="Barra principal POS">
+      <button id="main-menu" class="icon-btn" type="button" aria-label="Abrir menu">
+        <span class="vector-icon" data-vector-icon="menu"></span>
+      </button>
+      <div id="topbar-module-title" class="topbar-module-title" hidden>WTF POS</div>
+      <button id="ticket-mode-chip" class="ticket-mode-chip" type="button" aria-label="Abrir ticket">
+        <span class="ticket-mode-icon vector-icon" data-vector-icon="ticket"></span>
+        <span>Ticket</span>
+        <strong id="ticket-items-count">0</strong>
+      </button>
+      <div class="topbar-spacer"></div>
+      <button id="flip-barcode-camera" class="icon-btn scanner-only flip-camera-btn" type="button" aria-label="Girar camara" title="Girar camara" hidden><span class="vector-icon" data-vector-icon="camera-flip"></span></button>
+      <button id="toggle-barcode-torch" class="icon-btn scanner-only torch-btn" type="button" aria-label="Activar flash" title="Activar flash" hidden><span class="vector-icon" data-vector-icon="flash"></span></button>
+      <button id="topbar-save" class="btn primary topbar-save-btn" type="button" hidden>Guardar</button>
+      <button id="add-client" class="icon-btn client-btn" type="button" aria-label="Agregar cliente" title="Agregar cliente">
+        <span class="vector-icon" data-vector-icon="user-plus"></span>
+      </button>
+      <div class="topbar-more-wrap">
+        <button id="more-options" class="icon-btn more-btn" type="button" aria-label="Mas opciones" aria-expanded="false">
+          <span class="vector-icon" data-vector-icon="more-vertical"></span>
+        </button>
+        <div id="more-menu" class="more-menu" hidden>
+          <button type="button" data-top-action="clear-ticket"><span class="menu-action-icon vector-icon" data-vector-icon="trash"></span>Despejar el ticket</button>
+          <button type="button" data-top-action="reprint-order"><span class="menu-action-icon vector-icon" data-vector-icon="printer"></span>Reimprimir pedido</button>
+          <button type="button" data-top-action="edit-ticket"><span class="menu-action-icon vector-icon" data-vector-icon="edit"></span>Editar ticket</button>
+          <button type="button" data-top-action="assign-ticket"><span class="menu-action-icon vector-icon" data-vector-icon="assign"></span>Asignar ticket</button>
+          <button type="button" data-top-action="split-ticket"><span class="menu-action-icon vector-icon" data-vector-icon="split"></span>Dividir ticket</button>
+          <button type="button" data-top-action="merge-ticket"><span class="menu-action-icon vector-icon" data-vector-icon="merge"></span>Combinar ticket</button>
+          <button type="button" data-top-action="sync-now"><span class="menu-action-icon vector-icon" data-vector-icon="sync"></span>Sincronizar</button>
         </div>
-        <label class="field">
-          <span>Buscar producto</span>
-          <input id="search" autocomplete="off" placeholder="Nombre, SKU o codigo">
-        </label>
+      </div>
+      <button id="topbar-history" class="icon-btn topbar-history-btn" type="button" aria-label="Historial de cierres" title="Historial de cierres" hidden>
+        <span class="vector-icon" data-vector-icon="history"></span>
+      </button>
+    </header>
+    <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <aside id="main-drawer" class="main-drawer" aria-label="Menu principal" aria-hidden="true">
+      <div class="drawer-banner">
+        <button id="drawer-close" class="drawer-close" type="button" aria-label="Cerrar menu"><span class="vector-icon" data-vector-icon="close"></span></button>
+        <span id="drawer-role" class="drawer-role">Admin</span>
+        <strong id="drawer-name">Administrador</strong>
+        <small>WTF - Whats That Food</small>
+      </div>
+      <section id="drawer-content" class="drawer-content"></section>
+    </aside>
+    <section id="main-module" class="main-module" hidden></section>
+    <section id="sale-action-bar" class="sale-action-bar" aria-label="Acciones de venta">
+      <button id="tickets-action" class="sale-action-btn" type="button">
+        <span id="tickets-action-label">TICKETS ABIERTOS</span>
+      </button>
+      <button id="charge-action" class="sale-action-btn charge-action" type="button" disabled>
+        <span>COBRAR</span>
+        <strong id="charge-action-total">RD$0.00</strong>
+      </button>
+    </section>
+    <main id="pos-shell" class="pos-shell">
+      <section class="panel catalog-panel">
+        <div class="catalog-filter-shell">
+          <div id="catalog-filter-row" class="catalog-filter-row">
+            <select id="catalog-filter" aria-label="Filtro de articulos"></select>
+            <button id="open-product-search" class="icon-btn search-slide-btn" type="button" aria-label="Buscar articulos"><span class="vector-icon" data-vector-icon="search"></span></button>
+            <button id="open-barcode-scanner" class="icon-btn barcode-scan-btn" type="button" aria-label="Escanear codigo de barras" hidden><span class="vector-icon" data-vector-icon="barcode"></span></button>
+          </div>
+          <div id="product-search-row" class="product-search-row" hidden>
+            <input id="search" autocomplete="off" placeholder="Buscar producto, SKU o codigo">
+            <button id="close-product-search" class="search-close-btn" type="button" aria-label="Cancelar busqueda"><span class="vector-icon" data-vector-icon="close"></span></button>
+          </div>
+        </div>
         <div class="dining-controls">
           <label class="field">
             <span>Opcion de consumo</span>

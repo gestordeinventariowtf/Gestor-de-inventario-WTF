@@ -211,7 +211,7 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
   appState.icgFrontRestData.datasets.ConsumoMiseVentas = appState.icgFrontRestData.datasets.ConsumoMiseVentas || {
     key: "ConsumoMiseVentas",
     label: "Consumo Mise ventas",
-    columns: ["Fecha", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "Estado"],
+    columns: ["Fecha", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "Estado"],
     rows: []
   };
   appState.icgFrontRestData.datasets.CierresDiarios = appState.icgFrontRestData.datasets.CierresDiarios || {
@@ -665,7 +665,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const consumoRows: AnyRecord[] = icg.datasets.ConsumoMiseVentas.rows || [];
   const existingConsumptionKeys = new Set(consumoRows.map((row) => String(row.ImportKey || "")));
   const now = new Date().toISOString();
-  const newConsumption: AnyRecord[] = [];
+  const consumptionUpserts = new Map<string, AnyRecord>();
+  function rememberConsumptionRow(row: AnyRecord): void {
+    const key = String(row?.ImportKey || "");
+    if (!key) return;
+    consumptionUpserts.set(key, row);
+    existingConsumptionKeys.add(key);
+  }
 
   for (const line of rowsToApply) {
     const matchedLinks = links.filter((row) => {
@@ -698,7 +704,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Estado: "Sin vinculo",
         CodAlmacen: line.codAlmacen
       };
-      if (!existingConsumptionKeys.has(pendingImportKey)) newConsumption.push(pendingRow);
+      rememberConsumptionRow(pendingRow);
       continue;
     }
     for (const link of matchedLinks) {
@@ -754,13 +760,22 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         const message = `${producto} no existe en ${targetLabel(target)}.`;
         result.errors.push(message);
         result.movements?.push(createBackupMovement(line, fecha, importKey, "error", message, producto, cantidad, consumoRow.Unidad));
-        if (!existingConsumptionKeys.has(importKey)) {
-          newConsumption.push(consumoRow);
-          existingConsumptionKeys.add(importKey);
-        }
+        rememberConsumptionRow(consumoRow);
         continue;
       }
       const existenciaAnterior = targetExistence(item, target);
+      if (existenciaAnterior + 1e-9 < cantidad) {
+        const deficit = Number((cantidad - existenciaAnterior).toFixed(4));
+        const message = `${targetProductName(item, target)} no tiene existencia suficiente para descuento ICG. Disponible: ${Number(existenciaAnterior.toFixed(4))} ${item.medida || consumoRow.Unidad || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${consumoRow.Unidad || item.medida || ""}. Faltante: ${deficit}.`;
+        consumoRow.Estado = "Stock insuficiente";
+        consumoRow.ExistenciaActual = existenciaAnterior;
+        consumoRow.ExistenciaNueva = existenciaAnterior;
+        consumoRow.MotivoRevision = message;
+        result.pending += 1;
+        result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", message, targetProductName(item, target), cantidad, consumoRow.Unidad));
+        rememberConsumptionRow(consumoRow);
+        continue;
+      }
       applyTargetSalida(item, target, cantidad, now, importKey);
       const existenciaNueva = targetExistence(item, target);
       consumoRow.Estado = "Aplicado";
@@ -769,10 +784,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       appliedKeys.add(importKey);
       result.applied += 1;
       result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
-      if (!existingConsumptionKeys.has(importKey)) {
-        newConsumption.push(consumoRow);
-        existingConsumptionKeys.add(importKey);
-      }
+      rememberConsumptionRow(consumoRow);
 
       const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";
       appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
@@ -794,7 +806,17 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     }
   }
 
-  icg.datasets.ConsumoMiseVentas.rows = newConsumption.concat(consumoRows).slice(0, 8000);
+  const originalConsumptionKeys = new Set(consumoRows.map((row) => String(row.ImportKey || "")));
+  const updatedConsumptionRows = consumoRows.map((row) => {
+    const key = String(row.ImportKey || "");
+    const upsert = key ? consumptionUpserts.get(key) : null;
+    return upsert ? Object.assign({}, row, upsert) : row;
+  });
+  const insertedConsumptionRows = Array.from(consumptionUpserts.values()).filter((row) => !originalConsumptionKeys.has(String(row.ImportKey || "")));
+  icg.datasets.ConsumoMiseVentas = Object.assign({}, icg.datasets.ConsumoMiseVentas, {
+    columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
+    rows: insertedConsumptionRows.concat(updatedConsumptionRows).slice(0, 8000)
+  });
   icg.appliedImports = Array.from(appliedKeys).slice(-10000);
   icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: result.applied, matched: result.matched, pending: result.pending, errors: result.errors });
   icg.processedBackupDates = icg.processedBackupDates.slice(0, 300);
@@ -802,8 +824,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   icg.updatedAt = now;
   result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0;
   result.message = result.applied
-    ? `Backup ICG aplicado: ${result.applied} descuentos. Pendientes sin vinculo: ${result.pending}.`
-    : `Backup ICG leido sin descuentos aplicados. Pendientes sin vinculo: ${result.pending}.`;
+    ? `Backup ICG aplicado: ${result.applied} descuentos. Pendientes para revision: ${result.pending}.`
+    : `Backup ICG leido sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
   await writeAppState(config, appState, result);
   return result;
 }
