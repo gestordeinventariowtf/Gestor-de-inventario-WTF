@@ -12618,6 +12618,21 @@ Solicitado: ${cantidad}`);
         return String(a.producto || "").localeCompare(String(b.producto || ""));
       });
     }, [moduleLabel, recetas, producciones, miseAnPlace]);
+    const selectedDirectLoadMiseProduct = useMemo(function() {
+      if (moduleLabel === "Bar") return null;
+      const name = normalizar(directLoad.nombre);
+      if (!name) return null;
+      return (Array.isArray(miseAnPlace) ? miseAnPlace : []).find(function(item) {
+        return normalizar(item && item.producto || "") === name;
+      }) || null;
+    }, [moduleLabel, directLoad.nombre, miseAnPlace]);
+    useEffect(function() {
+      if (!selectedDirectLoadMiseProduct) return;
+      const targetUnit = normalizarMedidaMise(selectedDirectLoadMiseProduct.medida || "Uni");
+      setDirectLoad(function(prev) {
+        return normalizarMedidaMise(prev.medida || "Uni") === targetUnit ? prev : Object.assign({}, prev, { medida: targetUnit });
+      });
+    }, [selectedDirectLoadMiseProduct && selectedDirectLoadMiseProduct.id, selectedDirectLoadMiseProduct && selectedDirectLoadMiseProduct.medida]);
     useEffect(function() {
       function handleVisibilityChange() {
         if (document.visibilityState === "hidden" && (recetarioOpen || recipeSheet)) {
@@ -13106,8 +13121,11 @@ Solicitado: ${cantidad}`);
             if (item.id !== match.id) return item;
             return Object.assign({}, item, {
               existencia: Number(((Number(item.existencia) || 0) + cantidadDestinoTransferencia).toFixed(4)),
-              medida: unidadDestinoTransferencia,
-              updatedAt: now
+              updatedAt: now,
+              movementUpdatedAt: now,
+              movementUpdatedBy: getUserDisplayLabel(currentUser),
+              movementSource: "Transferencia produccion",
+              movimientosActualizadosAt: now
             });
           });
         }
@@ -13126,7 +13144,11 @@ Solicitado: ${cantidad}`);
           const existenciaNueva = Math.max(0, Number((existenciaAnterior - cantidadSalida).toFixed(4)));
           return Object.assign({}, item, {
             existencia: existenciaNueva,
-            updatedAt: now
+            updatedAt: now,
+            movementUpdatedAt: now,
+            movementUpdatedBy: getUserDisplayLabel(currentUser),
+            movementSource: "Consumo por transferencia produccion",
+            movimientosActualizadosAt: now
           });
         });
       });
@@ -14341,8 +14363,11 @@ Solicitado: ${cantidad}`);
             if (item.id !== existingMise.id) return item;
             return Object.assign({}, item, {
               existencia: Number(((Number(item.existencia) || 0) + directLoadConvertedQty).toFixed(4)),
-              medida: directLoadTargetUnit,
-              updatedAt: now
+              updatedAt: now,
+              movementUpdatedAt: now,
+              movementUpdatedBy: usuario,
+              movementSource: "Carga directa produccion",
+              movimientosActualizadosAt: now
             });
           });
         }
@@ -20740,6 +20765,12 @@ Solicitado: ${cantidad}`);
     const number = Number(cleaned);
     return Number.isFinite(number) ? number : NaN;
   }
+  function calculateRecountAdjustment(systemQty, countedQty) {
+    const sistemaActual = Number(systemQty || 0);
+    const conteoFisico = Number(countedQty);
+    if (!Number.isFinite(conteoFisico)) return 0;
+    return Number((conteoFisico - sistemaActual).toFixed(4));
+  }
   function getRecountMatchScore(query, row) {
     const q = normalizar(query);
     const name = normalizar(row && (row.producto || row.nombre || ""));
@@ -21245,7 +21276,7 @@ Solicitado: ${cantidad}`);
       const deltaPosterior = product ? postCountDelta(product.producto) : 0;
       const existenciaActual = product ? Number(product.existencia || 0) : 0;
       const existenciaEsperadaAhora = Number((Number.isFinite(counted) ? counted : 0).toFixed(4));
-      const ajuste = product && Number.isFinite(counted) ? Number((existenciaEsperadaAhora - existenciaActual).toFixed(4)) : 0;
+      const ajuste = product ? calculateRecountAdjustment(existenciaActual, counted) : 0;
       return Object.assign({}, row, { product, deltaPosterior, existenciaActual, existenciaEsperadaAhora, ajuste });
     });
     function applyRecount() {
