@@ -21167,7 +21167,7 @@ Solicitado: ${cantidad}`);
       const counted = Number(row.cantidadContada);
       const deltaPosterior = product ? postCountDelta(product.producto) : 0;
       const existenciaActual = product ? Number(product.existencia || 0) : 0;
-      const existenciaEsperadaAhora = Number(((Number.isFinite(counted) ? counted : 0) + deltaPosterior).toFixed(4));
+      const existenciaEsperadaAhora = Number((Number.isFinite(counted) ? counted : 0).toFixed(4));
       const ajuste = product && Number.isFinite(counted) ? Number((existenciaEsperadaAhora - existenciaActual).toFixed(4)) : 0;
       return Object.assign({}, row, { product, deltaPosterior, existenciaActual, existenciaEsperadaAhora, ajuste });
     });
@@ -21301,6 +21301,7 @@ Solicitado: ${cantidad}`);
       /* @__PURE__ */ React.createElement("datalist", { id: datalistId }, catalog.map(function(item) { return /* @__PURE__ */ React.createElement("option", { key: `${item.id}-${item.producto}`, value: item.producto }, item.codArticulo ? `${item.codArticulo} - ${item.producto}` : item.producto); })),
       /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Revision antes de aplicar"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, targetLabel)),
+        /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { margin: "12px 12px 0" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Sistema es la existencia actual. Ajuste es Conteo menos Sistema: positivo genera entrada, negativo genera salida."),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Usar"), /* @__PURE__ */ React.createElement("th", null, "Detectado"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"), /* @__PURE__ */ React.createElement("th", null, ""))),
           /* @__PURE__ */ React.createElement("tbody", null, previewRows.map(function(row) {
