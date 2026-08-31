@@ -20675,6 +20675,8 @@ Solicitado: ${cantidad}`);
     const [rows, setRows] = useState([]);
     const [error, setError] = useState("");
     const [analyzingText, setAnalyzingText] = useState(false);
+    const [reviewReady, setReviewReady] = useState(false);
+    const [viewReport, setViewReport] = useState(null);
     const catalog = useMemo(function() {
       if (target === "mise") {
         return normalizeMiseItems(miseAnPlace).map(function(item) {
@@ -20750,6 +20752,7 @@ Solicitado: ${cantidad}`);
       if (!file) return;
       setError("");
       setRows([]);
+      setReviewReady(false);
       setOcrText("");
       try {
         setPhotoName(file.name || "foto-recuento");
@@ -20803,10 +20806,11 @@ Solicitado: ${cantidad}`);
         const parsed = normalizeAiRecountRows(aiJson, catalog);
         if (!parsed.length) throw new Error("La IA no devolvio lineas claras.");
         setRows(parsed);
+        setReviewReady(false);
         setOcrText(parsed.map(function(row) {
           return `${row.productoDetectado} ${row.cantidadContada}`;
         }).join("\n"));
-        setOcrStatus(`Lectura IA completada: ${parsed.length} lineas detectadas.`);
+        setOcrStatus(`Lectura IA completada: ${parsed.length} lineas detectadas. Pulse Analizar texto para habilitar la revision final.`);
         toast(`${parsed.length} lineas detectadas con IA`, "ok");
       } catch (openAiError) {
         const openAiMessage = String(openAiError && openAiError.message || "");
@@ -20838,7 +20842,8 @@ Solicitado: ${cantidad}`);
           setOcrText(text);
           const parsed = parseRecountTextToRows(text, catalog);
           setRows(parsed);
-          setOcrStatus(parsed.length ? `Lectura OCR completada: ${parsed.length} lineas detectadas.` : "Lectura OCR completada, pero no se detectaron cantidades claras.");
+          setReviewReady(false);
+          setOcrStatus(parsed.length ? `Lectura OCR completada: ${parsed.length} lineas detectadas. Pulse Analizar texto para habilitar la revision final.` : "Lectura OCR completada, pero no se detectaron cantidades claras.");
         } catch (err) {
           setOcrStatus("");
           setError("No se pudo leer la foto automaticamente. Puedes escribir o pegar el texto del conteo y pulsar Analizar texto.");
@@ -20882,9 +20887,10 @@ Solicitado: ${cantidad}`);
     }
     function analyzeText() {
       setError("");
-      const parsed = parseRecountTextToRows(ocrText, catalog);
+      const parsed = String(ocrText || "").trim() ? parseRecountTextToRows(ocrText, catalog) : rows;
       setRows(parsed);
-      setOcrStatus(parsed.length ? `Analisis de texto completado: ${parsed.length} lineas detectadas.` : "");
+      setReviewReady(parsed.length > 0);
+      setOcrStatus(parsed.length ? `Analisis de texto completado: ${parsed.length} lineas detectadas. Verifique cuidadosamente cada uno de los articulos y su existencia antes de aplicar recuento.` : "");
       toast(parsed.length ? `${parsed.length} lineas detectadas` : "No se detectaron lineas validas", parsed.length ? "ok" : "info");
     }
     function resolveProductByValue(value) {
@@ -20912,6 +20918,7 @@ Solicitado: ${cantidad}`);
           return next;
         });
       });
+      setReviewReady(false);
     }
     function addManualRow() {
       setRows(function(prev) {
@@ -20926,6 +20933,93 @@ Solicitado: ${cantidad}`);
           selected: true
         });
       });
+      setReviewReady(false);
+    }
+    function deleteReviewRow(id) {
+      setRows(function(prev) {
+        return (Array.isArray(prev) ? prev : []).filter(function(row) {
+          return row.id !== id;
+        });
+      });
+      setReviewReady(false);
+    }
+    function getTargetSetter(targetKey) {
+      if (targetKey === "mise") return setMise;
+      return targetKey === "cuartoFrio" ? setCuartoFrioInventario : setInventario;
+    }
+    function reverseInventoryAdjustmentRows(targetKey, details, now) {
+      const setter = getTargetSetter(targetKey);
+      setter(function(prev) {
+        if (targetKey === "mise") {
+          return normalizeMiseItems((Array.isArray(prev) ? prev : []).map(function(item) {
+            const row = details.find(function(entry) {
+              return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.producto);
+            });
+            if (!row) return item;
+            const nextExistence = Number((Number(item.existencia || 0) - Number(row.ajuste || 0)).toFixed(4));
+            return Object.assign({}, item, { existencia: nextExistence, updatedAt: now });
+          }));
+        }
+        return (Array.isArray(prev) ? prev : []).map(function(item) {
+          if (!item || item.tipo !== "producto") return item;
+          const row = details.find(function(entry) {
+            return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.nombre);
+          });
+          if (!row) return item;
+          const ajuste = Number(row.ajuste || 0);
+          if (ajuste > 0) return Object.assign({}, item, { entrada: Math.max(0, Number((Number(item.entrada || 0) - ajuste).toFixed(4))), updatedAt: now });
+          if (ajuste < 0) return Object.assign({}, item, { salida: Math.max(0, Number((Number(item.salida || 0) - Math.abs(ajuste)).toFixed(4))), updatedAt: now });
+          return item;
+        });
+      });
+    }
+    function removeReportMovements(report) {
+      const movementIds = new Set((report && report.detalles || []).map(function(row) {
+        return row.movementId;
+      }).filter(Boolean));
+      if (!movementIds.size) return;
+      if (report.targetKey === "mise") {
+        setHistEntradaRapida((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !movementIds.has(row.id)));
+        setHistSalidaRapida((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !movementIds.has(row.id)));
+      } else {
+        setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !movementIds.has(row.id)));
+        setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).filter((row) => !movementIds.has(row.id)));
+      }
+    }
+    function reverseReport(report) {
+      if (!report || !Array.isArray(report.detalles)) return;
+      const now = new Date().toISOString();
+      reverseInventoryAdjustmentRows(report.targetKey || "inventario", report.detalles, now);
+      removeReportMovements(report);
+      setRegRecuento((prev) => (Array.isArray(prev) ? prev : []).filter((row) => row.id !== report.id));
+    }
+    function deleteReport(report) {
+      if (!report || !window.confirm("Eliminar este informe de recuento y revertir sus movimientos?")) return;
+      reverseReport(report);
+      setViewReport(null);
+      toast("Informe eliminado y movimientos revertidos.", "success");
+    }
+    function editReport(report) {
+      if (!report) return;
+      const nextTarget = report.targetKey || (String(report.destino || "").toLowerCase().includes("mise") ? "mise" : String(report.destino || "").toLowerCase().includes("frio") ? "cuartoFrio" : "inventario");
+      reverseReport(report);
+      setTarget(nextTarget);
+      if (report.conteoFecha) setCountedAt(getLocalDatetimeInputValue(new Date(report.conteoFecha)));
+      setRows((report.detalles || []).map(function(row) {
+        return {
+          id: `rec-edit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          raw: `${row.producto} ${row.cantidadContada}`,
+          productoDetectado: row.producto,
+          cantidadContada: row.cantidadContada,
+          producto: row.producto,
+          productId: row.productId || "",
+          score: 100,
+          selected: true
+        };
+      }));
+      setReviewReady(false);
+      setViewReport(null);
+      toast("Informe cargado para editar. Pulse Analizar texto y revise antes de aplicar.", "info");
     }
     function postCountDelta(producto) {
       if (!(countedDate instanceof Date) || isNaN(countedDate)) return 0;
@@ -20961,6 +21055,10 @@ Solicitado: ${cantidad}`);
         setError("Selecciona una fecha y hora valida del conteo.");
         return;
       }
+      if (!reviewReady) {
+        setError("Primero pulse Analizar texto. Verifique cuidadosamente cada uno de los articulos y su existencia antes de aplicar recuento.");
+        return;
+      }
       const selectedRows = previewRows.filter(function(row) {
         return row.selected && row.product && Number.isFinite(Number(row.cantidadContada));
       });
@@ -20970,23 +21068,40 @@ Solicitado: ${cantidad}`);
       }
       const now = new Date().toISOString();
       const usuario = getUserDisplayLabel(currentUser);
-      const adjustments = selectedRows.filter(function(row) {
+      const reportDetails = selectedRows.map(function(row) {
+        const ajuste = Number(row.ajuste || 0);
+        const movementId = Math.abs(ajuste) >= 1e-4 ? createMovementId(ajuste > 0 ? (target === "mise" ? "rec-ent-mise" : "rec-ent-inv") : (target === "mise" ? "rec-sal-mise" : "rec-sal-inv")) : "";
+        return {
+          productId: row.product.id,
+          producto: row.product.producto,
+          medida: row.product.medida || "Uni",
+          source: row.product.source || targetLabel,
+          cantidadContada: row.cantidadContada,
+          movimientosPosteriores: row.deltaPosterior,
+          existenciaSistemaAntes: row.existenciaActual,
+          existenciaAjustada: row.existenciaEsperadaAhora,
+          ajuste,
+          movimientoTipo: ajuste > 0 ? "entrada" : ajuste < 0 ? "salida" : "sin_cambio",
+          movementId
+        };
+      });
+      const adjustments = reportDetails.filter(function(row) {
         return Math.abs(Number(row.ajuste || 0)) >= 1e-4;
       });
       if (target === "mise") {
         setMise(function(prev) {
           return normalizeMiseItems((Array.isArray(prev) ? prev : []).map(function(item) {
             const row = adjustments.find(function(entry) {
-              return Number(entry.product.id) === Number(item.id) || normalizar(entry.product.producto) === normalizar(item.producto);
+              return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.producto);
             });
-            return row ? Object.assign({}, item, { existencia: row.existenciaEsperadaAhora, updatedAt: now }) : item;
+            return row ? Object.assign({}, item, { existencia: row.existenciaAjustada, updatedAt: now }) : item;
           }));
         });
         const entradas = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
-          return { id: createMovementId("rec-ent-mise"), fecha: now, producto: row.product.producto, cantidad: Number(row.ajuste.toFixed(4)), medida: row.product.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaActual, existenciaNueva: row.existenciaEsperadaAhora };
+          return { id: row.movementId, fecha: now, producto: row.producto, cantidad: Number(row.ajuste.toFixed(4)), medida: row.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaSistemaAntes, existenciaNueva: row.existenciaAjustada };
         });
         const salidas = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
-          return { id: createMovementId("rec-sal-mise"), fecha: now, producto: row.product.producto, cantidad: Math.abs(Number(row.ajuste.toFixed(4))), medida: row.product.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaActual, existenciaNueva: row.existenciaEsperadaAhora };
+          return { id: row.movementId, fecha: now, producto: row.producto, cantidad: Math.abs(Number(row.ajuste.toFixed(4))), medida: row.medida || "Uni", usuario, origen: "Recuento por foto", existenciaAnterior: row.existenciaSistemaAntes, existenciaNueva: row.existenciaAjustada };
         });
         if (entradas.length) setHistEntradaRapida((prev) => (Array.isArray(prev) ? prev : []).concat(entradas));
         if (salidas.length) setHistSalidaRapida((prev) => (Array.isArray(prev) ? prev : []).concat(salidas));
@@ -20996,17 +21111,17 @@ Solicitado: ${cantidad}`);
           return (Array.isArray(prev) ? prev : []).map(function(item) {
             if (!item || item.tipo !== "producto") return item;
             const row = adjustments.find(function(entry) {
-              return Number(entry.product.id) === Number(item.id) || normalizar(entry.product.producto) === normalizar(item.nombre);
+              return String(entry.productId || "") === String(item.id) || normalizar(entry.producto) === normalizar(item.nombre);
             });
             if (!row) return item;
-            return row.ajuste > 0 ? Object.assign({}, item, { entrada: Number((Number(item.entrada || 0) + row.ajuste).toFixed(4)) }) : Object.assign({}, item, { salida: Number((Number(item.salida || 0) + Math.abs(row.ajuste)).toFixed(4)) });
+            return row.ajuste > 0 ? Object.assign({}, item, { entrada: Number((Number(item.entrada || 0) + row.ajuste).toFixed(4)), updatedAt: now }) : Object.assign({}, item, { salida: Number((Number(item.salida || 0) + Math.abs(row.ajuste)).toFixed(4)), updatedAt: now });
           });
         });
         const entradaRegs = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
-          return { fecha: now, producto: row.product.producto, medida: row.product.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.product.source}`, conteoFecha: countedAt };
+          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
         });
         const salidaRegs = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
-          return { fecha: now, producto: row.product.producto, medida: row.product.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.product.source}`, conteoFecha: countedAt };
+          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
         });
         if (entradaRegs.length) setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).concat(entradaRegs));
         if (salidaRegs.length) setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).concat(salidaRegs));
@@ -21016,25 +21131,18 @@ Solicitado: ${cantidad}`);
         fecha: now,
         conteoFecha: new Date(countedAt).toISOString(),
         modulo: moduleLabel,
+        targetKey: target,
         destino: target === "mise" ? `Mise an Place ${moduleLabel}` : target === "cuartoFrio" ? `Cuarto Frio ${moduleLabel}` : `Inventario ${moduleLabel}`,
         foto: photoName,
         usuario,
         totalLineas: rows.length,
         aplicadas: selectedRows.length,
         ajustes: adjustments.length,
-        detalles: selectedRows.map(function(row) {
-          return {
-            producto: row.product.producto,
-            medida: row.product.medida || "Uni",
-            cantidadContada: row.cantidadContada,
-            movimientosPosteriores: row.deltaPosterior,
-            existenciaSistemaAntes: row.existenciaActual,
-            existenciaAjustada: row.existenciaEsperadaAhora,
-            ajuste: row.ajuste
-          };
-        })
+        detalles: reportDetails
       };
       setRegRecuento((prev) => (Array.isArray(prev) ? prev : []).concat([report]));
+      setRows([]);
+      setReviewReady(false);
       toast(`Recuento aplicado: ${adjustments.length} ajustes`, "ok");
     }
     const targetLabel = target === "mise" ? `Mise an Place ${moduleLabel}` : target === "cuartoFrio" ? `Cuarto Frio ${moduleLabel}` : `Inventario ${moduleLabel}`;
@@ -21047,8 +21155,8 @@ Solicitado: ${cantidad}`);
         /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 14 } },
           error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error),
           /* @__PURE__ */ React.createElement("div", { className: "grid-3" },
-            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Area del conteo"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: target, onChange: (e) => { setTarget(e.target.value); setRows([]); } }, /* @__PURE__ */ React.createElement("option", { value: "inventario" }, `Inventario ${moduleLabel}`), /* @__PURE__ */ React.createElement("option", { value: "cuartoFrio" }, `Cuarto Frio ${moduleLabel}`), /* @__PURE__ */ React.createElement("option", { value: "mise" }, `Mise an Place ${moduleLabel}`))),
-            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha y hora del conteo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "datetime-local", value: countedAt, onChange: (e) => setCountedAt(e.target.value) })),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Area del conteo"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: target, onChange: (e) => { setTarget(e.target.value); setRows([]); setReviewReady(false); } }, /* @__PURE__ */ React.createElement("option", { value: "inventario" }, `Inventario ${moduleLabel}`), /* @__PURE__ */ React.createElement("option", { value: "cuartoFrio" }, `Cuarto Frio ${moduleLabel}`), /* @__PURE__ */ React.createElement("option", { value: "mise" }, `Mise an Place ${moduleLabel}`))),
+            /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Fecha y hora del conteo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "datetime-local", value: countedAt, onChange: (e) => { setCountedAt(e.target.value); setReviewReady(false); } })),
             /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Foto de la hoja"), /* @__PURE__ */ React.createElement("label", { className: "btn btn-outline", style: { cursor: "pointer", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-image" }), photoName || "Seleccionar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", onChange: onPhotoChange, style: { display: "none" } })))
           ),
           photoPreview && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px, 260px) 1fr", gap: 12, alignItems: "start" } },
@@ -21058,11 +21166,13 @@ Solicitado: ${cantidad}`);
               ocrStatus && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), ocrStatus)
             )
           ),
-          /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Texto detectado o transcrito"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 5, value: ocrText, onChange: (e) => setOcrText(e.target.value), placeholder: "Ejemplo: PECHUGA PLANCHA 25\nALITAS 18\nSALSA ROSA 7" })),
+          /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Texto detectado o transcrito"), /* @__PURE__ */ React.createElement("textarea", { className: "form-control", rows: 5, value: ocrText, onChange: (e) => { setOcrText(e.target.value); setReviewReady(false); }, placeholder: "Ejemplo: PECHUGA PLANCHA 25\nALITAS 18\nSALSA ROSA 7" })),
+          reviewReady && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Verifique cuidadosamente cada uno de los articulos y su existencia antes de aplicar recuento."),
+          previewRows.length > 0 && !reviewReady && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Pulse Analizar texto para actualizar Sistema, Mov. despues y Ajuste antes de aplicar."),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: analyzeText }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-wand-magic-sparkles" }), "Analizar texto"),
             /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: addManualRow }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar linea manual"),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: applyRecount, disabled: !previewRows.length }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Aplicar recuento")
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: applyRecount, disabled: !previewRows.length || !reviewReady, title: reviewReady ? "Aplicar recuento revisado" : "Primero pulse Analizar texto" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Aplicar recuento")
           )
         )
       ),
@@ -21070,21 +21180,44 @@ Solicitado: ${cantidad}`);
       /* @__PURE__ */ React.createElement("div", { className: "card", style: { marginBottom: 14 } },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Revision antes de aplicar"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, targetLabel)),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Usar"), /* @__PURE__ */ React.createElement("th", null, "Detectado"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Usar"), /* @__PURE__ */ React.createElement("th", null, "Detectado"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"), /* @__PURE__ */ React.createElement("th", null, ""))),
           /* @__PURE__ */ React.createElement("tbody", null, previewRows.map(function(row) {
             const ajusteClass = row.ajuste > 0 ? "pill pill-verde" : row.ajuste < 0 ? "pill pill-rojo" : "pill pill-gris";
-            return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(row.selected), onChange: (e) => updateRow(row.id, { selected: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.productoDetectado || row.raw || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: row.producto || "", onChange: (e) => updateRow(row.id, { producto: e.target.value }), placeholder: "Seleccionar producto" }), row.score ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Coincidencia IA: ", row.score, "%") : null), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: Number.isFinite(Number(row.cantidadContada)) ? row.cantidadContada : "", onChange: (e) => updateRow(row.id, { cantidadContada: e.target.value }) })), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.existenciaActual) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.deltaPosterior) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, row.ajuste > 0 ? "+" : "", formatMiseQty(row.ajuste)) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin vinculo")));
-          }), !previewRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, "Sube una foto, lee con IA o agrega lineas manuales.")))
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(row.selected), onChange: (e) => updateRow(row.id, { selected: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.productoDetectado || row.raw || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: row.producto || "", onChange: (e) => updateRow(row.id, { producto: e.target.value }), placeholder: "Seleccionar producto" }), row.score ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Coincidencia IA: ", row.score, "%") : null), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: Number.isFinite(Number(row.cantidadContada)) ? row.cantidadContada : "", onChange: (e) => updateRow(row.id, { cantidadContada: e.target.value }) })), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.existenciaActual) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.deltaPosterior) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, row.ajuste > 0 ? "+" : "", formatMiseQty(row.ajuste)) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin vinculo")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar linea", onClick: () => deleteReviewRow(row.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
+          }), !previewRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "8", style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, "Sube una foto, lee con IA o agrega lineas manuales.")))
         ))
       ),
       /* @__PURE__ */ React.createElement("div", { className: "card" },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Informes de recuento"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, (Array.isArray(regRecuento) ? regRecuento : []).length, " registros")),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Aplicado"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Area"), /* @__PURE__ */ React.createElement("th", null, "Lineas"), /* @__PURE__ */ React.createElement("th", null, "Ajustes"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Aplicado"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Area"), /* @__PURE__ */ React.createElement("th", null, "Lineas"), /* @__PURE__ */ React.createElement("th", null, "Ajustes"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))),
           /* @__PURE__ */ React.createElement("tbody", null, [...(Array.isArray(regRecuento) ? regRecuento : [])].reverse().slice(0, 30).map(function(row) {
-            return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.fecha }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.conteoFecha)), /* @__PURE__ */ React.createElement("td", null, row.destino), /* @__PURE__ */ React.createElement("td", null, row.aplicadas || 0), /* @__PURE__ */ React.createElement("td", null, row.ajustes || 0), /* @__PURE__ */ React.createElement("td", null, row.usuario || "-"));
-          }), !(Array.isArray(regRecuento) && regRecuento.length) && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Sin informes de recuento.")))
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.fecha }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.conteoFecha)), /* @__PURE__ */ React.createElement("td", null, row.destino), /* @__PURE__ */ React.createElement("td", null, row.aplicadas || 0), /* @__PURE__ */ React.createElement("td", null, row.ajustes || 0), /* @__PURE__ */ React.createElement("td", null, row.usuario || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Ver movimientos", onClick: () => setViewReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul btn-icon", title: "Editar informe", onClick: () => editReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar y revertir", onClick: () => deleteReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+          }), !(Array.isArray(regRecuento) && regRecuento.length) && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Sin informes de recuento.")))
         ))
+      ),
+      viewReport && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay", onClick: (e) => { if (e.target === e.currentTarget) setViewReport(null); } },
+        /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 980 } },
+          /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+            /* @__PURE__ */ React.createElement("h3", null, "Movimientos del recuento"),
+            /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", onClick: () => setViewReport(null), title: "Cerrar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
+            /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), viewReport.destino || targetLabel, " · Conteo: ", formatDatetime(viewReport.conteoFecha), " · Aplicado: ", formatDatetime(viewReport.fecha)),
+            /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema antes"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Existencia final"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"))),
+              /* @__PURE__ */ React.createElement("tbody", null, (Array.isArray(viewReport.detalles) ? viewReport.detalles : []).map(function(row, index) {
+                const ajuste = Number(row.ajuste || 0);
+                const ajusteClass = ajuste > 0 ? "pill pill-verde" : ajuste < 0 ? "pill pill-rojo" : "pill pill-gris";
+                return /* @__PURE__ */ React.createElement("tr", { key: row.movementId || `${row.producto}-${index}` }, /* @__PURE__ */ React.createElement("td", null, row.producto), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.cantidadContada), " ", row.medida || ""), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaSistemaAntes)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.movimientosPosteriores)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaAjustada)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, ajuste > 0 ? "+" : "", formatMiseQty(ajuste))));
+              }))
+            )),
+            /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => editReport(viewReport) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"),
+              /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => deleteReport(viewReport) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar y revertir")
+            )
+          )
+        )
       )
     );
   }
