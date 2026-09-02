@@ -5,8 +5,21 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    match /wtfSistema/estadoGeneral/stateShards/{shardId} {
+    function icgEmergencyPauseActive() {
+      return exists(/databases/$(database)/documents/wtfSistema/icgControl)
+        && get(/databases/$(database)/documents/wtfSistema/icgControl).data.inventoryImpactPaused == true;
+    }
+
+    match /wtfSistema/icgControl {
       allow read, write: if true;
+    }
+
+    match /wtfSistema/estadoGeneral/stateShards/{shardId} {
+      allow read: if true;
+      allow write: if shardId != 'icgFrontRestData'
+        || !icgEmergencyPauseActive()
+        || !exists(/databases/$(database)/documents/wtfSistema/estadoGeneral/stateShards/$(shardId))
+        || request.resource.data.appStateCompressed == resource.data.appStateCompressed;
     }
 
     match /pwaPushSubscriptions/{subscriptionId} {

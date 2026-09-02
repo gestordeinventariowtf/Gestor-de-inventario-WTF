@@ -245,6 +245,10 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
   };
   appState.icgFrontRestData.appliedImports = Array.isArray(appState.icgFrontRestData.appliedImports) ? appState.icgFrontRestData.appliedImports : [];
   appState.icgFrontRestData.processedBackupDates = Array.isArray(appState.icgFrontRestData.processedBackupDates) ? appState.icgFrontRestData.processedBackupDates : [];
+  appState.icgFrontRestData.inventoryImpactPaused = Boolean(appState.icgFrontRestData.inventoryImpactPaused);
+  appState.icgFrontRestData.icgHostDiscountsPaused = Boolean(appState.icgFrontRestData.icgHostDiscountsPaused);
+  appState.icgFrontRestData.inventoryImpactPauseReason = appState.icgFrontRestData.inventoryImpactPauseReason || "";
+  appState.icgFrontRestData.inventoryImpactPausedAt = appState.icgFrontRestData.inventoryImpactPausedAt || "";
   return appState.icgFrontRestData;
 }
 
@@ -750,6 +754,18 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   };
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
+  if (icg.inventoryImpactPaused || icg.icgHostDiscountsPaused) {
+    result.ok = true;
+    result.skipped = rowsToApply.length;
+    result.pending = rowsToApply.length;
+    result.message = icg.inventoryImpactPauseReason || "Descuentos ICG pausados por auditoria. No se aplicaron salidas automaticas.";
+    result.movements = rowsToApply.slice(0, 300).map((line) => {
+      const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
+      const importKey = quickHashText(["icg-paused", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+      return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
+    });
+    return result;
+  }
   mergeBackupArticlesIntoIcgData(icg, articles);
   mergeBackupSalePricesIntoIcgData(icg, salePrices);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
