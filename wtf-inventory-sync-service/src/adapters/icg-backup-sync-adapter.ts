@@ -763,6 +763,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const appliedKeys = new Set((icg.appliedImports || []).map(String));
   const consumoRows: AnyRecord[] = icg.datasets.ConsumoMiseVentas.rows || [];
   const existingConsumptionKeys = new Set(consumoRows.map((row) => String(row.ImportKey || "")));
+  const appliedConsumptionKeys = new Set(
+    consumoRows
+      .filter((row) => ["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || "")))
+      .map((row) => String(row.ImportKey || ""))
+      .filter(Boolean)
+  );
+  appliedConsumptionKeys.forEach((key) => appliedKeys.add(key));
   const legacyAppliedRemaining = new Map<string, number>();
   consumoRows.forEach((row) => {
     const hasLineIdentity = Boolean(row.FechaHora || row.TicketICG || row.NumLinea);
@@ -796,7 +803,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       return linkCode && normalizar(line.codArticulo) === linkCode || linkRef && normalizar(line.referencia) === linkRef;
     });
     const pendingImportKey = quickHashText(["icg-bak", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
-    if (!matchedLinks.length && appliedKeys.has(pendingImportKey)) {
+    if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey))) {
       result.skipped += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
       continue;
@@ -831,7 +838,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const cantidad = Number((Math.abs(line.consumo) * qtyFactor).toFixed(4));
       const legacyKey = [normalizar(fecha), normalizar(line.codArticulo), normalizar(line.referencia), normalizar(line.codAlmacen), target, normalizar(producto)].join("|");
       const legacyRemaining = legacyAppliedRemaining.get(legacyKey) || 0;
-      if (appliedKeys.has(importKey) || legacyRemaining + 1e-9 >= cantidad) {
+      if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
         result.skipped += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente.", producto));

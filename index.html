@@ -10498,15 +10498,13 @@
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
-        const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
-        const mergedSignature = serializeAppState(mergedState);
         lastRemoteSignatureRef.current = remoteSignature;
-        applyRemoteState(mergedState);
-        if (mergedSignature !== remoteSignature) {
-          scheduleFirebaseWrite(mergedState, mergedSignature, 350, `${reason || "foreground"}-protected-merge`);
-        }
+        pendingLocalSignatureRef.current = "";
+        pendingLocalAtRef.current = 0;
+        hasSessionLocalChangeRef.current = false;
+        applyRemoteState(remoteState);
         setFirebaseStatus("connected");
-        setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano con proteccion" : "Sincronizado al volver con proteccion");
+        setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano desde Firebase" : "Sincronizado al volver desde Firebase");
         if (data && data.updatedAt) {
           const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
           setLastSyncedAt(formatDatetime(date));
@@ -10857,11 +10855,9 @@
           const remoteState = await decodeFirebaseAppState(data, docRef);
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
-              const migratedRemoteState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
-              const migratedState = mergeRemoteAppStateWithLocal(migratedRemoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
-              migratedState.dataVersion = DATA_VERSION;
+              const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
               applyRemoteState(migratedState);
-              const migrationDoc = createFirebaseWriteDoc(migratedState, "web-migration-cloud-first");
+              const migrationDoc = createFirebaseWriteDoc(migratedState, "web-migration-cloud-authoritative");
               lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
               await writeFirebaseAppStateDoc(docRef, migrationDoc);
@@ -10903,31 +10899,19 @@
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
-              if (hasCurrentSessionLocalChange) {
-                const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
-                const mergedSignature = serializeAppState(mergedState);
-                applyRemoteState(mergedState);
-                if (mergedSignature !== remoteSignature) {
-                  scheduleFirebaseWrite(mergedState, mergedSignature, 500, "web-client-merge");
-                }
-              } else {
-                const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState(), { includeLocalDeletedKeys: true, includeLocalProductionHolds: true });
-                const mergedSignature = serializeAppState(mergedState);
-                pendingLocalSignatureRef.current = "";
-                pendingLocalAtRef.current = 0;
-                hasSessionLocalChangeRef.current = false;
-                applyRemoteState(mergedState);
-                if (mergedSignature !== remoteSignature) {
-                  scheduleFirebaseWrite(mergedState, mergedSignature, 500, "web-client-cloud-local-merge");
-                }
-              }
+              pendingLocalSignatureRef.current = "";
+              pendingLocalAtRef.current = 0;
+              hasSessionLocalChangeRef.current = false;
+              applyRemoteState(remoteState);
               setFirebaseMessage("Sincronizado en tiempo real");
             } else {
-              const mergedState = mergeRemoteAppStateWithLocal(remoteState, getCurrentAppState());
-              const mergedSignature = serializeAppState(mergedState);
-              applyRemoteState(mergedState);
-              scheduleFirebaseWrite(mergedState, mergedSignature, 350, "web-client-pending-merge");
-              setFirebaseMessage("Guardando cambios locales...");
+              acceptRemoteSyncRevision(remoteRevision);
+              lastRemoteSignatureRef.current = remoteSignature;
+              pendingLocalSignatureRef.current = "";
+              pendingLocalAtRef.current = 0;
+              hasSessionLocalChangeRef.current = false;
+              applyRemoteState(remoteState);
+              setFirebaseMessage("Sincronizado desde Firebase");
             }
             return;
           }
