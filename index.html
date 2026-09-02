@@ -2396,10 +2396,13 @@
     Oz: "Onza",
     G: "Gramo",
     Kg: "Kilogramos",
-    Serv: "Servicio"
+    Serv: "Servicio",
+    Funda: "Funda",
+    Paq: "Paquete",
+    Caja: "Caja"
   };
   const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G", "Kg", "Serv"];
-  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Fundas", "Serv"];
+  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Serv"];
   const PACKAGE_OUTER_UNITS = ["Paq", "Caja", "Funda", "Fundas", "Uni"];
   function getUnitTitle(unit) {
     return `${unit}: ${UNIT_LABELS[unit] || unit}`;
@@ -2651,21 +2654,21 @@
       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, title),
       /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
         /* @__PURE__ */ React.createElement("select", { className: "form-control", value: packageUnit, onChange: (e) => setData((p) => ({ ...p, unidadEmpaque: e.target.value })) },
-          PACKAGE_OUTER_UNITS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))
+          PACKAGE_OUTER_UNITS.map(renderUnitOption)
         ),
         /* @__PURE__ */ React.createElement("div", { className: "pill pill-gris", style: { display: "inline-flex", alignItems: "center", minHeight: 36, fontSize: 12 } }, "Stock en ", unit)
       ),
       /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { marginTop: 8 } },
         /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: data.unidadesPorEmpaque || "", onChange: (e) => setData((p) => ({ ...p, unidadesPorEmpaque: e.target.value })), placeholder: `Cantidad dentro de 1 ${packageUnit}` }),
         /* @__PURE__ */ React.createElement("select", { className: "form-control", value: internalUnit, onChange: (e) => setData((p) => ({ ...p, unidadInternaEmpaque: e.target.value })) },
-          PACKAGE_INTERNAL_UNITS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))
+          PACKAGE_INTERNAL_UNITS.map(renderUnitOption)
         )
       ),
       /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { marginTop: 8 } },
         /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: innerQty, onChange: (e) => setData((p) => ({ ...p, cantidadPorUnidadInterna: e.target.value })), placeholder: `Opcional: cantidad dentro de 1 ${internalUnit}` }),
         /* @__PURE__ */ React.createElement("select", { className: "form-control", value: innerUnit, onChange: (e) => setData((p) => ({ ...p, unidadPorUnidadInterna: e.target.value })) },
           /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin segundo nivel"),
-          PACKAGE_INTERNAL_UNITS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option))
+          PACKAGE_INTERNAL_UNITS.map(renderUnitOption)
         )
       ),
       /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, fontSize: 11, color: "#92400e", fontWeight: 700 } }, `Ejemplo: 1 ${packageUnit} trae ${data.unidadesPorEmpaque || "?"} ${internalUnit}${innerQty && innerUnit ? ` · 1 ${internalUnit} trae ${innerQty} ${innerUnit}` : ""}.`)
@@ -20141,7 +20144,7 @@ Solicitado: ${cantidad}`);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
     const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
-    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
+    const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "Kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("Kg")] });
     const [newSep, setNewSep] = useState("");
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
@@ -20320,7 +20323,7 @@ Solicitado: ${cantidad}`);
           return Object.assign({}, prev, {
             codArticulo: String(prev.codArticulo || "").trim() || suggestedCodArticulo,
             nombre: pending.nombre || "",
-            medida: pending.medida || prev.medida || "kg",
+            medida: normalizeProductionUnitLabel(pending.medida || prev.medida || "Kg"),
             suplidor: pending.suplidor || "",
             stockLunesJueves: Number(pending.stockLunesJueves || 0),
             stockViernesDomingo: Number(pending.stockViernesDomingo || 0)
@@ -20340,10 +20343,11 @@ Solicitado: ${cantidad}`);
         return;
       }
       rememberInventoryCodArticulo(codArticulo);
-      const cleanIcgLinks = cleanIcgLinkRows(editData.icgLinks, icgArticleRows, editData.medida || "kg");
+      const cleanIcgLinks = cleanIcgLinkRows(editData.icgLinks, icgArticleRows, normalizeProductionUnitLabel(editData.medida || "Kg"));
       const payload = {
         ...editData,
         codArticulo,
+        medida: normalizeProductionUnitLabel(editData.medida || "Kg"),
         miseProducto: hasMiseLinkOptions ? linkedMise ? linkedMise.producto : String(editData.miseProducto || "").trim() : "",
         miseProductoId: hasMiseLinkOptions && linkedMise ? linkedMise.id : null,
         miseCodArticulo: hasMiseLinkOptions && linkedMise ? getMiseCodArticulo(linkedMise, 0) : "",
@@ -20352,7 +20356,7 @@ Solicitado: ${cantidad}`);
       };
       delete payload.originalNombre;
       setInventario((p) => p.map((r) => r.id === editingId ? { ...r, ...payload } : r));
-      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, payload.nombre, cleanIcgLinks, icgArticleRows, payload.medida || "kg", `Seleccion manual desde ${pageLabel}`, editData.originalNombre);
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, payload.nombre, cleanIcgLinks, icgArticleRows, payload.medida || "Kg", `Seleccion manual desde ${pageLabel}`, editData.originalNombre);
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `${pageLabel} ${moduleLabel}`,
@@ -20450,13 +20454,13 @@ Solicitado: ${cantidad}`);
         return;
       }
       rememberInventoryCodArticulo(codArticulo);
-      const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, newProd.medida || "kg");
+      const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, normalizeProductionUnitLabel(newProd.medida || "Kg"));
       setInventario((prev) => {
         const next = [...prev];
         const separatorIndex = next.findIndex((row) => row.id === targetSeparatorId && row.tipo === "separador");
         const linkedMise = hasMiseLinkOptions ? findMiseForInventoryProduct(newProd, miseAnPlace) : null;
         const now = new Date().toISOString();
-        const newRow = { ...newProd, separadorId: void 0, codArticulo, id: nextId(), tipo: "producto", createdAt: now, updatedAt: now, entrada: 0, salida: 0, decomiso: 0, miseProducto: hasMiseLinkOptions ? linkedMise ? linkedMise.producto : String(newProd.miseProducto || "").trim() : "", miseProductoId: hasMiseLinkOptions && linkedMise ? linkedMise.id : null, miseCodArticulo: hasMiseLinkOptions && linkedMise ? getMiseCodArticulo(linkedMise, 0) : "", icgLinks: cleanIcgLinks };
+        const newRow = { ...newProd, separadorId: void 0, codArticulo, id: nextId(), tipo: "producto", createdAt: now, updatedAt: now, medida: normalizeProductionUnitLabel(newProd.medida || "Kg"), entrada: 0, salida: 0, decomiso: 0, miseProducto: hasMiseLinkOptions ? linkedMise ? linkedMise.producto : String(newProd.miseProducto || "").trim() : "", miseProductoId: hasMiseLinkOptions && linkedMise ? linkedMise.id : null, miseCodArticulo: hasMiseLinkOptions && linkedMise ? getMiseCodArticulo(linkedMise, 0) : "", icgLinks: cleanIcgLinks };
         if (separatorIndex === -1) {
           next.push(newRow);
           return next;
@@ -20466,7 +20470,7 @@ Solicitado: ${cantidad}`);
         next.splice(insertIndex, 0, newRow);
         return next;
       });
-      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, newProd.medida || "kg", `Seleccion manual desde ${pageLabel}`);
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, normalizeProductionUnitLabel(newProd.medida || "Kg"), `Seleccion manual desde ${pageLabel}`);
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `${pageLabel} ${moduleLabel}`,
@@ -20475,7 +20479,7 @@ Solicitado: ${cantidad}`);
           detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
         }, currentUser);
       }
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("kg")] });
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "Kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("Kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -20573,7 +20577,7 @@ Solicitado: ${cantidad}`);
       const linkedMise = stockStatus.mise;
       const isVisibleProduct = isInventoryProductVisible(r);
       if (editingId === r.id) {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.medida || "", onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", hasMiseLinkOptions && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: editData.autoTransferirAMise ? "var(--verde)" : "var(--gris)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editData.autoTransferirAMise === true, onChange: (e) => setEditData((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente"), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra por unidad o libra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => syncCostFromUnitCost(p, e.target.value)), placeholder: "Ej: 52.08" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo por paquetes o cajas"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompraPaquete || "", onChange: (e) => setEditData((p) => syncCostFromPackageCost(p, e.target.value)), placeholder: "Ej: 625.00" }))), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: editData.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, style: { background: "#fffbeb" } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, minWidth: 105 } }, /* @__PURE__ */ React.createElement("input", { className: `form-control ${editCodUsage ? "error" : ""}`, value: editData.codArticulo || "", onChange: (e) => setEditData((p) => ({ ...p, codArticulo: e.target.value })), placeholder: suggestedCodArticulo, style: { width: 105 } }), editCodUsage && /* @__PURE__ */ React.createElement("div", { style: { color: "var(--rojo)", fontSize: 11, fontWeight: 700 } }, formatCodArticuloUsage(editCodUsage)))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, minWidth: 180 } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.nombre || "", onChange: (e) => setEditData((p) => ({ ...p, nombre: e.target.value })), style: { minWidth: 110 } }), hasMiseLinkOptions && /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "inventory-mise-link-list", value: editData.miseProducto || "", onChange: (e) => setEditData((p) => ({ ...p, miseProducto: e.target.value })), placeholder: "Producto Mise relacionado", style: { minWidth: 110 } }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("select", { className: "form-control", value: normalizeProductionUnitLabel(editData.medida || "Kg"), onChange: (e) => setEditData((p) => ({ ...p, medida: e.target.value })), style: { width: 78 } }, PRODUCTION_UNITS.map(renderUnitOption))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editData.suplidor || "", onChange: (e) => setEditData((p) => ({ ...p, suplidor: e.target.value })), style: { minWidth: 90 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockLunesJueves || 0, onChange: (e) => setEditData((p) => ({ ...p, stockLunesJueves: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", value: editData.stockViernesDomingo || 0, onChange: (e) => setEditData((p) => ({ ...p, stockViernesDomingo: parseFloat(e.target.value) || 0 })), style: { width: 60 } })), /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "col-div-left", style: { color: "var(--gris)", fontSize: 11, minWidth: 520 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, hasMiseLinkOptions ? "El vinculo Mise evita compras urgentes si la produccion ya cubre la necesidad." : "Este modulo no tiene Mise an Place propio vinculado.", hasMiseLinkOptions && /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: editData.autoTransferirAMise ? "var(--verde)" : "var(--gris)" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: editData.autoTransferirAMise === true, onChange: (e) => setEditData((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente"), /* @__PURE__ */ React.createElement("div", { className: "grid-2" }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo de compra por unidad o libra"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompra || "", onChange: (e) => setEditData((p) => syncCostFromUnitCost(p, e.target.value)), placeholder: "Ej: 52.08" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Costo por paquetes o cajas"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.01", value: editData.costoCompraPaquete || "", onChange: (e) => setEditData((p) => syncCostFromPackageCost(p, e.target.value)), placeholder: "Ej: 625.00" }))), renderPackageContentFields(editData, setEditData, editData.medida), renderIcgLinksEditor({ idPrefix: `inventory-edit-${sourceKey}-${r.id}`, links: editData.icgLinks, setLinks: setEditDataIcgLinks, icgArticles: icgArticleRows, defaultUnit: normalizeProductionUnitLabel(editData.medida || "Kg"), icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-verde", onClick: saveEdit, disabled: Boolean(editCodUsage), title: editCodUsage ? formatCodArticuloUsage(editCodUsage) : "Guardar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris", onClick: () => setEditingId(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))));
       }
       const baseRowClass = !isVisibleProduct ? "tr-inactive-product" : stockStatus.coveredByMise ? "tr-covered-mise" : stockStatus.urgent && exist <= 0 ? "tr-out-stock" : "";
       const rowClass = `${baseRowClass} ${Number(focusedSearchResultId) === Number(r.id) ? "tr-search-target" : ""}`.trim();
@@ -20612,11 +20616,13 @@ Solicitado: ${cantidad}`);
             /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4, fontSize: 11, color: "var(--gris)" } }, "Si este producto existe en Mise, el sistema evitará marcarlo como compra urgente cuando haya existencia suficiente."),
             /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800, color: newProd.autoTransferirAMise ? "var(--verde)" : "var(--gris)", marginTop: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: newProd.autoTransferirAMise === true, onChange: (e) => setNewProd((p) => ({ ...p, autoTransferirAMise: e.target.checked })) }), "Transferible al Mise An Place Automaticamente")
           ),
-          renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: newProd.medida || "kg", icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }),
+          renderIcgLinksEditor({ idPrefix: `inventory-add-${sourceKey}`, links: newProd.icgLinks, setLinks: setNewProdIcgLinks, icgArticles: icgArticleRows, defaultUnit: normalizeProductionUnitLabel(newProd.medida || "Kg"), icgLinkGroups: ensureIcgFrontRestData(icgFrontRestData).icgLinkGroups, setIcgFrontRestData, toast }),
           /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Medida"),
-              /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newProd.medida, onChange: (e) => setNewProd((p) => ({ ...p, medida: e.target.value })), placeholder: "kg, lb, lt..." })
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: normalizeProductionUnitLabel(newProd.medida || "Kg"), onChange: (e) => setNewProd((p) => ({ ...p, medida: e.target.value })) },
+                PRODUCTION_UNITS.map(renderUnitOption)
+              )
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group" },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Suplidor"),
