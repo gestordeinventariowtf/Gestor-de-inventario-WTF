@@ -2,7 +2,8 @@ param(
   [string]$OutputDir = ".\release",
   [string]$PackageName = "WTF-ICG-Host-Setup",
   [switch]$BuildSelfExtractingExe,
-  [switch]$SkipHostExe
+  [switch]$SkipHostExe,
+  [switch]$SkipNpmInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -132,7 +133,9 @@ class WtfIcgHostSetup {
 }
 
 Set-Location $Root
-npm.cmd install
+if (!$SkipNpmInstall) {
+  npm.cmd install
+}
 npm.cmd run build
 if ($SkipHostExe) {
   $appOutput = Join-Path $Release "app"
@@ -172,11 +175,18 @@ if (Test-Path $appSource) {
   Copy-Item -LiteralPath $appSource -Destination (Join-Path $Payload "app") -Recurse -Force
 }
 
-$dotenvSource = Join-Path $Root "node_modules\dotenv"
-$dotenvTarget = Join-Path $Payload "node_modules\dotenv"
-if (Test-Path $dotenvSource) {
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dotenvTarget) | Out-Null
-  Copy-Item -LiteralPath $dotenvSource -Destination $dotenvTarget -Recurse -Force
+$packageJson = Get-Content -LiteralPath (Join-Path $Root "package.json") -Raw | ConvertFrom-Json
+$runtimeDependencies = @()
+if ($packageJson.dependencies) {
+  $runtimeDependencies = @($packageJson.dependencies.PSObject.Properties.Name)
+}
+foreach ($dependency in $runtimeDependencies) {
+  $dependencySource = Join-Path $Root "node_modules\$dependency"
+  $dependencyTarget = Join-Path $Payload "node_modules\$dependency"
+  if (Test-Path $dependencySource) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dependencyTarget) | Out-Null
+    Copy-Item -LiteralPath $dependencySource -Destination $dependencyTarget -Recurse -Force
+  }
 }
 
 $SetupCmd = Join-Path $Payload "INSTALAR-WTF-ICG-HOST.cmd"
