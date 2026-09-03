@@ -1,7 +1,8 @@
 param(
   [string]$OutputDir = ".\release",
   [string]$PackageName = "WTF-ICG-Host-Setup",
-  [switch]$BuildSelfExtractingExe
+  [switch]$BuildSelfExtractingExe,
+  [switch]$SkipHostExe
 )
 
 $ErrorActionPreference = "Stop"
@@ -133,8 +134,15 @@ class WtfIcgHostSetup {
 Set-Location $Root
 npm.cmd install
 npm.cmd run build
-npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
-Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
+if ($SkipHostExe) {
+  $appOutput = Join-Path $Release "app"
+  if (Test-Path $appOutput) {
+    Remove-Item -LiteralPath $appOutput -Recurse -Force
+  }
+} else {
+  npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
+  Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
+}
 
 if (Test-Path $Payload) {
   Remove-Item -LiteralPath $Payload -Recurse -Force
