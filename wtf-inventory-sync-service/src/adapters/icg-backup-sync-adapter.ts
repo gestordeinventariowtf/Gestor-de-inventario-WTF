@@ -831,7 +831,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const existingConsumptionKeys = new Set(consumoRows.map((row) => String(row.ImportKey || "")));
   const appliedConsumptionKeys = new Set(
     consumoRows.flatMap((row) => {
-      if (!["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || ""))) return [];
+      if (!["aplicado", "decomiso aplicado", "sin existencia", "stock insuficiente", "obviado sin existencia"].includes(normalizar(row.Estado || ""))) return [];
       return [row.ImportKey, row.LegacyImportKey].map((key) => String(key || "")).filter(Boolean);
     })
   );
@@ -1006,13 +1006,15 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       }
       if (existenciaAnterior + 1e-9 < cantidad) {
         const deficit = Number((cantidad - existenciaAnterior).toFixed(4));
-        const message = `${targetProductName(item, target)} no tiene existencia suficiente para descuento ICG. Disponible: ${Number(existenciaAnterior.toFixed(4))} ${item.medida || consumoRow.Unidad || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${consumoRow.Unidad || item.medida || ""}. Faltante: ${deficit}.`;
-        consumoRow.Estado = "Stock insuficiente";
+        const message = `${targetProductName(item, target)} no tiene existencia suficiente para descuento ICG. Disponible: ${Number(existenciaAnterior.toFixed(4))} ${item.medida || consumoRow.Unidad || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${consumoRow.Unidad || item.medida || ""}. Faltante: ${deficit}. Venta obviada; no se reintentara con entradas futuras.`;
+        consumoRow.Estado = "Obviado sin existencia";
         consumoRow.ExistenciaActual = existenciaAnterior;
         consumoRow.ExistenciaNueva = existenciaAnterior;
         consumoRow.MotivoRevision = message;
-        result.pending += 1;
-        result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", message, targetProductName(item, target), cantidad, consumoRow.Unidad));
+        appliedKeys.add(importKey);
+        appliedKeys.add(legacyImportKey);
+        result.skipped += 1;
+        result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", message, targetProductName(item, target), cantidad, consumoRow.Unidad));
         rememberConsumptionRow(consumoRow);
         continue;
       }
