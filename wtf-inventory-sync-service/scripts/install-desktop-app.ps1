@@ -38,14 +38,14 @@ function Resolve-InstallDir {
 
 function Resolve-HostExecutable {
   param([string]$InstalledRoot)
+  $app = Join-Path $InstalledRoot "app\wtf-icg-host.exe"
+  if (Test-Path $app) {
+    return $app
+  }
   $main = Join-Path $InstalledRoot "dist\main.js"
   $node = Get-Command node.exe -ErrorAction SilentlyContinue
   if ($node -and (Test-Path $main)) {
     return "$($node.Source)|$main"
-  }
-  $app = Join-Path $InstalledRoot "app\wtf-icg-host.exe"
-  if (Test-Path $app) {
-    return $app
   }
   throw "No se encontro el ejecutable local de WTF ICG Host."
 }

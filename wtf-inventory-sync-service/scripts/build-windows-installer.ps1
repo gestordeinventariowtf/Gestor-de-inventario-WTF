@@ -3,7 +3,9 @@ param(
   [string]$PackageName = "WTF-ICG-Host-Setup",
   [switch]$BuildSelfExtractingExe,
   [switch]$SkipHostExe,
-  [switch]$SkipNpmInstall
+  [switch]$SkipNpmInstall,
+  [switch]$UseExistingHostExe,
+  [switch]$ForceFallbackExtractor
 )
 
 $ErrorActionPreference = "Stop"
@@ -142,6 +144,15 @@ if ($SkipHostExe) {
   if (Test-Path $appOutput) {
     Remove-Item -LiteralPath $appOutput -Recurse -Force
   }
+} elseif ($UseExistingHostExe) {
+  $existingHost = Join-Path $Release "app\wtf-icg-host.exe"
+  if (!(Test-Path $existingHost)) {
+    throw "No se encontro $existingHost para reutilizarlo en el instalador completo."
+  }
+  $existingTray = Join-Path $Release "app\wtf-icg-host-tray.exe"
+  if (!(Test-Path $existingTray)) {
+    Build-TrayApp -OutputPath $existingTray
+  }
 } else {
   npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
   Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
@@ -231,10 +242,12 @@ Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $ZipPath
 if (Test-Path $InnerZipPath) {
   Remove-Item -LiteralPath $InnerZipPath -Force
 }
-Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $InnerZipPath
+Copy-Item -LiteralPath $ZipPath -Destination $InnerZipPath -Force
 
 $IExpress = Join-Path $env:WINDIR "System32\iexpress.exe"
-if ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
+if ($BuildSelfExtractingExe -and $ForceFallbackExtractor) {
+  Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
+} elseif ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
   $IExpressWork = Join-Path $env:TEMP "wtf-icg-host-iexpress"
   $ShortPayload = Join-Path $IExpressWork "payload"
   $ShortExe = Join-Path $IExpressWork "$PackageName.exe"
