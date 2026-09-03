@@ -110,6 +110,7 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     icgBackupPollSeconds: config.icgBackupPollSeconds,
     sqlServer: config.sqlServer,
     icgLiveDatabaseName: config.icgLiveDatabaseName,
+    icgSqlDataPath: config.icgSqlDataPath,
     icgAuditDbName: config.icgAuditDbName,
     firebaseProjectId: config.firebaseProjectId,
     firebaseCollection: config.firebaseCollection,
