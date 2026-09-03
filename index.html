@@ -11985,39 +11985,43 @@ Solicitado: ${cantidad}`);
         if (alreadyApplied) duplicateAppliedKeys.push(...keys);
         return row && !alreadyApplied && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
       });
-      if (!candidates.length) return Array.from(new Set(duplicateAppliedKeys));
+      if (!candidates.length) return { keys: Array.from(new Set(duplicateAppliedKeys)), appliedKeys: [], obviatedKeys: [], skippedKeys: Array.from(new Set(duplicateAppliedKeys)) };
       const grouped = {};
-      candidates.forEach(function(row) {
+      const obviatedKeys = [];
+      const stockLedger = {};
+      candidates.slice().sort(function(a, b) {
+        return String(getIcgConsumptionEventDate(a)).localeCompare(String(getIcgConsumptionEventDate(b))) || String(a.ImportKey || "").localeCompare(String(b.ImportKey || ""));
+      }).forEach(function(row) {
         const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
         const producto = row.ProductoWTF || row.ProductoMise;
+        const target = icgInventoryTargets.find(function(candidate) {
+          return candidate.targetKey === targetKey && normalizar(candidate.producto) === normalizar(producto);
+        });
+        if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[targetKey] || targetKey} / ${producto}`);
+        const convertedQty = convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar), row.Unidad || "Uni");
+        if (convertedQty == null) {
+          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${row.Unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
+        }
         const key = `${targetKey}::${normalizar(producto)}`;
-        if (!grouped[key]) grouped[key] = { targetKey, producto, cantidad: 0, unidad: row.Unidad || "Uni", rows: [], importKeys: [], legacyImportKeys: [], fecha: getIcgConsumptionEventDate(row) };
-        grouped[key].cantidad += parseIcgNumber(row.CantidadDescontar);
+        if (stockLedger[key] == null) stockLedger[key] = getMiseSafeNumber(target.existencia, 0);
+        if (stockLedger[key] <= 0 || convertedQty > stockLedger[key] + 1e-9) {
+          obviatedKeys.push(...[row.ImportKey, row.LegacyImportKey].filter(Boolean).map(String));
+          return;
+        }
+        stockLedger[key] = Number((stockLedger[key] - convertedQty).toFixed(4));
+        if (!grouped[key]) grouped[key] = { targetKey, producto, cantidad: 0, cantidadOriginal: 0, unidad: target.medida || row.Unidad || "Uni", unidadOriginal: row.Unidad || "Uni", rows: [], importKeys: [], legacyImportKeys: [], fecha: getIcgConsumptionEventDate(row), target };
+        grouped[key].cantidad += convertedQty;
+        grouped[key].cantidadOriginal += parseIcgNumber(row.CantidadDescontar);
         grouped[key].rows.push(row);
         if (row.ImportKey) grouped[key].importKeys.push(String(row.ImportKey));
         if (row.LegacyImportKey) grouped[key].legacyImportKeys.push(String(row.LegacyImportKey));
         grouped[key].fecha = grouped[key].fecha && grouped[key].fecha < getIcgConsumptionEventDate(row) ? grouped[key].fecha : getIcgConsumptionEventDate(row);
       });
       const movements = Object.values(grouped).map(function(item) {
-        const target = icgInventoryTargets.find(function(candidate) {
-          return candidate.targetKey === item.targetKey && normalizar(candidate.producto) === normalizar(item.producto);
-        });
+        const target = item.target;
         if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey} / ${item.producto}`);
-        const convertedParts = (Array.isArray(item.rows) && item.rows.length ? item.rows : [item]).map(function(row) {
-          return convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar || item.cantidad), row.Unidad || item.unidad || "Uni");
-        });
-        if (convertedParts.some(function(value) { return value == null; })) {
-          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${item.unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
-        }
-        item.cantidadOriginal = Number(item.cantidad.toFixed(4));
-        item.unidadOriginal = item.unidad || "Uni";
-        item.cantidad = Number(convertedParts.reduce(function(total, value) {
-          return total + Number(value || 0);
-        }, 0).toFixed(4));
+        item.cantidadOriginal = Number((item.cantidadOriginal || item.cantidad).toFixed(4));
         item.unidad = target.medida || item.unidad || "Uni";
-        if (item.cantidad > getMiseSafeNumber(target.existencia, 0)) {
-          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey}\nExistencia: ${target.existencia} ${target.medida || ""}\nSolicitado: ${item.cantidad} ${target.medida || ""}`);
-        }
         return Object.assign({}, item, { target });
       });
       const now = new Date().toISOString();
@@ -12048,7 +12052,9 @@ Solicitado: ${cantidad}`);
           return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: move.fecha || now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now, icgLastImportKey: (move.importKeys || [])[0] || item.icgLastImportKey || "" } : item;
         }));
       }
-      return Array.from(new Set([...duplicateAppliedKeys, ...candidates.flatMap((row) => [row.ImportKey, row.LegacyImportKey]).filter(Boolean)]));
+      const appliedKeys = movements.flatMap((move) => [ ...(move.importKeys || []), ...(move.legacyImportKeys || []) ]).filter(Boolean);
+      const allKeys = Array.from(new Set([...duplicateAppliedKeys, ...appliedKeys, ...obviatedKeys]));
+      return { keys: allKeys, appliedKeys: Array.from(new Set(appliedKeys)), obviatedKeys: Array.from(new Set(obviatedKeys)), skippedKeys: Array.from(new Set(duplicateAppliedKeys)) };
     }
     function migrateProductsToCuartoFrio(productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
@@ -19787,24 +19793,30 @@ Solicitado: ${cantidad}`);
       if (!pendingRows.length) return [];
       if (inventoryImpactPaused) throw new Error(getIcgInventoryPauseMessage(normalized));
       if (typeof onApplyInventoryImpact !== "function") throw new Error("El puente ICG no tiene conexion activa con inventario.");
-      const appliedKeys = onApplyInventoryImpact(pendingRows);
-      if (!appliedKeys.length) return [];
-      const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...appliedKeys]));
-      const appliedSet = new Set(nextApplied);
+      const impactResult = onApplyInventoryImpact(pendingRows);
+      const impactKeys = Array.isArray(impactResult) ? impactResult : impactResult && Array.isArray(impactResult.keys) ? impactResult.keys : [];
+      const appliedKeys = Array.isArray(impactResult) ? impactResult : impactResult && Array.isArray(impactResult.appliedKeys) ? impactResult.appliedKeys : impactKeys;
+      const obviatedKeys = impactResult && !Array.isArray(impactResult) && Array.isArray(impactResult.obviatedKeys) ? impactResult.obviatedKeys : [];
+      if (!impactKeys.length) return [];
+      const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...impactKeys]));
+      const appliedSet = new Set(appliedKeys);
+      const obviatedSet = new Set(obviatedKeys);
       const datasets = Object.assign({}, normalized.datasets);
       datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
         columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
         rows: salesConsumptionRows.map(function(row, index) {
+          const rowKeys = [row.ImportKey, row.LegacyImportKey].filter(Boolean);
           const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
-            Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
+            Estado: rowKeys.some(function(key) { return obviatedSet.has(key); }) ? "Obviado sin existencia" : rowKeys.some(function(key) { return appliedSet.has(key); }) ? "Aplicado" : row.Estado,
+            MotivoRevision: rowKeys.some(function(key) { return obviatedSet.has(key); }) ? row.MotivoRevision || "Venta ICG obviada por falta de existencia al momento de procesarla. No se reintentara con entradas futuras." : row.MotivoRevision
           });
           delete clean.targetKey;
           return clean;
         })
       });
       updateData({ appliedImports: nextApplied, datasets });
-      if (!options.silent) toast("Ventas ICG aplicadas al inventario.", "ok");
-      return appliedKeys;
+      if (!options.silent) toast(obviatedKeys.length ? "Ventas ICG aplicadas y lineas sin existencia obviadas sin descontar." : "Ventas ICG aplicadas al inventario.", "ok");
+      return impactKeys;
     }
     function applySalesConsumption() {
       if (inventoryImpactPaused) {

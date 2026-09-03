@@ -805,15 +805,20 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     icg.inventoryImpactPauseReason = cloudPause.reason || icg.inventoryImpactPauseReason || "Descuentos ICG pausados por auditoria. No se aplicaron salidas automaticas.";
   }
   if (icg.inventoryImpactPaused || icg.icgHostDiscountsPaused) {
+    const now = new Date().toISOString();
     result.ok = true;
     result.skipped = rowsToApply.length;
-    result.pending = rowsToApply.length;
+    result.pending = 0;
     result.message = icg.inventoryImpactPauseReason || "Descuentos ICG pausados por auditoria. No se aplicaron salidas automaticas.";
     result.movements = rowsToApply.slice(0, 300).map((line) => {
       const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
       const importKey = quickHashText(["icg-paused", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
     });
+    icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: 0, matched: 0, pending: 0, skipped: result.skipped, errors: [], paused: true });
+    icg.processedBackupDates = icg.processedBackupDates.slice(0, 300);
+    icg.updatedAt = now;
+    await writeAppState(config, appState, result);
     return result;
   }
   mergeBackupArticlesIntoIcgData(icg, articles);

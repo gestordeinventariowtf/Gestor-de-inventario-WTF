@@ -38,14 +38,14 @@ function Resolve-InstallDir {
 
 function Resolve-HostExecutable {
   param([string]$InstalledRoot)
-  $app = Join-Path $InstalledRoot "app\wtf-icg-host.exe"
-  if (Test-Path $app) {
-    return $app
-  }
   $main = Join-Path $InstalledRoot "dist\main.js"
   $node = Get-Command node.exe -ErrorAction SilentlyContinue
   if ($node -and (Test-Path $main)) {
     return "$($node.Source)|$main"
+  }
+  $app = Join-Path $InstalledRoot "app\wtf-icg-host.exe"
+  if (Test-Path $app) {
+    return $app
   }
   throw "No se encontro el ejecutable local de WTF ICG Host."
 }
@@ -93,6 +93,12 @@ $LogDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "data\inbox"), (Join-Path $DataDir "data\outbox"), (Join-Path $DataDir "data\processed"), (Join-Path $DataDir "data\quarantine") | Out-Null
 
+$sourceAppDir = Join-Path $SourceRoot "app"
+$installedAppDir = Join-Path $InstallDir "app"
+if (!(Test-Path $sourceAppDir) -and (Test-Path $installedAppDir)) {
+  Remove-Item -LiteralPath $installedAppDir -Recurse -Force
+}
+
 $exclude = @("data", "logs", "release", ".git", "node_modules\.cache")
 Get-ChildItem -Path $SourceRoot -Force | Where-Object {
   $name = $_.Name
@@ -112,7 +118,7 @@ Get-ChildItem -Path $SourceRoot -Force | Where-Object {
 }
 
 $HostExecutable = Resolve-HostExecutable $InstallDir
-$TrayExecutable = Resolve-TrayExecutable $InstallDir
+$TrayExecutable = if ($HostExecutable.Contains("|")) { "" } else { Resolve-TrayExecutable $InstallDir }
 $EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
