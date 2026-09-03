@@ -2401,8 +2401,8 @@
     Paq: "Paquete",
     Caja: "Caja"
   };
-  const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G", "Kg", "Serv"];
-  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Serv"];
+  const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G", "Kg", "Serv", "Funda", "Paq"];
+  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Serv", "Paq"];
   const PACKAGE_OUTER_UNITS = ["Paq", "Caja", "Funda", "Fundas", "Uni"];
   function getUnitTitle(unit) {
     return `${unit}: ${UNIT_LABELS[unit] || unit}`;
@@ -4584,12 +4584,25 @@
     }));
     return state;
   }
+  function isIcgShardGuardError(error) {
+    const code = String(error && error.code || "").toLowerCase();
+    const message = String(error && error.message || error || "").toLowerCase();
+    return code.includes("permission-denied")
+      || message.includes("permission")
+      || message.includes("missing or insufficient permissions")
+      || message.includes("no tiene permisos");
+  }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
     const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
     if (shards.length) {
-      await Promise.all(shards.map(function(shard) {
-        return docRef.collection("stateShards").doc(shard.key).set(shard.doc, { merge: true });
+      await Promise.all(shards.map(async function(shard) {
+        try {
+          await docRef.collection("stateShards").doc(shard.key).set(shard.doc, { merge: true });
+        } catch (error) {
+          if (shard.key !== "icgFrontRestData" || !isIcgShardGuardError(error)) throw error;
+          console.warn("Se mantiene el shard ICG sin cambios mientras ICG esta pausado:", error);
+        }
       }));
     }
     await docRef.set(writeDoc.doc, { merge: true });
@@ -10294,10 +10307,23 @@
     const [authorizing, setAuthorizing] = useState(false);
     const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
     const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
+    const [icgControl, setIcgControl] = useState(() => {
+      const normalized = ensureIcgFrontRestData(icgFrontRestData);
+      const paused = isIcgInventoryImpactPaused(normalized);
+      return {
+        loading: firebaseCfg.enabled,
+        paused,
+        message: paused ? getIcgInventoryPauseMessage(normalized) : "ICG activo",
+        updatedAt: "",
+        updatedBy: ""
+      };
+    });
+    const [pendingIcgControlAction, setPendingIcgControlAction] = useState(null);
     const [firebaseStatus, setFirebaseStatus] = useState(() => firebaseCfg.enabled ? "connecting" : "disabled");
     const [firebaseMessage, setFirebaseMessage] = useState(() => firebaseCfg.enabled ? "Conectando Firebase..." : "Solo local");
     const [lastSyncedAt, setLastSyncedAt] = useState("");
     const firebaseDocRef = useRef(null);
+    const icgControlDocRef = useRef(null);
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
@@ -10560,6 +10586,93 @@
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
       }, 0);
+    }
+    function normalizeIcgControlDoc(data) {
+      const source = data && typeof data === "object" ? data : {};
+      const paused = Boolean(source.inventoryImpactPaused || source.icgHostDiscountsPaused || source.status === "ACTIVE");
+      return {
+        loading: false,
+        paused,
+        status: paused ? "ACTIVE" : "INACTIVE",
+        message: paused ? source.reason || "Deducciones ICG pausadas manualmente." : "ICG activo",
+        pausedAt: source.pausedAt || "",
+        pausedBy: source.pausedBy || "",
+        resumedAt: source.resumedAt || "",
+        resumedBy: source.resumedBy || "",
+        updatedAt: source.updatedAt || "",
+        updatedBy: source.updatedBy || ""
+      };
+    }
+    function applyIcgControlState(control) {
+      const normalizedControl = normalizeIcgControlDoc(control);
+      setIcgControl(normalizedControl);
+      setIcgFrontRestData(function(prev) {
+        const normalized = ensureIcgFrontRestData(prev);
+        const nextPaused = normalizedControl.paused;
+        const nextReason = nextPaused ? normalizedControl.message : "";
+        if (
+          normalized.inventoryImpactPaused === nextPaused &&
+          normalized.icgHostDiscountsPaused === nextPaused &&
+          (normalized.inventoryImpactPauseReason || "") === nextReason
+        ) {
+          return normalized;
+        }
+        return ensureIcgFrontRestData(Object.assign({}, normalized, {
+          inventoryImpactPaused: nextPaused,
+          icgHostDiscountsPaused: nextPaused,
+          inventoryImpactPausedAt: nextPaused ? normalizedControl.pausedAt || (/* @__PURE__ */ new Date()).toISOString() : "",
+          inventoryImpactPauseReason: nextReason,
+          lastIcgEmergencyPause: nextPaused ? Object.assign({}, normalized.lastIcgEmergencyPause || {}, {
+            reason: nextReason,
+            pausedAt: normalizedControl.pausedAt || (/* @__PURE__ */ new Date()).toISOString(),
+            pausedBy: normalizedControl.pausedBy || normalizedControl.updatedBy || "Administrador"
+          }) : normalized.lastIcgEmergencyPause
+        }));
+      });
+    }
+    function getIcgControlUserLabel() {
+      return getUserDisplayLabel(currentUser) || authUserEmail || "Administrador";
+    }
+    function openIcgControlModal() {
+      if (!firebaseCfg.enabled || !window.firebase || !window.firebase.firestore) {
+        toast("Firebase no esta disponible para controlar ICG entre dispositivos.", "error");
+        return;
+      }
+      setPendingIcgControlAction({
+        paused: !icgControl.paused,
+        title: icgControl.paused ? "Reactivar ICG" : "Pausar ICG"
+      });
+    }
+    async function confirmIcgControlToggle() {
+      if (!pendingIcgControlAction) return;
+      if (!icgControlDocRef.current) throw new Error("Control ICG no inicializado en Firebase.");
+      const pause = Boolean(pendingIcgControlAction.paused);
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const userLabel = getIcgControlUserLabel();
+      const serverTimestamp = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue ? window.firebase.firestore.FieldValue.serverTimestamp() : now;
+      const nextDoc = pause ? {
+        status: "ACTIVE",
+        inventoryImpactPaused: true,
+        icgHostDiscountsPaused: true,
+        reason: "Deducciones ICG pausadas manualmente. La sincronizacion y los registros siguen activos.",
+        pausedAt: now,
+        pausedBy: userLabel,
+        updatedAt: serverTimestamp,
+        updatedBy: userLabel
+      } : {
+        status: "INACTIVE",
+        inventoryImpactPaused: false,
+        icgHostDiscountsPaused: false,
+        reason: "",
+        resumedAt: now,
+        resumedBy: userLabel,
+        updatedAt: serverTimestamp,
+        updatedBy: userLabel
+      };
+      await icgControlDocRef.current.set(nextDoc, { merge: true });
+      applyIcgControlState(Object.assign({}, nextDoc, { updatedAt: now }));
+      setPendingIcgControlAction(null);
+      toast(pause ? "ICG pausado. No se descontaran productos automaticamente." : "ICG activo. Los descuentos automaticos quedan habilitados.", "ok");
     }
     async function pullLatestFirebaseSnapshot(reason) {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current || applyingRemoteRef.current) return;
@@ -10932,9 +11045,31 @@
         }
         const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
         const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
+        const icgDocRef = app.firestore().collection(firebaseCfg.collection).doc("icgControl");
         firebaseDocRef.current = docRef;
+        icgControlDocRef.current = icgDocRef;
         setFirebaseStatus("connecting");
         setFirebaseMessage("Sincronizando con Firebase...");
+        const unsubscribeIcgControl = icgDocRef.onSnapshot(function(snapshot) {
+          if (!snapshot.exists) {
+            applyIcgControlState({
+              status: "INACTIVE",
+              inventoryImpactPaused: false,
+              icgHostDiscountsPaused: false,
+              reason: ""
+            });
+            return;
+          }
+          applyIcgControlState(snapshot.data());
+        }, function(error) {
+          console.error("ICG control sync error:", error);
+          setIcgControl(function(prev) {
+            return Object.assign({}, prev, {
+              loading: false,
+              message: error && error.message ? error.message : "No se pudo leer control ICG"
+            });
+          });
+        });
         const unsubscribe = docRef.onSnapshot(async (snapshot) => {
           if (!firebaseBootstrappedRef.current && snapshot.metadata && snapshot.metadata.fromCache) {
             setFirebaseStatus("connecting");
@@ -11021,6 +11156,7 @@
         return function() {
           if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
           unsubscribe();
+          unsubscribeIcgControl();
         };
       } catch (error) {
         console.error("Firebase init error:", error);
@@ -11353,6 +11489,12 @@
         title: "Firebase desactivado; usando localStorage."
       };
     }, [firebaseMessage, firebaseStatus, lastSyncedAt]);
+    const icgControlButton = /* @__PURE__ */ React.createElement("button", {
+      type: "button",
+      className: `btn btn-sm ${icgControl.paused ? "btn-rojo" : "btn-verde"}`,
+      onClick: openIcgControlModal,
+      title: icgControl.paused ? `ICG pausado: ${icgControl.message || "sin descuentos automaticos"}` : "ICG activo: descuentos automaticos habilitados"
+    }, /* @__PURE__ */ React.createElement("i", { className: `fas ${icgControl.loading ? "fa-spinner fa-spin" : icgControl.paused ? "fa-pause" : "fa-play"}` }), icgControl.paused ? "ICG pausado" : "ICG activo");
     function _applySync(productoNombre, delta) {
       const key = normalizar(productoNombre);
       setNeveras((ns) => ns.map((n) => ({
@@ -12163,7 +12305,7 @@ Solicitado: ${cantidad}`);
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -19210,12 +19352,22 @@ Solicitado: ${cantidad}`);
   function AdminKeyModal({ title, onConfirm, onClose, usuarios }) {
     const toast = useToast();
     const [password, setPassword] = useState("");
-    function confirmar() {
+    const [busy, setBusy] = useState(false);
+    async function confirmar() {
+      if (busy) return;
       if (!isValidVisibleAdminPassword(usuarios, password)) {
         toast("Clave de administrador incorrecta.", "error");
         return;
       }
-      onConfirm();
+      try {
+        setBusy(true);
+        await Promise.resolve(onConfirm(password));
+      } catch (error) {
+        console.error("Admin confirmation error:", error);
+        toast(error && error.message ? error.message : "No se pudo confirmar la accion.", "error");
+      } finally {
+        setBusy(false);
+      }
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-lock", style: { marginRight: 7 } }), title || "Confirmar acci\xF3n"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave del administrador"), /* @__PURE__ */ React.createElement(
       "input",
@@ -19227,7 +19379,7 @@ Solicitado: ${cantidad}`);
         placeholder: "Ingrese la clave",
         autoFocus: true
       }
-    ))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: confirmar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "Confirmar"))));
+    ))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose, disabled: busy }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: confirmar, disabled: busy }, /* @__PURE__ */ React.createElement("i", { className: `fas ${busy ? "fa-spinner fa-spin" : "fa-check"}` }), busy ? "Guardando..." : "Confirmar"))));
   }
   function IcgFrontRestPage({ data, setData, usuarios, currentUser, miseAnPlace = [], inventoryTargets = [], onApplyInventoryImpact = null }) {
     const toast = useToast();
@@ -23637,4 +23789,3 @@ Cantidad solicitada: ${newCantidad}`);
 </script>
 </body>
 </html>
-
