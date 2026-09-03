@@ -897,7 +897,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       result.pending += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF."));
       const pendingRow = {
-        Fecha: fecha,
+        Fecha: eventDate,
         ModuloWTF: "",
         ProductoWTF: "",
         ProductoMise: "",
@@ -911,7 +911,11 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         ImportKey: pendingImportKey,
         LegacyImportKey: legacyPendingImportKey,
         Estado: "Sin vinculo",
-        CodAlmacen: line.codAlmacen
+        CodAlmacen: line.codAlmacen,
+        FechaHora: line.fechaHora || line.fecha || fecha,
+        TicketICG: [line.fo, line.serie, line.numero, line.n].filter(Boolean).join("-"),
+        NumLinea: line.numLinea || "",
+        TipoMovimiento: isIcgReturn ? "Devolucion ICG / decomiso automatico" : "Venta ICG"
       };
       rememberConsumptionRow(pendingRow);
       continue;
@@ -941,7 +945,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const list: AnyRecord[] = Array.isArray(appState[target]) ? appState[target] : [];
       const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
       const consumoRow: AnyRecord = {
-        Fecha: fecha,
+        Fecha: eventDate,
         ModuloWTF: targetLabel(target),
         targetKey: target,
         ProductoWTF: producto,
@@ -1005,7 +1009,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
           codAlmacen: line.codAlmacen,
           importKey,
           legacyImportKey,
-          importKeys: [importKey, legacyImportKey].filter(Boolean)
+          importKeys: [importKey, legacyImportKey].filter(Boolean),
+          fechaHora: line.fechaHora || line.fecha || fecha,
+          ticketICG: consumoRow.TicketICG,
+          numLinea: line.numLinea || ""
         });
         continue;
       }
@@ -1051,7 +1058,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         codAlmacen: line.codAlmacen,
         importKey,
         legacyImportKey,
-        importKeys: [importKey, legacyImportKey].filter(Boolean)
+        importKeys: [importKey, legacyImportKey].filter(Boolean),
+        fechaHora: line.fechaHora || line.fecha || fecha,
+        ticketICG: consumoRow.TicketICG,
+        numLinea: line.numLinea || ""
       });
     }
   }

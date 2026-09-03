@@ -144,7 +144,7 @@ ICG_LIVE_DATABASE_NAME=FRS_WTFOODVZL
 ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL
 ICG_AUDIT_DB_NAME=WTF_AUDIT_FRS_WTFOODVZL
 ICG_SQL_DATA_DIR=C:\ICG\BACKUP\WTF_AUDIT_SQL
-ICG_BACKUP_POLL_SECONDS=1800
+ICG_BACKUP_POLL_SECONDS=30
 ICG_SQL_ENABLED=true
 ICG_SQL_CONNECTION_STRING=Server=localhost;Database=ICGFrontRest;Trusted_Connection=True;TrustServerCertificate=True
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
@@ -159,7 +159,7 @@ Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value "WTF_AUDIT_FRS_WTFOODVZL"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\BACKUP\WTF_AUDIT_SQL"
-Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "1800"
+Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
@@ -173,7 +173,7 @@ Set-Location "$InstallDir"
 `$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
 `$env:ICG_AUDIT_DB_NAME = "WTF_AUDIT_FRS_WTFOODVZL"
 `$env:ICG_SQL_DATA_DIR = "C:\ICG\BACKUP\WTF_AUDIT_SQL"
-`$env:ICG_BACKUP_POLL_SECONDS = "1800"
+`$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "true"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"

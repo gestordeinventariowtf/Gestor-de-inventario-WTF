@@ -154,7 +154,7 @@ if ($SkipHostExe) {
     Build-TrayApp -OutputPath $existingTray
   }
 } else {
-  npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
+  npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output (Join-Path $Release "app\wtf-icg-host.exe")
   Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
 }
 
