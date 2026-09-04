@@ -37,6 +37,7 @@ export function startDashboard(
       }
       if (url.pathname === "/api/state") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        await onSyncIcgBackup().catch(() => null);
         const data = await store.read();
         return json(res, { ...data, stats: await store.stats(), config: publicConfig(config) });
       }
@@ -393,7 +394,7 @@ function renderDashboard(): string {
         if(left<=0) clearInterval(timer);
       },1000);
     }
-    load(); setInterval(load,5000);
+    load(); setInterval(load,1000);
   </script>
 </body></html>`;
 }
