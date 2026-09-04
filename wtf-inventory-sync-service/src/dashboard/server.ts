@@ -282,6 +282,7 @@ function renderDashboard(): string {
             <div class="info-box"><span>Web App</span><strong id="cfgWebApp"></strong></div>
             <div class="info-box"><span>Firebase</span><strong id="cfgFirebase"></strong></div>
             <div class="info-box"><span>Base ICG</span><strong id="cfgIcgDb"></strong></div>
+            <div class="info-box"><span>Backup ICG</span><strong id="cfgIcgBackup"></strong></div>
             <div class="info-box"><span>Revision automatica</span><strong id="cfgPoll"></strong></div>
           </div>
         </div>
@@ -332,8 +333,13 @@ function renderDashboard(): string {
       msg.textContent=' Procesando Base de Datos ICG Local...';
       const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
       const j=await r.json();
-      const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
-      msg.textContent=' '+(j.error||backupMsg||'Busqueda completada');
+      const b=j.backup||{};
+      const detail=b.message?b.message:'Busqueda completada';
+      const counts=typeof b.totalLines==='number'
+        ? ' Lineas: '+b.totalLines+' | Aplicadas: '+(b.applied||0)+' | Pendientes: '+(b.pending||0)+' | Omitidas: '+(b.skipped||0)
+        : '';
+      const errors=Array.isArray(b.errors)&&b.errors.length?' Error: '+b.errors.slice(0,2).join(' | '):'';
+      msg.textContent=' '+(j.error||detail+counts+errors);
       load();
     }
     async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
@@ -353,7 +359,8 @@ function renderDashboard(): string {
     function renderConfig(cfg){
       cfgWebApp.textContent=cfg.webAppUrl||'';
       cfgFirebase.textContent=((cfg.firebaseProjectId||'')+' / '+(cfg.firebaseCollection||'')+' / '+(cfg.firebaseDocumentId||'')).trim();
-      cfgIcgDb.textContent=(cfg.icgLiveDatabaseName||cfg.icgAuditDbName||'')+' - '+(cfg.icgBackupPath||'');
+      cfgIcgDb.textContent=(cfg.icgLiveDatabaseName||cfg.icgAuditDbName||'')+' - '+(cfg.icgSqlDataPath||'');
+      cfgIcgBackup.textContent=cfg.icgBackupPath||'';
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);
