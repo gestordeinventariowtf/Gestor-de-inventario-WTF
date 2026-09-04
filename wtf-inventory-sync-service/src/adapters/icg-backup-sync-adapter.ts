@@ -630,7 +630,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
-  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
+  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSLIN l JOIN TIQUETSCAB c ON c.FO=l.FO AND c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
   const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS','PRECIOSVENTA') GROUP BY t.name;";
   const articlesSql = `
@@ -698,24 +698,23 @@ DECLARE @fecha date='${quoteSql(latest)}';
 SELECT
   CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS fecha,
   CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120) AS fechaHora,
-  CAST(tc.FO AS varchar(30)) AS fo,
-  CAST(tc.SERIE AS varchar(30)) AS serie,
-  CAST(tc.NUMERO AS varchar(30)) AS numero,
-  CAST(tc.N AS varchar(30)) AS n,
-  CAST(tc.NUMLINEA AS varchar(30)) AS numLinea,
-  CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
-  ISNULL(a.REFERENCIA,'') AS referencia,
-  ISNULL(a.DESCRIPCION,'') AS descripcion,
-  ISNULL(tc.CODALMACEN,'') AS codAlmacen,
-  CAST(SUM(tc.CONSUMO) AS decimal(18,4)) AS consumo,
+  CAST(l.FO AS varchar(30)) AS fo,
+  CAST(l.SERIE AS varchar(30)) AS serie,
+  CAST(l.NUMERO AS varchar(30)) AS numero,
+  CAST(l.N AS varchar(30)) AS n,
+  CAST(l.NUMLINEA AS varchar(30)) AS numLinea,
+  CAST(l.CODARTICULO AS varchar(30)) AS codArticulo,
+  ISNULL(NULLIF(l.REFERENCIA,''),ISNULL(a.REFERENCIA,'')) AS referencia,
+  ISNULL(NULLIF(l.DESCRIPCION,''),ISNULL(a.DESCRIPCION,'')) AS descripcion,
+  '${quoteSql(config.defaultWarehouse)}' AS codAlmacen,
+  CAST(SUM(l.UNIDADES) AS decimal(18,4)) AS consumo,
   CAST(COUNT(*) AS int) AS lineas
-FROM TIQUETSCONSUMO tc
-JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
-LEFT JOIN TIQUETSLIN l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
-LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
+FROM TIQUETSLIN l
+JOIN TIQUETSCAB c ON c.FO=l.FO AND c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N
+LEFT JOIN ARTICULOS a ON a.CODARTICULO=l.CODARTICULO
 WHERE CONVERT(date,c.FECHA)=@fecha AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-GROUP BY CONVERT(date,c.FECHA),c.HORAFIN,c.HORAINI,l.HORA,tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
-ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,tc.CODALMACEN;`;
+GROUP BY CONVERT(date,c.FECHA),c.HORAFIN,c.HORAINI,l.HORA,l.FO,l.SERIE,l.NUMERO,l.N,l.NUMLINEA,l.CODARTICULO,l.REFERENCIA,l.DESCRIPCION,a.REFERENCIA,a.DESCRIPCION
+ORDER BY c.FECHA, fechaHora, l.FO,l.SERIE,l.NUMERO,l.N,l.NUMLINEA,l.CODARTICULO;`;
   const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   return {
     fecha: latest,
