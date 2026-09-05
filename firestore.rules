@@ -53,20 +53,16 @@ service cloud.firestore {
       allow read, write, delete: if false;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
     function isSharpModule(moduleId) {
       return moduleId in ['cocina', 'servicio'];
     }
 
     match /sharpLimpieza/config/settings/branchConfig {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /sharpLimpieza/libraries/modules/{moduleId} {
-      allow read, write: if isSignedIn()
+      allow read, write: if true
         && isSharpModule(moduleId)
         && (!('libraryJson' in request.resource.data)
           || request.resource.data.libraryJson is string
@@ -74,16 +70,16 @@ service cloud.firestore {
     }
 
     match /sharpLimpieza/boards/items/{boardId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn()
+      allow read: if true;
+      allow write: if true
         && boardId.matches('^[A-Za-z0-9_-]{1,120}$')
         && request.resource.data.stateJson is string
         && request.resource.data.stateJson.size() <= 9000000;
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey}/photos/{photoId} {
-      allow read: if isSignedIn() && isSharpModule(moduleId);
-      allow create, update: if isSignedIn()
+      allow read: if isSharpModule(moduleId);
+      allow create, update: if true
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && request.resource.data.url is string
@@ -94,11 +90,11 @@ service cloud.firestore {
         && request.resource.data.size is number
         && request.resource.data.size > 0
         && request.resource.data.size <= 2 * 1024 * 1024;
-      allow delete: if isSignedIn() && isSharpModule(moduleId);
+      allow delete: if isSharpModule(moduleId);
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey} {
-      allow read, write, delete: if isSignedIn()
+      allow read, write, delete: if true
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }

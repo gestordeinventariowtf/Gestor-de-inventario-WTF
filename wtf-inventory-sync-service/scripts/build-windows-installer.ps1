@@ -1,11 +1,7 @@
 param(
   [string]$OutputDir = ".\release",
   [string]$PackageName = "WTF-ICG-Host-Setup",
-  [switch]$BuildSelfExtractingExe,
-  [switch]$SkipHostExe,
-  [switch]$SkipNpmInstall,
-  [switch]$UseExistingHostExe,
-  [switch]$ForceFallbackExtractor
+  [switch]$BuildSelfExtractingExe
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,28 +131,10 @@ class WtfIcgHostSetup {
 }
 
 Set-Location $Root
-if (!$SkipNpmInstall) {
-  npm.cmd install
-}
+npm.cmd install
 npm.cmd run build
-if ($SkipHostExe) {
-  $appOutput = Join-Path $Release "app"
-  if (Test-Path $appOutput) {
-    Remove-Item -LiteralPath $appOutput -Recurse -Force
-  }
-} elseif ($UseExistingHostExe) {
-  $existingHost = Join-Path $Release "app\wtf-icg-host.exe"
-  if (!(Test-Path $existingHost)) {
-    throw "No se encontro $existingHost para reutilizarlo en el instalador completo."
-  }
-  $existingTray = Join-Path $Release "app\wtf-icg-host-tray.exe"
-  if (!(Test-Path $existingTray)) {
-    Build-TrayApp -OutputPath $existingTray
-  }
-} else {
-  npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output (Join-Path $Release "app\wtf-icg-host.exe")
-  Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
-}
+npx.cmd @yao-pkg/pkg dist/main.js --targets node22-win-x64 --output release/app/wtf-icg-host.exe
+Build-TrayApp -OutputPath (Join-Path $Release "app\wtf-icg-host-tray.exe")
 
 if (Test-Path $Payload) {
   Remove-Item -LiteralPath $Payload -Recurse -Force
@@ -186,18 +164,11 @@ if (Test-Path $appSource) {
   Copy-Item -LiteralPath $appSource -Destination (Join-Path $Payload "app") -Recurse -Force
 }
 
-$packageJson = Get-Content -LiteralPath (Join-Path $Root "package.json") -Raw | ConvertFrom-Json
-$runtimeDependencies = @()
-if ($packageJson.dependencies) {
-  $runtimeDependencies = @($packageJson.dependencies.PSObject.Properties.Name)
-}
-foreach ($dependency in $runtimeDependencies) {
-  $dependencySource = Join-Path $Root "node_modules\$dependency"
-  $dependencyTarget = Join-Path $Payload "node_modules\$dependency"
-  if (Test-Path $dependencySource) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dependencyTarget) | Out-Null
-    Copy-Item -LiteralPath $dependencySource -Destination $dependencyTarget -Recurse -Force
-  }
+$dotenvSource = Join-Path $Root "node_modules\dotenv"
+$dotenvTarget = Join-Path $Payload "node_modules\dotenv"
+if (Test-Path $dotenvSource) {
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dotenvTarget) | Out-Null
+  Copy-Item -LiteralPath $dotenvSource -Destination $dotenvTarget -Recurse -Force
 }
 
 $SetupCmd = Join-Path $Payload "INSTALAR-WTF-ICG-HOST.cmd"
@@ -242,12 +213,10 @@ Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $ZipPath
 if (Test-Path $InnerZipPath) {
   Remove-Item -LiteralPath $InnerZipPath -Force
 }
-Copy-Item -LiteralPath $ZipPath -Destination $InnerZipPath -Force
+Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $InnerZipPath
 
 $IExpress = Join-Path $env:WINDIR "System32\iexpress.exe"
-if ($BuildSelfExtractingExe -and $ForceFallbackExtractor) {
-  Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
-} elseif ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
+if ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
   $IExpressWork = Join-Path $env:TEMP "wtf-icg-host-iexpress"
   $ShortPayload = Join-Path $IExpressWork "payload"
   $ShortExe = Join-Path $IExpressWork "$PackageName.exe"

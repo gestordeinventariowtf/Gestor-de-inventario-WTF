@@ -93,12 +93,6 @@ $LogDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "data\inbox"), (Join-Path $DataDir "data\outbox"), (Join-Path $DataDir "data\processed"), (Join-Path $DataDir "data\quarantine") | Out-Null
 
-$sourceAppDir = Join-Path $SourceRoot "app"
-$installedAppDir = Join-Path $InstallDir "app"
-if (!(Test-Path $sourceAppDir) -and (Test-Path $installedAppDir)) {
-  Remove-Item -LiteralPath $installedAppDir -Recurse -Force
-}
-
 $exclude = @("data", "logs", "release", ".git", "node_modules\.cache")
 Get-ChildItem -Path $SourceRoot -Force | Where-Object {
   $name = $_.Name
@@ -118,7 +112,7 @@ Get-ChildItem -Path $SourceRoot -Force | Where-Object {
 }
 
 $HostExecutable = Resolve-HostExecutable $InstallDir
-$TrayExecutable = if ($HostExecutable.Contains("|")) { "" } else { Resolve-TrayExecutable $InstallDir }
+$TrayExecutable = Resolve-TrayExecutable $InstallDir
 $EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
@@ -141,10 +135,10 @@ WTF_QUARANTINE_DIR=$DataDir\data\quarantine
 ICG_BACKUP_PATH=C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1
 ICG_SQL_SERVER=localhost
 ICG_LIVE_DATABASE_NAME=FRS_WTFOODVZL
-ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS\_WTFOODVZL
+ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL
 ICG_AUDIT_DB_NAME=WTF_AUDIT_FRS_WTFOODVZL
 ICG_SQL_DATA_DIR=C:\ICG\BACKUP\WTF_AUDIT_SQL
-ICG_BACKUP_POLL_SECONDS=5
+ICG_BACKUP_POLL_SECONDS=10
 ICG_SQL_ENABLED=true
 ICG_SQL_CONNECTION_STRING=Server=localhost;Database=ICGFrontRest;Trusted_Connection=True;TrustServerCertificate=True
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
@@ -156,10 +150,10 @@ Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
 Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS\_WTFOODVZL"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value "WTF_AUDIT_FRS_WTFOODVZL"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\BACKUP\WTF_AUDIT_SQL"
-Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "5"
+Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "10"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
@@ -170,10 +164,10 @@ Set-Location "$InstallDir"
 `$env:ICG_BACKUP_PATH = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 `$env:ICG_SQL_SERVER = "localhost"
 `$env:ICG_LIVE_DATABASE_NAME = "FRS_WTFOODVZL"
-`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS\_WTFOODVZL"
+`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
 `$env:ICG_AUDIT_DB_NAME = "WTF_AUDIT_FRS_WTFOODVZL"
 `$env:ICG_SQL_DATA_DIR = "C:\ICG\BACKUP\WTF_AUDIT_SQL"
-`$env:ICG_BACKUP_POLL_SECONDS = "5"
+`$env:ICG_BACKUP_POLL_SECONDS = "10"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "true"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"

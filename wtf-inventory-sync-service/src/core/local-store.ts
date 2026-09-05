@@ -37,23 +37,7 @@ export class LocalStore {
   async upsertMovement(movement: SyncMovement): Promise<{ inserted: boolean; movement: SyncMovement }> {
     const data = await this.read();
     const existing = data.movements.find((row) => row.idempotencyKey === movement.idempotencyKey);
-    if (existing) {
-      Object.assign(existing, movement, {
-        id: existing.id || movement.id,
-        idempotencyKey: existing.idempotencyKey || movement.idempotencyKey,
-        intentos: Math.max(existing.intentos || 0, movement.intentos || 0)
-      });
-      data.audit.unshift({
-        fecha: new Date().toISOString(),
-        accion: "movement_updated",
-        id: existing.id,
-        idempotencyKey: existing.idempotencyKey,
-        estado: existing.estado
-      });
-      data.audit = data.audit.slice(0, 1000);
-      await this.write(data);
-      return { inserted: false, movement: existing };
-    }
+    if (existing) return { inserted: false, movement: existing };
     data.movements.unshift(movement);
     data.audit.unshift({
       fecha: new Date().toISOString(),

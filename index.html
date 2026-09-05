@@ -2401,8 +2401,8 @@
     Paq: "Paquete",
     Caja: "Caja"
   };
-  const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G", "Kg", "Serv", "Funda", "Paq"];
-  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Serv", "Paq"];
+  const PRODUCTION_UNITS = ["Uni", "Lb", "Oz", "G", "Kg", "Serv"];
+  const PACKAGE_INTERNAL_UNITS = ["Uni", "G", "Kg", "Lb", "Oz", "Funda", "Serv"];
   const PACKAGE_OUTER_UNITS = ["Paq", "Caja", "Funda", "Fundas", "Uni"];
   function getUnitTitle(unit) {
     return `${unit}: ${UNIT_LABELS[unit] || unit}`;
@@ -5659,7 +5659,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "Ticket", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "LegacyImportKey", "FechaHora", "TicketICG", "NumLinea", "CodAlmacen", "Estado"]
+      columns: ["Fecha", "Ticket", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -5793,15 +5793,6 @@
   function isIcgConsumptionFinalized(row) {
     const status = normalizar(row && row.Estado || "");
     return status === "aplicado" || status === "decomiso aplicado" || status === "sincronizado";
-  }
-  function isIcgConsumptionTerminal(row) {
-    const status = normalizar(row && row.Estado || "");
-    return isIcgConsumptionFinalized(row) || status === "sin existencia" || status === "stock insuficiente" || status === "obviado sin existencia";
-  }
-  function normalizeIcgTerminalStatus(row) {
-    const status = normalizar(row && row.Estado || "");
-    if (status === "sin existencia" || status === "stock insuficiente" || status === "obviado sin existencia") return "Obviado sin existencia";
-    return row && row.Estado || "";
   }
   function icgRows(data, key) {
     const ds = data && data.datasets ? data.datasets[key] : null;
@@ -6210,53 +6201,11 @@
   }
   function getIcgTicketKey(row) {
     if (!row) return "";
-    const serie = String(row.Serie || row.SERIE || row.serie || "").trim();
-    const numero = String(row.Numero || row.NUMERO || row.numero || row.NumFactura || row.NUMFACTURA || row.Factura || row.factura || "").trim();
-    const factura = String(row.NumFactura || row.NUMFACTURA || row.Factura || row.factura || "").trim();
+    const serie = String(row.Serie || row.SERIE || "").trim();
+    const numero = String(row.Numero || row.NUMERO || row.NumFactura || row.Factura || "").trim();
+    const factura = String(row.NumFactura || row.Factura || "").trim();
     const key = [serie, numero || factura].filter(Boolean).join("-");
     return key || String(row._id || row.ID || "").trim();
-  }
-  function getIcgLineNumber(row) {
-    return String(row && (row.NumLinea || row.NUMLINEA || row.numLinea || row.Linea || row.LINEA || row.linea || row._lineIndex || "") || "").trim();
-  }
-  function getIcgLineFo(row) {
-    return String(row && (row.FO || row.Fo || row.fo || "") || "").trim();
-  }
-  function getIcgLineN(row) {
-    return String(row && (row.N || row.n || "") || "").trim();
-  }
-  function getIcgLineWarehouse(row) {
-    return String(row && (row.CodAlmacen || row.CODALMACEN || row.codAlmacen || row.Almacen || row.ALMACEN || row.almacen || "") || "").trim();
-  }
-  function buildIcgConsumptionImportKey(row, targetKey, productWtf) {
-    const normalizedTarget = normalizeIcgWtfTarget(targetKey || row && (row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo));
-    const producto = String(productWtf || row && (row.ProductoWTF || row.ProductoMise) || "").trim();
-    const ticketKey = getIcgTicketKey(row);
-    const parts = [
-      "icg-sale-v1",
-      getIcgLineFo(row),
-      ticketKey,
-      getIcgLineN(row),
-      getIcgLineNumber(row),
-      getIcgLineCode(row),
-      getIcgLineReference(row),
-      getIcgLineWarehouse(row),
-      normalizedTarget,
-      producto
-    ];
-    return quickHashText(parts.map((part) => normalizar(part)).join("|"));
-  }
-  function getLegacyIcgConsumptionImportKey(row, fecha, targetKey, productWtf, sourceName) {
-    return quickHashText([fecha, getIcgTicketKey(row), getIcgLineCode(row), getIcgLineReference(row), getIcgLineDescription(row), targetKey, productWtf, sourceName || "ICG FrontRest"].join("|"));
-  }
-  function getIcgConsumptionEventDate(row) {
-    const value = row && (row.FechaHora || row.fechaHora || row.Fecha || row.fecha || row.HORA);
-    if (!value) return new Date().toISOString();
-    const text = String(value).trim().replace(" ", "T");
-    const parsed = new Date(text);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-    const dateKey = icgDateKey(text);
-    return dateKey ? `${dateKey}T00:00:00.000Z` : new Date().toISOString();
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
@@ -6492,16 +6441,16 @@
     });
   }
   function getIcgLineCode(row) {
-    return icgCellText(row && (row.CodArticulo || row.codArticulo || row.Codigo || row.codigo || row.Cod || row.cod || row.CODARTICULO || "") || "").trim();
+    return icgCellText(row && (row.CodArticulo || row.Codigo || row.Cod || row.CODARTICULO || "") || "").trim();
   }
   function getIcgLineReference(row) {
-    return icgCellText(row && (row.Referencia || row.referencia || row.CodigoBarras || row.codigoBarras || row.Barcode || row.barcode || "") || "").trim();
+    return icgCellText(row && (row.Referencia || row.CodigoBarras || row.Barcode || "") || "").trim();
   }
   function getIcgLineDescription(row) {
-    return icgCellText(row && (row.Descripcion || row.descripcion || row.ProductoICG || row.productoICG || row.Nombre || row.nombre || row.Articulo || row.articulo || "") || "").trim();
+    return icgCellText(row && (row.Descripcion || row.ProductoICG || row.Nombre || row.Articulo || "") || "").trim();
   }
   function getIcgLineUnits(row) {
-    return parseIcgNumber(row && (row.Unidades != null ? row.Unidades : row.unidades != null ? row.unidades : row.Cantidad != null ? row.Cantidad : row.cantidad != null ? row.cantidad : row.Qty != null ? row.Qty : row.qty));
+    return parseIcgNumber(row && (row.Unidades != null ? row.Unidades : row.Cantidad != null ? row.Cantidad : row.Qty));
   }
   function isIcgLinkActive(row) {
     const value = normalizar(icgCellText(row && (row.Activo == null ? "Si" : row.Activo)));
@@ -6533,22 +6482,7 @@
     const reference = bridge && icgCellText(bridge.Referencia) || icgCellText(row.Referencia) || "";
     const productIcg = bridge && icgCellText(bridge.ProductoICG) || icgCellText(row.ProductoICG || row.Descripcion) || "";
     const sourceName = icgCellText(row.Archivo) || normalizedData.sourceName || "ICG FrontRest";
-    const importKey = bridge ? buildIcgConsumptionImportKey(Object.assign({}, row, {
-      Serie: row.Serie,
-      Numero: row.Numero || row.Factura || row.Ticket,
-      NumLinea: row.NumLinea,
-      CodArticulo: code,
-      Referencia: reference,
-      ProductoICG: productIcg,
-      CodAlmacen: row.CodAlmacen
-    }), targetKey, productWtf) : row.ImportKey || quickHashText([fecha, code, reference, productIcg, index].join("|"));
-    const legacyImportKey = bridge ? getLegacyIcgConsumptionImportKey(Object.assign({}, row, {
-      Serie: row.Serie,
-      Numero: row.Numero || row.Factura || row.Ticket,
-      CodArticulo: code,
-      Referencia: reference,
-      ProductoICG: productIcg
-    }), fecha, targetKey, productWtf, sourceName) : row.LegacyImportKey || "";
+    const importKey = bridge ? quickHashText([fecha, ticketValue, code, reference, productIcg, targetKey, productWtf, sourceName].join("|")) : row.ImportKey || quickHashText([fecha, code, reference, productIcg, index].join("|"));
     const originalStatusKey = normalizar(row.Estado || "");
     const estado = bridge && (originalStatusKey === "sin vinculo" || originalStatusKey === "producto wtf no encontrado") ? "Pendiente" : row.Estado || (bridge ? "Pendiente" : "Sin vinculo");
     const rowId = bridge ? `${row._id || "consumo"}-${importKey}-${copyIndex || 0}` : row._id || importKey || `consumo-${index}-${copyIndex || 0}`;
@@ -6568,7 +6502,6 @@
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       Archivo: sourceName,
       ImportKey: importKey,
-      LegacyImportKey: legacyImportKey,
       Estado: estado
     }, row, {
       _id: rowId,
@@ -6583,7 +6516,6 @@
       CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       ImportKey: importKey,
-      LegacyImportKey: legacyImportKey,
       Estado: estado
     });
   }
@@ -6619,8 +6551,6 @@
     const existingByImportKey = existingConsumption.reduce(function(acc, row) {
       const key = row && row.ImportKey;
       if (key) acc[key] = row;
-      const legacyKey = row && row.LegacyImportKey;
-      if (legacyKey) acc[legacyKey] = row;
       return acc;
     }, {});
     const grouped = {};
@@ -6639,10 +6569,9 @@
         const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
         const productWtf = bridge ? icgCellText(bridge.ProductoWTF || bridge.ProductoMise) : "";
         const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta) || 1;
-        const importKey = buildIcgConsumptionImportKey(line, targetKey, productWtf);
-        const legacyImportKey = getLegacyIcgConsumptionImportKey(line, fecha, targetKey, productWtf, sourceName);
+        const importKey = quickHashText([fecha, ticketKey, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
         if (!grouped[importKey]) {
-          const existing = existingByImportKey[importKey] || existingByImportKey[legacyImportKey] || {};
+          const existing = existingByImportKey[importKey] || {};
           grouped[importKey] = {
             _id: existing._id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             Fecha: fecha || new Date().toISOString().slice(0, 10),
@@ -6659,11 +6588,6 @@
             Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || "Uni",
             Archivo: sourceName,
             ImportKey: importKey,
-            LegacyImportKey: legacyImportKey,
-            FechaHora: line.FechaHora || line.fechaHora || line.HORA || existing.FechaHora || "",
-            TicketICG: ticketKey || existing.TicketICG || "",
-            NumLinea: getIcgLineNumber(line) || existing.NumLinea || "",
-            CodAlmacen: getIcgLineWarehouse(line) || existing.CodAlmacen || "",
             Estado: existing.Estado || (bridge ? "Pendiente" : "Sin vinculo")
           };
         }
@@ -11682,7 +11606,7 @@
       return converted == null ? null : roundQty4(converted);
     }
     function addMovimientoBar(tipo, productoNombre, cantidad, options = {}) {
-      const now = options.fecha || (/* @__PURE__ */ new Date()).toISOString();
+      const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const movementUser = options.responsibleUser || currentUser;
       const prod = barInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -11690,13 +11614,13 @@
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: options.id || createMovementId("bar-inv"), storageKey: "barInventario", origen: options.origen || "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser), importKey: options.importKey || "", importKeys: options.importKeys || [] };
+      const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
       if (tipo === "decomiso") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
     function addMovimiento(tipo, productoNombre, cantidad, options = {}) {
-      const now = options.fecha || (/* @__PURE__ */ new Date()).toISOString();
+      const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const movementUser = options.responsibleUser || currentUser;
       const prod = inventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -11709,18 +11633,16 @@ Producto: ${prod.nombre}
 Existencia: ${exist}
 Solicitado: ${cantidad}`);
       const reg = {
-        _id: options.id || createMovementId("cocina-inv"),
+        _id: createMovementId("cocina-inv"),
         storageKey: "inventario",
-        origen: options.origen || "Inventario Cocina",
+        origen: "Inventario Cocina",
         modulo: "Cocina",
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
         producto: prod.nombre,
         cantidad,
-        usuario: getUserDisplayLabel(movementUser),
-        importKey: options.importKey || "",
-        importKeys: options.importKeys || []
+        usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -11738,7 +11660,7 @@ Solicitado: ${cantidad}`);
       syncNeveras({ nombre: prod.nombre, delta: tipo === "entrada" ? cantidad : -cantidad, existenciaAntes: exist });
     }
     function addMovimientoBarCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
-      const now = options.fecha || (/* @__PURE__ */ new Date()).toISOString();
+      const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const movementUser = options.responsibleUser || currentUser;
       const prod = barCuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -11746,13 +11668,13 @@ Solicitado: ${cantidad}`);
       const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
-      const reg = { _id: options.id || createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: options.origen || "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser), importKey: options.importKey || "", importKeys: options.importKeys || [] };
+      const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
       if (tipo === "decomiso") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r)); setBarRegDecomiso((p) => [...p, reg]); }
     }
     function addMovimientoCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
-      const now = options.fecha || (/* @__PURE__ */ new Date()).toISOString();
+      const now = (/* @__PURE__ */ new Date()).toISOString();
       cantidad = roundQty4(cantidad);
       const movementUser = options.responsibleUser || currentUser;
       const prod = cuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
@@ -11761,18 +11683,16 @@ Solicitado: ${cantidad}`);
       if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
         throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
       const reg = {
-        _id: options.id || createMovementId("cocina-frio"),
+        _id: createMovementId("cocina-frio"),
         storageKey: "cuartoFrioInventario",
-        origen: options.origen || "Cuarto Frio Cocina",
+        origen: "Cuarto Frio Cocina",
         modulo: "Cocina",
         fecha: now,
         numero: prod.id,
         medida: prod.medida,
         producto: prod.nombre,
         cantidad,
-        usuario: getUserDisplayLabel(movementUser),
-        importKey: options.importKey || "",
-        importKeys: options.importKeys || []
+        usuario: getUserDisplayLabel(movementUser)
       };
       if (tipo === "entrada") {
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -11961,100 +11881,66 @@ Solicitado: ${cantidad}`);
       if (isIcgInventoryImpactPaused(icgFrontRestData)) {
         throw new Error(getIcgInventoryPauseMessage(icgFrontRestData));
       }
-      const movementRows = [].concat(regSalidas || [], barRegSalidas || [], histSalidaRapida || [], icgRows(icgFrontRestData, "ConsumoMiseVentas") || []);
-      const alreadyAppliedKeys = new Set(Array.isArray(icgFrontRestData && icgFrontRestData.appliedImports) ? icgFrontRestData.appliedImports.map(String) : []);
-      movementRows.forEach(function(row) {
-        if (!row) return;
-        [row.ImportKey, row.importKey, row.LegacyImportKey, row.legacyImportKey, row.icgImportKey, row.id, row._id].forEach(function(key) {
-          if (key) alreadyAppliedKeys.add(String(key));
-        });
-        (Array.isArray(row.importKeys) ? row.importKeys : []).forEach(function(key) {
-          if (key) alreadyAppliedKeys.add(String(key));
-        });
-        if (isIcgConsumptionTerminal(row)) {
-          [row.ImportKey, row.LegacyImportKey].forEach(function(key) {
-            if (key) alreadyAppliedKeys.add(String(key));
-          });
-        }
+      const candidates = (Array.isArray(rows) ? rows : []).filter(function(row) {
+        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
       });
-      const inputRows = Array.isArray(rows) ? rows : [];
-      const duplicateAppliedKeys = [];
-      const candidates = inputRows.filter(function(row) {
-        const keys = [row && row.ImportKey, row && row.LegacyImportKey].filter(Boolean).map(String);
-        const alreadyApplied = keys.some(function(key) { return alreadyAppliedKeys.has(key) || alreadyAppliedKeys.has(`icg-bak-${key}`); });
-        if (alreadyApplied) duplicateAppliedKeys.push(...keys);
-        return row && !alreadyApplied && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
-      });
-      if (!candidates.length) return { keys: Array.from(new Set(duplicateAppliedKeys)), appliedKeys: [], obviatedKeys: [], skippedKeys: Array.from(new Set(duplicateAppliedKeys)) };
+      if (!candidates.length) throw new Error("No hay consumos pendientes con vinculo valido para aplicar.");
       const grouped = {};
-      const obviatedKeys = [];
-      const stockLedger = {};
-      candidates.slice().sort(function(a, b) {
-        return String(getIcgConsumptionEventDate(a)).localeCompare(String(getIcgConsumptionEventDate(b))) || String(a.ImportKey || "").localeCompare(String(b.ImportKey || ""));
-      }).forEach(function(row) {
+      candidates.forEach(function(row) {
         const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
         const producto = row.ProductoWTF || row.ProductoMise;
-        const target = icgInventoryTargets.find(function(candidate) {
-          return candidate.targetKey === targetKey && normalizar(candidate.producto) === normalizar(producto);
-        });
-        if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[targetKey] || targetKey} / ${producto}`);
-        const convertedQty = convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar), row.Unidad || "Uni");
-        if (convertedQty == null) {
-          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${row.Unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
-        }
         const key = `${targetKey}::${normalizar(producto)}`;
-        if (stockLedger[key] == null) stockLedger[key] = getMiseSafeNumber(target.existencia, 0);
-        if (stockLedger[key] <= 0 || convertedQty > stockLedger[key] + 1e-9) {
-          obviatedKeys.push(...[row.ImportKey, row.LegacyImportKey].filter(Boolean).map(String));
-          return;
-        }
-        stockLedger[key] = Number((stockLedger[key] - convertedQty).toFixed(4));
-        if (!grouped[key]) grouped[key] = { targetKey, producto, cantidad: 0, cantidadOriginal: 0, unidad: target.medida || row.Unidad || "Uni", unidadOriginal: row.Unidad || "Uni", rows: [], importKeys: [], legacyImportKeys: [], fecha: getIcgConsumptionEventDate(row), target };
-        grouped[key].cantidad += convertedQty;
-        grouped[key].cantidadOriginal += parseIcgNumber(row.CantidadDescontar);
+        if (!grouped[key]) grouped[key] = { targetKey, producto, cantidad: 0, unidad: row.Unidad || "Uni", rows: [] };
+        grouped[key].cantidad += parseIcgNumber(row.CantidadDescontar);
         grouped[key].rows.push(row);
-        if (row.ImportKey) grouped[key].importKeys.push(String(row.ImportKey));
-        if (row.LegacyImportKey) grouped[key].legacyImportKeys.push(String(row.LegacyImportKey));
-        grouped[key].fecha = grouped[key].fecha && grouped[key].fecha < getIcgConsumptionEventDate(row) ? grouped[key].fecha : getIcgConsumptionEventDate(row);
       });
       const movements = Object.values(grouped).map(function(item) {
-        const target = item.target;
+        const target = icgInventoryTargets.find(function(candidate) {
+          return candidate.targetKey === item.targetKey && normalizar(candidate.producto) === normalizar(item.producto);
+        });
         if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey} / ${item.producto}`);
-        item.cantidadOriginal = Number((item.cantidadOriginal || item.cantidad).toFixed(4));
+        const convertedParts = (Array.isArray(item.rows) && item.rows.length ? item.rows : [item]).map(function(row) {
+          return convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar || item.cantidad), row.Unidad || item.unidad || "Uni");
+        });
+        if (convertedParts.some(function(value) { return value == null; })) {
+          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${item.unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
+        }
+        item.cantidadOriginal = Number(item.cantidad.toFixed(4));
+        item.unidadOriginal = item.unidad || "Uni";
+        item.cantidad = Number(convertedParts.reduce(function(total, value) {
+          return total + Number(value || 0);
+        }, 0).toFixed(4));
         item.unidad = target.medida || item.unidad || "Uni";
+        if (item.cantidad > getMiseSafeNumber(target.existencia, 0)) {
+          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey}\nExistencia: ${target.existencia} ${target.medida || ""}\nSolicitado: ${item.cantidad} ${target.medida || ""}`);
+        }
         return Object.assign({}, item, { target });
       });
       const now = new Date().toISOString();
       movements.forEach(function(move) {
-        const uniqueKeys = Array.from(new Set([...(move.importKeys || []), ...(move.legacyImportKeys || [])].filter(Boolean)));
-        const movementId = `icg-${quickHashText([move.targetKey, move.target.producto, uniqueKeys.join("|")].join("|"))}`;
-        const options = { id: movementId, fecha: move.fecha || now, origen: "ICG FrontRest", importKey: uniqueKeys[0] || "", importKeys: uniqueKeys, transferToMise: false };
-        if (move.targetKey === "inventarioCocina") addMovimiento("salida", move.target.producto, move.cantidad, options);
-        if (move.targetKey === "cuartoFrioCocina") addMovimientoCuartoFrio("salida", move.target.producto, move.cantidad, options);
-        if (move.targetKey === "inventarioBar") addMovimientoBar("salida", move.target.producto, move.cantidad, options);
-        if (move.targetKey === "cuartoFrioBar") addMovimientoBarCuartoFrio("salida", move.target.producto, move.cantidad, options);
+        if (move.targetKey === "inventarioCocina") addMovimiento("salida", move.target.producto, move.cantidad);
+        if (move.targetKey === "cuartoFrioCocina") addMovimientoCuartoFrio("salida", move.target.producto, move.cantidad);
+        if (move.targetKey === "inventarioBar") addMovimientoBar("salida", move.target.producto, move.cantidad);
+        if (move.targetKey === "cuartoFrioBar") addMovimientoBarCuartoFrio("salida", move.target.producto, move.cantidad);
       });
       const miseMoves = movements.filter((move) => move.targetKey === "miseCocina");
       if (miseMoves.length) {
         setMise((prev) => prev.map(function(item) {
           const move = miseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: move.fecha || now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now, icgLastImportKey: (move.importKeys || [])[0] || item.icgLastImportKey || "" } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
-          const uniqueKeys = Array.from(new Set([...(move.importKeys || []), ...(move.legacyImportKeys || [])].filter(Boolean)));
-          return { id: `icg-${quickHashText(["miseCocina", move.target.producto, uniqueKeys.join("|")].join("|"))}`, fecha: move.fecha || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Number((move.target.existencia - move.cantidad).toFixed(4)), importKey: uniqueKeys[0] || "", importKeys: uniqueKeys };
+          return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Number((move.target.existencia - move.cantidad).toFixed(4)) };
         })));
       }
       const barMiseMoves = movements.filter((move) => move.targetKey === "miseBar");
       if (barMiseMoves.length) {
         setBarMise((prev) => prev.map(function(item) {
           const move = barMiseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: move.fecha || now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now, icgLastImportKey: (move.importKeys || [])[0] || item.icgLastImportKey || "" } : item;
+          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
       }
-      const appliedKeys = movements.flatMap((move) => [ ...(move.importKeys || []), ...(move.legacyImportKeys || []) ]).filter(Boolean);
-      const allKeys = Array.from(new Set([...duplicateAppliedKeys, ...appliedKeys, ...obviatedKeys]));
-      return { keys: allKeys, appliedKeys: Array.from(new Set(appliedKeys)), obviatedKeys: Array.from(new Set(obviatedKeys)), skippedKeys: Array.from(new Set(duplicateAppliedKeys)) };
+      return candidates.map((row) => row.ImportKey).filter(Boolean);
     }
     function migrateProductsToCuartoFrio(productIds) {
       const ids = Array.from(new Set((productIds || []).map((id) => Number(id)).filter(Boolean)));
@@ -19508,6 +19394,7 @@ Solicitado: ${cantidad}`);
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
     const [busy, setBusy] = useState(false);
+    const autoApplyIcgRef = useRef("");
     const totals = tableKeys.reduce(function(acc, key) {
       acc[key] = ((normalized.datasets[key] || {}).rows || []).length;
       return acc;
@@ -19521,14 +19408,8 @@ Solicitado: ${cantidad}`);
     );
     const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
-    const terminalStatusByImportKey = {};
     icgRows(normalized, "ConsumoMiseVentas").forEach(function(row) {
-      if (!row || !isIcgConsumptionTerminal(row)) return;
-      const terminalStatus = normalizeIcgTerminalStatus(row);
-      [row.ImportKey, row.LegacyImportKey].filter(Boolean).forEach(function(key) {
-        appliedImportKeys.add(key);
-        if (terminalStatus) terminalStatusByImportKey[key] = terminalStatus;
-      });
+      if (row && row.ImportKey && isIcgConsumptionFinalized(row)) appliedImportKeys.add(row.ImportKey);
     });
     const inventoryImpactPaused = isIcgInventoryImpactPaused(normalized);
     const salesConsumptionRows = useMemo(function() {
@@ -19539,12 +19420,10 @@ Solicitado: ${cantidad}`);
           return item.targetKey === targetKey && normalizar(item.producto) === normalizar(productName);
         });
         let estado = row.Estado || "Pendiente";
-        const terminalStatus = terminalStatusByImportKey[row.ImportKey] || terminalStatusByImportKey[row.LegacyImportKey] || "";
-        if (terminalStatus) estado = terminalStatus;
-        else if (appliedImportKeys.has(row.ImportKey) || appliedImportKeys.has(row.LegacyImportKey)) estado = "Aplicado";
+        if (appliedImportKeys.has(row.ImportKey)) estado = "Aplicado";
         else if (!productName) estado = "Sin vinculo";
         else if (!target) estado = "Producto WTF no encontrado";
-        else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) estado = "Obviado sin existencia";
+        else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) estado = "Sin existencia";
         else if (inventoryImpactPaused && estado === "Pendiente") estado = "Pausado por auditoria";
         return Object.assign({}, row, {
           targetKey,
@@ -19555,6 +19434,9 @@ Solicitado: ${cantidad}`);
         });
       });
     }, [data, inventoryTargets, normalized.appliedImports, bridgeRows.length, inventoryImpactPaused]);
+    const salesConsumptionSignature = salesConsumptionRows.map(function(row) {
+      return [row.ImportKey, row.Estado, row.ProductoWTF || row.ProductoMise, row.CantidadDescontar, row.ExistenciaActual].join(":");
+    }).join("|");
     const icgBusinessDateKey = getIcgBusinessDateKey(new Date());
     const currentClosureRow = closureRows.find(function(row) {
       return icgDateKey(row.FechaCierre || row.Fecha) === icgBusinessDateKey;
@@ -19633,7 +19515,7 @@ Solicitado: ${cantidad}`);
         return String(a.producto || "").localeCompare(String(b.producto || ""));
       });
     }, [inventoryTargets]);
-    const estadoOptions = ["Pendiente", "Aplicado", "Obviado sin existencia", "Sin vinculo", "Producto WTF no encontrado", "Sin existencia"];
+    const estadoOptions = ["Pendiente", "Aplicado", "Sin vinculo", "Producto WTF no encontrado", "Sin existencia"];
     const filteredRows = (table.rows || []).filter(function(row) {
       const q = normalizar(query);
       if (!q) return true;
@@ -19787,36 +19669,29 @@ Solicitado: ${cantidad}`);
       });
       setActiveTable("ConsumoMiseVentas");
       setTab("tablas");
-      toast(rows.length ? "Consumo por ventas generado. Revisa y aplica las lineas validas manualmente." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
+      toast(rows.length ? "Consumo por ventas generado. Las lineas validas se aplican automaticamente." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
     }
     function applyReadyConsumptionRows(pendingRows, options = {}) {
       if (!pendingRows.length) return [];
       if (inventoryImpactPaused) throw new Error(getIcgInventoryPauseMessage(normalized));
       if (typeof onApplyInventoryImpact !== "function") throw new Error("El puente ICG no tiene conexion activa con inventario.");
-      const impactResult = onApplyInventoryImpact(pendingRows);
-      const impactKeys = Array.isArray(impactResult) ? impactResult : impactResult && Array.isArray(impactResult.keys) ? impactResult.keys : [];
-      const appliedKeys = Array.isArray(impactResult) ? impactResult : impactResult && Array.isArray(impactResult.appliedKeys) ? impactResult.appliedKeys : impactKeys;
-      const obviatedKeys = impactResult && !Array.isArray(impactResult) && Array.isArray(impactResult.obviatedKeys) ? impactResult.obviatedKeys : [];
-      if (!impactKeys.length) return [];
-      const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...impactKeys]));
-      const appliedSet = new Set(appliedKeys);
-      const obviatedSet = new Set(obviatedKeys);
+      const appliedKeys = onApplyInventoryImpact(pendingRows);
+      const nextApplied = Array.from(new Set([...(normalized.appliedImports || []), ...appliedKeys]));
+      const appliedSet = new Set(nextApplied);
       const datasets = Object.assign({}, normalized.datasets);
       datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
         columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
         rows: salesConsumptionRows.map(function(row, index) {
-          const rowKeys = [row.ImportKey, row.LegacyImportKey].filter(Boolean);
           const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
-            Estado: rowKeys.some(function(key) { return obviatedSet.has(key); }) ? "Obviado sin existencia" : rowKeys.some(function(key) { return appliedSet.has(key); }) ? "Aplicado" : row.Estado,
-            MotivoRevision: rowKeys.some(function(key) { return obviatedSet.has(key); }) ? row.MotivoRevision || "Venta ICG obviada por falta de existencia al momento de procesarla. No se reintentara con entradas futuras." : row.MotivoRevision
+            Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
           });
           delete clean.targetKey;
           return clean;
         })
       });
       updateData({ appliedImports: nextApplied, datasets });
-      if (!options.silent) toast(obviatedKeys.length ? "Ventas ICG aplicadas y lineas sin existencia obviadas sin descontar." : "Ventas ICG aplicadas al inventario.", "ok");
-      return impactKeys;
+      if (!options.silent) toast("Ventas ICG aplicadas automaticamente al inventario.", "ok");
+      return appliedKeys;
     }
     function applySalesConsumption() {
       if (inventoryImpactPaused) {
@@ -19837,46 +19712,21 @@ Solicitado: ${cantidad}`);
       }
     }
     useEffect(function() {
-      if (typeof setData !== "function") return;
-      const obviadas = salesConsumptionRows.filter(function(row) {
-        return normalizeIcgTerminalStatus(row) === "Obviado sin existencia";
+      if (inventoryImpactPaused) return;
+      const pendingRows = salesConsumptionRows.filter(function(row) {
+        return row.Estado === "Pendiente";
       });
-      if (!obviadas.length) return;
-      const currentRows = icgRows(normalized, "ConsumoMiseVentas");
-      const terminalKeys = new Set();
-      currentRows.forEach(function(row) {
-        if (!isIcgConsumptionTerminal(row)) return;
-        [row.ImportKey, row.LegacyImportKey].filter(Boolean).forEach(function(key) { terminalKeys.add(String(key)); });
-      });
-      const nextRows = [];
-      obviadas.forEach(function(row, index) {
-        const keys = [row.ImportKey, row.LegacyImportKey].filter(Boolean).map(String);
-        if (keys.length && keys.every(function(key) { return terminalKeys.has(key); })) return;
-        const clean = Object.assign({ _id: row._id || `obviado-${row.ImportKey || index}` }, row, {
-          Estado: "Obviado sin existencia",
-          MotivoRevision: row.MotivoRevision || "Venta ICG obviada por falta de existencia al momento de procesarla. No se reintentara con entradas futuras."
-        });
-        delete clean.targetKey;
-        nextRows.push(clean);
-        keys.forEach(function(key) { terminalKeys.add(key); });
-      });
-      if (!nextRows.length) return;
-      const datasets = Object.assign({}, normalized.datasets);
-      const consumo = Object.assign({}, datasets.ConsumoMiseVentas || { rows: [], columns: ICG_TABLE_DEFS.ConsumoMiseVentas.columns });
-      const existingByKey = {};
-      (consumo.rows || []).forEach(function(row) {
-        if (row && row.ImportKey) existingByKey[row.ImportKey] = row;
-      });
-      nextRows.forEach(function(row) {
-        existingByKey[row.ImportKey || row._id] = Object.assign({}, existingByKey[row.ImportKey] || {}, row);
-      });
-      datasets.ConsumoMiseVentas = Object.assign({}, consumo, {
-        columns: Array.from(new Set([...(consumo.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "LegacyImportKey", "FechaHora", "TicketICG", "NumLinea", "CodAlmacen", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
-        rows: Object.values(existingByKey).slice(0, 8000)
-      });
-      const appliedImports = Array.from(new Set([...(normalized.appliedImports || []), ...nextRows.flatMap(function(row) { return [row.ImportKey, row.LegacyImportKey].filter(Boolean); })])).slice(-20000);
-      updateData({ appliedImports, datasets });
-    }, [salesConsumptionRows.map(function(row) { return [row.ImportKey, row.LegacyImportKey, row.Estado].join(":"); }).join("|")]);
+      if (!pendingRows.length || typeof onApplyInventoryImpact !== "function") return;
+      const signature = pendingRows.map(function(row) { return row.ImportKey; }).filter(Boolean).sort().join("|");
+      if (!signature || autoApplyIcgRef.current === signature) return;
+      autoApplyIcgRef.current = signature;
+      try {
+        const applied = applyReadyConsumptionRows(pendingRows, { silent: true });
+        if (applied.length) toast(`${applied.length} descuento(s) ICG aplicado(s) automaticamente.`, "ok");
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo aplicar automaticamente el consumo ICG.", "error");
+      }
+    }, [salesConsumptionSignature]);
     async function syncIcgArticlesFromLocalDb() {
       setBusy(true);
       try {
@@ -19959,7 +19809,7 @@ Solicitado: ${cantidad}`);
         });
       });
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
-        inventoryImpactPaused ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand" }), getIcgInventoryPauseMessage(normalized)) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Las ventas ICG con vinculo valido quedan listas para aplicar una sola vez. Las lineas sin mapeo, sin producto WTF o sin existencia suficiente quedan bloqueadas para revision."),
+        inventoryImpactPaused ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand" }), getIcgInventoryPauseMessage(normalized)) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Las ventas ICG con vinculo valido descuentan automaticamente. Solo quedan bloqueadas las lineas sin mapeo, sin producto WTF o sin existencia suficiente."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderSalesFilterButton("todos", "Lineas consumo", groupedSalesRows.length, "#4338ca"),
           renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
@@ -19996,7 +19846,7 @@ Solicitado: ${cantidad}`);
           /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(group, index) {
             const children = group.children || [group];
             const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
-            const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Stock insuficiente" || row.Estado === "Obviado sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
+            const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
             const renderChildLines = function(fn, options = {}) {
               const align = options.align || "left";
               return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 0, minWidth: options.minWidth || 190 } }, children.map(function(child, childIndex) {
@@ -20218,8 +20068,8 @@ Solicitado: ${cantidad}`);
       const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
       const target = targetIndex[`${targetKey}::${normalizar(row.ProductoWTF || row.ProductoMise)}`] || null;
       const estadoOriginal = normalizar(row.Estado || "");
-      let estado = estadoOriginal.includes("aplicado") ? "sincronizado" : estadoOriginal.includes("sin vinculo") ? "requiere_mapeo" : "listo_aplicar";
-      let mensaje = estado === "sincronizado" ? "Descuento aplicado" : "Listo para aplicar con asiento unico";
+      let estado = estadoOriginal.includes("aplicado") ? "sincronizado" : estadoOriginal.includes("sin vinculo") ? "requiere_mapeo" : "listo_automatico";
+      let mensaje = estado === "sincronizado" ? "Descuento aplicado" : "Listo para descuento automatico";
       if (!row.ProductoWTF && !row.ProductoMise) {
         estado = "requiere_mapeo";
         mensaje = "No hay producto WTF vinculado";
@@ -20288,7 +20138,7 @@ Solicitado: ${cantidad}`);
         `- Vinculos activos: ${activeBridgeRows.length}`,
         "",
         "## Regla operativa",
-        "Las ventas ICG con vinculo WTF valido se descuentan una sola vez por asiento. Las lineas sin mapeo, sin producto o sin existencia suficiente quedan bloqueadas para revision.",
+        "Las ventas ICG con vinculo WTF valido se descuentan automaticamente. Las lineas sin mapeo, sin producto o sin existencia suficiente quedan bloqueadas para revision.",
         "",
         "## Modulos conectados",
         `- Inventario Cocina: ${hostPackage.audit.cocinaInventario}`,
@@ -20302,7 +20152,7 @@ Solicitado: ${cantidad}`);
       toast("Reporte de auditoria ICG Host exportado.", "ok");
     }
     const statusColor = function(status) {
-      if (status === "listo_aplicar") return "pill-verde";
+      if (status === "listo_automatico") return "pill-verde";
       if (status === "informativo") return "pill-azul";
       if (status === "pendiente_revision") return "pill-naranja";
       if (status === "requiere_mapeo" || status === "error") return "pill-rojo";
@@ -20348,7 +20198,7 @@ Solicitado: ${cantidad}`);
             return /* @__PURE__ */ React.createElement("button", { key, className: `tab ${tab === key ? "active" : ""}`, onClick: () => setTab(key) }, labels[key]);
           })),
           tab === "dashboard" && /* @__PURE__ */ React.createElement("div", { className: "grid-2" },
-            /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Estado operativo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Idempotencia activa"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)", lineHeight: 1.6 } }, "Cada venta ICG se amarra a un asiento unico. Relecturas, cierres Z o reaperturas no deben descontar dos veces.")),
+            /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Estado operativo"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Descuento automatico activo"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "var(--gris)", lineHeight: 1.6 } }, "Las ventas ICG con vinculo WTF valido se descuentan automaticamente. Solo se bloquean las lineas sin mapeo, sin producto o sin existencia suficiente.")),
             /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid var(--borde)", borderRadius: 8, padding: 14, display: "grid", gap: 8 } }, /* @__PURE__ */ React.createElement("strong", null, "Conexion con modulos"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, ["Cocina", "Bar", "Mise an Place", "Entradas", "ICG FrontRest"].map((label) => /* @__PURE__ */ React.createElement("span", { key: label, className: "pill pill-verde" }, label))))
           ),
           tab === "icgWeb" && renderQueue(icgToWebQueue, "Sin ventas ICG pendientes para preparar descuento web."),
@@ -22672,53 +22522,15 @@ Solicitado: ${cantidad}`);
   }
   function HistorialRapidoMise({ data, tipo }) {
     const [busqueda, setBusqueda] = useState("");
-    const [fechaDesde, setFechaDesde] = useState("");
-    const [fechaHasta, setFechaHasta] = useState("");
     const rows = Array.isArray(data) ? data : [];
     const cfg = tipo === "entrada" ? { color: "verde", icon: "fa-arrow-up", empty: "Sin entradas r\xE1pidas" } : { color: "azul", icon: "fa-bolt", empty: "Sin salidas r\xE1pidas" };
-    function getRowDateKey(row) {
-      const value = row && row.fecha;
-      if (!value) return "";
-      return icgDateKey(value) || String(value).slice(0, 10);
-    }
-    function rowMatchesDateRange(row) {
-      const dateKey = getRowDateKey(row);
-      if (!dateKey) return !fechaDesde && !fechaHasta;
-      if (fechaDesde && dateKey < fechaDesde) return false;
-      if (fechaHasta && dateKey > fechaHasta) return false;
-      return true;
-    }
-    const query = normalizar(busqueda);
-    const filtrado = rows.filter(function(r) {
-      const textMatch = !query || normalizar([r.producto, r.usuario, r.origen, r.medida].filter(Boolean).join(" ")).includes(query);
-      return textMatch && rowMatchesDateRange(r);
-    });
-    const hasFilters = Boolean(busqueda || fechaDesde || fechaHasta);
-    const clearFilters = function() {
-      setBusqueda("");
-      setFechaDesde("");
-      setFechaHasta("");
-    };
+    const filtrado = busqueda ? rows.filter((r) => normalizar(r.producto).includes(normalizar(busqueda)) || normalizar(r.usuario).includes(normalizar(busqueda))) : rows;
     const fmtNum = (value) => value == null || value === "" || isNaN(Number(value)) ? "-" : Number(value).toFixed(2);
     const tableRows = [...filtrado].reverse().map((h, i) => /* @__PURE__ */ React.createElement("tr", { key: h.id || i }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, formatDatetime(h.fecha)), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, h.producto), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, h.medida || "Uni")), /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: `var(--${cfg.color})` } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 6 } }), fmtNum(h.cantidad)), /* @__PURE__ */ React.createElement("td", null, fmtNum(h.existenciaAnterior)), /* @__PURE__ */ React.createElement("td", null, fmtNum(h.existenciaNueva)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 12 } }, h.usuario || "-")));
     if (filtrado.length === 0) {
       tableRows.push(/* @__PURE__ */ React.createElement("tr", { key: "empty" }, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: "28px", color: "var(--gris)" } }, rows.length ? "Sin resultados" : cfg.empty)));
     }
-    return /* @__PURE__ */ React.createElement("div", null,
-      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" } },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", flex: "1 1 620px" } },
-          /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 300, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, usuario u origen...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) })),
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: fechaDesde, onChange: (e) => setFechaDesde(e.target.value), title: "Fecha desde", style: { width: 150 } }),
-          /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "date", value: fechaHasta, onChange: (e) => setFechaHasta(e.target.value), title: "Fecha hasta", style: { width: 150 } }),
-          hasFilters && /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: clearFilters }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
-        ),
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
-          /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, filtrado.length, " visibles"),
-          /* @__PURE__ */ React.createElement("span", { className: `pill pill-${cfg.color}` }, rows.length, " registros")
-        )
-      ),
-      /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Unidad"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, "Exist. anterior"), /* @__PURE__ */ React.createElement("th", null, "Exist. nueva"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows))))
-    );
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 300, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o usuario...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("span", { className: `pill pill-${cfg.color}` }, rows.length, " registros")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Unidad"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, "Exist. anterior"), /* @__PURE__ */ React.createElement("th", null, "Exist. nueva"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
   }
   function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
