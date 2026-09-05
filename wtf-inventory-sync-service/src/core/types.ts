@@ -70,6 +70,7 @@ export interface ServiceConfig {
   icgAuditDbName: string;
   icgSqlDataDir: string;
   icgBackupPollSeconds: number;
+  icgConsumptionLookbackDays: number;
 }
 
 export interface StoreData {

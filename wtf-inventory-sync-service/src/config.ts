@@ -8,6 +8,11 @@ function bool(value: string | undefined): boolean {
   return ["1", "true", "yes", "si"].includes(String(value || "").toLowerCase());
 }
 
+function numberAtLeast(value: string | undefined, fallback: number, min: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(min, parsed) : fallback;
+}
+
 export function getConfig(): ServiceConfig {
   const dataDir = path.resolve(process.env.WTF_DATA_DIR || "./data");
   return {
@@ -21,7 +26,7 @@ export function getConfig(): ServiceConfig {
     branch: process.env.WTF_BRANCH || "principal",
     defaultWarehouse: process.env.WTF_DEFAULT_WAREHOUSE || "1",
     mode: process.env.WTF_MODE === "automatico" ? "automatico" : "manual",
-    pollSeconds: Math.max(5, Number(process.env.WTF_POLL_SECONDS || 30)),
+    pollSeconds: numberAtLeast(process.env.WTF_POLL_SECONDS, 30, 5),
     dataDir,
     icgExportDir: path.resolve(process.env.ICG_EXPORT_DIR || path.join(dataDir, "inbox")),
     icgImportDir: path.resolve(process.env.ICG_IMPORT_DIR || path.join(dataDir, "outbox")),
@@ -35,6 +40,7 @@ export function getConfig(): ServiceConfig {
     icgBackupPath: path.resolve(process.env.ICG_BACKUP_PATH || "C:\\ICG\\BACKUP\\FRS_WTFOODVZL.BAK_1"),
     icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "WTF_AUDIT_FRS_WTFOODVZL",
     icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\BACKUP\\WTF_AUDIT_SQL"),
-    icgBackupPollSeconds: Math.max(5, Number(process.env.ICG_BACKUP_POLL_SECONDS || 10))
+    icgBackupPollSeconds: numberAtLeast(process.env.ICG_BACKUP_POLL_SECONDS, 30, 30),
+    icgConsumptionLookbackDays: numberAtLeast(process.env.ICG_CONSUMPTION_LOOKBACK_DAYS, 30, 1)
   };
 }

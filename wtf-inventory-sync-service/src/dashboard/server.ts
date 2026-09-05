@@ -108,6 +108,7 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     autoApplyIcgBackup: config.autoApplyIcgBackup,
     icgBackupPath: config.icgBackupPath,
     icgBackupPollSeconds: config.icgBackupPollSeconds,
+    icgConsumptionLookbackDays: config.icgConsumptionLookbackDays,
     sqlServer: config.sqlServer,
     icgLiveDatabaseName: config.icgLiveDatabaseName,
     icgAuditDbName: config.icgAuditDbName,
@@ -328,7 +329,7 @@ function renderDashboard(): string {
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function refreshAll(){
-      msg.textContent=' Procesando Base de Datos ICG Local...';
+      msg.textContent=' Buscando movimientos de consumo nuevos en ICG Local...';
       const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
       const j=await r.json();
       const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
@@ -385,7 +386,7 @@ function renderDashboard(): string {
         if(left<=0) clearInterval(timer);
       },1000);
     }
-    load(); setInterval(load,5000);
+    load(); setInterval(load,30000);
   </script>
 </body></html>`;
 }

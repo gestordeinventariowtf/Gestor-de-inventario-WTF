@@ -134,6 +134,26 @@ function targetProductName(row: AnyRecord, key: string): string {
     : String(row.producto || row.nombre || "");
 }
 
+function icgTicketIdentityFromLine(line: Partial<IcgBackupConsumptionRow>): string {
+  return [line.fo, line.serie, line.numero, line.n].map((part) => String(part || "").trim()).filter(Boolean).join("-");
+}
+
+function icgTicketIdentityFromConsumptionRow(row: AnyRecord): string {
+  return firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"]);
+}
+
+function consumptionAggregationKey(fecha: string, code: string, reference: string, warehouse: string, target: string, product: string, ticket: string): string {
+  return [
+    normalizar(String(fecha || "").slice(0, 10)),
+    normalizar(ticket),
+    normalizar(code),
+    normalizar(reference),
+    normalizar(warehouse),
+    targetKey(target),
+    normalizar(product)
+  ].join("|");
+}
+
 function parseLocalIcgLinkValue(link: AnyRecord): AnyRecord {
   const parts = String(link?.value || "").split("|").map((part) => part.trim()).filter(Boolean);
   return {
@@ -201,9 +221,9 @@ function collectIcgBridgeRows(appState: AnyRecord): AnyRecord[] {
 
 function targetExistence(row: AnyRecord, key: string): number {
   if (key === "inventario" || key === "cuartoFrioInventario" || key === "barInventario" || key === "barCuartoFrioInventario") {
-    return parseNumber(row.entrada) - parseNumber(row.salida) - parseNumber(row.decomiso);
+    return Math.max(0, parseNumber(row.entrada) - parseNumber(row.salida) - parseNumber(row.decomiso));
   }
-  return parseNumber(row.existencia);
+  return Math.max(0, parseNumber(row.existencia));
 }
 
 function applyTargetSalida(row: AnyRecord, key: string, cantidad: number, updatedAt = new Date().toISOString(), importKey = ""): void {
@@ -213,7 +233,7 @@ function applyTargetSalida(row: AnyRecord, key: string, cantidad: number, update
     row.icgLastImportKey = importKey || row.icgLastImportKey || "";
     return;
   }
-  row.existencia = Number((parseNumber(row.existencia) - cantidad).toFixed(4));
+  row.existencia = Math.max(0, Number((parseNumber(row.existencia) - cantidad).toFixed(4)));
   row.updatedAt = updatedAt;
   row.icgLastImportKey = importKey || row.icgLastImportKey || "";
 }
@@ -501,25 +521,20 @@ function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyReco
 }
 
 function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyRecord[] {
-  const currentYear = new Date().getFullYear();
-  const yearPrefix = `${currentYear}-`;
   const map = new Map<string, AnyRecord>();
   (Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
     const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
-    if (!key.startsWith(yearPrefix)) return;
     if (key) map.set(key, row);
   });
   (Array.isArray(newRows) ? newRows : []).forEach((row) => {
     const key = String(row.FechaCierre || row.Fecha || row._id || "").trim();
     if (!key) return;
-    if (!key.startsWith(yearPrefix)) return;
     map.set(key, Object.assign({}, map.get(key) || {}, row));
   });
-  return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || ""))).slice(0, 1200);
+  return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || "")));
 }
 
 async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
-  const currentYear = new Date().getFullYear();
   const paymentsExists = parseSqlRows(await runSql(config, databaseName, "SELECT CASE WHEN OBJECT_ID('TIQUETSPAG','U') IS NULL THEN 0 ELSE 1 END AS Existe;"))[0]?.Existe === "1";
   const paymentsJoin = paymentsExists
     ? "LEFT JOIN (SELECT FO,SERIE,NUMERO,N,SUM(IMPORTE) AS PAGOS FROM TIQUETSPAG GROUP BY FO,SERIE,NUMERO,N) p ON p.FO=c.FO AND p.SERIE=c.SERIE AND p.NUMERO=c.NUMERO AND p.N=c.N"
@@ -537,8 +552,6 @@ WITH cab AS (
     ISNULL(c.PROPINA,0) AS PROPINA
   FROM TIQUETSCAB c
   WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-    AND CONVERT(date,c.FECHA) >= '${currentYear}-01-01'
-    AND CONVERT(date,c.FECHA) < '${currentYear + 1}-01-01'
 ),
 lineas AS (
   SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
@@ -664,16 +677,18 @@ END`;
       closures
     };
   }
+  const lookbackDays = Math.max(1, Math.round(config.icgConsumptionLookbackDays || 30));
   const dataSql = `
-DECLARE @fecha date='${quoteSql(latest)}';
+DECLARE @hasta date='${quoteSql(latest)}';
+DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
 SELECT
   CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS fecha,
-  CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120) AS fechaHora,
+  CONVERT(varchar(19), MIN(DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA)))), 120) AS fechaHora,
   CAST(tc.FO AS varchar(30)) AS fo,
   CAST(tc.SERIE AS varchar(30)) AS serie,
   CAST(tc.NUMERO AS varchar(30)) AS numero,
   CAST(tc.N AS varchar(30)) AS n,
-  CAST(tc.NUMLINEA AS varchar(30)) AS numLinea,
+  CAST(MIN(tc.NUMLINEA) AS varchar(30)) AS numLinea,
   CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
   ISNULL(a.REFERENCIA,'') AS referencia,
   ISNULL(a.DESCRIPCION,'') AS descripcion,
@@ -684,9 +699,9 @@ FROM TIQUETSCONSUMO tc
 JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
 LEFT JOIN TIQUETSLIN l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
 LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
-WHERE CONVERT(date,c.FECHA)=@fecha AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-GROUP BY CONVERT(date,c.FECHA),c.HORAFIN,c.HORAINI,l.HORA,tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
-ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,tc.CODALMACEN;`;
+WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+GROUP BY CONVERT(date,c.FECHA),tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
+ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,tc.CODALMACEN;`;
   const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   return {
     fecha: latest,
@@ -780,9 +795,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     result.skipped = rowsToApply.length;
     result.pending = rowsToApply.length;
     result.message = icg.inventoryImpactPauseReason || "Descuentos ICG pausados por auditoria. No se aplicaron salidas automaticas.";
-    result.movements = rowsToApply.slice(0, 300).map((line) => {
+    result.movements = rowsToApply.map((line) => {
       const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
-      const importKey = quickHashText(["icg-paused", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+      const ticketIdentity = icgTicketIdentityFromLine(line);
+      const importKey = quickHashText(["icg-paused", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
     });
     return result;
@@ -809,17 +825,17 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   appliedConsumptionKeys.forEach((key) => appliedKeys.add(key));
   const legacyAppliedRemaining = new Map<string, number>();
   consumoRows.forEach((row) => {
-    const hasLineIdentity = Boolean(row.FechaHora || row.TicketICG || row.NumLinea);
-    if (hasLineIdentity || normalizar(row.Estado || "") !== "aplicado") return;
+    if (!["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || ""))) return;
     const rowTarget = targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "");
-    const key = [
-      normalizar(row.Fecha || ""),
-      normalizar(bridgeCode(row)),
-      normalizar(bridgeReference(row)),
-      normalizar(row.CodAlmacen || ""),
+    const key = consumptionAggregationKey(
+      row.Fecha || row.FechaHora || "",
+      bridgeCode(row),
+      bridgeReference(row),
+      row.CodAlmacen || "",
       rowTarget,
-      normalizar(bridgeWtfProduct(row))
-    ].join("|");
+      bridgeWtfProduct(row),
+      icgTicketIdentityFromConsumptionRow(row)
+    );
     legacyAppliedRemaining.set(key, Number((parseNumber(legacyAppliedRemaining.get(key)) + Math.abs(parseNumber(row.CantidadDescontar || row.UnidadesVendidas || 0))).toFixed(4)));
   });
   const now = new Date().toISOString();
@@ -833,13 +849,14 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
 
   for (const line of rowsToApply) {
     const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
+    const ticketIdentity = icgTicketIdentityFromLine(line);
     const isIcgReturn = line.tipoMovimiento === "devolucion" || line.consumo < 0;
     const matchedLinks = links.filter((row) => {
       const linkCode = normalizar(bridgeCode(row));
       const linkRef = normalizar(bridgeReference(row));
-      return linkCode && normalizar(line.codArticulo) === linkCode || linkRef && normalizar(line.referencia) === linkRef;
+      return (linkCode && normalizar(line.codArticulo) === linkCode) || (linkRef && normalizar(line.referencia) === linkRef);
     });
-    const pendingImportKey = quickHashText(["icg-bak", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+    const pendingImportKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey))) {
       result.skipped += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
@@ -862,7 +879,11 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: pendingImportKey,
         Estado: "Sin vinculo",
-        CodAlmacen: line.codAlmacen
+        CodAlmacen: line.codAlmacen,
+        FechaHora: line.fechaHora || line.fecha || fecha,
+        TicketICG: ticketIdentity,
+        NumLinea: line.numLinea || "",
+        TipoMovimiento: isIcgReturn ? "Devolucion ICG / pendiente" : "Venta ICG / pendiente"
       };
       rememberConsumptionRow(pendingRow);
       continue;
@@ -870,10 +891,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     for (const link of matchedLinks) {
       const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
       const producto = bridgeWtfProduct(link);
-      const importKey = quickHashText(["icg-bak", eventDate, line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
+      const importKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
       const qtyFactor = bridgeQuantity(link) || 1;
       const cantidad = Number((Math.abs(line.consumo) * qtyFactor).toFixed(4));
-      const legacyKey = [normalizar(fecha), normalizar(line.codArticulo), normalizar(line.referencia), normalizar(line.codAlmacen), target, normalizar(producto)].join("|");
+      const legacyKey = consumptionAggregationKey(line.fecha || fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto, ticketIdentity);
       const legacyRemaining = legacyAppliedRemaining.get(legacyKey) || 0;
       if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
@@ -906,7 +927,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Estado: "Pendiente",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
-        TicketICG: [line.fo, line.serie, line.numero, line.n].filter(Boolean).join("-"),
+        TicketICG: ticketIdentity,
         NumLinea: line.numLinea || "",
         TipoMovimiento: isIcgReturn ? "Devolucion ICG / decomiso automatico" : "Venta ICG"
       };
@@ -1005,11 +1026,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   const insertedConsumptionRows = Array.from(consumptionUpserts.values()).filter((row) => !originalConsumptionKeys.has(String(row.ImportKey || "")));
   icg.datasets.ConsumoMiseVentas = Object.assign({}, icg.datasets.ConsumoMiseVentas, {
     columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), "FechaHora", "TicketICG", "NumLinea", "TipoMovimiento", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
-    rows: insertedConsumptionRows.concat(updatedConsumptionRows).slice(0, 8000)
+    rows: insertedConsumptionRows.concat(updatedConsumptionRows)
   });
-  icg.appliedImports = Array.from(appliedKeys).slice(-10000);
+  icg.appliedImports = Array.from(appliedKeys);
   icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: result.applied, matched: result.matched, pending: result.pending, errors: result.errors });
-  icg.processedBackupDates = icg.processedBackupDates.slice(0, 300);
   icg.sourceName = path.basename(config.icgBackupPath);
   icg.updatedAt = now;
   result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0;

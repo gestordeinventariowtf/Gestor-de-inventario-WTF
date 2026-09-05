@@ -4462,7 +4462,7 @@
       key,
       label: base.label || (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].label) || key,
       columns: Array.isArray(base.columns) && base.columns.length ? base.columns : (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].columns) || [],
-      rows: rows.slice(Math.max(0, rows.length - rowLimit))
+      rows: rowLimit > 0 ? rows.slice(Math.max(0, rows.length - rowLimit)) : rows
     };
   }
   function compactIcgLookupDatasetForFirebase(data, key, rowLimit) {
@@ -4479,7 +4479,7 @@
       key,
       label: base.label || (ICG_TABLE_DEFS[key] && ICG_TABLE_DEFS[key].label) || key,
       columns,
-      rows: rows.slice(Math.max(0, rows.length - rowLimit)).map(function(row) {
+      rows: (rowLimit > 0 ? rows.slice(Math.max(0, rows.length - rowLimit)) : rows).map(function(row) {
         return columns.reduce(function(acc, column) {
           if (row && Object.prototype.hasOwnProperty.call(row, column)) acc[column] = row[column];
           return acc;
@@ -4491,15 +4491,15 @@
     const normalized = ensureIcgFrontRestData(data);
     const datasets = {};
     ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios"].forEach(function(key) {
-      datasets[key] = compactIcgDatasetForFirebase(normalized, key, key === "VinculosMiseICG" ? 4000 : key === "ConsumoMiseVentas" ? 8000 : 1200);
+      datasets[key] = compactIcgDatasetForFirebase(normalized, key, 0);
     });
     ["Articulos", "Referencias", "PreciosVenta"].forEach(function(key) {
-      datasets[key] = compactIcgLookupDatasetForFirebase(normalized, key, 6000);
+      datasets[key] = compactIcgLookupDatasetForFirebase(normalized, key, 0);
     });
     return {
       sourceName: normalized.sourceName || "",
       updatedAt: normalized.updatedAt || "",
-      appliedImports: Array.isArray(normalized.appliedImports) ? normalized.appliedImports.slice(-20000) : [],
+      appliedImports: Array.isArray(normalized.appliedImports) ? normalized.appliedImports : [],
       notifiedIcgSaleIds: Array.isArray(normalized.notifiedIcgSaleIds) ? normalized.notifiedIcgSaleIds.slice(-1500) : [],
       icgNotificationsInitialized: Boolean(normalized.icgNotificationsInitialized),
       notifyIcgTicketClosures: normalized.notifyIcgTicketClosures !== false,
@@ -6273,13 +6273,8 @@
     });
   }
   function buildIcgDailyClosures(data) {
-    const currentYear = getIcgCurrentYear();
-    const isCurrentYearRow = function(row) {
-      const key = icgDateKey(row && (row.FechaCierre || row.Fecha || row.createdAt));
-      return key && Number(key.slice(0, 4)) === currentYear;
-    };
     const sortRecentFirst = function(rows) {
-      return (Array.isArray(rows) ? rows : []).filter(isCurrentYearRow).sort(function(a, b) {
+      return (Array.isArray(rows) ? rows : []).sort(function(a, b) {
         return icgDateKey(b.FechaCierre || b.Fecha || b.createdAt).localeCompare(icgDateKey(a.FechaCierre || a.Fecha || a.createdAt));
       });
     };
@@ -6323,7 +6318,7 @@
         Pagos: Number(row.Pagos.toFixed(2)),
         Propina: Number(row.Propina.toFixed(2))
       });
-    }).filter(isCurrentYearRow);
+    });
   }
   function buildIcgPurchaseDays(data) {
     const explicit = icgRows(data, "ComprasDiarias");
@@ -19510,7 +19505,7 @@
           score: bestScore,
           icg: best
         };
-      }).filter((item) => item.score >= 35 && item.icg).sort((a, b) => b.score - a.score).slice(0, 80);
+      }).filter((item) => item.score >= 35 && item.icg).sort((a, b) => b.score - a.score);
     }, [miseAnPlace, data, bridgeRows.length, icgProductsForBridge.length]);
     const table = normalized.datasets[activeTable] || normalized.datasets.TiquetsCab;
     const columns = table.columns || [];
@@ -19838,23 +19833,23 @@
           /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "#4338ca" } }), "Facturas / tickets detectados"),
           /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
             /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "Hora", "Total", "Pagos", "Lineas vendidas"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
-            /* @__PURE__ */ React.createElement("tbody", null, ticketRows.slice(0, 80).map(function(ticket) {
+            /* @__PURE__ */ React.createElement("tbody", null, ticketRows.map(function(ticket) {
               return /* @__PURE__ */ React.createElement("tr", { key: ticket.TicketNotificacionId || ticket.ticketKey },
                 /* @__PURE__ */ React.createElement("td", null, ticket.FechaTicket || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, ticket.ticketKey || ticket.NumFactura || "-"),
                 /* @__PURE__ */ React.createElement("td", null, ticket.HoraTicket || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: "#15803d" } }, formatIcgMoney(ticket.TotalNetoCalculado)),
                 /* @__PURE__ */ React.createElement("td", null, formatIcgMoney(ticket.TotalPagado || 0)),
-                /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 3, minWidth: 230 } }, (ticket.Lineas || []).slice(0, 8).map(function(line, idx) {
+                /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 3, minWidth: 230 } }, (ticket.Lineas || []).map(function(line, idx) {
                   return /* @__PURE__ */ React.createElement("div", { key: `${ticket.ticketKey}-${idx}`, style: { fontSize: 12 } }, getIcgLineDescription(line) || "Articulo", " · ", getIcgLineUnits(line), " uni", getIcgLineCode(line) ? ` · Cod ${getIcgLineCode(line)}` : "");
-                }), (ticket.Lineas || []).length > 8 && /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "+", (ticket.Lineas || []).length - 8, " mas")))
+                }))
               );
             }))
           ))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
-          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.slice(0, 160).map(function(group, index) {
+          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.map(function(group, index) {
             const children = group.children || [group];
             const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
@@ -19933,7 +19928,7 @@
             /* @__PURE__ */ React.createElement("strong", null, "Vinculos activos"),
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
               /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Destino"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Codigo"), /* @__PURE__ */ React.createElement("th", null, "Referencia"), /* @__PURE__ */ React.createElement("th", null, "ICG"))),
-              /* @__PURE__ */ React.createElement("tbody", null, bridgeRows.slice(0, 80).map(function(row, index) {
+              /* @__PURE__ */ React.createElement("tbody", null, bridgeRows.map(function(row, index) {
                 return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.ProductoMise}-${index}` },
                   /* @__PURE__ */ React.createElement("td", null, row.ModuloWTF || "Mise an Place Cocina"),
                   /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, row.ProductoWTF || row.ProductoMise || "-"),
@@ -19948,7 +19943,7 @@
             /* @__PURE__ */ React.createElement("strong", null, "Sugerencias por nombre"),
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
               /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Mise"), /* @__PURE__ */ React.createElement("th", null, "ICG sugerido"), /* @__PURE__ */ React.createElement("th", null, "%"), /* @__PURE__ */ React.createElement("th", null, ""))),
-              /* @__PURE__ */ React.createElement("tbody", null, bridgeSuggestions.slice(0, 80).map(function(item) {
+              /* @__PURE__ */ React.createElement("tbody", null, bridgeSuggestions.map(function(item) {
                 const product = item.icg || {};
                 const label = product.Descripcion || product.ProductoICG || product.Nombre || product.Referencia || "-";
                 return /* @__PURE__ */ React.createElement("tr", { key: `${item.productoMise}-${getIcgArticleCode(product) || label}` },
