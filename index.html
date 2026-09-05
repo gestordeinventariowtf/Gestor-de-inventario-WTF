@@ -2697,6 +2697,10 @@
     const number = Number(value);
     return Number.isFinite(number) ? Number(number.toFixed(4)) : 0;
   }
+  function parseStockNumber(value, fallback = 0) {
+    const number = Number(String(value == null ? "" : value).replace(",", "."));
+    return Number.isFinite(number) ? number : fallback;
+  }
   function formatQty4(value) {
     return String(roundQty4(value));
   }
@@ -2743,7 +2747,21 @@
     return null;
   }
   function getInventoryExistence(item) {
-    return roundQty4((item && item.entrada || 0) - (item && item.salida || 0) - (item && item.decomiso || 0));
+    return Math.max(0, roundQty4(parseStockNumber(item && item.entrada, 0) - parseStockNumber(item && item.salida, 0) - parseStockNumber(item && item.decomiso, 0)));
+  }
+  function normalizeInventoryMovementTotals(row) {
+    if (!row || row.tipo !== "producto") return row;
+    const entrada = Math.max(0, roundQty4(parseStockNumber(row.entrada, 0)));
+    const decomiso = Math.min(Math.max(0, roundQty4(parseStockNumber(row.decomiso, 0))), entrada);
+    const salida = Math.min(Math.max(0, roundQty4(parseStockNumber(row.salida, 0))), Math.max(0, roundQty4(entrada - decomiso)));
+    return Object.assign({}, row, { entrada, salida, decomiso });
+  }
+  function assertInventoryMovementAvailable(item, cantidad, productoNombre) {
+    const qty = roundQty4(cantidad);
+    const existencia = getInventoryExistence(item);
+    if (qty > existencia + 1e-9) {
+      throw new Error(`No se puede dejar la existencia por debajo de 0.\n\nProducto: ${productoNombre || item && item.nombre || "Producto"}\nExistencia disponible: ${existencia}\nCantidad solicitada: ${qty}`);
+    }
   }
   function isInventoryProductVisible(item) {
     return !(item && (item.visible === false || item.oculto === true || item.activo === false));
@@ -3979,6 +3997,7 @@
         output.push(row);
         return;
       }
+      row = normalizeInventoryMovementTotals(row);
       const key = [getInventoryCanonicalProductName(row.nombre || row.producto || ""), normalizar(row.medida || "")].join("|");
       if (!key || key === "|") return;
       if (!productIndex.has(key)) {
@@ -3987,7 +4006,7 @@
         return;
       }
       const current = productIndex.get(key);
-      const merged = mergeInventoryDuplicateRows(current.row, row, true);
+      const merged = normalizeInventoryMovementTotals(mergeInventoryDuplicateRows(current.row, row, true));
       productIndex.set(key, { row: merged, index: current.index });
       output[current.index] = merged;
     });
@@ -11430,7 +11449,7 @@
     const productos = useMemo(
       () => inventario.filter((r) => r.tipo === "producto").map((p) => ({
         ...p,
-        existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+        existencia: getInventoryExistence(p)
       })).sort((a, b) => a.nombre.localeCompare(b.nombre)),
       [inventario]
     );
@@ -11611,9 +11630,8 @@
       const movementUser = options.responsibleUser || currentUser;
       const prod = barInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
-      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
-      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
-        throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+      const exist = getInventoryExistence(prod);
+      if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
       const reg = { _id: createMovementId("bar-inv"), storageKey: "barInventario", origen: "Inventario Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now); }
@@ -11625,13 +11643,8 @@
       const movementUser = options.responsibleUser || currentUser;
       const prod = inventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
-      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
-      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
-        throw new Error(`Excede la existencia actual.
-
-Producto: ${prod.nombre}
-Existencia: ${exist}
-Solicitado: ${cantidad}`);
+      const exist = getInventoryExistence(prod);
+      if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
       const reg = {
         _id: createMovementId("cocina-inv"),
         storageKey: "inventario",
@@ -11665,9 +11678,8 @@ Solicitado: ${cantidad}`);
       const movementUser = options.responsibleUser || currentUser;
       const prod = barCuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
-      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
-      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
-        throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+      const exist = getInventoryExistence(prod);
+      if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
       const reg = { _id: createMovementId("bar-frio"), storageKey: "barCuartoFrioInventario", origen: "Cuarto Frio Bar", modulo: "Bar", fecha: now, numero: prod.id, medida: prod.medida, producto: prod.nombre, cantidad, usuario: getUserDisplayLabel(movementUser) };
       if (tipo === "entrada") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r)); setBarRegEntradas((p) => [...p, reg]); }
       if (tipo === "salida") { setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r)); setBarRegSalidas((p) => [...p, reg]); if (options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now); }
@@ -11679,9 +11691,8 @@ Solicitado: ${cantidad}`);
       const movementUser = options.responsibleUser || currentUser;
       const prod = cuartoFrioInventario.find((r) => r.tipo === "producto" && normalizar(r.nombre) === normalizar(productoNombre));
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
-      const exist = (prod.entrada || 0) - (prod.salida || 0) - (prod.decomiso || 0);
-      if ((tipo === "salida" || tipo === "decomiso") && cantidad > exist)
-        throw new Error(`Excede la existencia actual.\n\nProducto: ${prod.nombre}\nExistencia: ${exist}\nSolicitado: ${cantidad}`);
+      const exist = getInventoryExistence(prod);
+      if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
       const reg = {
         _id: createMovementId("cocina-frio"),
         storageKey: "cuartoFrioInventario",
@@ -11777,7 +11788,7 @@ Solicitado: ${cantidad}`);
     const setActiveCuartoFrio = esBar ? setBarCuartoFrioInventario : setCuartoFrioInventario;
     const activeProductos = activeInv.filter((r) => r.tipo === "producto").map((p) => ({
       ...p,
-      existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+      existencia: getInventoryExistence(p)
     }));
     const activeEntradas = esBar ? barRegEntradas : regEntradas;
     const setActiveEntradas = esBar ? setBarRegEntradas : setRegEntradas;
@@ -11822,7 +11833,7 @@ Solicitado: ${cantidad}`);
         ...p,
         storageKey: source.storageKey,
         storageLabel: source.storageLabel,
-        existencia: (p.entrada || 0) - (p.salida || 0) - (p.decomiso || 0)
+        existencia: getInventoryExistence(p)
       }));
     }), "").sort(function(a, b) {
       return String(a.nombre || "").localeCompare(String(b.nombre || "")) || String(a.storageLabel || "").localeCompare(String(b.storageLabel || ""));
@@ -11927,17 +11938,17 @@ Solicitado: ${cantidad}`);
       if (miseMoves.length) {
         setMise((prev) => prev.map(function(item) {
           const move = miseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
+          return move ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
-          return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Number((move.target.existencia - move.cantidad).toFixed(4)) };
+          return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Math.max(0, Number((move.target.existencia - move.cantidad).toFixed(4))) };
         })));
       }
       const barMiseMoves = movements.filter((move) => move.targetKey === "miseBar");
       if (barMiseMoves.length) {
         setBarMise((prev) => prev.map(function(item) {
           const move = barMiseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4)), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
+          return move ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
       }
       return candidates.map((row) => row.ImportKey).filter(Boolean);
@@ -20418,7 +20429,7 @@ Solicitado: ${cantidad}`);
             nombre: row.nombre,
             medida: row.medida,
             suplidor: row.suplidor || "",
-            existencia: (row.entrada || 0) - (row.salida || 0) - (row.decomiso || 0)
+            existencia: getInventoryExistence(row)
           });
         });
       });
@@ -22460,11 +22471,12 @@ Solicitado: ${cantidad}`);
       if (!data.area) return setError("Seleccione el \xE1rea.");
       if (!data.responsable.trim()) return setError("Ingrese el responsable.");
       if (!prodInfo) return setError(`"${data.producto}" no existe en Mise an Place.`);
-      if (cant > prodInfo.existencia) return setError(`Excede la existencia actual (${prodInfo.existencia}).`);
+      const existenciaActual = getMiseSafeNumber(prodInfo.existencia, 0);
+      if (cant > existenciaActual) return setError(`No se puede dejar la existencia por debajo de 0. Existencia actual: ${existenciaActual}. Solicitado: ${cant}.`);
       const now = new Date().toISOString();
-      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: m.existencia - cant, updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: data.responsable || "Sistema", movementSource: "Decomiso Mise", movimientosActualizadosAt: now } : m));
+      setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: Math.max(0, Number((getMiseSafeNumber(m.existencia, 0) - cant).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: data.responsable || "Sistema", movementSource: "Decomiso Mise", movimientosActualizadosAt: now } : m));
       setHistDecomisoCocina((p) => [...p, { ...data, cantidad: cant }]);
-      syncNeveras && syncNeveras({ nombre: data.producto, delta: -cant, existenciaAntes: prodInfo.existencia });
+      syncNeveras && syncNeveras({ nombre: data.producto, delta: -cant, existenciaAntes: existenciaActual });
       toast(`Decomiso: ${data.producto} x${cant}`);
       onClose();
     }
@@ -22685,7 +22697,7 @@ Solicitado: ${cantidad}`);
             return `${component.producto}: ${formatMiseQty(Number(component.cantidadPorServicio || 0) * cantidad)} ${component.medida || "Uni"}`;
           }).join(" | ") : "",
           existenciaAnterior,
-          existenciaNueva: roundMiseQty(existenciaAnterior - cantidad),
+          existenciaNueva: Math.max(0, roundMiseQty(existenciaAnterior - cantidad)),
           usuario: getUserDisplayLabel(currentUser)
         };
       });
@@ -22694,7 +22706,7 @@ Solicitado: ${cantidad}`);
         const directQty = isMiseKit(m) ? 0 : Number(acum[k] || 0);
         const componentQty = Number(componentAcum[k] || 0);
         const delta = roundMiseQty(directQty + componentQty);
-        return delta > 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) - delta), updatedAt: fecha } : m;
+        return delta > 0 ? { ...m, existencia: Math.max(0, roundMiseQty(getMiseSafeNumber(m.existencia, 0) - delta)), updatedAt: fecha } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
       if (setProducciones) {
@@ -22848,9 +22860,14 @@ Solicitado: ${cantidad}`);
       setNeveras((ns) => ns.map((n, i) => i !== neveraIdx ? n : { ...n, items: n.items.filter((it) => it.id !== itemId) }));
     }
     function transferir(fromIdx, item, toIdx, cantidad) {
+      const disponible = Math.max(0, Number(item && item.existencia || 0));
+      if (cantidad > disponible + 1e-9) {
+        toast(`No se puede transferir mas de la existencia disponible (${disponible}).`, "error");
+        return;
+      }
       setNeveras((ns) => ns.map((n, i) => {
         if (i === fromIdx) {
-          const resto = item.existencia - cantidad;
+          const resto = Math.max(0, Number((disponible - cantidad).toFixed(4)));
           return { ...n, items: resto <= 0 ? n.items.filter((it) => it.id !== item.id) : n.items.map((it) => it.id === item.id ? { ...it, existencia: resto } : it) };
         }
         if (i === toIdx) {
@@ -23701,7 +23718,7 @@ Solicitado: ${cantidad}`);
         alert("No se encontr\xF3 el producto en inventario para actualizar la existencia.");
         return;
       }
-      const currentExist = (productRow.entrada || 0) - (productRow.salida || 0) - (productRow.decomiso || 0);
+      const currentExist = getInventoryExistence(productRow);
       const projectedExist = field === "entrada" ? currentExist + delta : currentExist - delta;
       if (projectedExist < 0) {
         alert(`El cambio deja la existencia en negativo.
