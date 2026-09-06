@@ -9055,7 +9055,7 @@
       const employeeName = record.usuario || [record.nombres, record.apellidos].filter(Boolean).join(" ") || (employeeUser ? getUserDisplayLabel(employeeUser) : record.userId);
       const employeeProfile = getEmployeeProfileName(employeeUser) || (employeeUser && (employeeUser.cargoVisible || employeeUser.perfilLaboral)) || "Colaborador";
       const hireDate = record.fechaIngreso || getEmployeeHireDate(employeeUser) || "";
-      const personalRows = [["Nombres", record.nombres], ["Apellidos", record.apellidos], ["Cedula", record.cedula], ["Telefono", record.telefono], ["Celular", record.celular], ["Fecha de ingreso", hireDate ? formatDateDDMMYYYY(hireDate) : "Sin registrar"], ["Direccion", record.direccion]];
+      const personalRows = [["Nombres", record.nombres], ["Apellidos", record.apellidos], ["Cedula", record.cedula], ["Telefono", record.telefono], ["Celular", record.celular], ["Fecha de ingreso a la empresa", hireDate ? formatDateDDMMYYYY(hireDate) : "Sin registrar"], ["Direccion", record.direccion]];
       const emergencyRows = [["Contacto", record.contactoEmergencia], ["Telefono", record.telefonoEmergencia], ["Parentesco", record.parentescoEmergencia]];
       const medicalRows = [["Alergias", record.alergias], ["Notas medicas", record.notasMedicas]];
       const documentsText = String(record.documentos || "").trim();
@@ -9988,7 +9988,7 @@
         ),
         currentEmployeeRecord ? (() => {
           const record = currentEmployeeRecord;
-          const personalRows = [["Nombres", record.nombres], ["Apellidos", record.apellidos], ["Cedula", record.cedula], ["Telefono", record.telefono], ["Celular", record.celular], ["Fecha de ingreso", record.fechaIngreso ? formatDateDDMMYYYY(record.fechaIngreso) : getEmployeeHireDate(currentUser) || "Sin registrar"], ["Direccion", record.direccion]];
+          const personalRows = [["Nombres", record.nombres], ["Apellidos", record.apellidos], ["Cedula", record.cedula], ["Telefono", record.telefono], ["Celular", record.celular], ["Fecha de ingreso a la empresa", record.fechaIngreso ? formatDateDDMMYYYY(record.fechaIngreso) : getEmployeeHireDate(currentUser) || "Sin registrar"], ["Direccion", record.direccion]];
           const emergencyRows = [["Contacto", record.contactoEmergencia], ["Telefono", record.telefonoEmergencia], ["Parentesco", record.parentescoEmergencia]];
           const medicalRows = [["Alergias", record.alergias], ["Notas medicas", record.notasMedicas]];
           const documentsText = String(record.documentos || "").trim();
