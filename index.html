@@ -15252,12 +15252,14 @@
       }
       const start = textarea.selectionStart || 0;
       const end = textarea.selectionEnd || start;
+      const scrollTop = textarea.scrollTop || 0;
       const selected = value.slice(start, end);
       const nextValue = `${value.slice(0, start)}**${selected}**${value.slice(end)}`;
       setRecipeInstructions(nextValue);
       setError("");
       setTimeout(function() {
         textarea.focus();
+        textarea.scrollTop = scrollTop;
         const cursorStart = selected ? start : start + 2;
         const cursorEnd = selected ? end + 4 : start + 2;
         textarea.setSelectionRange(cursorStart, cursorEnd);
@@ -16184,7 +16186,7 @@
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 } },
                         /* @__PURE__ */ React.createElement("label", { className: "form-label", style: { marginBottom: 0 } }, "Instrucciones de preparacion"),
-                        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Aplicar negrita al texto seleccionado", onClick: applyBoldToRecipeInstructions }, /* @__PURE__ */ React.createElement("strong", null, "B"))
+                        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Aplicar negrita al texto seleccionado", onMouseDown: function(e) { e.preventDefault(); }, onClick: applyBoldToRecipeInstructions }, /* @__PURE__ */ React.createElement("strong", null, "B"))
                       ),
                       /* @__PURE__ */ React.createElement("textarea", { ref: recipeInstructionsRef, className: "form-control", value: recipeInstructions, onChange: function(e) { setRecipeInstructions(e.target.value); setError(""); }, placeholder: "Describe el procedimiento, tiempos, temperatura, reposo, empaque o notas de cocina...", rows: 5, style: { resize: "vertical", lineHeight: 1.5 } }),
                       /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 5, fontWeight: 700 } }, "Selecciona texto y pulsa B para resaltarlo en negrita.")
