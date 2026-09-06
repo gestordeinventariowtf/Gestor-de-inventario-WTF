@@ -494,6 +494,20 @@
 
     /* -- Table -- */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+    .recipe-preview-table-wrap {
+      overflow: visible;
+      width: 100%;
+    }
+    .recipe-preview-table-wrap table {
+      min-width: 0;
+    }
+    .recipe-preview-procedure-row td {
+      background: #f1f5f9;
+      color: #111827;
+      font-weight: 900;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
     .rrhh-schedule-table th,
     .rrhh-schedule-table td {
       vertical-align: top;
@@ -2091,6 +2105,68 @@
       }
       .table-wrap {
         border-radius: 10px;
+      }
+      .recipe-preview-table-wrap {
+        overflow: visible;
+      }
+      .recipe-preview-table-wrap table,
+      .recipe-preview-table-wrap thead,
+      .recipe-preview-table-wrap tbody,
+      .recipe-preview-table-wrap tr,
+      .recipe-preview-table-wrap td {
+        display: block;
+        width: 100%;
+        min-width: 0;
+      }
+      .recipe-preview-table-wrap thead {
+        display: none;
+      }
+      .recipe-preview-table-wrap tbody tr {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        background: #fff;
+      }
+      .recipe-preview-table-wrap tbody tr.recipe-preview-procedure-row {
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        margin: 12px 0 8px;
+        background: transparent;
+      }
+      .recipe-preview-table-wrap td {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid #e5e7eb !important;
+        padding: 8px 0 !important;
+        text-align: right !important;
+        white-space: normal;
+      }
+      .recipe-preview-table-wrap tr:not(.recipe-preview-procedure-row) td:last-child {
+        border-bottom: 0 !important;
+      }
+      .recipe-preview-table-wrap tr:not(.recipe-preview-procedure-row) td::before {
+        content: attr(data-label);
+        color: var(--gris);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+        text-align: left;
+        flex: 0 0 42%;
+      }
+      .recipe-preview-table-wrap .recipe-preview-procedure-cell {
+        display: block;
+        text-align: left !important;
+        border-bottom: 0 !important;
+        padding: 9px 10px !important;
+        border-radius: 8px;
+      }
+      .recipe-preview-table-wrap .recipe-preview-procedure-cell::before {
+        content: none !important;
       }
       .production-history-layout {
         grid-template-columns: 1fr;
@@ -15177,7 +15253,7 @@
               /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900, marginBottom: 6 } }, "Instruccion principal"),
               /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.5, fontWeight: 700 } }, recipeMainInstruction)
             ) : null,
-            /* @__PURE__ */ React.createElement("div", { className: "table-wrap" },
+            /* @__PURE__ */ React.createElement("div", { className: "recipe-preview-table-wrap" },
               /* @__PURE__ */ React.createElement("table", null,
                 /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
                   /* @__PURE__ */ React.createElement("th", null, "Producto"),
@@ -15187,16 +15263,16 @@
                 )),
                 /* @__PURE__ */ React.createElement("tbody", null, previewProcedureGroups.flatMap(function(group, groupIndex) {
                   return [
-                    /* @__PURE__ */ React.createElement("tr", { key: `preview-procedure-${groupIndex}` },
-                      /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { background: "#f1f5f9", color: "#111827", fontWeight: 900, fontSize: 12, textTransform: "uppercase" } }, group.name)
+                    /* @__PURE__ */ React.createElement("tr", { key: `preview-procedure-${groupIndex}`, className: "recipe-preview-procedure-row" },
+                      /* @__PURE__ */ React.createElement("td", { colSpan: "4", className: "recipe-preview-procedure-cell", style: { background: "#f1f5f9", color: "#111827", fontWeight: 900, fontSize: 12, textTransform: "uppercase" } }, group.name)
                     )
                   ].concat(group.items.map(function(item) {
                     const product = findProductForInsumo(item);
                     return /* @__PURE__ */ React.createElement("tr", { key: `preview-${item.rowId}` },
-                      /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
-                      /* @__PURE__ */ React.createElement("td", null, item.cantidad || 0),
-                      /* @__PURE__ */ React.createElement("td", null, item.unidad || ""),
-                      /* @__PURE__ */ React.createElement("td", { style: { color: "var(--gris)", fontSize: 12 } }, item.origenLabel || item.almacenLabel || "-")
+                      /* @__PURE__ */ React.createElement("td", { "data-label": "Producto", style: { fontWeight: 700 } }, product ? product.nombre : "Producto eliminado"),
+                      /* @__PURE__ */ React.createElement("td", { "data-label": "Cantidad actual" }, item.cantidad || 0),
+                      /* @__PURE__ */ React.createElement("td", { "data-label": "Unidad" }, item.unidad || ""),
+                      /* @__PURE__ */ React.createElement("td", { "data-label": "Origen", style: { color: "var(--gris)", fontSize: 12 } }, item.origenLabel || item.almacenLabel || "-")
                     );
                   }));
                 }), insumos.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "4", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay insumos agregados.")))
@@ -15250,7 +15326,6 @@
       const receta = recipeSheet.receta;
       const instrucciones = getRecipeInstructions(receta);
       const instruccionPrincipal = String(receta.instruccionPrincipal || receta.instruccionLlamativa || receta.primerosPasos || "").trim();
-      const hasGramBaseMultiplier = Boolean(receta.recetaProporcionalPorGramos || receta.notaOperacion);
       const recipeProcedureGroups = groupRecipeItemsByProcedure(receta.insumos || [], receta.procedimientos || receta.recipeProcedures);
       const body = /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 820, margin: "0 auto", background: "#fff", color: "#111827", minHeight: 760, padding: "34px 38px", border: "1px solid #d1d5db", boxShadow: "0 12px 36px rgba(15,23,42,.16)", display: "grid", gap: 22 } },
         /* @__PURE__ */ React.createElement("div", { style: { borderBottom: "2px solid #111827", paddingBottom: 16 } },
@@ -15262,15 +15337,11 @@
             /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Actualizada ", formatDatetime(receta.fechaActualizacion || receta.fecha))
           )
         ),
-        hasGramBaseMultiplier && /* @__PURE__ */ React.createElement("section", { style: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: 14, color: "#1e3a8a", fontSize: 13, fontWeight: 700, lineHeight: 1.5 } },
-          /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info", style: { marginRight: 7 } }),
-          receta.notaOperacion || "Receta para multiplicar: coloca la cantidad real producida en Lb, Oz o G. El sistema la convierte internamente a gramos y multiplica cada insumo por ese valor."
-        ),
         instruccionPrincipal && /* @__PURE__ */ React.createElement("section", { style: { background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: 8, padding: 14, color: "#92400e", fontSize: 14, fontWeight: 800, lineHeight: 1.5 } },
           /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 900, textTransform: "uppercase", marginBottom: 6 } }, "Instruccion principal"),
           /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap" } }, instruccionPrincipal)
         ),
-        /* @__PURE__ */ React.createElement("section", null,
+        /* @__PURE__ */ React.createElement("section", { className: "recipe-preview-table-wrap" },
           /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 16, margin: "0 0 10px", color: "#111827" } }, "Ingredientes"),
           /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
             /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null,
@@ -15283,17 +15354,17 @@
             )),
             /* @__PURE__ */ React.createElement("tbody", null, recipeProcedureGroups.flatMap(function(group, groupIndex) {
               return [
-                /* @__PURE__ */ React.createElement("tr", { key: `${receta.id}-sheet-procedure-${groupIndex}` },
-                  /* @__PURE__ */ React.createElement("td", { colSpan: "6", style: { background: "#f1f5f9", color: "#111827", borderBottom: "1px solid #cbd5e1", padding: "9px 6px", fontWeight: 900, textTransform: "uppercase", fontSize: 12 } }, group.name)
+                /* @__PURE__ */ React.createElement("tr", { key: `${receta.id}-sheet-procedure-${groupIndex}`, className: "recipe-preview-procedure-row" },
+                  /* @__PURE__ */ React.createElement("td", { colSpan: "6", className: "recipe-preview-procedure-cell", style: { background: "#f1f5f9", color: "#111827", borderBottom: "1px solid #cbd5e1", padding: "9px 6px", fontWeight: 900, textTransform: "uppercase", fontSize: 12 } }, group.name)
                 )
               ].concat(group.items.map(function(item, idx) {
                 return /* @__PURE__ */ React.createElement("tr", { key: `${receta.id}-sheet-${groupIndex}-${idx}` },
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", fontWeight: 700 } }, item.producto),
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.cantidad),
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.mermaPorcentaje ? `${item.mermaPorcentaje}%` : "-"),
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.cantidadNeta || calculateMermaValues(item.cantidad, item.mermaPorcentaje).neta),
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px" } }, item.unidad || item.medidaInventario || ""),
-                  /* @__PURE__ */ React.createElement("td", { style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#6b7280" } }, item.origenLabel || item.almacenLabel || "-")
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Producto", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", fontWeight: 700 } }, item.producto),
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Cantidad", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.cantidad),
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Merma", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.mermaPorcentaje ? `${item.mermaPorcentaje}%` : "-"),
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Neto", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", textAlign: "right" } }, item.cantidadNeta || calculateMermaValues(item.cantidad, item.mermaPorcentaje).neta),
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Unidad", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px" } }, item.unidad || item.medidaInventario || ""),
+                  /* @__PURE__ */ React.createElement("td", { "data-label": "Origen", style: { borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#6b7280" } }, item.origenLabel || item.almacenLabel || "-")
                 );
               }));
             }))
