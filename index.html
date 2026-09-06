@@ -12540,6 +12540,7 @@
     const [resultado, setResultado] = useState({ nombre: "", cantidad: "", medida: "Uni" });
     const [recipeInstructions, setRecipeInstructions] = useState("");
     const [recipeMainInstruction, setRecipeMainInstruction] = useState("");
+    const recipeInstructionsRef = useRef(null);
     const [recipeAllowedUserIds, setRecipeAllowedUserIds] = useState([]);
     const [recipeCalcMode, setRecipeCalcMode] = useState("definida");
     const [recipeModeDrafts, setRecipeModeDrafts] = useState({});
@@ -15232,6 +15233,36 @@
     function getRecipeInstructions(receta) {
       return String(receta && (receta.instruccionesPreparacion || receta.instrucciones || "") || "").trim();
     }
+    function renderRecipeFormattedText(text) {
+      const raw = String(text || "");
+      if (!raw) return "";
+      return raw.split(/(\*\*[^*]+?\*\*)/g).map(function(part, index) {
+        if (/^\*\*[^*]+?\*\*$/.test(part)) {
+          return /* @__PURE__ */ React.createElement("strong", { key: index }, part.slice(2, -2));
+        }
+        return part;
+      });
+    }
+    function applyBoldToRecipeInstructions() {
+      const textarea = recipeInstructionsRef.current;
+      const value = String(recipeInstructions || "");
+      if (!textarea) {
+        setRecipeInstructions(`${value}****`);
+        return;
+      }
+      const start = textarea.selectionStart || 0;
+      const end = textarea.selectionEnd || start;
+      const selected = value.slice(start, end);
+      const nextValue = `${value.slice(0, start)}**${selected}**${value.slice(end)}`;
+      setRecipeInstructions(nextValue);
+      setError("");
+      setTimeout(function() {
+        textarea.focus();
+        const cursorStart = selected ? start : start + 2;
+        const cursorEnd = selected ? end + 4 : start + 2;
+        textarea.setSelectionRange(cursorStart, cursorEnd);
+      }, 0);
+    }
     function renderProductionPreviewModal() {
       if (!productionPreviewOpen) return null;
       const previewProcedureGroups = groupRecipeItemsByProcedure(insumos, recipeProcedures);
@@ -15280,7 +15311,7 @@
             ),
             recipeInstructions ? /* @__PURE__ */ React.createElement("div", { style: { border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, background: "#f9fafb" } },
               /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: 6 } }, "Instrucciones"),
-              /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.5 } }, recipeInstructions)
+              /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.5 } }, renderRecipeFormattedText(recipeInstructions))
             ) : null
           ),
           /* @__PURE__ */ React.createElement("div", { className: "modal-footer" },
@@ -15372,7 +15403,7 @@
         ),
         /* @__PURE__ */ React.createElement("section", null,
           /* @__PURE__ */ React.createElement("h2", { style: { fontSize: 16, margin: "0 0 10px", color: "#111827" } }, "Instrucciones de preparacion"),
-          instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", lineHeight: 1.65, fontSize: 14, border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, background: "#f9fafb" } }, instrucciones) : /* @__PURE__ */ React.createElement("div", { style: { color: "#9a3412", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: 14, fontSize: 13, fontWeight: 700 } }, "Esta receta aun no tiene instrucciones de preparacion guardadas.")
+          instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", lineHeight: 1.65, fontSize: 14, border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, background: "#f9fafb" } }, renderRecipeFormattedText(instrucciones)) : /* @__PURE__ */ React.createElement("div", { style: { color: "#9a3412", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: 14, fontSize: 13, fontWeight: 700 } }, "Esta receta aun no tiene instrucciones de preparacion guardadas.")
         )
       );
       const footer = /* @__PURE__ */ React.createElement(React.Fragment, null,
@@ -15411,7 +15442,7 @@
               ),
               /* @__PURE__ */ React.createElement("div", null,
                 /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800, marginBottom: 8 } }, "Preparacion"),
-                instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, color: "#374151" } }, instrucciones) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 700 } }, "Sin instrucciones guardadas.")
+                instrucciones ? /* @__PURE__ */ React.createElement("div", { style: { whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, color: "#374151" } }, renderRecipeFormattedText(instrucciones)) : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#9a3412", fontWeight: 700 } }, "Sin instrucciones guardadas.")
               )
             )
           );
@@ -16151,8 +16182,12 @@
                       /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: recipeMainInstruction, onChange: function(e) { setRecipeMainInstruction(e.target.value); setError(""); }, placeholder: "Ej: Pesar la proteina real, convertir a gramos y luego iniciar el mezclado.", rows: 3, style: { resize: "vertical", lineHeight: 1.5, fontWeight: 700 } })
                     ),
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
-                      /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Instrucciones de preparacion"),
-                      /* @__PURE__ */ React.createElement("textarea", { className: "form-control", value: recipeInstructions, onChange: function(e) { setRecipeInstructions(e.target.value); setError(""); }, placeholder: "Describe el procedimiento, tiempos, temperatura, reposo, empaque o notas de cocina...", rows: 5, style: { resize: "vertical", lineHeight: 1.5 } })
+                      /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 } },
+                        /* @__PURE__ */ React.createElement("label", { className: "form-label", style: { marginBottom: 0 } }, "Instrucciones de preparacion"),
+                        /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", title: "Aplicar negrita al texto seleccionado", onClick: applyBoldToRecipeInstructions }, /* @__PURE__ */ React.createElement("strong", null, "B"))
+                      ),
+                      /* @__PURE__ */ React.createElement("textarea", { ref: recipeInstructionsRef, className: "form-control", value: recipeInstructions, onChange: function(e) { setRecipeInstructions(e.target.value); setError(""); }, placeholder: "Describe el procedimiento, tiempos, temperatura, reposo, empaque o notas de cocina...", rows: 5, style: { resize: "vertical", lineHeight: 1.5 } }),
+                      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 5, fontWeight: 700 } }, "Selecciona texto y pulsa B para resaltarlo en negrita.")
                     ),
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto Mise que aumenta existencia"),
