@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
   TiquetsLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
-  TiquetsConsumo: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
+  TiquetsConsumo: ["MovimientoICGId", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
   Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
   Kits: ["CODARTICULO", "LINEAKIT", "CODARTKIT", "REFERENCIA", "DESCRIPCIOKIT", "REFERENCIAKIT", "UNIDADES", "PRECIOUNIDAD", "TOTALLINEA"],
@@ -22,7 +22,8 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   ComprasLin: ["SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "REFERENCIA", "DESCRIPCION", "UDSTOTAL", "PRECIO", "TOTAL", "CODALMACEN"],
   PreciosVenta: ["CODARTICULO", "CodArticulo", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
-  Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"]
+  Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"],
+  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
 };
 
 const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
@@ -138,6 +139,25 @@ function icgTicketIdentityFromLine(line: Partial<IcgBackupConsumptionRow>): stri
   return [line.fo, line.serie, line.numero, line.n].map((part) => String(part || "").trim()).filter(Boolean).join("-");
 }
 
+function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+  const existing = String(line.movimientoIcgId || "").trim();
+  if (existing) return existing;
+  return quickHashText([
+    "icg-line",
+    String(line.fecha || fallbackDate || "").slice(0, 10),
+    line.fechaHora || "",
+    line.fo || "",
+    line.serie || "",
+    line.numero || "",
+    line.n || "",
+    line.numLinea || "",
+    line.codArticulo || "",
+    line.referencia || "",
+    line.codAlmacen || "",
+    line.consumo || ""
+  ].join("|"));
+}
+
 function icgTicketIdentityFromConsumptionRow(row: AnyRecord): string {
   return firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"]);
 }
@@ -156,6 +176,7 @@ function consumptionAggregationKey(fecha: string, code: string, reference: strin
 
 function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string, fecha: string): string {
   return [
+    normalizar(movementIcgIdFromLine(line, fecha)),
     normalizar(String(line.fecha || line.fechaHora || fecha || "").slice(0, 10)),
     normalizar(icgTicketIdentityFromLine(line)),
     normalizar(line.numLinea || ""),
@@ -169,6 +190,7 @@ function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: str
 
 function consumptionAuditKeyFromRow(row: AnyRecord): string {
   return [
+    normalizar(firstText(row, ["MovimientoICGId", "movimientoIcgId", "MovementICGId"])),
     normalizar(String(row.Fecha || row.FechaHora || "").slice(0, 10)),
     normalizar(firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"])),
     normalizar(firstText(row, ["NumLinea", "NUMLINEA"])),
@@ -286,7 +308,7 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
   appState.icgFrontRestData.datasets.ConsumoMiseVentas = appState.icgFrontRestData.datasets.ConsumoMiseVentas || {
     key: "ConsumoMiseVentas",
     label: "Consumo Mise ventas",
-    columns: ["Fecha", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "Estado"],
+    columns: DATASET_COLUMNS.ConsumoMiseVentas,
     rows: []
   };
   appState.icgFrontRestData.datasets.CierresDiarios = appState.icgFrontRestData.datasets.CierresDiarios || {
@@ -814,29 +836,30 @@ DECLARE @hasta date='${quoteSql(latest)}';
 DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
 SELECT
   CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS fecha,
-  CONVERT(varchar(19), MIN(DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA)))), 120) AS fechaHora,
+  CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120) AS fechaHora,
   CAST(tc.FO AS varchar(30)) AS fo,
   CAST(tc.SERIE AS varchar(30)) AS serie,
   CAST(tc.NUMERO AS varchar(30)) AS numero,
   CAST(tc.N AS varchar(30)) AS n,
-  CAST(MIN(tc.NUMLINEA) AS varchar(30)) AS numLinea,
+  CAST(tc.NUMLINEA AS varchar(30)) AS numLinea,
   CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
   ISNULL(a.REFERENCIA,'') AS referencia,
   ISNULL(a.DESCRIPCION,'') AS descripcion,
   ISNULL(tc.CODALMACEN,'') AS codAlmacen,
-  CAST(SUM(tc.CONSUMO) AS decimal(18,4)) AS consumo,
-  CAST(COUNT(*) AS int) AS lineas
+  CAST(tc.CONSUMO AS decimal(18,4)) AS consumo,
+  CAST(1 AS int) AS lineas
 FROM TIQUETSCONSUMO tc
 JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
 LEFT JOIN ${ticketLineTable} l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
 LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
 WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-GROUP BY CONVERT(date,c.FECHA),tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
-ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,tc.CODALMACEN;`;
+  AND ISNULL(tc.CONSUMO,0) > 0
+ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,tc.CODALMACEN;`;
   const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   return {
     fecha: latest,
-    rows: sqlRows.map((row) => ({
+    rows: sqlRows.map((row) => {
+      const mapped = {
       fecha: String(row.fecha || latest),
       fechaHora: String(row.fechaHora || ""),
       fo: String(row.fo || ""),
@@ -851,7 +874,11 @@ ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,tc.COD
       codAlmacen: String(row.codAlmacen || ""),
       consumo: parseNumber(row.consumo),
       lineas: Math.round(parseNumber(row.lineas))
-    })).filter((row) => row.consumo !== 0 && row.codArticulo),
+      };
+      return Object.assign(mapped, {
+        movimientoIcgId: movementIcgIdFromLine(mapped, latest)
+      });
+    }).filter((row) => row.consumo > 0 && row.codArticulo),
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
     articles,
     salePrices,
@@ -872,6 +899,7 @@ function createBackupMovement(
 ): SyncMovement {
   return {
     id: `icg-local-${importKey}`,
+    movimientoIcgId: movementIcgIdFromLine(line, fecha),
     idempotencyKey: `icg-local-${importKey}`,
     fecha: icgEventIso(line, fecha),
     origen: "ICG FrontRest",
@@ -888,6 +916,7 @@ function createBackupMovement(
     referencia: line.referencia,
     raw: {
       importKey,
+      movimientoIcgId: movementIcgIdFromLine(line, fecha),
       codAlmacen: line.codAlmacen,
       productoIcg: line.descripcion,
       consumo: line.consumo,
@@ -930,7 +959,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     result.movements = rowsToApply.map((line) => {
       const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
       const ticketIdentity = icgTicketIdentityFromLine(line);
-      const importKey = quickHashText(["icg-paused", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+      const movementId = movementIcgIdFromLine(line, fecha);
+      const importKey = quickHashText(["icg-paused", movementId, eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
     });
     return result;
@@ -961,6 +991,16 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       .map((row) => String(row.IcgAuditKey || consumptionAuditKeyFromRow(row) || ""))
       .filter(Boolean)
   );
+  const appliedMovementTargets = new Set(
+    consumoRows
+      .filter((row) => ["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || "")))
+      .map((row) => {
+        const movementId = String(row.MovimientoICGId || row.movimientoIcgId || "");
+        if (!movementId) return "";
+        return [movementId, targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""), normalizar(bridgeWtfProduct(row))].join("|");
+      })
+      .filter(Boolean)
+  );
   appliedConsumptionKeys.forEach((key) => appliedKeys.add(key));
   const legacyAppliedRemaining = new Map<string, number>();
   consumoRows.forEach((row) => {
@@ -989,6 +1029,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   for (const line of rowsToApply) {
     const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
     const ticketIdentity = icgTicketIdentityFromLine(line);
+    const movementId = movementIcgIdFromLine(line, fecha);
     const isIcgReturn = line.tipoMovimiento === "devolucion" || line.consumo < 0;
     const matchedLinks = links.filter((row) => {
       const linkCode = normalizar(bridgeCode(row));
@@ -996,7 +1037,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       return (linkCode && normalizar(line.codArticulo) === linkCode) || (linkRef && normalizar(line.referencia) === linkRef);
     });
     const pendingAuditKey = consumptionAuditKey(line, "", "", fecha);
-    const pendingImportKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+    const pendingImportKey = quickHashText(["icg-bak", movementId, eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey) || appliedConsumptionAuditKeys.has(pendingAuditKey))) {
       result.skipped += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
@@ -1007,6 +1048,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF."));
       const pendingRow = {
         Fecha: fecha,
+        MovimientoICGId: movementId,
         ModuloWTF: "",
         ProductoWTF: "",
         ProductoMise: "",
@@ -1033,12 +1075,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
       const producto = bridgeWtfProduct(link);
       const auditKey = consumptionAuditKey(line, target, producto, fecha);
-      const importKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
+      const importKey = quickHashText(["icg-bak", movementId, target, producto].join("|"));
+      const movementTargetKey = [movementId, target, normalizar(producto)].join("|");
       const qtyFactor = bridgeQuantity(link) || 1;
       const cantidad = Number((Math.abs(line.consumo) * qtyFactor).toFixed(4));
       const legacyKey = consumptionAggregationKey(line.fecha || fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto, ticketIdentity);
       const legacyRemaining = legacyAppliedRemaining.get(legacyKey) || 0;
-      if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || appliedConsumptionAuditKeys.has(auditKey) || legacyRemaining + 1e-9 >= cantidad) {
+      if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || appliedConsumptionAuditKeys.has(auditKey) || appliedMovementTargets.has(movementTargetKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
         result.skipped += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente.", producto));
@@ -1054,6 +1097,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
       const consumoRow: AnyRecord = {
         Fecha: fecha,
+        MovimientoICGId: movementId,
         ModuloWTF: targetLabel(target),
         targetKey: target,
         ProductoWTF: producto,
@@ -1093,6 +1137,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         consumoRow.ExistenciaNueva = existenciaNueva;
         appliedKeys.add(importKey);
         appliedConsumptionAuditKeys.add(auditKey);
+        appliedMovementTargets.add(movementTargetKey);
         result.applied += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Devolucion ICG registrada como decomiso automatico en WTF Web.", targetProductName(item, target), cantidad, consumoRow.Unidad));
         rememberConsumptionRow(consumoRow);
@@ -1115,7 +1160,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
           archivo: path.basename(config.icgBackupPath),
           codArticulo: line.codArticulo,
           codAlmacen: line.codAlmacen,
-          importKey
+          importKey,
+          movimientoIcgId: movementId
         });
         continue;
       }
@@ -1138,6 +1184,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       consumoRow.ExistenciaNueva = existenciaNueva;
       appliedKeys.add(importKey);
       appliedConsumptionAuditKeys.add(auditKey);
+      appliedMovementTargets.add(movementTargetKey);
       result.applied += 1;
       result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
       rememberConsumptionRow(consumoRow);
@@ -1157,7 +1204,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         archivo: path.basename(config.icgBackupPath),
         codArticulo: line.codArticulo,
         codAlmacen: line.codAlmacen,
-        importKey
+        importKey,
+        movimientoIcgId: movementId
       });
     }
   }
@@ -1170,7 +1218,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   });
   const insertedConsumptionRows = Array.from(consumptionUpserts.values()).filter((row) => !originalConsumptionKeys.has(String(row.ImportKey || "")));
   icg.datasets.ConsumoMiseVentas = Object.assign({}, icg.datasets.ConsumoMiseVentas, {
-    columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), "FechaHora", "TicketICG", "NumLinea", "TipoMovimiento", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
+    columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), ...DATASET_COLUMNS.ConsumoMiseVentas, "TipoMovimiento", "CodAlmacen"])),
     rows: insertedConsumptionRows.concat(updatedConsumptionRows)
   });
   icg.appliedImports = Array.from(appliedKeys);

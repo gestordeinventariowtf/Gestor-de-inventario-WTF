@@ -5797,7 +5797,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "Ticket", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+      columns: ["Fecha", "MovimientoICGId", "Ticket", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -6381,6 +6381,7 @@
   function getIcgConsumptionAuditKey(parts) {
     const dateKey = icgDateKey(parts && parts.fecha || "");
     return [
+      normalizar(parts && parts.movimientoIcgId),
       dateKey,
       normalizar(parts && parts.ticket),
       normalizar(parts && parts.linea),
@@ -6394,6 +6395,7 @@
   function getIcgConsumptionAuditKeyFromRow(row) {
     if (!row) return "";
     return getIcgConsumptionAuditKey({
+      movimientoIcgId: row.MovimientoICGId || row.movimientoIcgId || row.MovementICGId || "",
       fecha: row.Fecha || row.fecha || row.FechaHora || row.fechaHora || "",
       ticket: row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "",
       linea: row.NumLinea || row.NUMLINEA || "",
@@ -6403,6 +6405,46 @@
       targetKey: row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "",
       productoWtf: row.ProductoWTF || row.ProductoMise || ""
     });
+  }
+  function getIcgConsumptionLegacyKey(parts) {
+    return [
+      icgDateKey(parts && parts.fecha || ""),
+      normalizar(parts && parts.ticket),
+      normalizar(parts && parts.codArticulo),
+      normalizar(parts && parts.referencia),
+      normalizeIcgWtfTarget(parts && parts.targetKey),
+      normalizar(parts && parts.productoWtf)
+    ].join("|");
+  }
+  function getIcgConsumptionLegacyKeyFromRow(row) {
+    if (!row) return "";
+    return getIcgConsumptionLegacyKey({
+      fecha: row.Fecha || row.fecha || row.FechaHora || row.fechaHora || "",
+      ticket: row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "",
+      codArticulo: row.CodArticulo || row.CODARTICULO || row.Codigo || "",
+      referencia: row.Referencia || row.REFERENCIA || "",
+      targetKey: row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "",
+      productoWtf: row.ProductoWTF || row.ProductoMise || ""
+    });
+  }
+  function getIcgMovementId(row, fallbackIndex) {
+    if (!row) return "";
+    const existing = icgCellText(row.MovimientoICGId || row.movimientoIcgId || row.MovementICGId || "").trim();
+    if (existing) return existing;
+    return quickHashText([
+      "icg-line",
+      icgDateKey(row.Fecha || row.FECHA || row.fecha || row._fechaTicket || row._sourceDate || ""),
+      getIcgLineMoment(row),
+      row.FO || row.fo || "",
+      row.Serie || row.SERIE || row.serie || "",
+      row.Numero || row.NUMERO || row.numero || "",
+      row.N || row.n || "",
+      getIcgLineNumber(row) || fallbackIndex || "",
+      getIcgLineCode(row),
+      getIcgLineReference(row),
+      row.CodAlmacen || row.CODALMACEN || "",
+      getIcgLineUnits(row)
+    ].join("|"));
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
@@ -6687,18 +6729,24 @@
     const productMise = bridge && icgCellText(bridge.ProductoMise) || icgCellText(row.ProductoMise || row.ProductoWTF) || productWtf;
     const fecha = icgCellText(row.Fecha || row.fecha) || normalizedData.updatedAt || new Date().toISOString().slice(0, 10);
     const ticketValue = icgCellText(row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "");
+    const fechaHora = icgCellText(row.FechaHora || row.fechaHora || row.Hora || row.HORA || "");
+    const lineNumber = icgCellText(row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || index + 1);
     const code = bridge && icgCellText(bridge.CodArticulo || bridge.Codigo) || icgCellText(row.CodArticulo || row.Codigo) || "";
     const reference = bridge && icgCellText(bridge.Referencia) || icgCellText(row.Referencia) || "";
     const productIcg = bridge && icgCellText(bridge.ProductoICG) || icgCellText(row.ProductoICG || row.Descripcion) || "";
     const sourceName = icgCellText(row.Archivo) || normalizedData.sourceName || "ICG FrontRest";
-    const importKey = bridge ? quickHashText([fecha, ticketValue, code, reference, productIcg, targetKey, productWtf, sourceName].join("|")) : row.ImportKey || quickHashText([fecha, code, reference, productIcg, index].join("|"));
+    const movementId = getIcgMovementId(Object.assign({}, row, { Fecha: fecha, FechaHora: fechaHora, NumLinea: lineNumber, CodArticulo: code, Referencia: reference, ProductoICG: productIcg, Unidades: unitsSold }), index);
+    const importKey = bridge ? quickHashText([movementId, targetKey, productWtf, sourceName].join("|")) : row.ImportKey || quickHashText([movementId, targetKey, productWtf, sourceName, index].join("|"));
     const originalStatusKey = normalizar(row.Estado || "");
     const estado = bridge && (originalStatusKey === "sin vinculo" || originalStatusKey === "producto wtf no encontrado") ? "Pendiente" : row.Estado || (bridge ? "Pendiente" : "Sin vinculo");
     const rowId = bridge ? `${row._id || "consumo"}-${importKey}-${copyIndex || 0}` : row._id || importKey || `consumo-${index}-${copyIndex || 0}`;
     return Object.assign({
       _id: rowId,
       Fecha: fecha,
+      MovimientoICGId: movementId,
       Ticket: ticketValue,
+      FechaHora: fechaHora,
+      NumLinea: lineNumber,
       ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
       targetKey,
       ProductoWTF: productWtf,
@@ -6711,9 +6759,23 @@
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       Archivo: sourceName,
       ImportKey: importKey,
+      IcgAuditKey: getIcgConsumptionAuditKey({
+        movimientoIcgId: movementId,
+        fecha,
+        ticket: ticketValue,
+        linea: lineNumber,
+        hora: fechaHora,
+        codArticulo: code,
+        referencia: reference,
+        targetKey,
+        productoWtf: productWtf
+      }),
       Estado: estado
     }, row, {
       _id: rowId,
+      MovimientoICGId: movementId,
+      FechaHora: fechaHora,
+      NumLinea: lineNumber,
       ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
       targetKey,
       ProductoWTF: productWtf,
@@ -6725,6 +6787,17 @@
       CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       ImportKey: importKey,
+      IcgAuditKey: getIcgConsumptionAuditKey({
+        movimientoIcgId: movementId,
+        fecha,
+        ticket: ticketValue,
+        linea: lineNumber,
+        hora: fechaHora,
+        codArticulo: code,
+        referencia: reference,
+        targetKey,
+        productoWtf: productWtf
+      }),
       Estado: estado
     });
   }
@@ -6742,7 +6815,14 @@
         if (!byKey[key]) byKey[key] = nextRow;
       });
     });
-    return Object.values(byKey).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
+    return Object.values(byKey).sort(sortIcgConsumptionRowsByMovement);
+  }
+  function sortIcgConsumptionRowsByMovement(a, b) {
+    const moment = String(b.FechaHora || b.Fecha || "").localeCompare(String(a.FechaHora || a.Fecha || ""));
+    if (moment) return moment;
+    const ticket = String(b.Ticket || b.TicketICG || "").localeCompare(String(a.Ticket || a.TicketICG || ""), void 0, { numeric: true });
+    if (ticket) return ticket;
+    return parseIcgNumber(b.NumLinea || 0) - parseIcgNumber(a.NumLinea || 0);
   }
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
@@ -6767,10 +6847,17 @@
       if (key) acc[key] = row;
       return acc;
     }, {});
-    const grouped = {};
+    const legacyAppliedRemaining = existingConsumption.reduce(function(acc, row) {
+      if (!isIcgConsumptionFinalized(row)) return acc;
+      const key = getIcgConsumptionLegacyKeyFromRow(row);
+      if (!key) return acc;
+      acc[key] = Number(((acc[key] || 0) + Math.abs(parseIcgNumber(row.CantidadDescontar || row.UnidadesVendidas || 0))).toFixed(4));
+      return acc;
+    }, {});
+    const rowsOut = [];
     lines.forEach(function(line, lineIndex) {
       const units = getIcgLineUnits(line);
-      if (!units) return;
+      if (!(units > 0)) return;
       const matchedBridges = findIcgBridgesForLine(line, bridges);
       const bridgesToApply = matchedBridges.length ? matchedBridges : [null];
       const ticketKey = getIcgTicketKey(line);
@@ -6781,11 +6868,13 @@
       const productIcg = getIcgLineDescription(line);
       const lineNumber = getIcgLineNumber(line) || icgCellText(line._id || line.ID || line.id || lineIndex + 1);
       const lineMoment = getIcgLineMoment(line);
+      const movementId = getIcgMovementId(line, lineIndex + 1);
       bridgesToApply.forEach(function(bridge) {
         const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
         const productWtf = bridge ? icgCellText(bridge.ProductoWTF || bridge.ProductoMise) : "";
         const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta) || 1;
         const auditKey = getIcgConsumptionAuditKey({
+          movimientoIcgId: movementId,
           fecha,
           ticket: ticketKey,
           linea: lineNumber,
@@ -6795,40 +6884,38 @@
           targetKey,
           productoWtf: productWtf
         });
-        const importKey = quickHashText([fecha, ticketKey, lineNumber, lineMoment, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
-        if (!grouped[importKey]) {
-          const existing = existingByImportKey[importKey] || existingByAuditKey[auditKey] || {};
-          grouped[importKey] = {
-            _id: existing._id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            Fecha: fecha || new Date().toISOString().slice(0, 10),
-            Ticket: ticketKey || existing.Ticket || "",
-            FechaHora: lineMoment || existing.FechaHora || "",
-            NumLinea: lineNumber || existing.NumLinea || "",
-            IcgAuditKey: auditKey,
-            ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
-            targetKey,
-            ProductoWTF: productWtf,
-            ProductoMise: bridge && icgCellText(bridge.ProductoMise) || productWtf,
-            CodArticulo: code,
-            Referencia: reference,
-            ProductoICG: productIcg,
-            UnidadesVendidas: 0,
-            CantidadDescontar: 0,
-            Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || "Uni",
-            Archivo: sourceName,
-            ImportKey: importKey,
-            Estado: existing.Estado || (bridge ? "Pendiente" : "Sin vinculo")
-          };
-        }
-        grouped[importKey].UnidadesVendidas += units;
-        grouped[importKey].CantidadDescontar += units * qtyPerSale;
+        const importKey = quickHashText([movementId, targetKey, productWtf, sourceName].join("|"));
+        const existing = existingByImportKey[importKey] || existingByAuditKey[auditKey] || {};
+        const discountQty = Number((units * qtyPerSale).toFixed(4));
+        const legacyKey = getIcgConsumptionLegacyKey({ fecha, ticket: ticketKey, codArticulo: code, referencia: reference, targetKey, productoWtf: productWtf });
+        const legacyRemaining = legacyAppliedRemaining[legacyKey] || 0;
+        const legacyAlreadyApplied = !existing.Estado && legacyRemaining + 1e-9 >= discountQty;
+        if (legacyAlreadyApplied) legacyAppliedRemaining[legacyKey] = Number((legacyRemaining - discountQty).toFixed(4));
+        rowsOut.push({
+          _id: existing._id || `${movementId}-${targetKey}-${quickHashText(productWtf || "sin-vinculo")}`,
+          Fecha: fecha || new Date().toISOString().slice(0, 10),
+          MovimientoICGId: movementId,
+          Ticket: ticketKey || existing.Ticket || "",
+          FechaHora: lineMoment || existing.FechaHora || "",
+          NumLinea: lineNumber || existing.NumLinea || "",
+          IcgAuditKey: auditKey,
+          ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
+          targetKey,
+          ProductoWTF: productWtf,
+          ProductoMise: bridge && icgCellText(bridge.ProductoMise) || productWtf,
+          CodArticulo: code,
+          Referencia: reference,
+          ProductoICG: productIcg,
+          UnidadesVendidas: Number(units.toFixed(4)),
+          CantidadDescontar: discountQty,
+          Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || "Uni",
+          Archivo: sourceName,
+          ImportKey: importKey,
+          Estado: existing.Estado || (legacyAlreadyApplied ? "Aplicado" : bridge ? "Pendiente" : "Sin vinculo")
+        });
       });
     });
-    return Object.values(grouped).map(function(row) {
-      row.UnidadesVendidas = Number(row.UnidadesVendidas.toFixed(4));
-      row.CantidadDescontar = Number(row.CantidadDescontar.toFixed(4));
-      return row;
-    }).sort((a, b) => String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG)));
+    return rowsOut.sort(sortIcgConsumptionRowsByMovement);
   }
   function scoreIcgMiseMatch(miseName, icgName) {
     const a = normalizar(miseName);
@@ -12174,70 +12261,82 @@
       }
       const finalizedImportKeys = new Set(Array.isArray(icgFrontRestData.appliedImports) ? icgFrontRestData.appliedImports.map(String) : []);
       const finalizedAuditKeys = new Set();
+      const finalizedMovementTargets = new Set();
       icgRows(icgFrontRestData, "ConsumoMiseVentas").forEach(function(row) {
         if (!isIcgConsumptionFinalized(row)) return;
         if (row.ImportKey) finalizedImportKeys.add(String(row.ImportKey));
+        if (row.MovimientoICGId || row.movimientoIcgId) finalizedMovementTargets.add([String(row.MovimientoICGId || row.movimientoIcgId), normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF), normalizar(row.ProductoWTF || row.ProductoMise || "")].join("|"));
         const auditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
         if (auditKey) finalizedAuditKeys.add(auditKey);
       });
       const candidates = (Array.isArray(rows) ? rows : []).filter(function(row) {
         const auditKey = row && (row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row));
-        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && !finalizedImportKeys.has(String(row.ImportKey || "")) && !finalizedAuditKeys.has(auditKey) && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
+        const movementId = row && (row.MovimientoICGId || row.movimientoIcgId);
+        const movementTargetKey = movementId ? [String(movementId), normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF), normalizar(row.ProductoWTF || row.ProductoMise || "")].join("|") : "";
+        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && !finalizedImportKeys.has(String(row.ImportKey || "")) && !finalizedAuditKeys.has(auditKey) && !(movementTargetKey && finalizedMovementTargets.has(movementTargetKey)) && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
       });
       if (!candidates.length) throw new Error("No hay consumos pendientes con vinculo valido para aplicar.");
-      const grouped = {};
-      candidates.forEach(function(row) {
+      const remainingByTargetProduct = {};
+      const movements = candidates.map(function(row) {
         const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF);
         const producto = row.ProductoWTF || row.ProductoMise;
-        const key = `${targetKey}::${normalizar(producto)}`;
-        if (!grouped[key]) grouped[key] = { targetKey, producto, cantidad: 0, unidad: row.Unidad || "Uni", rows: [] };
-        grouped[key].cantidad += parseIcgNumber(row.CantidadDescontar);
-        grouped[key].rows.push(row);
-      });
-      const movements = Object.values(grouped).map(function(item) {
         const target = icgInventoryTargets.find(function(candidate) {
-          return candidate.targetKey === item.targetKey && normalizar(candidate.producto) === normalizar(item.producto);
+          return candidate.targetKey === targetKey && normalizar(candidate.producto) === normalizar(producto);
         });
-        if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey} / ${item.producto}`);
-        const convertedParts = (Array.isArray(item.rows) && item.rows.length ? item.rows : [item]).map(function(row) {
-          return convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar || item.cantidad), row.Unidad || item.unidad || "Uni");
-        });
-        if (convertedParts.some(function(value) { return value == null; })) {
-          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${item.unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
+        if (!target) throw new Error(`Vinculo sin producto WTF encontrado: ${ICG_WTF_TARGET_LABELS[targetKey] || targetKey} / ${producto}`);
+        const converted = convertPackageAwareQtyToStock(target.item || target, parseIcgNumber(row.CantidadDescontar), row.Unidad || "Uni");
+        if (converted == null) {
+          throw new Error(`No se pudo convertir la venta ICG para aplicar el descuento.\n\nProducto: ${target.producto}\nUnidad Host: ${row.Unidad || "Uni"}\nUnidad WTF: ${target.medida || "Uni"}`);
         }
-        item.cantidadOriginal = Number(item.cantidad.toFixed(4));
-        item.unidadOriginal = item.unidad || "Uni";
-        item.cantidad = Number(convertedParts.reduce(function(total, value) {
-          return total + Number(value || 0);
-        }, 0).toFixed(4));
-        item.unidad = target.medida || item.unidad || "Uni";
-        if (item.cantidad > getMiseSafeNumber(target.existencia, 0)) {
-          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[item.targetKey] || item.targetKey}\nExistencia: ${target.existencia} ${target.medida || ""}\nSolicitado: ${item.cantidad} ${target.medida || ""}`);
+        const stockKey = `${targetKey}::${normalizar(target.producto)}`;
+        const currentRemaining = remainingByTargetProduct[stockKey] == null ? getMiseSafeNumber(target.existencia, 0) : remainingByTargetProduct[stockKey];
+        const cantidad = Number(Number(converted).toFixed(4));
+        if (cantidad > currentRemaining + 1e-9) {
+          throw new Error(`Existencia insuficiente para aplicar venta ICG.\n\nProducto: ${target.producto}\nModulo: ${ICG_WTF_TARGET_LABELS[targetKey] || targetKey}\nExistencia: ${currentRemaining} ${target.medida || ""}\nSolicitado: ${cantidad} ${target.medida || ""}`);
         }
-        return Object.assign({}, item, { target });
+        remainingByTargetProduct[stockKey] = Number((currentRemaining - cantidad).toFixed(4));
+        return {
+          targetKey,
+          producto,
+          cantidadOriginal: parseIcgNumber(row.CantidadDescontar),
+          unidadOriginal: row.Unidad || "Uni",
+          cantidad,
+          unidad: target.medida || row.Unidad || "Uni",
+          target,
+          row,
+          importKey: String(row.ImportKey || ""),
+          movimientoIcgId: row.MovimientoICGId || row.movimientoIcgId || ""
+        };
       });
       const now = new Date().toISOString();
       movements.forEach(function(move) {
-        if (move.targetKey === "inventarioCocina") addMovimiento("salida", move.target.producto, move.cantidad);
-        if (move.targetKey === "cuartoFrioCocina") addMovimientoCuartoFrio("salida", move.target.producto, move.cantidad);
-        if (move.targetKey === "inventarioBar") addMovimientoBar("salida", move.target.producto, move.cantidad);
-        if (move.targetKey === "cuartoFrioBar") addMovimientoBarCuartoFrio("salida", move.target.producto, move.cantidad);
+        const opts = {
+          fecha: move.row.FechaHora || move.row.Fecha || now,
+          usuario: "ICG FrontRest",
+          origen: "ICG FrontRest",
+          importKey: move.importKey,
+          movimientoIcgId: move.movimientoIcgId
+        };
+        if (move.targetKey === "inventarioCocina") addMovimiento("salida", move.target.producto, move.cantidad, opts);
+        if (move.targetKey === "cuartoFrioCocina") addMovimientoCuartoFrio("salida", move.target.producto, move.cantidad, opts);
+        if (move.targetKey === "inventarioBar") addMovimientoBar("salida", move.target.producto, move.cantidad, opts);
+        if (move.targetKey === "cuartoFrioBar") addMovimientoBarCuartoFrio("salida", move.target.producto, move.cantidad, opts);
       });
       const miseMoves = movements.filter((move) => move.targetKey === "miseCocina");
       if (miseMoves.length) {
         setMise((prev) => prev.map(function(item) {
-          const move = miseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
+          const total = miseMoves.filter((row) => normalizar(row.target.producto) === normalizar(item.producto)).reduce((sum, move) => sum + move.cantidad, 0);
+          return total ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - total).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
-          return { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, fecha: now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Math.max(0, Number((move.target.existencia - move.cantidad).toFixed(4))) };
+          return { id: `icg-${move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Math.max(0, Number((move.target.existencia - move.cantidad).toFixed(4))), importKey: move.importKey, movimientoIcgId: move.movimientoIcgId };
         })));
       }
       const barMiseMoves = movements.filter((move) => move.targetKey === "miseBar");
       if (barMiseMoves.length) {
         setBarMise((prev) => prev.map(function(item) {
-          const move = barMiseMoves.find((row) => normalizar(row.target.producto) === normalizar(item.producto));
-          return move ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - move.cantidad).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
+          const total = barMiseMoves.filter((row) => normalizar(row.target.producto) === normalizar(item.producto)).reduce((sum, move) => sum + move.cantidad, 0);
+          return total ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - total).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
       }
       return candidates.map((row) => row.ImportKey).filter(Boolean);
@@ -19751,9 +19850,11 @@
     const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
     const appliedAuditKeys = new Set();
+    const appliedMovementTargets = new Set();
     icgRows(normalized, "ConsumoMiseVentas").forEach(function(row) {
       if (row && isIcgConsumptionFinalized(row)) {
         if (row.ImportKey) appliedImportKeys.add(row.ImportKey);
+        if (row.MovimientoICGId || row.movimientoIcgId) appliedMovementTargets.add([String(row.MovimientoICGId || row.movimientoIcgId), normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF), normalizar(row.ProductoWTF || row.ProductoMise || "")].join("|"));
         const auditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
         if (auditKey) appliedAuditKeys.add(auditKey);
       }
@@ -19768,7 +19869,9 @@
         });
         let estado = row.Estado || "Pendiente";
         const rowAuditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
-        if (appliedImportKeys.has(row.ImportKey) || appliedAuditKeys.has(rowAuditKey)) estado = "Aplicado";
+        const movementId = row.MovimientoICGId || row.movimientoIcgId || "";
+        const movementTargetKey = movementId ? [String(movementId), targetKey, normalizar(productName)].join("|") : "";
+        if (appliedImportKeys.has(row.ImportKey) || appliedAuditKeys.has(rowAuditKey) || (movementTargetKey && appliedMovementTargets.has(movementTargetKey))) estado = "Aplicado";
         else if (!productName) estado = "Sin vinculo";
         else if (!target) estado = "Producto WTF no encontrado";
         else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) estado = "Sin existencia";
@@ -19789,7 +19892,7 @@
       });
     }, [data, inventoryTargets, normalized.appliedImports, bridgeRows.length, inventoryImpactPaused]);
     const salesConsumptionSignature = salesConsumptionRows.map(function(row) {
-      return [row.ImportKey, row.Estado, row.ProductoWTF || row.ProductoMise, row.CantidadDescontar, row.ExistenciaActual].join(":");
+      return [row.MovimientoICGId || "", row.ImportKey, row.Estado, row.ProductoWTF || row.ProductoMise, row.CantidadDescontar, row.ExistenciaActual].join(":");
     }).join("|");
     const icgBusinessDateKey = getIcgBusinessDateKey(new Date());
     const currentClosureRow = closureRows.find(function(row) {
@@ -20021,7 +20124,7 @@
       const datasets = Object.assign({}, normalized.datasets);
       const ds = Object.assign({}, datasets.ConsumoMiseVentas || {});
       datasets.ConsumoMiseVentas = Object.assign({}, ds, {
-        columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
+        columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "MovimientoICGId", "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
         rows
       });
       updateData({
@@ -20041,7 +20144,7 @@
       const appliedSet = new Set(nextApplied);
       const datasets = Object.assign({}, normalized.datasets);
       datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
-        columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
+        columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "MovimientoICGId", "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
         rows: salesConsumptionRows.map(function(row, index) {
           const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
             Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
@@ -20124,7 +20227,7 @@
       const appliedRows = salesConsumptionRows.filter((row) => row.Estado === "Aplicado");
       const q = normalizar(salesConsumptionQuery);
       const flatSalesRows = salesConsumptionRows.slice().sort(function(a, b) {
-        return String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG));
+        return sortIcgConsumptionRowsByMovement(a, b);
       });
       const filteredSalesRows = flatSalesRows.filter(function(row) {
         const blocked = row.Estado !== "Pendiente" && row.Estado !== "Aplicado";
@@ -20134,6 +20237,7 @@
         return [
           row.Fecha,
           row.Ticket,
+          row.MovimientoICGId,
           row.ProductoICG,
           row.CodArticulo,
           row.Referencia,
@@ -20179,13 +20283,14 @@
           ))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ID Mov.", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
           /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.map(function(row, index) {
             const blocked = row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo";
             const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             return /* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || index, className: blocked ? "tr-out-stock" : "" },
               /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, formatIcgTicketDisplay(row.Ticket || row.TicketICG || "") || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" } }, row.MovimientoICGId || "-"),
               /* @__PURE__ */ React.createElement("td", null,
                 /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.ProductoICG || "-"),
                 /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", row.CodArticulo || "-", " / Ref: ", row.Referencia || "-", row.NumLinea ? ` / Linea ${row.NumLinea}` : "")
@@ -20198,7 +20303,7 @@
               /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, row.Estado || "-"))
             );
-          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
+          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
       );
     }

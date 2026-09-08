@@ -12,6 +12,7 @@ export type MovementState =
 
 export interface SyncMovement {
   id: string;
+  movimientoIcgId?: string;
   idempotencyKey: string;
   fecha: string;
   origen: "ICG FrontRest" | "Sistema Web" | "Manual";
@@ -88,6 +89,7 @@ export interface ImportResult {
 }
 
 export interface IcgBackupConsumptionRow {
+  movimientoIcgId?: string;
   fecha: string;
   fechaHora?: string;
   fo?: string;
