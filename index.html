@@ -5842,7 +5842,7 @@
     PreciosVenta: {
       label: "Precios de venta",
       icon: "fa-tags",
-      columns: ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "Referencia", "REFERENCIA", "CodFormato", "CODFORMATO", "IDTarifaV", "IDTARIFAV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "PrecioDefecto", "PRECIODEFECTO"]
+      columns: ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "Referencia", "REFERENCIA", "Descripcion", "DESCRIPCION", "CodFormato", "CODFORMATO", "IDTarifaV", "IDTARIFAV", "Valor", "VALOR", "Precio", "PRECIO", "PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "PrecioDefecto", "PRECIODEFECTO", "_source", "_updatedAt"]
     },
     Clientes: {
       label: "Clientes ICG",
@@ -20189,7 +20189,7 @@
         const result = payload.result || payload.backup || {};
         setActiveTable("Articulos");
         setTab("tablas");
-        toast(result.message || "Base de Datos ICG Local procesada. La tabla Articulos ICG se actualizara desde Firebase.", "ok", 6500);
+        toast(result.message || "Base de Datos ICG Local procesada. Se actualizaran Articulos ICG, Precios de venta, tickets y consumos desde Firebase.", "ok", 6500);
       } catch (err) {
         toast((err && err.message ? err.message : "No se pudo procesar la base ICG local.") + " Verifica que WTF ICG Host este abierto en esta PC.", "error", 7500);
       } finally {

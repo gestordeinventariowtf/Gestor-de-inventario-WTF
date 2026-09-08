@@ -20,7 +20,7 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   Stocks: ["CODARTICULO", "CODALMACEN", "STOCK", "PEDIDO", "ASERVIR", "MINIMO", "FECHAMODIFICADO"],
   ComprasCab: ["SERIE", "NUMERO", "N", "FECHA", "CODPROVEEDOR", "CODALMACEN", "SUFACTURA", "TOTALBRUTO", "TOTALNETO"],
   ComprasLin: ["SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "REFERENCIA", "DESCRIPCION", "UDSTOTAL", "PRECIO", "TOTAL", "CODALMACEN"],
-  PreciosVenta: ["CODARTICULO", "CodArticulo", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP"],
+  PreciosVenta: ["CODARTICULO", "CodArticulo", "Referencia", "Descripcion", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP", "PrecioDefecto", "_source", "_updatedAt"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"],
   ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
@@ -305,6 +305,12 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     columns: DATASET_COLUMNS.TiquetsLin,
     rows: []
   };
+  appState.icgFrontRestData.datasets.PreciosVenta = appState.icgFrontRestData.datasets.PreciosVenta || {
+    key: "PreciosVenta",
+    label: "Precios de venta",
+    columns: DATASET_COLUMNS.PreciosVenta,
+    rows: []
+  };
   appState.icgFrontRestData.datasets.ConsumoMiseVentas = appState.icgFrontRestData.datasets.ConsumoMiseVentas || {
     key: "ConsumoMiseVentas",
     label: "Consumo Mise ventas",
@@ -431,12 +437,12 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     ].map((value) => normalizar(value)).join("|");
     if (!key.replace(/\|/g, "")) return;
     byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
-      _source: "Backup SQL ICG",
+      _source: row._source || "PRECIOSVENTA SQL ICG",
       _updatedAt: new Date().toISOString()
     }));
   });
   icg.datasets.PreciosVenta = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])),
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP", "PrecioDefecto", "_source", "_updatedAt"])),
     rows: Array.from(byKey.values()).sort((a, b) => String(a.CodArticulo || a.CODARTICULO || "").localeCompare(String(b.CodArticulo || b.CODARTICULO || ""), undefined, { numeric: true }))
   });
 
@@ -466,6 +472,39 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     });
   });
   articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])));
+}
+
+function salePriceRowsFromTicketLines(ticketLines: AnyRecord[]): AnyRecord[] {
+  const byCode = new Map<string, AnyRecord>();
+  (Array.isArray(ticketLines) ? ticketLines : []).forEach((row) => {
+    const code = firstText(row, ["CODARTICULO", "CodArticulo", "Codigo", "CODIGO"]);
+    if (!code) return;
+    const price = parseNumber(firstText(row, ["PRECIO", "Precio", "PRECIOIVA", "PrecioIva"]));
+    if (!(price > 0)) return;
+    const key = normalizar(code);
+    const currentPrice = parseNumber(byCode.get(key)?.Valor || byCode.get(key)?.VALOR || 0);
+    if (currentPrice > 0 && currentPrice >= price) return;
+    byCode.set(key, {
+      CODARTICULO: code,
+      CodArticulo: code,
+      CODFORMATO: "",
+      CodFormato: "",
+      IDTARIFAV: "TICKETLIN",
+      VALOR: price,
+      Valor: price,
+      PRECIO: price,
+      Precio: price,
+      PRECIOVENTA: price,
+      PrecioVenta: price,
+      PVP: price,
+      Referencia: firstText(row, ["REFERENCIA", "Referencia"]),
+      Descripcion: firstText(row, ["DESCRIPCION", "Descripcion"]),
+      PrecioDefecto: "Si",
+      _source: "TICKETLIN SQL ICG",
+      _updatedAt: new Date().toISOString()
+    });
+  });
+  return Array.from(byCode.values());
 }
 
 function documentUrl(config: ServiceConfig): string {
@@ -818,7 +857,9 @@ WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta
 ORDER BY c.FECHA DESC,l.SERIE,l.NUMERO,l.N,l.NUMLINEA;`;
   const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
   const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
-  const salePrices = parseSqlRows(await runSql(config, databaseName, salePricesSql)).filter((row) => parseNumber(row.VALOR || row.Valor) > 0);
+  const salePrices = await runSql(config, databaseName, salePricesSql)
+    .then((raw) => parseSqlRows(raw).filter((row) => parseNumber(row.VALOR || row.Valor || row.PRECIO || row.Precio || row.PRECIOVENTA || row.PrecioVenta) > 0))
+    .catch(() => []);
   const ticketLines = parseSqlRows(await runSql(config, databaseName, ticketLinesSql));
   if (!latest) {
     return {
@@ -966,8 +1007,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     return result;
   }
   mergeBackupArticlesIntoIcgData(icg, articles);
-  mergeBackupSalePricesIntoIcgData(icg, salePrices);
   mergeBackupTicketLinesIntoIcgData(icg, ticketLines);
+  mergeBackupSalePricesIntoIcgData(icg, salePriceRowsFromTicketLines(ticketLines).concat(salePrices));
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
   if (closures.length) {
     icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
