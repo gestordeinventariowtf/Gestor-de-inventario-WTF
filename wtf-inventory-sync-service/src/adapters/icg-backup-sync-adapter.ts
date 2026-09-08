@@ -1164,6 +1164,23 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       })
       .filter(Boolean)
   );
+  ["regSalidas", "barRegSalidas", "histSalidaRapida", "barHistSalidaRapida", "regDecomiso", "barRegDecomiso", "histDecomisoCocina"].forEach((historyKey) => {
+    const historyRows = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
+    historyRows.forEach((row: AnyRecord) => {
+      [row?.ImportKey, row?.importKey, row?.LegacyImportKey, row?.legacyImportKey, row?.icgImportKey, row?.id, row?._id].forEach((key) => {
+        const cleanKey = String(key || "").replace(/^icg-bak-decomiso-/, "").replace(/^icg-bak-/, "").replace(/^icg-/, "").trim();
+        if (!cleanKey) return;
+        appliedKeys.add(cleanKey);
+        appliedConsumptionKeys.add(cleanKey);
+      });
+      const movementId = String(row?.MovimientoICGId || row?.movimientoIcgId || "");
+      const product = normalizar(row?.producto || row?.ProductoWTF || row?.ProductoMise || "");
+      if (movementId && product) {
+        const target = historyKey.includes("bar") ? historyKey.includes("Decomiso") ? "" : historyKey.includes("Reg") ? (row?.storageKey || "") : "barMiseAnPlace" : historyKey === "histSalidaRapida" || historyKey === "histDecomisoCocina" ? "miseAnPlace" : (row?.storageKey || "");
+        appliedMovementTargets.add([movementId, targetKey(target || row?.ModuloWTF || row?.origen || ""), product].join("|"));
+      }
+    });
+  });
   appliedConsumptionKeys.forEach((key) => appliedKeys.add(key));
   const legacyAppliedRemaining = new Map<string, number>();
   consumoRows.forEach((row) => {
@@ -1187,6 +1204,19 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     if (!key) return;
     consumptionUpserts.set(key, row);
     existingConsumptionKeys.add(key);
+  }
+  function appendHistoryRowOnce(historyKey: string, row: AnyRecord): void {
+    appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
+    const keys = [row?.ImportKey, row?.importKey, row?.LegacyImportKey, row?.legacyImportKey, row?.id, row?._id].map((key) => String(key || "").trim()).filter(Boolean);
+    const movementId = String(row?.MovimientoICGId || row?.movimientoIcgId || "");
+    const product = normalizar(row?.producto || row?.ProductoWTF || row?.ProductoMise || "");
+    const exists = appState[historyKey].some((existing: AnyRecord) => {
+      const existingKeys = [existing?.ImportKey, existing?.importKey, existing?.LegacyImportKey, existing?.legacyImportKey, existing?.id, existing?._id].map((key) => String(key || "").trim()).filter(Boolean);
+      if (keys.some((key) => existingKeys.includes(key))) return true;
+      const existingMovementId = String(existing?.MovimientoICGId || existing?.movimientoIcgId || "");
+      return movementId && existingMovementId === movementId && product && normalizar(existing?.producto || existing?.ProductoWTF || existing?.ProductoMise || "") === product;
+    });
+    if (!exists) appState[historyKey].push(row);
   }
 
   for (const line of rowsToApply) {
@@ -1306,8 +1336,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         rememberConsumptionRow(consumoRow);
 
         const historyKey = target === "barMiseAnPlace" || target === "miseAnPlace" ? "histDecomisoCocina" : target.includes("bar") ? "barRegDecomiso" : "regDecomiso";
-        appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
-        appState[historyKey].push({
+        appendHistoryRowOnce(historyKey, {
           id: `icg-bak-decomiso-${importKey}`,
           fecha: eventDate,
           producto: targetProductName(item, target),
@@ -1353,8 +1382,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       rememberConsumptionRow(consumoRow);
 
       const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";
-      appState[historyKey] = Array.isArray(appState[historyKey]) ? appState[historyKey] : [];
-      appState[historyKey].push({
+      appendHistoryRowOnce(historyKey, {
         id: `icg-bak-${importKey}`,
         fecha: eventDate,
         producto: targetProductName(item, target),
