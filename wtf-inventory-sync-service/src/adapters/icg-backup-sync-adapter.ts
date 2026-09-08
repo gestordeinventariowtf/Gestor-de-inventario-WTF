@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
   TiquetsLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
+  TicketLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA", "TicketICG", "MovimientoICGId"],
   TiquetsConsumo: ["MovimientoICGId", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
   Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
@@ -305,6 +306,12 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     columns: DATASET_COLUMNS.TiquetsLin,
     rows: []
   };
+  appState.icgFrontRestData.datasets.TicketLin = appState.icgFrontRestData.datasets.TicketLin || {
+    key: "TicketLin",
+    label: "TICKETLIN SQL",
+    columns: DATASET_COLUMNS.TicketLin,
+    rows: []
+  };
   appState.icgFrontRestData.datasets.PreciosVenta = appState.icgFrontRestData.datasets.PreciosVenta || {
     key: "PreciosVenta",
     label: "Precios de venta",
@@ -358,7 +365,9 @@ function mergeBackupArticlesIntoIcgData(icg: AnyRecord, articles: AnyRecord[]): 
 function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecord[]): void {
   if (!Array.isArray(ticketLines) || !ticketLines.length) return;
   const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "Lineas tickets", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
+  const currentSql = icg.datasets.TicketLin || { key: "TicketLin", label: "TICKETLIN SQL", columns: DATASET_COLUMNS.TicketLin, rows: [] };
   const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const existingSqlRows = Array.isArray(currentSql.rows) ? currentSql.rows : [];
   const byKey = new Map<string, AnyRecord>();
   function rowKey(row: AnyRecord): string {
     return [
@@ -375,21 +384,49 @@ function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecor
     const key = rowKey(row);
     if (key.replace(/\|/g, "")) byKey.set(key, row);
   });
+  existingSqlRows.forEach((row: AnyRecord) => {
+    const key = rowKey(row);
+    if (key.replace(/\|/g, "")) byKey.set(key, row);
+  });
   ticketLines.forEach((row) => {
     const key = rowKey(row);
     if (!key.replace(/\|/g, "")) return;
+    const ticketIcg = icgTicketIdentityFromLine({
+      fo: firstText(row, ["FO", "fo"]),
+      serie: firstText(row, ["SERIE", "Serie", "serie"]),
+      numero: firstText(row, ["NUMERO", "Numero", "numero"]),
+      n: firstText(row, ["N", "n"])
+    });
+    const movementId = movementIcgIdFromLine({
+      fo: firstText(row, ["FO", "fo"]),
+      serie: firstText(row, ["SERIE", "Serie", "serie"]),
+      numero: firstText(row, ["NUMERO", "Numero", "numero"]),
+      n: firstText(row, ["N", "n"]),
+      numLinea: firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
+      codArticulo: firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
+      referencia: firstText(row, ["REFERENCIA", "Referencia", "referencia"]),
+      fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
+      fecha: firstText(row, ["FECHA", "Fecha", "fecha"])
+    }, firstText(row, ["FECHA", "Fecha", "fecha"]));
     byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
+      TicketICG: ticketIcg,
+      MovimientoICGId: movementId,
       _source: "TICKETLIN SQL ICG",
       _updatedAt: new Date().toISOString()
     }));
   });
+  const mergedRows = Array.from(byKey.values()).sort((a, b) => {
+    const ticketA = [a.FECHA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
+    const ticketB = [b.FECHA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
+    return String(ticketB).localeCompare(String(ticketA), undefined, { numeric: true });
+  });
   icg.datasets.TiquetsLin = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsLin])),
-    rows: Array.from(byKey.values()).sort((a, b) => {
-      const ticketA = [a.FECHA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
-      const ticketB = [b.FECHA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
-      return String(ticketB).localeCompare(String(ticketA), undefined, { numeric: true });
-    })
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsLin, "TicketICG", "MovimientoICGId"])),
+    rows: mergedRows
+  });
+  icg.datasets.TicketLin = Object.assign({}, currentSql, {
+    columns: Array.from(new Set([...(currentSql.columns || []), ...DATASET_COLUMNS.TicketLin])),
+    rows: mergedRows
   });
   const articles = icg.datasets.Articulos;
   if (!articles || !Array.isArray(articles.rows)) return;

@@ -4609,7 +4609,7 @@
   function getFirebaseComparableIcgData(data) {
     const normalized = ensureIcgFrontRestData(data);
     const datasets = {};
-    ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios"].forEach(function(key) {
+    ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios", "TicketLin"].forEach(function(key) {
       datasets[key] = compactIcgDatasetForFirebase(normalized, key, 0);
     });
     ["Articulos", "Referencias", "PreciosVenta"].forEach(function(key) {
@@ -5784,6 +5784,11 @@
       icon: "fa-list-check",
       columns: ["Serie", "Numero", "NumLinea", "CodArticulo", "Descripcion", "Unidades", "Coste", "Precio", "PrecioIva", "TipoIva", "CodVendedor", "Referencia", "HORA", "FECHA"]
     },
+    TicketLin: {
+      label: "TICKETLIN SQL",
+      icon: "fa-table-list",
+      columns: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA", "TicketICG", "MovimientoICGId"]
+    },
     TiquetsPag: {
       label: "Pagos",
       icon: "fa-credit-card",
@@ -5920,6 +5925,18 @@
         rows: Array.isArray(current.rows) ? current.rows : []
       };
     });
+    if (!datasets.TicketLin.rows.length && datasets.TiquetsLin.rows.length) {
+      datasets.TicketLin = Object.assign({}, datasets.TicketLin, {
+        rows: datasets.TiquetsLin.rows,
+        columns: Array.from(new Set([...(datasets.TicketLin.columns || []), ...(datasets.TiquetsLin.columns || []), "TicketICG", "MovimientoICGId"]))
+      });
+    }
+    if (!datasets.TiquetsLin.rows.length && datasets.TicketLin.rows.length) {
+      datasets.TiquetsLin = Object.assign({}, datasets.TiquetsLin, {
+        rows: datasets.TicketLin.rows,
+        columns: Array.from(new Set([...(datasets.TiquetsLin.columns || []), ...(datasets.TicketLin.columns || [])]))
+      });
+    }
     return Object.assign({}, base, input, {
       audit: Object.assign({}, base.audit, input.audit || {}),
       icgLinkGroups: normalizeIcgLinkGroups(input.icgLinkGroups),
@@ -5947,6 +5964,9 @@
   }
   function icgRows(data, key) {
     const ds = data && data.datasets ? data.datasets[key] : null;
+    if (ds && Array.isArray(ds.rows) && ds.rows.length) return ds.rows;
+    if (key === "TiquetsLin" && data && data.datasets && data.datasets.TicketLin && Array.isArray(data.datasets.TicketLin.rows)) return data.datasets.TicketLin.rows;
+    if (key === "TicketLin" && data && data.datasets && data.datasets.TiquetsLin && Array.isArray(data.datasets.TiquetsLin.rows)) return data.datasets.TiquetsLin.rows;
     return ds && Array.isArray(ds.rows) ? ds.rows : [];
   }
   function icgCellText(value) {
