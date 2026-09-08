@@ -1005,6 +1005,90 @@ function createBackupMovement(
   };
 }
 
+function ticketLineToConsumptionIdentity(row: AnyRecord): Partial<IcgBackupConsumptionRow> {
+  return {
+    fecha: firstText(row, ["FECHA", "Fecha", "fecha"]),
+    fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
+    fo: firstText(row, ["FO", "fo"]),
+    serie: firstText(row, ["SERIE", "Serie", "serie"]),
+    numero: firstText(row, ["NUMERO", "Numero", "numero"]),
+    n: firstText(row, ["N", "n"]),
+    numLinea: firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
+    codArticulo: firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
+    referencia: firstText(row, ["REFERENCIA", "Referencia", "referencia"]),
+    descripcion: firstText(row, ["DESCRIPCION", "Descripcion", "descripcion"])
+  };
+}
+
+function createTicketLineMovement(row: AnyRecord, fallbackDate: string): SyncMovement | null {
+  const line = ticketLineToConsumptionIdentity(row);
+  const code = String(line.codArticulo || "").trim();
+  const movementId = movementIcgIdFromLine(line, fallbackDate);
+  if (!code || !movementId) return null;
+  const ticketIdentity = icgTicketIdentityFromLine(line);
+  const importKey = quickHashText(["icg-ticketlin", movementId].join("|"));
+  const cantidad = Math.abs(parseNumber(firstText(row, ["UNIDADES", "Unidades", "unidades"])));
+  const precio = parseNumber(firstText(row, ["PRECIOIVA", "PrecioIva", "PRECIO", "Precio"]));
+  const total = parseNumber(firstText(row, ["TOTAL", "Total"]));
+  return {
+    id: `icg-ticketlin-${importKey}`,
+    movimientoIcgId: movementId,
+    idempotencyKey: `icg-ticketlin-${importKey}`,
+    fecha: String(line.fechaHora || line.fecha || fallbackDate || new Date().toISOString()).replace(" ", "T"),
+    origen: "ICG FrontRest",
+    destino: "Sistema Web",
+    tipo: "salida",
+    codigoProducto: code,
+    nombreProducto: line.descripcion || `ICG ${code}`,
+    cantidad: cantidad || 0,
+    unidad: "Uni",
+    almacen: "TICKETLIN",
+    estado: "sincronizado",
+    mensaje: "Linea vendida recibida desde TICKETLIN. Informativa: no genera descuento por si sola.",
+    intentos: 0,
+    referencia: line.referencia || "",
+    raw: {
+      importKey,
+      movimientoIcgId: movementId,
+      ticket: ticketIdentity,
+      fo: line.fo || "",
+      serie: line.serie || "",
+      numero: line.numero || "",
+      n: line.n || "",
+      numLinea: line.numLinea || "",
+      fechaHora: line.fechaHora || "",
+      precio,
+      total
+    }
+  };
+}
+
+function icgPhysicalLineKey(line: Partial<IcgBackupConsumptionRow>): string {
+  return [
+    line.fo || "",
+    line.serie || "",
+    line.numero || "",
+    line.n || "",
+    line.numLinea || "",
+    line.codArticulo || "",
+    String(line.fechaHora || line.fecha || "").slice(0, 19)
+  ].map((part) => normalizar(part)).join("|");
+}
+
+function ticketLineMovementsForHost(ticketLines: AnyRecord[], rowsToApply: IcgBackupConsumptionRow[], fallbackDate: string): SyncMovement[] {
+  const consumedLineKeys = new Set((Array.isArray(rowsToApply) ? rowsToApply : []).map(icgPhysicalLineKey).filter((key) => key.replace(/\|/g, "")));
+  const byId = new Map<string, SyncMovement>();
+  (Array.isArray(ticketLines) ? ticketLines : []).forEach((row) => {
+    const line = ticketLineToConsumptionIdentity(row);
+    const lineKey = icgPhysicalLineKey(line);
+    if (lineKey && consumedLineKeys.has(lineKey)) return;
+    const movement = createTicketLineMovement(row, fallbackDate);
+    if (!movement || !movement.movimientoIcgId) return;
+    byId.set(movement.movimientoIcgId, movement);
+  });
+  return Array.from(byId.values());
+}
+
 export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], ticketLines: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
@@ -1023,6 +1107,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   };
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
+  const ticketLineHostMovements = ticketLineMovementsForHost(ticketLines, rowsToApply, fecha);
   const cloudPause = await readIcgControlPause(config);
   if (cloudPause.paused) {
     icg.inventoryImpactPaused = true;
@@ -1040,7 +1125,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const movementId = movementIcgIdFromLine(line, fecha);
       const importKey = quickHashText(["icg-paused", movementId, eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
-    });
+    }).concat(ticketLineHostMovements);
     return result;
   }
   mergeBackupArticlesIntoIcgData(icg, articles);
@@ -1303,9 +1388,14 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: result.applied, matched: result.matched, pending: result.pending, errors: result.errors });
   icg.sourceName = path.basename(config.icgBackupPath);
   icg.updatedAt = now;
-  result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0;
+  if (ticketLineHostMovements.length) {
+    result.movements = (result.movements || []).concat(ticketLineHostMovements);
+  }
+  result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0 || ticketLineHostMovements.length > 0;
   result.message = result.applied
     ? `Backup ICG aplicado: ${result.applied} descuentos. Pendientes para revision: ${result.pending}.`
+    : ticketLineHostMovements.length
+      ? `Datos ICG actualizados: ${ticketLineHostMovements.length} lineas TICKETLIN recibidas para auditoria. No generaron descuentos automaticos.`
     : `Backup ICG leido sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
   await writeAppState(config, appState, result);
   return result;
@@ -1341,7 +1431,9 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
     if (data.closures.length || data.articles.length || data.salePrices.length || data.ticketLines.length) {
       const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
       const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures, data.salePrices, data.ticketLines);
-      result.message = "Datos ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
+      result.message = data.ticketLines.length
+        ? `Datos ICG actualizados desde Base de Datos Local. Se recibieron ${data.ticketLines.length} lineas TICKETLIN; no se encontraron consumos nuevos para aplicar.`
+        : "Datos ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
       return result;
     }
     return {
