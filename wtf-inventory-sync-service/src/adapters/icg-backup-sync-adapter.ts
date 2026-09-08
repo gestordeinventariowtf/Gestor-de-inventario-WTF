@@ -160,7 +160,7 @@ function icgStableConsumptionIdentity(line: Partial<IcgBackupConsumptionRow>, fa
   ].map((part) => normalizar(part)).join("|");
 }
 
-function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+export function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
   const stableIdentity = icgStableConsumptionIdentity(line, fallbackDate);
   if (icgTicketIdentityFromLine(line) && line.numLinea && line.codArticulo) {
     return quickHashText(["icg-line-stable-v2", stableIdentity].join("|"));
@@ -185,7 +185,7 @@ function consumptionAggregationKey(fecha: string, code: string, reference: strin
   ].join("|");
 }
 
-function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string, fecha: string): string {
+export function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string, fecha: string): string {
   return [
     "icg-consumption-v2",
     icgStableConsumptionIdentity(line, fecha),
@@ -208,7 +208,7 @@ function consumptionAuditKeyFromRow(row: AnyRecord): string {
   ].join("|");
 }
 
-function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string): string {
+export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string): string {
   return [
     "icg-physical-v1",
     normalizar(icgTicketIdentityFromLine(line)),
@@ -586,6 +586,49 @@ function shardDocumentUrl(config: ServiceConfig, key: string): string {
 
 function icgControlDocumentUrl(config: ServiceConfig): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/icgControl`;
+}
+
+function icgLedgerDocumentUrl(config: ServiceConfig, physicalKey: string, createOnly = false): string {
+  const docId = `phys-${quickHashText(["icg-ledger-v1", physicalKey].join("|"))}`;
+  const query = new URLSearchParams({ key: config.apiKey });
+  if (createOnly) query.set("currentDocument.exists", "false");
+  return `${documentUrl(config)}/icgAppliedMovements/${encodeURIComponent(docId)}?${query.toString()}`;
+}
+
+function isFirestoreDuplicateResponse(status: number, text: string): boolean {
+  return status === 409 || /ALREADY_EXISTS|already exists|exists|FAILED_PRECONDITION|Precondition/i.test(text || "");
+}
+
+function firestoreFieldsFromRecord(record: AnyRecord): AnyRecord {
+  const fields: AnyRecord = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (value !== undefined) fields[key] = encodeFirestoreValue(value);
+  });
+  return fields;
+}
+
+async function createIcgLedgerClaim(config: ServiceConfig, payload: AnyRecord): Promise<boolean> {
+  const res = await fetch(icgLedgerDocumentUrl(config, String(payload.physicalIcgKey || ""), true), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: firestoreFieldsFromRecord(payload) })
+  });
+  if (res.ok) return true;
+  const text = await res.text().catch(() => "");
+  if (isFirestoreDuplicateResponse(res.status, text)) return false;
+  throw new Error(`No se pudo bloquear el movimiento ICG en Firestore (${res.status}). ${text.slice(0, 240)}`);
+}
+
+async function updateIcgLedgerStatus(config: ServiceConfig, physicalKey: string, payload: AnyRecord): Promise<void> {
+  const res = await fetch(icgLedgerDocumentUrl(config, physicalKey), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: firestoreFieldsFromRecord(payload) })
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`No se pudo actualizar el ledger ICG (${res.status}). ${text.slice(0, 240)}`);
+  }
 }
 
 function splitAppStateIntoShards(appState: AnyRecord): { mainState: AnyRecord; shards: Array<{ key: string; value: unknown }> } {
@@ -1095,7 +1138,7 @@ function createTicketLineMovement(row: AnyRecord, fallbackDate: string): SyncMov
   };
 }
 
-function icgPhysicalLineKey(line: Partial<IcgBackupConsumptionRow>): string {
+export function icgPhysicalLineKey(line: Partial<IcgBackupConsumptionRow>): string {
   return icgStableTicketLineIdentity(line);
 }
 
@@ -1254,6 +1297,50 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     });
     if (!exists) appState[historyKey].push(row);
   }
+  async function claimLedgerForImpact(
+    line: IcgBackupConsumptionRow,
+    physicalKey: string,
+    importKey: string,
+    movementId: string,
+    target: string,
+    producto: string,
+    cantidad: number,
+    unidad: string,
+    tipoMovimiento: string
+  ): Promise<{ claimed: boolean; error: string }> {
+    try {
+      const claimed = await createIcgLedgerClaim(config, {
+        physicalIcgKey: physicalKey,
+        importKey,
+        movimientoIcgId: movementId,
+        estado: "procesando",
+        tipoMovimiento,
+        fecha: line.fecha || fecha,
+        fechaHora: line.fechaHora || line.fecha || fecha,
+        ticketICG: icgTicketIdentityFromLine(line),
+        fo: line.fo || "",
+        serie: line.serie || "",
+        numero: line.numero || "",
+        n: line.n || "",
+        numLinea: line.numLinea || "",
+        codArticulo: line.codArticulo || "",
+        referencia: line.referencia || "",
+        productoICG: line.descripcion || "",
+        codAlmacen: line.codAlmacen || "",
+        moduloWTF: targetLabel(target),
+        targetKey: target,
+        productoWTF: producto,
+        cantidadDescontar: cantidad,
+        unidad,
+        source: "WTF ICG Host",
+        createdAt: now,
+        updatedAt: now
+      });
+      return { claimed, error: "" };
+    } catch (error) {
+      return { claimed: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
   for (const line of rowsToApply) {
     const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
@@ -1360,6 +1447,22 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       }
       const existenciaAnterior = targetExistence(item, target);
       if (isIcgReturn) {
+        const ledgerClaim = await claimLedgerForImpact(line, physicalKey, importKey, movementId, target, producto, cantidad, consumoRow.Unidad, "decomiso");
+        if (!ledgerClaim.claimed) {
+          if (ledgerClaim.error) {
+            consumoRow.Estado = "Pendiente revision";
+            consumoRow.MotivoRevision = ledgerClaim.error;
+            result.pending += 1;
+            result.errors.push(ledgerClaim.error);
+            result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", ledgerClaim.error, targetProductName(item, target), cantidad, consumoRow.Unidad));
+            rememberConsumptionRow(consumoRow);
+          } else {
+            result.skipped += 1;
+            result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.", targetProductName(item, target), cantidad, consumoRow.Unidad));
+          }
+          appliedConsumptionPhysicalKeys.add(physicalKey);
+          continue;
+        }
         item.updatedAt = now;
         item.icgLastImportKey = importKey || item.icgLastImportKey || "";
         const existenciaNueva = existenciaAnterior;
@@ -1395,6 +1498,17 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
           physicalIcgKey: physicalKey,
           movimientoIcgId: movementId
         });
+        try {
+          await updateIcgLedgerStatus(config, physicalKey, {
+            estado: "decomiso aplicado",
+            existenciaAnterior,
+            existenciaNueva,
+            appliedAt: now,
+            updatedAt: now
+          });
+        } catch (error) {
+          result.errors.push(error instanceof Error ? error.message : String(error));
+        }
         continue;
       }
       if (existenciaAnterior + 1e-9 < cantidad) {
@@ -1407,6 +1521,24 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         result.pending += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", message, targetProductName(item, target), cantidad, consumoRow.Unidad));
         rememberConsumptionRow(consumoRow);
+        continue;
+      }
+      const ledgerClaim = await claimLedgerForImpact(line, physicalKey, importKey, movementId, target, producto, cantidad, consumoRow.Unidad, "salida");
+      if (!ledgerClaim.claimed) {
+        if (ledgerClaim.error) {
+          consumoRow.Estado = "Pendiente revision";
+          consumoRow.ExistenciaActual = existenciaAnterior;
+          consumoRow.ExistenciaNueva = existenciaAnterior;
+          consumoRow.MotivoRevision = ledgerClaim.error;
+          result.pending += 1;
+          result.errors.push(ledgerClaim.error);
+          result.movements?.push(createBackupMovement(line, fecha, importKey, "pendiente_revision", ledgerClaim.error, targetProductName(item, target), cantidad, consumoRow.Unidad));
+          rememberConsumptionRow(consumoRow);
+        } else {
+          result.skipped += 1;
+          result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.", targetProductName(item, target), cantidad, consumoRow.Unidad));
+        }
+        appliedConsumptionPhysicalKeys.add(physicalKey);
         continue;
       }
       applyTargetSalida(item, target, cantidad, now, importKey);
@@ -1440,6 +1572,17 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         physicalIcgKey: physicalKey,
         movimientoIcgId: movementId
       });
+      try {
+        await updateIcgLedgerStatus(config, physicalKey, {
+          estado: "aplicado",
+          existenciaAnterior,
+          existenciaNueva,
+          appliedAt: now,
+          updatedAt: now
+        });
+      } catch (error) {
+        result.errors.push(error instanceof Error ? error.message : String(error));
+      }
     }
   }
 

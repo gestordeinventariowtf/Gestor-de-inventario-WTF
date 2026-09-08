@@ -9,7 +9,8 @@
     "package:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -BuildSelfExtractingExe",
     "start": "node dist/main.js",
     "dev": "tsx src/main.ts",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node dist/tests/icg-idempotency.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
