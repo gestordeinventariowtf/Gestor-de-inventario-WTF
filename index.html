@@ -5782,7 +5782,7 @@
     TiquetsLin: {
       label: "Lineas vendidas",
       icon: "fa-list-check",
-      columns: ["Serie", "Numero", "NumLinea", "CodArticulo", "Descripcion", "Unidades", "Coste", "Precio", "PrecioIva", "TipoIva", "CodVendedor", "Referencia", "HORA"]
+      columns: ["Serie", "Numero", "NumLinea", "CodArticulo", "Descripcion", "Unidades", "Coste", "Precio", "PrecioIva", "TipoIva", "CodVendedor", "Referencia", "HORA", "FECHA"]
     },
     TiquetsPag: {
       label: "Pagos",
@@ -5807,7 +5807,7 @@
     Articulos: {
       label: "Articulos ICG",
       icon: "fa-boxes-stacked",
-      columns: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PCoste", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"]
+      columns: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"]
     },
     Referencias: {
       label: "Codigos / referencias",
@@ -5860,6 +5860,19 @@
       columns: ["CodCliente", "NombreComercial", "Nombrecliente", "Alias", "Telefono1", "Telefono2", "E_Mail", "CodVendedor", "CodFormaPago", "Estado", "NumTarjeta"]
     }
   };
+  const ICG_COLUMN_LABELS = {
+    PCoste: "Precio de Venta (Sin Impuestos)",
+    PrecioVentaSinImpuestos: "Precio de Venta (Sin Impuestos)"
+  };
+  function getIcgDisplayColumnLabel(column) {
+    return ICG_COLUMN_LABELS[column] || column;
+  }
+  function getIcgDisplayCell(row, column) {
+    if (column === "PCoste" || column === "PrecioVentaSinImpuestos") {
+      return icgCellText(row && (row.PrecioVentaSinImpuestos || row.PrecioVenta || row.PRECIOVENTA || row.Precio || row.PRECIO || row.PVP || row.PCoste));
+    }
+    return icgCellText(row && row[column]);
+  }
   function buildDefaultIcgFrontRestData() {
     const datasets = {};
     Object.keys(ICG_TABLE_DEFS).forEach(function(key) {
@@ -6347,6 +6360,18 @@
     const key = [fo, serie, numero || factura, n].filter(Boolean).join("-");
     return key || String(row._id || row.ID || "").trim();
   }
+  function getIcgTicketDisplay(row) {
+    if (!row) return "";
+    const serie = icgCellText(row.Serie || row.SERIE || row.serie || "").trim();
+    const numero = icgCellText(row.Numero || row.NUMERO || row.NumFactura || row.Factura || row.numero || "").trim();
+    return [serie, numero].filter(Boolean).join("-") || getIcgTicketKey(row);
+  }
+  function formatIcgTicketDisplay(value) {
+    const raw = icgCellText(value).trim();
+    const parts = raw.split("-").filter(Boolean);
+    if (parts.length >= 3) return `${parts[1]}-${parts[2]}`;
+    return raw;
+  }
   function getIcgLineNumber(row) {
     return icgCellText(row && (row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || row.linea || "")).trim();
   }
@@ -6391,6 +6416,7 @@
       const ticketKey = getIcgTicketKey(row) || `ticket-${index}`;
       map[ticketKey] = Object.assign({}, row, {
         ticketKey,
+        TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
         FechaTicket: icgDateKey(row.Fecha || row.FechaCierre || row.createdAt) || "",
         HoraTicket: row.HoraFin || row.HoraIni || row.Hora || "",
         Lineas: [],
@@ -6398,11 +6424,22 @@
         TotalPagado: 0
       });
     });
-    lines.forEach(function(row) {
-      const ticketKey = getIcgTicketKey(row);
+    lines.forEach(function(row, index) {
+      const ticketKey = getIcgTicketKey(row) || `ticket-line-${index}`;
+      if (!map[ticketKey]) {
+        map[ticketKey] = Object.assign({}, row, {
+          ticketKey,
+          TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
+          FechaTicket: icgDateKey(row.Fecha || row.FECHA || row.HORA || row._sourceDate || row.createdAt) || "",
+          HoraTicket: row.HoraFin || row.HoraIni || row.Hora || row.HORA || "",
+          Lineas: [],
+          PagosDetalle: [],
+          TotalPagado: 0
+        });
+      }
       if (ticketKey && map[ticketKey]) {
         map[ticketKey].Lineas.push(row);
-        row._fechaTicket = row._fechaTicket || map[ticketKey].Fecha || map[ticketKey].FechaTicket;
+        row._fechaTicket = row._fechaTicket || map[ticketKey].Fecha || map[ticketKey].FECHA || map[ticketKey].FechaTicket;
       }
     });
     payments.forEach(function(row) {
@@ -6413,7 +6450,12 @@
       }
     });
     return Object.values(map).map(function(ticket) {
-      const totalNeto = parseIcgNumber(ticket.TotalPagado) || sumIcgFields(ticket, ["TotalNeto", "Total"]);
+      const lineTotal = (ticket.Lineas || []).reduce(function(sum, line) {
+        const units = getIcgLineUnits(line);
+        const price = sumIcgFields(line, ["PrecioIva", "Precio", "PRECIOIVA", "PRECIO"]);
+        return sum + (sumIcgFields(line, ["Total", "TOTAL"]) || price * units);
+      }, 0);
+      const totalNeto = parseIcgNumber(ticket.TotalPagado) || sumIcgFields(ticket, ["TotalNeto", "Total"]) || lineTotal;
       const totalBruto = sumIcgFields(ticket, ["TotalBruto", "Subtotal"]) || totalNeto;
       return Object.assign({}, ticket, {
         TotalNetoCalculado: Number(totalNeto.toFixed(2)),
@@ -6611,13 +6653,13 @@
     return icgCellText(row && (row.CodArticulo || row.Codigo || row.Cod || row.CODARTICULO || "") || "").trim();
   }
   function getIcgLineReference(row) {
-    return icgCellText(row && (row.Referencia || row.CodigoBarras || row.Barcode || "") || "").trim();
+    return icgCellText(row && (row.Referencia || row.REFERENCIA || row.CodigoBarras || row.Barcode || "") || "").trim();
   }
   function getIcgLineDescription(row) {
-    return icgCellText(row && (row.Descripcion || row.ProductoICG || row.Nombre || row.Articulo || "") || "").trim();
+    return icgCellText(row && (row.Descripcion || row.DESCRIPCION || row.ProductoICG || row.Nombre || row.Articulo || "") || "").trim();
   }
   function getIcgLineUnits(row) {
-    return parseIcgNumber(row && (row.Unidades != null ? row.Unidades : row.Cantidad != null ? row.Cantidad : row.Qty));
+    return parseIcgNumber(row && (row.Unidades != null ? row.Unidades : row.UNIDADES != null ? row.UNIDADES : row.Cantidad != null ? row.Cantidad : row.Qty));
   }
   function isIcgLinkActive(row) {
     const value = normalizar(icgCellText(row && (row.Activo == null ? "Si" : row.Activo)));
@@ -6644,7 +6686,7 @@
     const productWtf = bridgeProduct || icgCellText(row.ProductoWTF || row.ProductoMise) || "";
     const productMise = bridge && icgCellText(bridge.ProductoMise) || icgCellText(row.ProductoMise || row.ProductoWTF) || productWtf;
     const fecha = icgCellText(row.Fecha || row.fecha) || normalizedData.updatedAt || new Date().toISOString().slice(0, 10);
-    const ticketValue = icgCellText(row.Ticket || row.TicketKey || row.Factura || "");
+    const ticketValue = icgCellText(row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "");
     const code = bridge && icgCellText(bridge.CodArticulo || bridge.Codigo) || icgCellText(row.CodArticulo || row.Codigo) || "";
     const reference = bridge && icgCellText(bridge.Referencia) || icgCellText(row.Referencia) || "";
     const productIcg = bridge && icgCellText(bridge.ProductoICG) || icgCellText(row.ProductoICG || row.Descripcion) || "";
@@ -16859,7 +16901,7 @@
     const eliminado = normalizar(row && (row.EliminadoCosteo || row._costeoDeleted || ""));
     return !["si", "sí", "true", "1"].includes(descatalogado) && !["si", "sí", "true", "1"].includes(eliminado);
   }
-  const ICG_SALE_PRICE_FIELDS = ["PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "Precio", "PRECIO", "Valor", "VALOR", "Importe", "IMPORTE"];
+  const ICG_SALE_PRICE_FIELDS = ["PrecioVentaSinImpuestos", "PrecioSinImpuestos", "PrecioIva", "PRECIOIVA", "PrecioVenta", "PRECIOVENTA", "PVP", "PVenta", "Precio", "PRECIO", "Valor", "VALOR", "Importe", "IMPORTE"];
   function getIcgPriceRowKeys(row) {
     const keys = [
       getCostField(row, ["CodArticulo", "CODARTICULO", "Codigo", "CODIGO", "CodProducto", "CODPRODUCTO"]),
@@ -19684,6 +19726,8 @@
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
     const [selectedTicketDetail, setSelectedTicketDetail] = useState(null);
+    const [selectedClosureDetail, setSelectedClosureDetail] = useState(null);
+    const [expandedClosureTickets, setExpandedClosureTickets] = useState({});
     const [busy, setBusy] = useState(false);
     const autoApplyIcgRef = useRef("");
     const totals = tableKeys.reduce(function(acc, key) {
@@ -19692,6 +19736,13 @@
     }, {});
     const closureRows = useMemo(() => buildIcgDailyClosures(normalized), [data]);
     const ticketRows = useMemo(() => buildIcgSalesTickets(normalized), [data]);
+    const selectedClosureTickets = useMemo(function() {
+      if (!selectedClosureDetail) return [];
+      const closureDate = icgDateKey(selectedClosureDetail.FechaCierre || selectedClosureDetail.Fecha || "");
+      return ticketRows.filter(function(ticket) {
+        return icgDateKey(ticket.FechaTicket || ticket.Fecha || "") === closureDate;
+      });
+    }, [selectedClosureDetail, ticketRows.length, data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
     const bridgeRows = mergeIcgBridgeRows(
       icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
@@ -20116,7 +20167,7 @@
             /* @__PURE__ */ React.createElement("tbody", null, ticketRows.map(function(ticket) {
               return /* @__PURE__ */ React.createElement("tr", { key: ticket.TicketNotificacionId || ticket.ticketKey },
                 /* @__PURE__ */ React.createElement("td", null, ticket.FechaTicket || "-"),
-                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => setSelectedTicketDetail(ticket), title: "Ver articulos del ticket" }, ticket.ticketKey || ticket.NumFactura || "-")),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => setSelectedTicketDetail(ticket), title: "Ver articulos del ticket" }, ticket.TicketDisplay || getIcgTicketDisplay(ticket) || ticket.ticketKey || ticket.NumFactura || "-")),
                 /* @__PURE__ */ React.createElement("td", null, ticket.HoraTicket || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: "#15803d" } }, formatIcgMoney(ticket.TotalNetoCalculado)),
                 /* @__PURE__ */ React.createElement("td", null, formatIcgMoney(ticket.TotalPagado || 0)),
@@ -20134,7 +20185,7 @@
             const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             return /* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || index, className: blocked ? "tr-out-stock" : "" },
               /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
-              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, row.Ticket || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, formatIcgTicketDisplay(row.Ticket || row.TicketICG || "") || "-"),
               /* @__PURE__ */ React.createElement("td", null,
                 /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.ProductoICG || "-"),
                 /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", row.CodArticulo || "-", " / Ref: ", row.Referencia || "-", row.NumLinea ? ` / Linea ${row.NumLinea}` : "")
@@ -20167,7 +20218,7 @@
             return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.Archivo || "cierre"}-${row.FechaCierre || index}` },
               /* @__PURE__ */ React.createElement("td", null, row.FechaCierre || row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.Archivo || "-"),
-              /* @__PURE__ */ React.createElement("td", null, row.Tickets || 0),
+              /* @__PURE__ */ React.createElement("td", null, parseIcgNumber(row.Tickets) > 0 ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => { setSelectedClosureDetail(row); setExpandedClosureTickets({}); }, title: "Ver tickets de este cierre" }, row.Tickets || 0) : row.Tickets || 0),
               /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: "#15803d" } }, formatIcgMoney(row.VentaNeta)),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${parseIcgNumber(row.Tickets) > 0 ? "pill-verde" : "pill-gris"}` }, row.Estado || "-"))
             );
@@ -20275,18 +20326,67 @@
               /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filteredRows.length, " registros")
             ),
             /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.slice(0, 8).map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, col)), /* @__PURE__ */ React.createElement("th", null, "Acciones"))),
+              /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, columns.slice(0, 8).map((col) => /* @__PURE__ */ React.createElement("th", { key: col }, getIcgDisplayColumnLabel(col))), /* @__PURE__ */ React.createElement("th", null, "Acciones"))),
               /* @__PURE__ */ React.createElement("tbody", null, filteredRows.slice(0, 120).map(function(row, index) {
                 const rowKey = row._id || `${activeTable}-${index}`;
-              return /* @__PURE__ */ React.createElement("tr", { key: rowKey }, columns.slice(0, 8).map((col) => /* @__PURE__ */ React.createElement("td", { key: col, style: { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, icgCellText(row[col]))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => startEdit(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: () => deleteRow(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar"))));
+              return /* @__PURE__ */ React.createElement("tr", { key: rowKey }, columns.slice(0, 8).map((col) => /* @__PURE__ */ React.createElement("td", { key: col, style: { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, getIcgDisplayCell(row, col))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 5, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: () => startEdit(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" }), "Editar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo", onClick: () => deleteRow(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }), "Eliminar"))));
               }), filteredRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: columns.slice(0, 8).length + 1, style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, activeTable === "Articulos" ? "Sin articulos ICG. Pulsa Actualizar Articulos ICG para leer la Base de Datos Local." : "Sin registros. Procesa la Base de Datos ICG Local o agrega una fila.")))
             ))
           )
         )
       ),
+      selectedClosureDetail && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 940 } },
+        /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-check", style: { marginRight: 7 } }), "Cierre diario ", selectedClosureDetail.FechaCierre || selectedClosureDetail.Fecha || "-"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setSelectedClosureDetail(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 8 } },
+            renderLabMetric("Tickets", selectedClosureTickets.length || selectedClosureDetail.Tickets || 0, "#b45309"),
+            renderLabMetric("Lineas", selectedClosureTickets.reduce((sum, ticket) => sum + (ticket.Lineas || []).length, 0) || selectedClosureDetail.Lineas || 0, "#4338ca"),
+            renderLabMetric("Venta neta", formatIcgMoney(selectedClosureDetail.VentaNeta || 0), "#15803d"),
+            renderLabMetric("Archivo", selectedClosureDetail.Archivo || "-", "#111827")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Ticket", "Hora", "Total", "Lineas", "Detalle"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
+            /* @__PURE__ */ React.createElement("tbody", null, selectedClosureTickets.map(function(ticket, index) {
+              const ticketId = ticket.ticketKey || `${ticket.Serie || ticket.SERIE || "ticket"}-${ticket.Numero || ticket.NUMERO || index}`;
+              const expanded = Boolean(expandedClosureTickets[ticketId]);
+              return /* @__PURE__ */ React.createElement(React.Fragment, { key: ticketId },
+                /* @__PURE__ */ React.createElement("tr", null,
+                  /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, ticket.TicketDisplay || getIcgTicketDisplay(ticket) || ticketId),
+                  /* @__PURE__ */ React.createElement("td", null, ticket.HoraTicket || "-"),
+                  /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: "#15803d" } }, formatIcgMoney(ticket.TotalNetoCalculado || ticket.TotalPagado || ticket.TotalNeto || 0)),
+                  /* @__PURE__ */ React.createElement("td", null, (ticket.Lineas || []).length),
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => setExpandedClosureTickets((prev) => Object.assign({}, prev, { [ticketId]: !expanded })) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${expanded ? "fa-chevron-up" : "fa-chevron-down"}` }), expanded ? "Ocultar" : "Ver articulos"))
+                ),
+                expanded && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { background: "#f8fafc", padding: 0 } },
+                  /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { margin: 10 } }, /* @__PURE__ */ React.createElement("table", null,
+                    /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Linea", "Codigo", "Referencia", "Articulo", "Cantidad", "Precio", "Total"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
+                    /* @__PURE__ */ React.createElement("tbody", null, (ticket.Lineas || []).map(function(line, lineIndex) {
+                      const units = getIcgLineUnits(line);
+                      const price = sumIcgFields(line, ["PrecioIva", "Precio", "PRECIOIVA", "PRECIO"]);
+                      const total = sumIcgFields(line, ["Total", "TOTAL"]) || price * units;
+                      return /* @__PURE__ */ React.createElement("tr", { key: `${ticketId}-${getIcgLineNumber(line) || lineIndex}` },
+                        /* @__PURE__ */ React.createElement("td", null, getIcgLineNumber(line) || lineIndex + 1),
+                        /* @__PURE__ */ React.createElement("td", null, getIcgLineCode(line) || "-"),
+                        /* @__PURE__ */ React.createElement("td", null, getIcgLineReference(line) || "-"),
+                        /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, getIcgLineDescription(line) || "Articulo"),
+                        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, units),
+                        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, price ? formatIcgMoney(price) : "-"),
+                        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontWeight: 800 } }, total ? formatIcgMoney(total) : "-")
+                      );
+                    }), !(ticket.Lineas || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 16, color: "var(--gris)" } }, "Este ticket no tiene articulos asociados.")))
+                  ))
+                ))
+              );
+            }), selectedClosureTickets.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este cierre todavia no tiene tickets detallados en TICKETLIN/TIQUETSLIN. Ejecuta Actualizar Articulos ICG desde la computadora del negocio.")))
+          ))
+        )
+      )),
       selectedTicketDetail && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 860 } },
         /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
-          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7 } }), "Ticket ", selectedTicketDetail.ticketKey || selectedTicketDetail.NumFactura || "-"),
+          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7 } }), "Ticket ", selectedTicketDetail.TicketDisplay || getIcgTicketDisplay(selectedTicketDetail) || selectedTicketDetail.ticketKey || selectedTicketDetail.NumFactura || "-"),
           /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setSelectedTicketDetail(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
@@ -20328,7 +20428,7 @@
               return /* @__PURE__ */ React.createElement("option", { key: option, value: option }, option);
             })));
           }
-          return /* @__PURE__ */ React.createElement("div", { key: col, className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, col), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: col === "ProductoMise" ? "icg-producto-mise-list" : void 0, value: editRecord.values[col] || "", onChange: (e) => setEditRecord((prev) => Object.assign({}, prev, { values: Object.assign({}, prev.values, { [col]: e.target.value }) })) }));
+          return /* @__PURE__ */ React.createElement("div", { key: col, className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, getIcgDisplayColumnLabel(col)), /* @__PURE__ */ React.createElement("input", { className: "form-control", list: col === "ProductoMise" ? "icg-producto-mise-list" : void 0, value: editRecord.values[col] || "", onChange: (e) => setEditRecord((prev) => Object.assign({}, prev, { values: Object.assign({}, prev.values, { [col]: e.target.value }) })) }));
         }), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0, gridColumn: "1 / -1" } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave del administrador"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: editPassword, onChange: (e) => setEditPassword(e.target.value), placeholder: "Obligatoria para guardar valores importantes" }))),
         /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setEditRecord(null) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveEdit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar"))
       ))

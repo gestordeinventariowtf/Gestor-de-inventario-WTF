@@ -11,9 +11,9 @@ const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
-  TiquetsLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA"],
+  TiquetsLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
   TiquetsConsumo: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
-  Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PCoste", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
+  Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
   Kits: ["CODARTICULO", "LINEAKIT", "CODARTKIT", "REFERENCIA", "DESCRIPCIOKIT", "REFERENCIAKIT", "UNIDADES", "PRECIOUNIDAD", "TOTALLINEA"],
   Moviments: ["ID", "CODALMACENORIGEN", "CODALMACENDESTINO", "NUMSERIE", "CODARTICULO", "FECHA", "HORA", "TIPO", "UNIDADES", "SERIEDOC", "NUMDOC"],
@@ -277,6 +277,12 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     columns: DATASET_COLUMNS.Articulos,
     rows: []
   };
+  appState.icgFrontRestData.datasets.TiquetsLin = appState.icgFrontRestData.datasets.TiquetsLin || {
+    key: "TiquetsLin",
+    label: "Lineas tickets",
+    columns: DATASET_COLUMNS.TiquetsLin,
+    rows: []
+  };
   appState.icgFrontRestData.datasets.ConsumoMiseVentas = appState.icgFrontRestData.datasets.ConsumoMiseVentas || {
     key: "ConsumoMiseVentas",
     label: "Consumo Mise ventas",
@@ -319,6 +325,67 @@ function mergeBackupArticlesIntoIcgData(icg: AnyRecord, articles: AnyRecord[]): 
     columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.Articulos])),
     rows: Array.from(byCode.values()).sort((a, b) => String(b.CodArticulo || b.CODARTICULO || "").localeCompare(String(a.CodArticulo || a.CODARTICULO || ""), undefined, { numeric: true }))
   });
+}
+
+function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecord[]): void {
+  if (!Array.isArray(ticketLines) || !ticketLines.length) return;
+  const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "Lineas tickets", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
+  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const byKey = new Map<string, AnyRecord>();
+  function rowKey(row: AnyRecord): string {
+    return [
+      firstText(row, ["FO", "fo"]),
+      firstText(row, ["SERIE", "Serie", "serie"]),
+      firstText(row, ["NUMERO", "Numero", "numero"]),
+      firstText(row, ["N", "n"]),
+      firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
+      firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
+      firstText(row, ["HORA", "Hora", "fechaHora"])
+    ].map((value) => normalizar(value)).join("|");
+  }
+  existingRows.forEach((row: AnyRecord) => {
+    const key = rowKey(row);
+    if (key.replace(/\|/g, "")) byKey.set(key, row);
+  });
+  ticketLines.forEach((row) => {
+    const key = rowKey(row);
+    if (!key.replace(/\|/g, "")) return;
+    byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
+      _source: "TICKETLIN SQL ICG",
+      _updatedAt: new Date().toISOString()
+    }));
+  });
+  icg.datasets.TiquetsLin = Object.assign({}, current, {
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsLin])),
+    rows: Array.from(byKey.values()).sort((a, b) => {
+      const ticketA = [a.FECHA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
+      const ticketB = [b.FECHA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
+      return String(ticketB).localeCompare(String(ticketA), undefined, { numeric: true });
+    })
+  });
+  const articles = icg.datasets.Articulos;
+  if (!articles || !Array.isArray(articles.rows)) return;
+  const latestPriceByCode = new Map<string, number>();
+  ticketLines.forEach((row) => {
+    const code = normalizar(bridgeCode(row));
+    const price = parseNumber(row.PRECIO ?? row.Precio);
+    if (code && price > 0) latestPriceByCode.set(code, price);
+  });
+  articles.rows = articles.rows.map((row: AnyRecord) => {
+    const code = normalizar(bridgeCode(row));
+    const price = code ? latestPriceByCode.get(code) : 0;
+    if (!(price && price > 0) || parseNumber(row.PrecioVentaSinImpuestos || row.PrecioVenta || row.PRECIOVENTA) > 0) return row;
+    return Object.assign({}, row, {
+      PrecioVentaSinImpuestos: price,
+      PrecioVenta: price,
+      PRECIOVENTA: price,
+      Precio: price,
+      PRECIO: price,
+      _salePriceSource: "TICKETLIN SQL ICG",
+      _salePriceUpdatedAt: new Date().toISOString()
+    });
+  });
+  articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO"])));
 }
 
 function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[]): void {
@@ -366,6 +433,7 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     const price = code ? bestPriceByCode.get(code) : 0;
     if (!(price && price > 0)) return row;
     return Object.assign({}, row, {
+      PrecioVentaSinImpuestos: price,
       PrecioVenta: price,
       PRECIOVENTA: price,
       Precio: price,
@@ -375,7 +443,7 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
       _salePriceUpdatedAt: new Date().toISOString()
     });
   });
-  articles.columns = Array.from(new Set([...(articles.columns || []), "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"]));
+  articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])));
 }
 
 function documentUrl(config: ServiceConfig): string {
@@ -504,6 +572,15 @@ async function runSql(config: ServiceConfig, database: string, sql: string): Pro
   return stdout || "";
 }
 
+async function resolveIcgTicketLineTable(config: ServiceConfig, databaseName: string): Promise<string> {
+  const sql = "SELECT CASE WHEN OBJECT_ID('dbo.TICKETLIN','U') IS NOT NULL THEN 'TICKETLIN' WHEN OBJECT_ID('dbo.TIQUETSLIN','U') IS NOT NULL THEN 'TIQUETSLIN' ELSE '' END AS TableName;";
+  const row = parseSqlRows(await runSql(config, databaseName, sql))[0] || {};
+  const tableName = String(row.TableName || "").trim().toUpperCase();
+  if (tableName === "TICKETLIN") return "TICKETLIN";
+  if (tableName === "TIQUETSLIN") return "TIQUETSLIN";
+  throw new Error("No se encontro dbo.TICKETLIN ni dbo.TIQUETSLIN en la Base de Datos ICG Local.");
+}
+
 function quoteSql(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -560,7 +637,7 @@ function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyR
   return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || "")));
 }
 
-async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
+async function readBackupDailyClosures(config: ServiceConfig, databaseName: string, ticketLineTable: string): Promise<AnyRecord[]> {
   const paymentsExists = parseSqlRows(await runSql(config, databaseName, "SELECT CASE WHEN OBJECT_ID('TIQUETSPAG','U') IS NULL THEN 0 ELSE 1 END AS Existe;"))[0]?.Existe === "1";
   const paymentsJoin = paymentsExists
     ? "LEFT JOIN (SELECT FO,SERIE,NUMERO,N,SUM(IMPORTE) AS PAGOS FROM TIQUETSPAG GROUP BY FO,SERIE,NUMERO,N) p ON p.FO=c.FO AND p.SERIE=c.SERIE AND p.NUMERO=c.NUMERO AND p.N=c.N"
@@ -581,7 +658,7 @@ WITH cab AS (
 ),
 lineas AS (
   SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
-  FROM TIQUETSLIN
+  FROM ${ticketLineTable}
   GROUP BY FO,SERIE,NUMERO,N
 )
 SELECT
@@ -637,12 +714,14 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   tableCounts: Record<string, number>;
   articles: AnyRecord[];
   salePrices: AnyRecord[];
+  ticketLines: AnyRecord[];
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
-  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(CONVERT(date,c.FECHA)), 120) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');"))[0]?.Fecha;
-  const closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
-  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS','PRECIOSVENTA') GROUP BY t.name;";
+  const ticketLineTable = await resolveIcgTicketLineTable(config, databaseName);
+  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(Fecha), 120) AS Fecha FROM (SELECT MAX(CONVERT(date,c.FECHA)) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101') UNION ALL SELECT MAX(CONVERT(date,FECHA)) AS Fecha FROM TIQUETSCAB WHERE (FECHAANULACION IS NULL OR FECHAANULACION <= '19000101')) q;"))[0]?.Fecha;
+  const closures = await readBackupDailyClosures(config, databaseName, ticketLineTable).catch(() => []);
+  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TICKETLIN','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS','PRECIOSVENTA') GROUP BY t.name;";
   const articlesSql = `
 SELECT
   CAST(CODARTICULO AS varchar(30)) AS CodArticulo,
@@ -651,7 +730,7 @@ SELECT
   ISNULL(CAST(DPTO AS varchar(30)),'') AS Dpto,
   ISNULL(CAST(SECCION AS varchar(30)),'') AS Seccion,
   ISNULL(CAST(UNIDADES AS varchar(30)),'') AS Unidades,
-  '' AS PCoste,
+  '' AS PrecioVentaSinImpuestos,
   ISNULL(UNIDADMEDIDA,'') AS UnidadMedida,
   ISNULL(CAST(SECOMPRA AS varchar(10)),'') AS SeCompra,
   ISNULL(CAST(SEVENDE AS varchar(10)),'') AS SeVende,
@@ -690,9 +769,35 @@ BEGIN
     CAST('' AS varchar(30)) AS VALOR,
     CAST('' AS varchar(30)) AS Valor;
 END`;
+  const lookbackDays = Math.max(1, Math.round(config.icgConsumptionLookbackDays || 30));
+  const ticketLinesSql = `
+DECLARE @hasta date=ISNULL(TRY_CONVERT(date,'${quoteSql(latest || "")}'), CONVERT(date, GETDATE()));
+DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
+SELECT
+  CAST(l.FO AS varchar(30)) AS FO,
+  CAST(l.SERIE AS varchar(30)) AS SERIE,
+  CAST(l.NUMERO AS varchar(30)) AS NUMERO,
+  CAST(l.N AS varchar(30)) AS N,
+  CAST(l.NUMLINEA AS varchar(30)) AS NUMLINEA,
+  CAST(l.CODARTICULO AS varchar(30)) AS CODARTICULO,
+  ISNULL(a.DESCRIPCION, ISNULL(l.DESCRIPCION,'')) AS DESCRIPCION,
+  ISNULL(CAST(l.UNIDADES AS varchar(30)),'') AS UNIDADES,
+  ISNULL(CAST(l.PRECIO AS varchar(30)),'') AS PRECIO,
+  ISNULL(CAST(l.PRECIOIVA AS varchar(30)),'') AS PRECIOIVA,
+  ISNULL(CAST(l.TOTAL AS varchar(30)),'') AS TOTAL,
+  ISNULL(a.REFERENCIA,'') AS REFERENCIA,
+  ISNULL(CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120),'') AS HORA,
+  CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS FECHA
+FROM ${ticketLineTable} l
+JOIN TIQUETSCAB c ON c.FO=l.FO AND c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N
+LEFT JOIN ARTICULOS a ON a.CODARTICULO=l.CODARTICULO
+WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta
+  AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+ORDER BY c.FECHA DESC,l.SERIE,l.NUMERO,l.N,l.NUMLINEA;`;
   const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
   const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
   const salePrices = parseSqlRows(await runSql(config, databaseName, salePricesSql)).filter((row) => parseNumber(row.VALOR || row.Valor) > 0);
+  const ticketLines = parseSqlRows(await runSql(config, databaseName, ticketLinesSql));
   if (!latest) {
     return {
       fecha: "",
@@ -700,10 +805,10 @@ END`;
       tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
       articles,
       salePrices,
+      ticketLines,
       closures
     };
   }
-  const lookbackDays = Math.max(1, Math.round(config.icgConsumptionLookbackDays || 30));
   const dataSql = `
 DECLARE @hasta date='${quoteSql(latest)}';
 DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
@@ -723,7 +828,7 @@ SELECT
   CAST(COUNT(*) AS int) AS lineas
 FROM TIQUETSCONSUMO tc
 JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
-LEFT JOIN TIQUETSLIN l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
+LEFT JOIN ${ticketLineTable} l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
 LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
 WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
 GROUP BY CONVERT(date,c.FECHA),tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,a.REFERENCIA,a.DESCRIPCION,tc.CODALMACEN
@@ -750,6 +855,7 @@ ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.CODARTICULO,tc.COD
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
     articles,
     salePrices,
+    ticketLines,
     closures
   };
 }
@@ -792,7 +898,7 @@ function createBackupMovement(
   };
 }
 
-export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
+export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], ticketLines: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
@@ -831,6 +937,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   }
   mergeBackupArticlesIntoIcgData(icg, articles);
   mergeBackupSalePricesIntoIcgData(icg, salePrices);
+  mergeBackupTicketLinesIntoIcgData(icg, ticketLines);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
   if (closures.length) {
     icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
@@ -1105,9 +1212,9 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
     data = await readLatestBackupConsumption(activeConfig);
   }
   if (!data.fecha || !data.rows.length) {
-    if (data.closures.length || data.articles.length || data.salePrices.length) {
+    if (data.closures.length || data.articles.length || data.salePrices.length || data.ticketLines.length) {
       const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
-      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures, data.salePrices);
+      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures, data.salePrices, data.ticketLines);
       result.message = "Datos ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
       return result;
     }
@@ -1125,5 +1232,5 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
       tableCounts: data.tableCounts
     };
   }
-  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures, data.salePrices);
+  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures, data.salePrices, data.ticketLines);
 }
