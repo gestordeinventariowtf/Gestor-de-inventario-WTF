@@ -3705,8 +3705,10 @@
     const importKey = row.importKey || row.ImportKey || row.icgImportKey || "";
     const legacyImportKey = row.legacyImportKey || row.LegacyImportKey || "";
     const movementIcgId = row.movimientoIcgId || row.MovimientoICGId || "";
+    const physicalIcgKey = row.physicalIcgKey || row.PhysicalIcgKey || "";
     if (importKey) return `import:${importKey}`;
     if (legacyImportKey) return `legacy-import:${legacyImportKey}`;
+    if (physicalIcgKey) return `physical-icg:${physicalIcgKey}`;
     if (movementIcgId) {
       return [
         "icg-movement",
@@ -3736,6 +3738,7 @@
     if (row && row._id) keys.push(`id:${row._id}`);
     if (row && (row.importKey || row.ImportKey || row.icgImportKey)) keys.push(`import:${row.importKey || row.ImportKey || row.icgImportKey}`);
     if (row && (row.legacyImportKey || row.LegacyImportKey)) keys.push(`legacy-import:${row.legacyImportKey || row.LegacyImportKey}`);
+    if (row && (row.physicalIcgKey || row.PhysicalIcgKey)) keys.push(`physical-icg:${row.physicalIcgKey || row.PhysicalIcgKey}`);
     return Array.from(new Set(keys.filter(Boolean)));
   }
   function normalizeMovementDeletedKeys(input) {
@@ -5817,7 +5820,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "MovimientoICGId", "Ticket", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+      columns: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Ticket", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -6441,6 +6444,29 @@
       productoWtf: row.ProductoWTF || row.ProductoMise || ""
     });
   }
+  function getIcgPhysicalConsumptionKey(parts) {
+    return [
+      "icg-physical-v1",
+      normalizar(parts && parts.ticket),
+      normalizar(parts && parts.linea),
+      normalizar(parts && parts.codArticulo),
+      normalizar(parts && parts.referencia),
+      normalizeIcgWtfTarget(parts && parts.targetKey),
+      normalizar(parts && parts.productoWtf)
+    ].join("|");
+  }
+  function getIcgPhysicalConsumptionKeyFromRow(row) {
+    if (!row) return "";
+    return row.PhysicalIcgKey || row.physicalIcgKey || getIcgPhysicalConsumptionKey({
+      ticket: row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "",
+      linea: row.NumLinea || row.NUMLINEA || "",
+      codArticulo: row.CodArticulo || row.CODARTICULO || row.Codigo || "",
+      referencia: row.Referencia || row.REFERENCIA || "",
+      codAlmacen: row.CodAlmacen || row.CODALMACEN || "",
+      targetKey: row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "",
+      productoWtf: row.ProductoWTF || row.ProductoMise || ""
+    });
+  }
   function getIcgConsumptionLegacyKey(parts) {
     return [
       icgDateKey(parts && parts.fecha || ""),
@@ -6772,6 +6798,15 @@
     const sourceName = icgCellText(row.Archivo) || normalizedData.sourceName || "ICG FrontRest";
     const movementId = getIcgMovementId(Object.assign({}, row, { Fecha: fecha, FechaHora: fechaHora, NumLinea: lineNumber, CodArticulo: code, Referencia: reference, ProductoICG: productIcg, Unidades: unitsSold }), index);
     const importKey = bridge ? quickHashText([movementId, targetKey, productWtf, sourceName].join("|")) : row.ImportKey || quickHashText([movementId, targetKey, productWtf, sourceName, index].join("|"));
+    const physicalIcgKey = getIcgPhysicalConsumptionKey({
+      ticket: ticketValue,
+      linea: lineNumber,
+      codArticulo: code,
+      referencia: reference,
+      codAlmacen: row.CodAlmacen || row.CODALMACEN || "",
+      targetKey,
+      productoWtf: productWtf
+    });
     const originalStatusKey = normalizar(row.Estado || "");
     const estado = bridge && (originalStatusKey === "sin vinculo" || originalStatusKey === "producto wtf no encontrado") ? "Pendiente" : row.Estado || (bridge ? "Pendiente" : "Sin vinculo");
     const rowId = bridge ? `${row._id || "consumo"}-${importKey}-${copyIndex || 0}` : row._id || importKey || `consumo-${index}-${copyIndex || 0}`;
@@ -6794,6 +6829,7 @@
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       Archivo: sourceName,
       ImportKey: importKey,
+      PhysicalIcgKey: physicalIcgKey,
       IcgAuditKey: getIcgConsumptionAuditKey({
         movimientoIcgId: movementId,
         fecha,
@@ -6822,6 +6858,7 @@
       CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       ImportKey: importKey,
+      PhysicalIcgKey: physicalIcgKey,
       IcgAuditKey: getIcgConsumptionAuditKey({
         movimientoIcgId: movementId,
         fecha,
@@ -6882,6 +6919,11 @@
       if (key) acc[key] = row;
       return acc;
     }, {});
+    const existingByPhysicalKey = existingConsumption.reduce(function(acc, row) {
+      const key = getIcgPhysicalConsumptionKeyFromRow(row);
+      if (key) acc[key] = row;
+      return acc;
+    }, {});
     const legacyAppliedRemaining = existingConsumption.reduce(function(acc, row) {
       if (!isIcgConsumptionFinalized(row)) return acc;
       const key = getIcgConsumptionLegacyKeyFromRow(row);
@@ -6920,7 +6962,16 @@
           productoWtf: productWtf
         });
         const importKey = quickHashText([movementId, targetKey, productWtf, sourceName].join("|"));
-        const existing = existingByImportKey[importKey] || existingByAuditKey[auditKey] || {};
+        const physicalIcgKey = getIcgPhysicalConsumptionKey({
+          ticket: ticketKey,
+          linea: lineNumber,
+          codArticulo: code,
+          referencia: reference,
+          codAlmacen: line.CodAlmacen || line.CODALMACEN || "",
+          targetKey,
+          productoWtf: productWtf
+        });
+        const existing = existingByImportKey[importKey] || existingByAuditKey[auditKey] || existingByPhysicalKey[physicalIcgKey] || {};
         const discountQty = Number((units * qtyPerSale).toFixed(4));
         const legacyKey = getIcgConsumptionLegacyKey({ fecha, ticket: ticketKey, codArticulo: code, referencia: reference, targetKey, productoWtf: productWtf });
         const legacyRemaining = legacyAppliedRemaining[legacyKey] || 0;
@@ -6934,6 +6985,7 @@
           FechaHora: lineMoment || existing.FechaHora || "",
           NumLinea: lineNumber || existing.NumLinea || "",
           IcgAuditKey: auditKey,
+          PhysicalIcgKey: physicalIcgKey,
           ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
           targetKey,
           ProductoWTF: productWtf,
@@ -12032,7 +12084,8 @@
       const importKey = String(options.importKey || options.ImportKey || "").trim();
       const legacyImportKey = String(options.legacyImportKey || options.LegacyImportKey || "").trim();
       const movimientoIcgId = String(options.movimientoIcgId || options.MovimientoICGId || "").trim();
-      const stableId = importKey ? `icg-${importKey}` : legacyImportKey ? `icg-legacy-${legacyImportKey}` : movimientoIcgId ? `icg-mov-${movimientoIcgId}-${normalizar(prod.nombre || prod.producto || "")}` : createMovementId(prefix);
+      const physicalIcgKey = String(options.physicalIcgKey || options.PhysicalIcgKey || "").trim();
+      const stableId = physicalIcgKey ? `icg-physical-${quickHashText(physicalIcgKey)}` : importKey ? `icg-${importKey}` : legacyImportKey ? `icg-legacy-${legacyImportKey}` : movimientoIcgId ? `icg-mov-${movimientoIcgId}-${normalizar(prod.nombre || prod.producto || "")}` : createMovementId(prefix);
       const row = {
         _id: stableId,
         id: stableId,
@@ -12050,6 +12103,7 @@
       if (importKey) row.importKey = importKey;
       if (legacyImportKey) row.legacyImportKey = legacyImportKey;
       if (movimientoIcgId) row.movimientoIcgId = movimientoIcgId;
+      if (physicalIcgKey) row.physicalIcgKey = physicalIcgKey;
       return row;
     }
     function hasMovementAlreadyRegistered(rows, row) {
@@ -12344,19 +12398,23 @@
       }
       const finalizedImportKeys = new Set(Array.isArray(icgFrontRestData.appliedImports) ? icgFrontRestData.appliedImports.map(String) : []);
       const finalizedAuditKeys = new Set();
+      const finalizedPhysicalKeys = new Set();
       const finalizedMovementTargets = new Set();
       icgRows(icgFrontRestData, "ConsumoMiseVentas").forEach(function(row) {
         if (!isIcgConsumptionFinalized(row)) return;
         if (row.ImportKey) finalizedImportKeys.add(String(row.ImportKey));
+        const physicalKey = getIcgPhysicalConsumptionKeyFromRow(row);
+        if (physicalKey) finalizedPhysicalKeys.add(physicalKey);
         if (row.MovimientoICGId || row.movimientoIcgId) finalizedMovementTargets.add([String(row.MovimientoICGId || row.movimientoIcgId), normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF), normalizar(row.ProductoWTF || row.ProductoMise || "")].join("|"));
         const auditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
         if (auditKey) finalizedAuditKeys.add(auditKey);
       });
       const candidates = (Array.isArray(rows) ? rows : []).filter(function(row) {
         const auditKey = row && (row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row));
+        const physicalKey = row && getIcgPhysicalConsumptionKeyFromRow(row);
         const movementId = row && (row.MovimientoICGId || row.movimientoIcgId);
         const movementTargetKey = movementId ? [String(movementId), normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF), normalizar(row.ProductoWTF || row.ProductoMise || "")].join("|") : "";
-        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && !finalizedImportKeys.has(String(row.ImportKey || "")) && !finalizedAuditKeys.has(auditKey) && !(movementTargetKey && finalizedMovementTargets.has(movementTargetKey)) && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
+        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && !finalizedImportKeys.has(String(row.ImportKey || "")) && !finalizedAuditKeys.has(auditKey) && !(physicalKey && finalizedPhysicalKeys.has(physicalKey)) && !(movementTargetKey && finalizedMovementTargets.has(movementTargetKey)) && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
       });
       if (!candidates.length) throw new Error("No hay consumos pendientes con vinculo valido para aplicar.");
       const remainingByTargetProduct = {};
@@ -12388,7 +12446,8 @@
           target,
           row,
           importKey: String(row.ImportKey || ""),
-          movimientoIcgId: row.MovimientoICGId || row.movimientoIcgId || ""
+          movimientoIcgId: row.MovimientoICGId || row.movimientoIcgId || "",
+          physicalIcgKey: getIcgPhysicalConsumptionKeyFromRow(row)
         };
       });
       const now = new Date().toISOString();
@@ -12398,7 +12457,8 @@
           usuario: "ICG FrontRest",
           origen: "ICG FrontRest",
           importKey: move.importKey,
-          movimientoIcgId: move.movimientoIcgId
+          movimientoIcgId: move.movimientoIcgId,
+          physicalIcgKey: move.physicalIcgKey
         };
         if (move.targetKey === "inventarioCocina") addMovimiento("salida", move.target.producto, move.cantidad, opts);
         if (move.targetKey === "cuartoFrioCocina") addMovimientoCuartoFrio("salida", move.target.producto, move.cantidad, opts);
@@ -12412,7 +12472,7 @@
           return total ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - total).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
         setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
-          return { id: `icg-${move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Math.max(0, Number((move.target.existencia - move.cantidad).toFixed(4))), importKey: move.importKey, movimientoIcgId: move.movimientoIcgId };
+          return { id: `icg-${move.physicalIcgKey ? quickHashText(move.physicalIcgKey) : move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.target.existencia, existenciaNueva: Math.max(0, Number((move.target.existencia - move.cantidad).toFixed(4))), importKey: move.importKey, movimientoIcgId: move.movimientoIcgId, physicalIcgKey: move.physicalIcgKey };
         })));
       }
       const barMiseMoves = movements.filter((move) => move.targetKey === "miseBar");
