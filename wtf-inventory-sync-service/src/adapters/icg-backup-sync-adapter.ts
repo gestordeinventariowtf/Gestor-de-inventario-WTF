@@ -154,6 +154,32 @@ function consumptionAggregationKey(fecha: string, code: string, reference: strin
   ].join("|");
 }
 
+function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string, fecha: string): string {
+  return [
+    normalizar(String(line.fecha || line.fechaHora || fecha || "").slice(0, 10)),
+    normalizar(icgTicketIdentityFromLine(line)),
+    normalizar(line.numLinea || ""),
+    normalizar(line.fechaHora || ""),
+    normalizar(line.codArticulo || ""),
+    normalizar(line.referencia || ""),
+    targetKey(target),
+    normalizar(product)
+  ].join("|");
+}
+
+function consumptionAuditKeyFromRow(row: AnyRecord): string {
+  return [
+    normalizar(String(row.Fecha || row.FechaHora || "").slice(0, 10)),
+    normalizar(firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"])),
+    normalizar(firstText(row, ["NumLinea", "NUMLINEA"])),
+    normalizar(firstText(row, ["FechaHora", "Hora", "HORA"])),
+    normalizar(bridgeCode(row)),
+    normalizar(bridgeReference(row)),
+    targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
+    normalizar(bridgeWtfProduct(row))
+  ].join("|");
+}
+
 function parseLocalIcgLinkValue(link: AnyRecord): AnyRecord {
   const parts = String(link?.value || "").split("|").map((part) => part.trim()).filter(Boolean);
   return {
@@ -822,6 +848,12 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       .map((row) => String(row.ImportKey || ""))
       .filter(Boolean)
   );
+  const appliedConsumptionAuditKeys = new Set(
+    consumoRows
+      .filter((row) => ["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || "")))
+      .map((row) => String(row.IcgAuditKey || consumptionAuditKeyFromRow(row) || ""))
+      .filter(Boolean)
+  );
   appliedConsumptionKeys.forEach((key) => appliedKeys.add(key));
   const legacyAppliedRemaining = new Map<string, number>();
   consumoRows.forEach((row) => {
@@ -856,8 +888,9 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const linkRef = normalizar(bridgeReference(row));
       return (linkCode && normalizar(line.codArticulo) === linkCode) || (linkRef && normalizar(line.referencia) === linkRef);
     });
-    const pendingImportKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
-    if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey))) {
+    const pendingAuditKey = consumptionAuditKey(line, "", "", fecha);
+    const pendingImportKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+    if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey) || appliedConsumptionAuditKeys.has(pendingAuditKey))) {
       result.skipped += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
       continue;
@@ -878,6 +911,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Unidad: "Uni",
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: pendingImportKey,
+        IcgAuditKey: pendingAuditKey,
         Estado: "Sin vinculo",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
@@ -891,12 +925,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     for (const link of matchedLinks) {
       const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
       const producto = bridgeWtfProduct(link);
-      const importKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
+      const auditKey = consumptionAuditKey(line, target, producto, fecha);
+      const importKey = quickHashText(["icg-bak", eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen, target, producto].join("|"));
       const qtyFactor = bridgeQuantity(link) || 1;
       const cantidad = Number((Math.abs(line.consumo) * qtyFactor).toFixed(4));
       const legacyKey = consumptionAggregationKey(line.fecha || fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto, ticketIdentity);
       const legacyRemaining = legacyAppliedRemaining.get(legacyKey) || 0;
-      if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || legacyRemaining + 1e-9 >= cantidad) {
+      if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || appliedConsumptionAuditKeys.has(auditKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
         result.skipped += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Consumo ICG ya procesado anteriormente.", producto));
@@ -924,6 +959,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Unidad: bridgeUnit(link, "Uni"),
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: importKey,
+        IcgAuditKey: auditKey,
         Estado: "Pendiente",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
@@ -949,6 +985,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         consumoRow.ExistenciaActual = existenciaAnterior;
         consumoRow.ExistenciaNueva = existenciaNueva;
         appliedKeys.add(importKey);
+        appliedConsumptionAuditKeys.add(auditKey);
         result.applied += 1;
         result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Devolucion ICG registrada como decomiso automatico en WTF Web.", targetProductName(item, target), cantidad, consumoRow.Unidad));
         rememberConsumptionRow(consumoRow);
@@ -993,6 +1030,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       consumoRow.ExistenciaActual = existenciaAnterior;
       consumoRow.ExistenciaNueva = existenciaNueva;
       appliedKeys.add(importKey);
+      appliedConsumptionAuditKeys.add(auditKey);
       result.applied += 1;
       result.movements?.push(createBackupMovement(line, fecha, importKey, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.", targetProductName(item, target), cantidad, consumoRow.Unidad));
       rememberConsumptionRow(consumoRow);
@@ -1025,7 +1063,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   });
   const insertedConsumptionRows = Array.from(consumptionUpserts.values()).filter((row) => !originalConsumptionKeys.has(String(row.ImportKey || "")));
   icg.datasets.ConsumoMiseVentas = Object.assign({}, icg.datasets.ConsumoMiseVentas, {
-    columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), "FechaHora", "TicketICG", "NumLinea", "TipoMovimiento", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
+    columns: Array.from(new Set([...(icg.datasets.ConsumoMiseVentas.columns || []), "FechaHora", "TicketICG", "NumLinea", "TipoMovimiento", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision"])),
     rows: insertedConsumptionRows.concat(updatedConsumptionRows)
   });
   icg.appliedImports = Array.from(appliedKeys);

@@ -5797,7 +5797,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "Ticket", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "Estado"]
+      columns: ["Fecha", "Ticket", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -6339,11 +6339,45 @@
   }
   function getIcgTicketKey(row) {
     if (!row) return "";
+    const fo = String(row.FO || row.Fo || row.fo || "").trim();
     const serie = String(row.Serie || row.SERIE || "").trim();
     const numero = String(row.Numero || row.NUMERO || row.NumFactura || row.Factura || "").trim();
+    const n = String(row.N || row.n || "").trim();
     const factura = String(row.NumFactura || row.Factura || "").trim();
-    const key = [serie, numero || factura].filter(Boolean).join("-");
+    const key = [fo, serie, numero || factura, n].filter(Boolean).join("-");
     return key || String(row._id || row.ID || "").trim();
+  }
+  function getIcgLineNumber(row) {
+    return icgCellText(row && (row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || row.linea || "")).trim();
+  }
+  function getIcgLineMoment(row) {
+    return icgCellText(row && (row.FechaHora || row.fechaHora || row.HORA || row.Hora || row.hora || "")).trim();
+  }
+  function getIcgConsumptionAuditKey(parts) {
+    const dateKey = icgDateKey(parts && parts.fecha || "");
+    return [
+      dateKey,
+      normalizar(parts && parts.ticket),
+      normalizar(parts && parts.linea),
+      normalizar(parts && parts.hora),
+      normalizar(parts && parts.codArticulo),
+      normalizar(parts && parts.referencia),
+      normalizeIcgWtfTarget(parts && parts.targetKey),
+      normalizar(parts && parts.productoWtf)
+    ].join("|");
+  }
+  function getIcgConsumptionAuditKeyFromRow(row) {
+    if (!row) return "";
+    return getIcgConsumptionAuditKey({
+      fecha: row.Fecha || row.fecha || row.FechaHora || row.fechaHora || "",
+      ticket: row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "",
+      linea: row.NumLinea || row.NUMLINEA || "",
+      hora: row.FechaHora || row.Hora || row.HORA || "",
+      codArticulo: row.CodArticulo || row.CODARTICULO || row.Codigo || "",
+      referencia: row.Referencia || row.REFERENCIA || "",
+      targetKey: row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || "",
+      productoWtf: row.ProductoWTF || row.ProductoMise || ""
+    });
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
@@ -6686,6 +6720,11 @@
       if (key) acc[key] = row;
       return acc;
     }, {});
+    const existingByAuditKey = existingConsumption.reduce(function(acc, row) {
+      const key = getIcgConsumptionAuditKeyFromRow(row);
+      if (key) acc[key] = row;
+      return acc;
+    }, {});
     const grouped = {};
     lines.forEach(function(line) {
       const units = getIcgLineUnits(line);
@@ -6698,17 +6737,32 @@
       const code = getIcgLineCode(line);
       const reference = getIcgLineReference(line);
       const productIcg = getIcgLineDescription(line);
+      const lineNumber = getIcgLineNumber(line);
+      const lineMoment = getIcgLineMoment(line);
       bridgesToApply.forEach(function(bridge) {
         const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
         const productWtf = bridge ? icgCellText(bridge.ProductoWTF || bridge.ProductoMise) : "";
         const qtyPerSale = parseIcgNumber(bridge && bridge.CantidadPorVenta) || 1;
-        const importKey = quickHashText([fecha, ticketKey, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
+        const auditKey = getIcgConsumptionAuditKey({
+          fecha,
+          ticket: ticketKey,
+          linea: lineNumber,
+          hora: lineMoment,
+          codArticulo: code,
+          referencia: reference,
+          targetKey,
+          productoWtf: productWtf
+        });
+        const importKey = quickHashText([fecha, ticketKey, lineNumber, lineMoment, code, reference, productIcg, targetKey, productWtf, sourceName].join("|"));
         if (!grouped[importKey]) {
-          const existing = existingByImportKey[importKey] || {};
+          const existing = existingByImportKey[importKey] || existingByAuditKey[auditKey] || {};
           grouped[importKey] = {
             _id: existing._id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             Fecha: fecha || new Date().toISOString().slice(0, 10),
             Ticket: ticketKey || existing.Ticket || "",
+            FechaHora: lineMoment || existing.FechaHora || "",
+            NumLinea: lineNumber || existing.NumLinea || "",
+            IcgAuditKey: auditKey,
             ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
             targetKey,
             ProductoWTF: productWtf,
@@ -12076,8 +12130,17 @@
       if (isIcgInventoryImpactPaused(icgFrontRestData)) {
         throw new Error(getIcgInventoryPauseMessage(icgFrontRestData));
       }
+      const finalizedImportKeys = new Set(Array.isArray(icgFrontRestData.appliedImports) ? icgFrontRestData.appliedImports.map(String) : []);
+      const finalizedAuditKeys = new Set();
+      icgRows(icgFrontRestData, "ConsumoMiseVentas").forEach(function(row) {
+        if (!isIcgConsumptionFinalized(row)) return;
+        if (row.ImportKey) finalizedImportKeys.add(String(row.ImportKey));
+        const auditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
+        if (auditKey) finalizedAuditKeys.add(auditKey);
+      });
       const candidates = (Array.isArray(rows) ? rows : []).filter(function(row) {
-        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
+        const auditKey = row && (row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row));
+        return row && row.Estado !== "Aplicado" && row.Estado !== "Sin vinculo" && !finalizedImportKeys.has(String(row.ImportKey || "")) && !finalizedAuditKeys.has(auditKey) && (row.ProductoWTF || row.ProductoMise) && parseIcgNumber(row.CantidadDescontar) > 0;
       });
       if (!candidates.length) throw new Error("No hay consumos pendientes con vinculo valido para aplicar.");
       const grouped = {};
@@ -19620,6 +19683,7 @@
     const [pendingAction, setPendingAction] = useState(null);
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
+    const [expandedSalesGroups, setExpandedSalesGroups] = useState({});
     const [busy, setBusy] = useState(false);
     const autoApplyIcgRef = useRef("");
     const totals = tableKeys.reduce(function(acc, key) {
@@ -19635,8 +19699,13 @@
     );
     const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
+    const appliedAuditKeys = new Set();
     icgRows(normalized, "ConsumoMiseVentas").forEach(function(row) {
-      if (row && row.ImportKey && isIcgConsumptionFinalized(row)) appliedImportKeys.add(row.ImportKey);
+      if (row && isIcgConsumptionFinalized(row)) {
+        if (row.ImportKey) appliedImportKeys.add(row.ImportKey);
+        const auditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
+        if (auditKey) appliedAuditKeys.add(auditKey);
+      }
     });
     const inventoryImpactPaused = isIcgInventoryImpactPaused(normalized);
     const salesConsumptionRows = useMemo(function() {
@@ -19647,7 +19716,8 @@
           return item.targetKey === targetKey && normalizar(item.producto) === normalizar(productName);
         });
         let estado = row.Estado || "Pendiente";
-        if (appliedImportKeys.has(row.ImportKey)) estado = "Aplicado";
+        const rowAuditKey = row.IcgAuditKey || getIcgConsumptionAuditKeyFromRow(row);
+        if (appliedImportKeys.has(row.ImportKey) || appliedAuditKeys.has(rowAuditKey)) estado = "Aplicado";
         else if (!productName) estado = "Sin vinculo";
         else if (!target) estado = "Producto WTF no encontrado";
         else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) estado = "Sin existencia";
@@ -19890,13 +19960,13 @@
       });
       updateDataset("ConsumoMiseVentas", function(ds) {
         return Object.assign({}, ds, {
-          columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
+          columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
           rows
         });
       });
       setActiveTable("ConsumoMiseVentas");
       setTab("tablas");
-      toast(rows.length ? "Consumo por ventas generado. Las lineas validas se aplican automaticamente." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
+      toast(rows.length ? "Consumo por ventas actualizado con control anti-duplicados." : "No hay lineas vendidas vinculadas para generar consumo.", rows.length ? "ok" : "info");
     }
     function applyReadyConsumptionRows(pendingRows, options = {}) {
       if (!pendingRows.length) return [];
@@ -19907,7 +19977,7 @@
       const appliedSet = new Set(nextApplied);
       const datasets = Object.assign({}, normalized.datasets);
       datasets.ConsumoMiseVentas = Object.assign({}, datasets.ConsumoMiseVentas, {
-        columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "ExistenciaActual", "ExistenciaNueva"])),
+        columns: Array.from(new Set([...(datasets.ConsumoMiseVentas.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
         rows: salesConsumptionRows.map(function(row, index) {
           const clean = Object.assign({ _id: row._id || `${Date.now()}-${index}` }, row, {
             Estado: appliedSet.has(row.ImportKey) ? "Aplicado" : row.Estado
@@ -19939,20 +20009,7 @@
       }
     }
     useEffect(function() {
-      if (inventoryImpactPaused) return;
-      const pendingRows = salesConsumptionRows.filter(function(row) {
-        return row.Estado === "Pendiente";
-      });
-      if (!pendingRows.length || typeof onApplyInventoryImpact !== "function") return;
-      const signature = pendingRows.map(function(row) { return row.ImportKey; }).filter(Boolean).sort().join("|");
-      if (!signature || autoApplyIcgRef.current === signature) return;
-      autoApplyIcgRef.current = signature;
-      try {
-        const applied = applyReadyConsumptionRows(pendingRows, { silent: true });
-        if (applied.length) toast(`${applied.length} descuento(s) ICG aplicado(s) automaticamente.`, "ok");
-      } catch (err) {
-        toast(err && err.message ? err.message : "No se pudo aplicar automaticamente el consumo ICG.", "error");
-      }
+      autoApplyIcgRef.current = salesConsumptionSignature;
     }, [salesConsumptionSignature]);
     async function syncIcgArticlesFromLocalDb() {
       setBusy(true);
@@ -20036,7 +20093,7 @@
         });
       });
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
-        inventoryImpactPaused ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand" }), getIcgInventoryPauseMessage(normalized)) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Las ventas ICG con vinculo valido descuentan automaticamente. Solo quedan bloqueadas las lineas sin mapeo, sin producto WTF o sin existencia suficiente."),
+        inventoryImpactPaused ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand" }), getIcgInventoryPauseMessage(normalized)) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "WTF ICG Host aplica las salidas automaticas con control anti-duplicados. Esta pantalla muestra la auditoria y permite aplicar manualmente solo si es necesario."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderSalesFilterButton("todos", "Lineas consumo", groupedSalesRows.length, "#4338ca"),
           renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
@@ -20072,18 +20129,25 @@
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
           /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.map(function(group, index) {
             const children = group.children || [group];
+            const groupId = group.groupKey || group.ImportKey || String(index);
+            const expanded = Boolean(expandedSalesGroups[groupId]);
+            const visibleChildren = expanded ? children : children.slice(0, 1);
             const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
             const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
             const renderChildLines = function(fn, options = {}) {
               const align = options.align || "left";
-              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 0, minWidth: options.minWidth || 190 } }, children.map(function(child, childIndex) {
+              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 0, minWidth: options.minWidth || 190 } }, visibleChildren.map(function(child, childIndex) {
                 return /* @__PURE__ */ React.createElement("div", { key: child.ImportKey || childIndex, style: { fontSize: 12, minHeight: 32, display: "flex", alignItems: "center", justifyContent: align === "right" ? "flex-end" : "flex-start", textAlign: align, whiteSpace: options.nowrap ? "nowrap" : "normal", borderBottom: childIndex < children.length - 1 ? "1px dashed #e5e7eb" : "none", padding: "4px 0" } }, fn(child));
               }));
             };
-            return /* @__PURE__ */ React.createElement("tr", { key: group.groupKey || group.ImportKey || index, className: blocked ? "tr-out-stock" : "" },
+            return /* @__PURE__ */ React.createElement("tr", { key: groupId, className: blocked ? "tr-out-stock" : "" },
               /* @__PURE__ */ React.createElement("td", null, group.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, group.Ticket || "-"),
-              /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, group.ProductoICG || "-"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", group.CodArticulo || "-", " / Ref: ", group.Referencia || "-")),
+              /* @__PURE__ */ React.createElement("td", null,
+                /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setExpandedSalesGroups(function(prev) { return Object.assign({}, prev, { [groupId]: !expanded }); }), className: "btn btn-sm btn-outline", style: { marginBottom: 6, padding: "4px 8px" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${expanded ? "fa-chevron-up" : "fa-chevron-down"}` }), expanded ? "Ocultar detalle" : "Ver detalle"),
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, group.ProductoICG || "-"),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", group.CodArticulo || "-", " / Ref: ", group.Referencia || "-", children.length > 1 ? ` / ${children.length} lineas` : "")
+              ),
               /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ModuloWTF || "-"; }, { minWidth: 155 })),
               /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, renderChildLines(function(child) { return child.ProductoWTF || child.ProductoMise || "-"; }, { minWidth: 230 })),
               /* @__PURE__ */ React.createElement("td", null, group.UnidadesVendidas || 0),
