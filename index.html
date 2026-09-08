@@ -23229,6 +23229,16 @@
       return normalizeMiseItems(miseAnPlace);
     }, [miseAnPlace]);
     const roundMiseQty = (value) => Number((Number(value) || 0).toFixed(4));
+    function selectedMiseProductKeys(exceptIndex = -1) {
+      return new Set(filas.map((row, index) => index === exceptIndex ? "" : normalizar(row.p)).filter(Boolean));
+    }
+    function productAlreadySelected(value, rowIndex) {
+      const key = normalizar(value);
+      if (!key) return false;
+      const exactProduct = miseOptions.find((item) => normalizar(item.producto) === key);
+      if (!exactProduct) return false;
+      return selectedMiseProductKeys(rowIndex).has(key);
+    }
     function applySelectedMiseProductUnit(value, row) {
       const selected = miseOptions.find(function(item) {
         return normalizar(item.producto) === normalizar(value);
@@ -23241,14 +23251,25 @@
     function getVisibleMiseOptions() {
       const row = filas[activeProductRow] || {};
       const q = normalizar(row.p || "");
-      const source = q ? miseOptions.filter((m) => normalizar(m.producto).includes(q)) : miseOptions;
+      const alreadySelected = selectedMiseProductKeys(activeProductRow);
+      const source = (q ? miseOptions.filter((m) => normalizar(m.producto).includes(q)) : miseOptions).filter((m) => !alreadySelected.has(normalizar(m.producto)));
       return source.slice(0, 8);
+    }
+    function updateProductRow(rowIndex, value) {
+      setActiveProductRow(rowIndex);
+      if (productAlreadySelected(value, rowIndex)) {
+        setError(`"${value}" ya fue seleccionado en otra fila. Use una sola linea por producto.`);
+        return;
+      }
+      setError("");
+      setFilas((fs) => fs.map((x, j) => j === rowIndex ? applySelectedMiseProductUnit(value, x) : x));
     }
     function guardar() {
       setError("");
       const items = filas.filter((f) => f.p.trim() || f.c);
       if (!items.length) return setError("Ingrese al menos un producto.");
       const acum = {};
+      const selectedKeys = new Set();
       for (const f of items) {
         if (!f.p.trim()) return setError("Hay una fila sin producto.");
         const c = parseFloat(String(f.c).replace(",", "."));
@@ -23256,6 +23277,8 @@
         const key = normalizar(f.p);
         const info = miseOptions.find((m) => normalizar(m.producto) === key);
         if (!info) return setError(`"${f.p}" no existe en Mise an Place.`);
+        if (selectedKeys.has(key)) return setError(`"${info.producto}" esta repetido. Entrada rapida permite una sola linea por producto.`);
+        selectedKeys.add(key);
         if (isMiseKit(info)) return setError(`"${info.producto}" es un Kit de Mise an Place. Su existencia se calcula desde sus componentes.`);
         const unidadFila = normalizarMedidaMise(f.u);
         const unidadObjetivo = (acum[key] == null ? void 0 : acum[key].medida) || normalizarMedidaMise(info.medida || "Uni");
@@ -23292,10 +23315,7 @@
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => {
-      setActiveProductRow(i);
-      setFilas((fs) => fs.map((x, j) => j === i ? applySelectedMiseProductUnit(e.target.value, x) : x));
-    }, placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map(renderUnitOption)), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => updateProductRow(i, e.target.value), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map(renderUnitOption)), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
   function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
