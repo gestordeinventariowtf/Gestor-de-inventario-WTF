@@ -92,7 +92,6 @@ export class LocalStore {
   async appendAudit(entry: Record<string, unknown>): Promise<void> {
     const data = await this.read();
     data.audit.unshift({ fecha: new Date().toISOString(), ...entry });
-    data.audit = data.audit.slice(0, 1000);
     await this.write(data);
   }
 

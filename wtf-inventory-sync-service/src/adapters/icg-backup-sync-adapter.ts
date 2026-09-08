@@ -140,23 +140,33 @@ function icgTicketIdentityFromLine(line: Partial<IcgBackupConsumptionRow>): stri
   return [line.fo, line.serie, line.numero, line.n].map((part) => String(part || "").trim()).filter(Boolean).join("-");
 }
 
-function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
-  const existing = String(line.movimientoIcgId || "").trim();
-  if (existing) return existing;
-  return quickHashText([
-    "icg-line",
+function icgStableTicketLineIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+  return [
     String(line.fecha || fallbackDate || "").slice(0, 10),
-    line.fechaHora || "",
     line.fo || "",
     line.serie || "",
     line.numero || "",
     line.n || "",
     line.numLinea || "",
     line.codArticulo || "",
-    line.referencia || "",
-    line.codAlmacen || "",
-    line.consumo || ""
-  ].join("|"));
+    line.referencia || ""
+  ].map((part) => normalizar(part)).join("|");
+}
+
+function icgStableConsumptionIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+  return [
+    icgStableTicketLineIdentity(line, fallbackDate),
+    line.codAlmacen || ""
+  ].map((part) => normalizar(part)).join("|");
+}
+
+function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+  const stableIdentity = icgStableConsumptionIdentity(line, fallbackDate);
+  if (icgTicketIdentityFromLine(line) && line.numLinea && line.codArticulo) {
+    return quickHashText(["icg-line-stable-v2", stableIdentity].join("|"));
+  }
+  const existing = String(line.movimientoIcgId || "").trim();
+  return existing || quickHashText(["icg-line-stable-v2", stableIdentity].join("|"));
 }
 
 function icgTicketIdentityFromConsumptionRow(row: AnyRecord): string {
@@ -177,13 +187,8 @@ function consumptionAggregationKey(fecha: string, code: string, reference: strin
 
 function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string, fecha: string): string {
   return [
-    normalizar(movementIcgIdFromLine(line, fecha)),
-    normalizar(String(line.fecha || line.fechaHora || fecha || "").slice(0, 10)),
-    normalizar(icgTicketIdentityFromLine(line)),
-    normalizar(line.numLinea || ""),
-    normalizar(line.fechaHora || ""),
-    normalizar(line.codArticulo || ""),
-    normalizar(line.referencia || ""),
+    "icg-consumption-v2",
+    icgStableConsumptionIdentity(line, fecha),
     targetKey(target),
     normalizar(product)
   ].join("|");
@@ -191,13 +196,13 @@ function consumptionAuditKey(line: Partial<IcgBackupConsumptionRow>, target: str
 
 function consumptionAuditKeyFromRow(row: AnyRecord): string {
   return [
-    normalizar(firstText(row, ["MovimientoICGId", "movimientoIcgId", "MovementICGId"])),
+    "icg-consumption-v2",
     normalizar(String(row.Fecha || row.FechaHora || "").slice(0, 10)),
     normalizar(firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"])),
     normalizar(firstText(row, ["NumLinea", "NUMLINEA"])),
-    normalizar(firstText(row, ["FechaHora", "Hora", "HORA"])),
     normalizar(bridgeCode(row)),
     normalizar(bridgeReference(row)),
+    normalizar(firstText(row, ["CodAlmacen", "CODALMACEN"])),
     targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
     normalizar(bridgeWtfProduct(row))
   ].join("|");
@@ -356,6 +361,7 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     rows: []
   };
   appState.icgFrontRestData.appliedImports = Array.isArray(appState.icgFrontRestData.appliedImports) ? appState.icgFrontRestData.appliedImports : [];
+  appState.icgFrontRestData.appliedPhysicalIcgKeys = Array.isArray(appState.icgFrontRestData.appliedPhysicalIcgKeys) ? appState.icgFrontRestData.appliedPhysicalIcgKeys : [];
   appState.icgFrontRestData.processedBackupDates = Array.isArray(appState.icgFrontRestData.processedBackupDates) ? appState.icgFrontRestData.processedBackupDates : [];
   appState.icgFrontRestData.inventoryImpactPaused = Boolean(appState.icgFrontRestData.inventoryImpactPaused);
   appState.icgFrontRestData.icgHostDiscountsPaused = Boolean(appState.icgFrontRestData.icgHostDiscountsPaused);
@@ -396,13 +402,14 @@ function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecor
   const byKey = new Map<string, AnyRecord>();
   function rowKey(row: AnyRecord): string {
     return [
+      firstText(row, ["FECHA", "Fecha", "fecha"]),
       firstText(row, ["FO", "fo"]),
       firstText(row, ["SERIE", "Serie", "serie"]),
       firstText(row, ["NUMERO", "Numero", "numero"]),
       firstText(row, ["N", "n"]),
       firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
       firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
-      firstText(row, ["HORA", "Hora", "fechaHora"])
+      firstText(row, ["REFERENCIA", "Referencia", "referencia"])
     ].map((value) => normalizar(value)).join("|");
   }
   existingRows.forEach((row: AnyRecord) => {
@@ -1089,15 +1096,7 @@ function createTicketLineMovement(row: AnyRecord, fallbackDate: string): SyncMov
 }
 
 function icgPhysicalLineKey(line: Partial<IcgBackupConsumptionRow>): string {
-  return [
-    line.fo || "",
-    line.serie || "",
-    line.numero || "",
-    line.n || "",
-    line.numLinea || "",
-    line.codArticulo || "",
-    String(line.fechaHora || line.fecha || "").slice(0, 19)
-  ].map((part) => normalizar(part)).join("|");
+  return icgStableTicketLineIdentity(line);
 }
 
 function ticketLineMovementsForHost(ticketLines: AnyRecord[], rowsToApply: IcgBackupConsumptionRow[], fallbackDate: string): SyncMovement[] {
@@ -1148,7 +1147,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
       const ticketIdentity = icgTicketIdentityFromLine(line);
       const movementId = movementIcgIdFromLine(line, fecha);
-      const importKey = quickHashText(["icg-paused", movementId, eventDate, ticketIdentity, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+      const importKey = quickHashText(["icg-paused", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
     }).concat(ticketLineHostMovements);
     return result;
@@ -1180,11 +1179,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       .filter(Boolean)
   );
   const appliedConsumptionPhysicalKeys = new Set(
-    consumoRows
+    (Array.isArray(icg.appliedPhysicalIcgKeys) ? icg.appliedPhysicalIcgKeys : []).map(String).filter(Boolean)
+  );
+  consumoRows
       .filter((row) => ["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || "")))
       .map((row) => String(row.PhysicalIcgKey || row.physicalIcgKey || consumptionPhysicalKeyFromRow(row) || ""))
       .filter(Boolean)
-  );
+      .forEach((key) => appliedConsumptionPhysicalKeys.add(key));
   const appliedMovementTargets = new Set(
     consumoRows
       .filter((row) => ["aplicado", "decomiso aplicado"].includes(normalizar(row.Estado || "")))
@@ -1265,7 +1266,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       return (linkCode && normalizar(line.codArticulo) === linkCode) || (linkRef && normalizar(line.referencia) === linkRef);
     });
     const pendingAuditKey = consumptionAuditKey(line, "", "", fecha);
-    const pendingImportKey = quickHashText(["icg-bak", movementId, eventDate, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
+    const pendingImportKey = quickHashText(["icg-bak", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey) || appliedConsumptionAuditKeys.has(pendingAuditKey))) {
       result.skipped += 1;
       result.movements?.push(createBackupMovement(line, fecha, pendingImportKey, "sincronizado", "Consumo ICG ya procesado anteriormente."));
@@ -1454,6 +1455,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     rows: insertedConsumptionRows.concat(updatedConsumptionRows)
   });
   icg.appliedImports = Array.from(appliedKeys);
+  icg.appliedPhysicalIcgKeys = Array.from(appliedConsumptionPhysicalKeys);
   icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: result.applied, matched: result.matched, pending: result.pending, errors: result.errors });
   icg.sourceName = path.basename(config.icgBackupPath);
   icg.updatedAt = now;
