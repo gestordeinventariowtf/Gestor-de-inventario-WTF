@@ -6726,7 +6726,7 @@
       return acc;
     }, {});
     const grouped = {};
-    lines.forEach(function(line) {
+    lines.forEach(function(line, lineIndex) {
       const units = getIcgLineUnits(line);
       if (!units) return;
       const matchedBridges = findIcgBridgesForLine(line, bridges);
@@ -6737,7 +6737,7 @@
       const code = getIcgLineCode(line);
       const reference = getIcgLineReference(line);
       const productIcg = getIcgLineDescription(line);
-      const lineNumber = getIcgLineNumber(line);
+      const lineNumber = getIcgLineNumber(line) || icgCellText(line._id || line.ID || line.id || lineIndex + 1);
       const lineMoment = getIcgLineMoment(line);
       bridgesToApply.forEach(function(bridge) {
         const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
@@ -19683,7 +19683,7 @@
     const [pendingAction, setPendingAction] = useState(null);
     const [editRecord, setEditRecord] = useState(null);
     const [editPassword, setEditPassword] = useState("");
-    const [expandedSalesGroups, setExpandedSalesGroups] = useState({});
+    const [selectedTicketDetail, setSelectedTicketDetail] = useState(null);
     const [busy, setBusy] = useState(false);
     const autoApplyIcgRef = useRef("");
     const totals = tableKeys.reduce(function(acc, key) {
@@ -19722,11 +19722,17 @@
         else if (!target) estado = "Producto WTF no encontrado";
         else if (parseIcgNumber(row.CantidadDescontar) > getMiseSafeNumber(target.existencia, 0)) estado = "Sin existencia";
         else if (inventoryImpactPaused && estado === "Pendiente") estado = "Pausado por auditoria";
+        const isAppliedRow = isIcgConsumptionFinalized(Object.assign({}, row, { Estado: estado }));
+        const currentExistence = target ? getMiseSafeNumber(target.existencia, 0) : "";
+        const storedCurrent = row.ExistenciaActual === "" || row.ExistenciaActual == null ? "" : parseIcgNumber(row.ExistenciaActual);
+        const storedNew = row.ExistenciaNueva === "" || row.ExistenciaNueva == null ? "" : parseIcgNumber(row.ExistenciaNueva);
+        const existenciaActual = isAppliedRow && storedCurrent !== "" ? storedCurrent : currentExistence;
+        const existenciaNueva = isAppliedRow ? (storedNew !== "" ? storedNew : currentExistence) : target ? Number((getMiseSafeNumber(target.existencia, 0) - parseIcgNumber(row.CantidadDescontar)).toFixed(4)) : "";
         return Object.assign({}, row, {
           targetKey,
           ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || row.ModuloWTF || targetKey,
-          ExistenciaActual: target ? target.existencia : "",
-          ExistenciaNueva: target ? Number((getMiseSafeNumber(target.existencia, 0) - parseIcgNumber(row.CantidadDescontar)).toFixed(4)) : "",
+          ExistenciaActual: existenciaActual,
+          ExistenciaNueva: existenciaNueva,
           Estado: estado
         });
       });
@@ -19958,11 +19964,18 @@
         delete clean.targetKey;
         return clean;
       });
-      updateDataset("ConsumoMiseVentas", function(ds) {
-        return Object.assign({}, ds, {
-          columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
-          rows
-        });
+      const generatedAppliedKeys = rows.filter(isIcgConsumptionFinalized).map(function(row) {
+        return row.ImportKey;
+      }).filter(Boolean);
+      const datasets = Object.assign({}, normalized.datasets);
+      const ds = Object.assign({}, datasets.ConsumoMiseVentas || {});
+      datasets.ConsumoMiseVentas = Object.assign({}, ds, {
+        columns: Array.from(new Set([...(ds.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), "FechaHora", "NumLinea", "IcgAuditKey", "ExistenciaActual", "ExistenciaNueva"])),
+        rows
+      });
+      updateData({
+        datasets,
+        appliedImports: Array.from(new Set([...(normalized.appliedImports || []), ...generatedAppliedKeys]))
       });
       setActiveTable("ConsumoMiseVentas");
       setTab("tablas");
@@ -20059,35 +20072,24 @@
       const blockedRows = salesConsumptionRows.filter((row) => row.Estado !== "Pendiente" && row.Estado !== "Aplicado");
       const appliedRows = salesConsumptionRows.filter((row) => row.Estado === "Aplicado");
       const q = normalizar(salesConsumptionQuery);
-      const groupedSalesRows = Object.values(salesConsumptionRows.reduce(function(acc, row) {
-        const key = [row.Fecha, row.Ticket, row.CodArticulo, row.Referencia, row.ProductoICG, row.Archivo].map(function(value) {
-          return normalizar(value);
-        }).join("|");
-        if (!acc[key]) {
-          acc[key] = Object.assign({}, row, { children: [], groupKey: key });
-        }
-        acc[key].children.push(row);
-        acc[key].UnidadesVendidas = Math.max(parseIcgNumber(acc[key].UnidadesVendidas), parseIcgNumber(row.UnidadesVendidas));
-        acc[key].Estado = acc[key].children.some(function(child) { return child.Estado !== "Pendiente" && child.Estado !== "Aplicado"; }) ? "Revisar" : acc[key].children.every(function(child) { return child.Estado === "Aplicado"; }) ? "Aplicado" : "Pendiente";
-        return acc;
-      }, {})).sort(function(a, b) {
+      const flatSalesRows = salesConsumptionRows.slice().sort(function(a, b) {
         return String(b.Fecha).localeCompare(String(a.Fecha)) || String(a.ProductoICG).localeCompare(String(b.ProductoICG));
       });
-      const filteredSalesRows = groupedSalesRows.filter(function(group) {
-        const children = group.children || [];
-        const hasBlocked = children.some(function(row) { return row.Estado !== "Pendiente" && row.Estado !== "Aplicado"; });
-        const allApplied = children.length && children.every(function(row) { return row.Estado === "Aplicado"; });
-        if (salesConsumptionFilter === "bloqueadas" && !hasBlocked) return false;
-        if (salesConsumptionFilter === "aplicadas" && !allApplied) return false;
+      const filteredSalesRows = flatSalesRows.filter(function(row) {
+        const blocked = row.Estado !== "Pendiente" && row.Estado !== "Aplicado";
+        if (salesConsumptionFilter === "bloqueadas" && !blocked) return false;
+        if (salesConsumptionFilter === "aplicadas" && row.Estado !== "Aplicado") return false;
         if (!q) return true;
         return [
-          group.Fecha,
-          group.Ticket,
-          group.ProductoICG,
-          group.CodArticulo,
-          group.Referencia,
-          group.Estado,
-          children.map(function(row) { return [row.ModuloWTF, row.ProductoWTF, row.ProductoMise, row.Estado].join(" "); }).join(" ")
+          row.Fecha,
+          row.Ticket,
+          row.ProductoICG,
+          row.CodArticulo,
+          row.Referencia,
+          row.Estado,
+          row.ModuloWTF,
+          row.ProductoWTF,
+          row.ProductoMise
         ].some(function(value) {
           return normalizar(value).includes(q);
         });
@@ -20095,7 +20097,7 @@
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
         inventoryImpactPaused ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-hand" }), getIcgInventoryPauseMessage(normalized)) : /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "WTF ICG Host aplica las salidas automaticas con control anti-duplicados. Esta pantalla muestra la auditoria y permite aplicar manualmente solo si es necesario."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
-          renderSalesFilterButton("todos", "Lineas consumo", groupedSalesRows.length, "#4338ca"),
+          renderSalesFilterButton("todos", "Lineas consumo", flatSalesRows.length, "#4338ca"),
           renderSalesFilterButton("bloqueadas", "Bloqueadas", blockedRows.length, blockedRows.length ? "#b91c1c" : "#111827"),
           renderSalesFilterButton("aplicadas", "Ya aplicadas", appliedRows.length, "#0f766e")
         ),
@@ -20114,7 +20116,7 @@
             /* @__PURE__ */ React.createElement("tbody", null, ticketRows.map(function(ticket) {
               return /* @__PURE__ */ React.createElement("tr", { key: ticket.TicketNotificacionId || ticket.ticketKey },
                 /* @__PURE__ */ React.createElement("td", null, ticket.FechaTicket || "-"),
-                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, ticket.ticketKey || ticket.NumFactura || "-"),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800 } }, /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => setSelectedTicketDetail(ticket), title: "Ver articulos del ticket" }, ticket.ticketKey || ticket.NumFactura || "-")),
                 /* @__PURE__ */ React.createElement("td", null, ticket.HoraTicket || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 800, color: "#15803d" } }, formatIcgMoney(ticket.TotalNetoCalculado)),
                 /* @__PURE__ */ React.createElement("td", null, formatIcgMoney(ticket.TotalPagado || 0)),
@@ -20127,34 +20129,23 @@
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
-          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.map(function(group, index) {
-            const children = group.children || [group];
-            const groupId = group.groupKey || group.ImportKey || String(index);
-            const expanded = Boolean(expandedSalesGroups[groupId]);
-            const visibleChildren = expanded ? children : children.slice(0, 1);
-            const statusClass = group.Estado === "Pendiente" ? "pill-verde" : group.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
-            const blocked = children.some(function(row) { return row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo"; });
-            const renderChildLines = function(fn, options = {}) {
-              const align = options.align || "left";
-              return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 0, minWidth: options.minWidth || 190 } }, visibleChildren.map(function(child, childIndex) {
-                return /* @__PURE__ */ React.createElement("div", { key: child.ImportKey || childIndex, style: { fontSize: 12, minHeight: 32, display: "flex", alignItems: "center", justifyContent: align === "right" ? "flex-end" : "flex-start", textAlign: align, whiteSpace: options.nowrap ? "nowrap" : "normal", borderBottom: childIndex < children.length - 1 ? "1px dashed #e5e7eb" : "none", padding: "4px 0" } }, fn(child));
-              }));
-            };
-            return /* @__PURE__ */ React.createElement("tr", { key: groupId, className: blocked ? "tr-out-stock" : "" },
-              /* @__PURE__ */ React.createElement("td", null, group.Fecha || "-"),
-              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, group.Ticket || "-"),
+          /* @__PURE__ */ React.createElement("tbody", null, filteredSalesRows.map(function(row, index) {
+            const blocked = row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo";
+            const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
+            return /* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || index, className: blocked ? "tr-out-stock" : "" },
+              /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, row.Ticket || "-"),
               /* @__PURE__ */ React.createElement("td", null,
-                /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setExpandedSalesGroups(function(prev) { return Object.assign({}, prev, { [groupId]: !expanded }); }), className: "btn btn-sm btn-outline", style: { marginBottom: 6, padding: "4px 8px" } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${expanded ? "fa-chevron-up" : "fa-chevron-down"}` }), expanded ? "Ocultar detalle" : "Ver detalle"),
-                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, group.ProductoICG || "-"),
-                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", group.CodArticulo || "-", " / Ref: ", group.Referencia || "-", children.length > 1 ? ` / ${children.length} lineas` : "")
+                /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.ProductoICG || "-"),
+                /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", row.CodArticulo || "-", " / Ref: ", row.Referencia || "-", row.NumLinea ? ` / Linea ${row.NumLinea}` : "")
               ),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { return child.ModuloWTF || "-"; }, { minWidth: 155 })),
-              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, renderChildLines(function(child) { return child.ProductoWTF || child.ProductoMise || "-"; }, { minWidth: 230 })),
-              /* @__PURE__ */ React.createElement("td", null, group.UnidadesVendidas || 0),
-              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return `${child.CantidadDescontar || 0} ${child.Unidad || ""}`; }, { align: "center", minWidth: 92, nowrap: true })),
-              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return child.ExistenciaActual === "" ? "-" : child.ExistenciaActual; }, { align: "center", minWidth: 72, nowrap: true })),
-              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderChildLines(function(child) { return child.ExistenciaNueva === "" ? "-" : child.ExistenciaNueva; }, { align: "center", minWidth: 72, nowrap: true })),
-              /* @__PURE__ */ React.createElement("td", null, renderChildLines(function(child) { const childClass = child.Estado === "Pendiente" ? "pill-verde" : child.Estado === "Aplicado" ? "pill-azul" : "pill-rojo"; return /* @__PURE__ */ React.createElement("span", { className: `pill ${childClass}` }, child.Estado || "-"); }), children.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, children.length, " descuentos")))
+              /* @__PURE__ */ React.createElement("td", null, row.ModuloWTF || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, row.ProductoWTF || row.ProductoMise || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, row.UnidadesVendidas || 0),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, `${row.CantidadDescontar || 0} ${row.Unidad || ""}`),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.ExistenciaActual === "" ? "-" : row.ExistenciaActual),
+              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva),
+              /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, row.Estado || "-"))
             );
           }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Importa TiquetsLin y crea vinculos para generar consumo por ventas.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
@@ -20293,6 +20284,37 @@
           )
         )
       ),
+      selectedTicketDetail && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 860 } },
+        /* @__PURE__ */ React.createElement("div", { className: "modal-header" },
+          /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7 } }), "Ticket ", selectedTicketDetail.ticketKey || selectedTicketDetail.NumFactura || "-"),
+          /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setSelectedTicketDetail(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } },
+          /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 8 } },
+            renderLabMetric("Fecha", selectedTicketDetail.FechaTicket || selectedTicketDetail.Fecha || "-", "#4338ca"),
+            renderLabMetric("Hora", selectedTicketDetail.HoraTicket || "-", "#111827"),
+            renderLabMetric("Total", formatIcgMoney(selectedTicketDetail.TotalNetoCalculado || selectedTicketDetail.TotalPagado || selectedTicketDetail.TotalNeto || 0), "#15803d"),
+            renderLabMetric("Lineas", (selectedTicketDetail.Lineas || []).length, "#b45309")
+          ),
+          /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+            /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Linea", "Codigo", "Referencia", "Articulo", "Cantidad", "Precio", "Total"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
+            /* @__PURE__ */ React.createElement("tbody", null, (selectedTicketDetail.Lineas || []).map(function(line, index) {
+              const units = getIcgLineUnits(line);
+              const price = sumIcgFields(line, ["PrecioIva", "Precio", "PRECIOIVA", "PRECIO"]);
+              const total = sumIcgFields(line, ["Total", "TOTAL"]) || price * units;
+              return /* @__PURE__ */ React.createElement("tr", { key: `${selectedTicketDetail.ticketKey || "ticket"}-${getIcgLineNumber(line) || index}` },
+                /* @__PURE__ */ React.createElement("td", null, getIcgLineNumber(line) || index + 1),
+                /* @__PURE__ */ React.createElement("td", null, getIcgLineCode(line) || "-"),
+                /* @__PURE__ */ React.createElement("td", null, getIcgLineReference(line) || "-"),
+                /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700 } }, getIcgLineDescription(line) || "Articulo"),
+                /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, units),
+                /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, price ? formatIcgMoney(price) : "-"),
+                /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontWeight: 800 } }, total ? formatIcgMoney(total) : "-")
+              );
+            }), !(selectedTicketDetail.Lineas || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este ticket no tiene articulos asociados en TiquetsLin.")))
+          ))
+        )
+      )),
       pendingAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingAction.title, usuarios, onClose: () => setPendingAction(null), onConfirm: pendingAction.run }),
       editRecord && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation(), style: { maxWidth: 760 } },
         /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen", style: { marginRight: 7 } }), editRecord.mode === "add" ? "Agregar registro" : "Editar registro"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setEditRecord(null) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))),
