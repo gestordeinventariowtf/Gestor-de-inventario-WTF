@@ -36,6 +36,18 @@ const anotherTicketLine: IcgBackupConsumptionRow = {
   numLinea: "5"
 };
 
+const guidLine: IcgBackupConsumptionRow = {
+  ...baseLine,
+  guidLinea: "E3A89F91-1CC8-4F4E-ABCD-000000001234"
+};
+
+const sameGuidDifferentClockAndLine: IcgBackupConsumptionRow = {
+  ...guidLine,
+  fechaHora: "2026-09-08 23:59:59",
+  numLinea: "99",
+  consumo: 3
+};
+
 assert.equal(
   movementIcgIdFromLine(baseLine, "2026-09-08"),
   movementIcgIdFromLine(samePhysicalLineDifferentClock, "2026-09-08"),
@@ -70,6 +82,18 @@ assert.equal(
   consumptionAuditKey(baseLine, "Inventario Bar", "Agua Tonica", "2026-09-08"),
   consumptionAuditKey(samePhysicalLineDifferentClock, "Inventario Bar", "Agua Tonica", "2026-09-08"),
   "La auditoria de consumo no debe duplicarse por cambios de hora."
+);
+
+assert.equal(
+  movementIcgIdFromLine(guidLine, "2026-09-08"),
+  movementIcgIdFromLine(sameGuidDifferentClockAndLine, "2026-09-08"),
+  "GUIDLINEA debe ser la identidad prioritaria aunque cambie hora, cantidad o NUMLINEA."
+);
+
+assert.equal(
+  consumptionPhysicalKey(guidLine, "Inventario Bar", "Agua Tonica"),
+  consumptionPhysicalKey(sameGuidDifferentClockAndLine, "Inventario Bar", "Agua Tonica"),
+  "La proteccion de descuento debe usar GUIDLINEA como llave fisica prioritaria."
 );
 
 console.log("ICG idempotency tests passed");

@@ -90,6 +90,7 @@ export interface ImportResult {
 
 export interface IcgBackupConsumptionRow {
   movimientoIcgId?: string;
+  guidLinea?: string;
   fecha: string;
   fechaHora?: string;
   fo?: string;

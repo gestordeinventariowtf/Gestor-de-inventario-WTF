@@ -11,8 +11,8 @@ const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
-  TiquetsLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
-  TicketLin: ["FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA", "TicketICG", "MovimientoICGId"],
+  TiquetsLin: ["GUIDLINEA", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
+  TicketLin: ["GUIDLINEA", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA", "TicketICG", "MovimientoICGId"],
   TiquetsConsumo: ["MovimientoICGId", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
   Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
@@ -24,7 +24,7 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   PreciosVenta: ["CODARTICULO", "CodArticulo", "Referencia", "Descripcion", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP", "PrecioDefecto", "_source", "_updatedAt"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"],
-  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "GUIDLINEA", "PhysicalIcgKey", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
 };
 
 const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
@@ -140,7 +140,13 @@ function icgTicketIdentityFromLine(line: Partial<IcgBackupConsumptionRow>): stri
   return [line.fo, line.serie, line.numero, line.n].map((part) => String(part || "").trim()).filter(Boolean).join("-");
 }
 
+function icgGuidLinea(line: Partial<IcgBackupConsumptionRow> | AnyRecord | undefined | null): string {
+  return firstText(line as AnyRecord, ["guidLinea", "GUIDLINEA", "GuidLinea", "Guidlinea", "guidlinea"]);
+}
+
 function icgStableTicketLineIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
+  const guidLinea = icgGuidLinea(line);
+  if (guidLinea) return `guidlinea|${normalizar(guidLinea)}`;
   return [
     String(line.fecha || fallbackDate || "").slice(0, 10),
     line.fo || "",
@@ -209,6 +215,15 @@ function consumptionAuditKeyFromRow(row: AnyRecord): string {
 }
 
 export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string): string {
+  const guidLinea = icgGuidLinea(line);
+  if (guidLinea) {
+    return [
+      "icg-physical-guidlinea-v1",
+      normalizar(guidLinea),
+      targetKey(target),
+      normalizar(product)
+    ].join("|");
+  }
   return [
     "icg-physical-v1",
     normalizar(icgTicketIdentityFromLine(line)),
@@ -221,6 +236,15 @@ export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, t
 }
 
 function consumptionPhysicalKeyFromRow(row: AnyRecord): string {
+  const guidLinea = icgGuidLinea(row);
+  if (guidLinea) {
+    return [
+      "icg-physical-guidlinea-v1",
+      normalizar(guidLinea),
+      targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
+      normalizar(bridgeWtfProduct(row))
+    ].join("|");
+  }
   const ticket = firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"]);
   return [
     "icg-physical-v1",
@@ -401,6 +425,8 @@ function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecor
   const existingSqlRows = Array.isArray(currentSql.rows) ? currentSql.rows : [];
   const byKey = new Map<string, AnyRecord>();
   function rowKey(row: AnyRecord): string {
+    const guidLinea = icgGuidLinea(row);
+    if (guidLinea) return `guidlinea|${normalizar(guidLinea)}`;
     return [
       firstText(row, ["FECHA", "Fecha", "fecha"]),
       firstText(row, ["FO", "fo"]),
@@ -435,6 +461,7 @@ function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecor
       numero: firstText(row, ["NUMERO", "Numero", "numero"]),
       n: firstText(row, ["N", "n"]),
       numLinea: firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
+      guidLinea: icgGuidLinea(row),
       codArticulo: firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
       referencia: firstText(row, ["REFERENCIA", "Referencia", "referencia"]),
       fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
@@ -947,6 +974,7 @@ END`;
 DECLARE @hasta date=ISNULL(TRY_CONVERT(date,'${quoteSql(latest || "")}'), CONVERT(date, GETDATE()));
 DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
 SELECT
+  ISNULL(CAST(l.GUIDLINEA AS varchar(80)),'') AS GUIDLINEA,
   CAST(l.FO AS varchar(30)) AS FO,
   CAST(l.SERIE AS varchar(30)) AS SERIE,
   CAST(l.NUMERO AS varchar(30)) AS NUMERO,
@@ -990,6 +1018,7 @@ DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
 SELECT
   CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS fecha,
   CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120) AS fechaHora,
+  ISNULL(CAST(l.GUIDLINEA AS varchar(80)),'') AS guidLinea,
   CAST(tc.FO AS varchar(30)) AS fo,
   CAST(tc.SERIE AS varchar(30)) AS serie,
   CAST(tc.NUMERO AS varchar(30)) AS numero,
@@ -1020,6 +1049,7 @@ ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODART
       numero: String(row.numero || ""),
       n: String(row.n || ""),
       numLinea: String(row.numLinea || ""),
+      guidLinea: String(row.guidLinea || row.GUIDLINEA || ""),
       tipoMovimiento: (parseNumber(row.consumo) < 0 ? "devolucion" : "venta") as "devolucion" | "venta",
       codArticulo: String(row.codArticulo || ""),
       referencia: String(row.referencia || ""),
@@ -1070,6 +1100,7 @@ function createBackupMovement(
     raw: {
       importKey,
       movimientoIcgId: movementIcgIdFromLine(line, fecha),
+      guidLinea: icgGuidLinea(line),
       codAlmacen: line.codAlmacen,
       productoIcg: line.descripcion,
       consumo: line.consumo,
@@ -1084,6 +1115,7 @@ function ticketLineToConsumptionIdentity(row: AnyRecord): Partial<IcgBackupConsu
   return {
     fecha: firstText(row, ["FECHA", "Fecha", "fecha"]),
     fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
+    guidLinea: icgGuidLinea(row),
     fo: firstText(row, ["FO", "fo"]),
     serie: firstText(row, ["SERIE", "Serie", "serie"]),
     numero: firstText(row, ["NUMERO", "Numero", "numero"]),
@@ -1365,6 +1397,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const pendingRow = {
         Fecha: fecha,
         MovimientoICGId: movementId,
+        GUIDLINEA: icgGuidLinea(line),
         ModuloWTF: "",
         ProductoWTF: "",
         ProductoMise: "",
@@ -1415,6 +1448,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const consumoRow: AnyRecord = {
         Fecha: fecha,
         MovimientoICGId: movementId,
+        GUIDLINEA: icgGuidLinea(line),
         PhysicalIcgKey: physicalKey,
         ModuloWTF: targetLabel(target),
         targetKey: target,
