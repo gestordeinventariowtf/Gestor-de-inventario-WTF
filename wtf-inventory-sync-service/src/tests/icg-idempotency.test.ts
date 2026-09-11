@@ -126,4 +126,12 @@ const catalogSyncBody = adapterSource.slice(
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 
+const applyBackupBody = adapterSource.slice(
+  adapterSource.indexOf("export async function applyBackupConsumptionToFirestore"),
+  adapterSource.indexOf("async function syncIcgCatalogToFirestore")
+);
+assert.ok(applyBackupBody.includes("queueMovementByIcg"), "La cola del Host debe consolidarse por articulo/movimiento ICG, no por cada producto WTF/Mise vinculado.");
+assert.ok(!/result\.movements\?\.push\s*\(\s*createBackupMovement/i.test(applyBackupBody), "El desglose WTF/Mise no debe insertar multiples lineas en la cola visible del Host.");
+assert.ok(/result\.movements\s*=\s*Array\.from\(queueMovementByIcg\.values\(\)\)/.test(applyBackupBody), "La cola visible debe publicarse una sola vez por MovimientoICGId.");
+
 console.log("ICG idempotency tests passed");
