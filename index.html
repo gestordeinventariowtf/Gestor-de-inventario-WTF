@@ -5988,7 +5988,49 @@
   }
   function isIcgConsumptionFinalized(row) {
     const status = normalizar(row && row.Estado || "");
-    return status === "aplicado" || status === "decomiso aplicado" || status === "sincronizado";
+    return status === "aplicado" || status === "decomiso aplicado" || status === "sincronizado" || status === "legado ignorado";
+  }
+  function hasModernIcgMovementKeys(row) {
+    return Boolean(row && (
+      icgCellText(row.MovimientoICGId || row.movimientoIcgId || row.MovementICGId || "").trim() ||
+      icgCellText(row.PhysicalIcgKey || row.physicalIcgKey || "").trim()
+    ));
+  }
+  function isLegacyIcgMovementWithoutModernKeys(row) {
+    if (!row || hasModernIcgMovementKeys(row)) return false;
+    return Boolean(
+      icgCellText(row.ImportKey || row.IcgAuditKey || row.TicketICG || row.Ticket || row.Factura || "").trim() ||
+      icgCellText(row.CodArticulo || row.CODARTICULO || row.Codigo || row.Referencia || row.REFERENCIA || "").trim() ||
+      icgCellText(row.ProductoICG || row.DESCRIPCION || row.Descripcion || row.ProductoWTF || row.ProductoMise || "").trim()
+    );
+  }
+  function forgetLegacyIcgMovementsWithoutModernKeys(data) {
+    const normalized = ensureIcgFrontRestData(data);
+    const datasets = Object.assign({}, normalized.datasets || {});
+    const ignoredAt = new Date().toISOString();
+    let ignored = 0;
+    ["ConsumoMiseVentas", "TiquetsConsumo"].forEach(function(tableKey) {
+      const ds = datasets[tableKey];
+      if (!ds || !Array.isArray(ds.rows)) return;
+      const rows = [];
+      ds.rows.forEach(function(row) {
+        if (isLegacyIcgMovementWithoutModernKeys(row)) {
+          ignored += 1;
+          return;
+        }
+        rows.push(row);
+      });
+      datasets[tableKey] = Object.assign({}, ds, { rows });
+    });
+    return {
+      data: ensureIcgFrontRestData(Object.assign({}, normalized, {
+        datasets,
+        legacyIcgMovementsForgottenAt: ignored ? ignoredAt : normalized.legacyIcgMovementsForgottenAt || "",
+        legacyIcgMovementsForgottenCount: Number(normalized.legacyIcgMovementsForgottenCount || 0) + ignored,
+        updatedAt: ignored ? ignoredAt : normalized.updatedAt
+      })),
+      ignored
+    };
   }
   function icgRows(data, key) {
     const ds = data && data.datasets ? data.datasets[key] : null;
@@ -11142,6 +11184,10 @@
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const userLabel = getIcgControlUserLabel();
       const serverTimestamp = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue ? window.firebase.firestore.FieldValue.serverTimestamp() : now;
+      let forgottenLegacyRows = 0;
+      const cleanedLegacyIcg = forgetLegacyIcgMovementsWithoutModernKeys(icgFrontRestData);
+      forgottenLegacyRows = cleanedLegacyIcg.ignored;
+      if (forgottenLegacyRows) setIcgFrontRestData(cleanedLegacyIcg.data);
       const nextDoc = pause ? {
         status: "ACTIVE",
         inventoryImpactPaused: true,
@@ -11164,7 +11210,7 @@
       await icgControlDocRef.current.set(nextDoc, { merge: true });
       applyIcgControlState(Object.assign({}, nextDoc, { updatedAt: now }));
       setPendingIcgControlAction(null);
-      toast(pause ? "ICG pausado. No se descontaran productos automaticamente." : "ICG activo. Los descuentos automaticos quedan habilitados.", "ok");
+      toast(pause ? forgottenLegacyRows ? `ICG pausado. Se olvidaron ${forgottenLegacyRows} movimiento(s) antiguo(s) sin llaves modernas.` : "ICG pausado. No se descontaran productos automaticamente." : forgottenLegacyRows ? `ICG activo. Se olvidaron ${forgottenLegacyRows} movimiento(s) antiguo(s) sin llaves modernas antes de habilitar descuentos.` : "ICG activo. Los descuentos automaticos quedan habilitados.", "ok", 7500);
     }
     async function pullLatestFirebaseSnapshot(reason) {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current || applyingRemoteRef.current) return;
