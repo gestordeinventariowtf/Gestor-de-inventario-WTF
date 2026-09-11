@@ -51,6 +51,22 @@ export class LocalStore {
     return { inserted: true, movement };
   }
 
+  async replaceIcgPreviewMovements(movements: SyncMovement[]): Promise<void> {
+    const data = await this.read();
+    const nextMovements = Array.isArray(movements) ? movements : [];
+    const isIcgPreview = (row: SyncMovement) =>
+      row.origen === "ICG FrontRest" &&
+      row.destino === "Sistema Web" &&
+      (String(row.id || "").startsWith("icg-local-") || String(row.idempotencyKey || "").startsWith("icg-local-"));
+    data.movements = nextMovements.concat(data.movements.filter((row) => !isIcgPreview(row)));
+    data.audit.unshift({
+      fecha: new Date().toISOString(),
+      accion: "icg_preview_movements_replaced",
+      total: nextMovements.length
+    });
+    await this.write(data);
+  }
+
   async updateMovementState(id: string, estado: SyncMovement["estado"], mensaje?: string): Promise<void> {
     const data = await this.read();
     const movement = data.movements.find((row) => row.id === id);

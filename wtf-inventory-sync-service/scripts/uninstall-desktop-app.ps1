@@ -34,11 +34,12 @@ function Stop-WtfIcgHostProcesses {
   Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
   $normalizedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+  $currentProcessId = $PID
   $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $name = [string]$_.Name
     $commandLine = [string]$_.CommandLine
     $executablePath = [string]$_.ExecutablePath
-    (
+    $_.ProcessId -ne $currentProcessId -and (
       $name -ieq "node.exe" -or
       $name -ieq "powershell.exe" -or
       $name -ieq "cmd.exe"
@@ -94,6 +95,14 @@ $Desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
 $Shortcut = Join-Path $Desktop "Abrir Panel WTF ICG Host.cmd"
 if (Test-Path $Shortcut) {
   Remove-Item -LiteralPath $Shortcut -Force
+}
+
+$CommonStartup = [Environment]::GetFolderPath("CommonStartup")
+if ($CommonStartup) {
+  $StartupShortcut = Join-Path $CommonStartup "WTF ICG Host.cmd"
+  if (Test-Path $StartupShortcut) {
+    Remove-Item -LiteralPath $StartupShortcut -Force
+  }
 }
 
 if (Test-Path $InstallDir) {

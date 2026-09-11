@@ -33,9 +33,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
   try {
     const result = await syncIcgBackupConsumption(config);
     if (Array.isArray(result.movements)) {
-      for (const movement of result.movements) {
-        await store.upsertMovement(movement);
-      }
+      await store.replaceIcgPreviewMovements(result.movements);
     }
     await store.appendAudit({ accion: "icg_catalog_sync", ...result });
     await logger.write("icg.log", "Catalogos SQL ICG sincronizados", result);

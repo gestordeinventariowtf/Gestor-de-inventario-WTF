@@ -13,6 +13,10 @@ const adapterSourcePath = fs.existsSync("src/adapters/icg-backup-sync-adapter.ts
   ? "src/adapters/icg-backup-sync-adapter.ts"
   : path.resolve(__dirname, "../adapters/icg-backup-sync-adapter.js");
 const adapterSource = fs.readFileSync(adapterSourcePath, "utf8");
+const mainSourcePath = fs.existsSync("src/main.ts")
+  ? "src/main.ts"
+  : path.resolve(__dirname, "../main.js");
+const mainSource = fs.readFileSync(mainSourcePath, "utf8");
 
 const baseLine: IcgBackupConsumptionRow = {
   fecha: "2026-09-08",
@@ -121,7 +125,8 @@ const recentConsumptionPreviewBody = adapterSource.slice(
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
-assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(adapterSource), "La vista previa debe leer TIQUETSCONSUMO para alimentar la cola del Host.");
+assert.ok(/TIQUETSLIN/i.test(recentConsumptionPreviewBody) && /TICKETLIN/i.test(recentConsumptionPreviewBody), "La cola del Host debe leer lineas de venta ICG, no desglose de consumos WTF/Mise.");
+assert.ok(!/FROM\s+TIQUETSCONSUMO/i.test(recentConsumptionPreviewBody), "La cola visible del Host no debe alimentarse desde TIQUETSCONSUMO porque esa tabla puede traer consumos/desgloses internos.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 
 const catalogSyncBody = adapterSource.slice(
@@ -130,6 +135,7 @@ const catalogSyncBody = adapterSource.slice(
 );
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
+assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
 
 const applyBackupBody = adapterSource.slice(
   adapterSource.indexOf("export async function applyBackupConsumptionToFirestore"),

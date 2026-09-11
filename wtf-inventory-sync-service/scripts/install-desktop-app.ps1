@@ -15,7 +15,7 @@ function Assert-Admin {
     if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
     $argsList += @("-TaskName", "`"$TaskName`"", "-Port", "$Port")
     if ($StartNow) { $argsList += "-StartNow" }
-    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs
+    Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -WindowStyle Hidden
     exit 0
   }
 }
@@ -24,10 +24,6 @@ function Resolve-InstallDir {
   param([string]$Requested)
   if ($Requested) {
     return $Requested
-  }
-  $spanishProgramFiles = "C:\Archivos de programa"
-  if (Test-Path $spanishProgramFiles) {
-    return (Join-Path $spanishProgramFiles "WTF ICG Host")
   }
   $programFiles = $env:ProgramW6432
   if (!$programFiles) {
@@ -84,6 +80,37 @@ function Set-EnvValue {
   $next | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Stop-WtfIcgHostProcesses {
+  param([string]$Path)
+
+  Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+  $normalizedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+  $currentProcessId = $PID
+  $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $name = [string]$_.Name
+    $commandLine = [string]$_.CommandLine
+    $executablePath = [string]$_.ExecutablePath
+    $_.ProcessId -ne $currentProcessId -and (
+      $name -ieq "node.exe" -or
+      $name -ieq "powershell.exe" -or
+      $name -ieq "cmd.exe"
+    ) -and (
+      $commandLine -like "*WTF ICG Host*" -or
+      $commandLine -like "*wtf-icg-host*" -or
+      $commandLine -like "*dist\main.js*" -or
+      $executablePath -like "$normalizedPath*"
+    )
+  }
+
+  foreach ($process in $processes) {
+    try {
+      Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {}
+  }
+}
+
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 $SourceRoot = Split-Path -Parent $PSScriptRoot
@@ -92,6 +119,7 @@ $LogDir = Join-Path $DataDir "logs"
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "data\inbox"), (Join-Path $DataDir "data\outbox"), (Join-Path $DataDir "data\processed"), (Join-Path $DataDir "data\quarantine") | Out-Null
+Stop-WtfIcgHostProcesses -Path $InstallDir
 
 $exclude = @("data", "logs", "release", ".git", "node_modules\.cache")
 Get-ChildItem -Path $SourceRoot -Force | Where-Object {
@@ -220,12 +248,36 @@ New-ItemProperty -Path $RunKey -Name $TaskName -Value $StartupCommand -PropertyT
 
 $oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($oldTask) {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+}
+
+try {
+  $TaskAction = if ($TrayExecutable) {
+    New-ScheduledTaskAction -Execute $TrayExecutable -WorkingDirectory (Split-Path -Parent $TrayExecutable)
+  } else {
+    New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunScript`"" -WorkingDirectory $InstallDir
+  }
+  $TaskTrigger = New-ScheduledTaskTrigger -AtLogOn
+  $TaskPrincipal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Highest
+  $TaskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 365)
+  Register-ScheduledTask -TaskName $TaskName -Action $TaskAction -Trigger $TaskTrigger -Principal $TaskPrincipal -Settings $TaskSettings -Description "Inicia WTF ICG Host automaticamente al iniciar Windows." -Force | Out-Null
+} catch {
+  Write-Warning "No se pudo registrar la tarea de inicio de Windows. Se conserva el inicio por registro. Detalle: $($_.Exception.Message)"
+}
+
+$CommonStartup = [Environment]::GetFolderPath("CommonStartup")
+if ($CommonStartup) {
+  $StartupShortcut = Join-Path $CommonStartup "WTF ICG Host.cmd"
+  @"
+@echo off
+start "" $StartupCommand
+"@ | Set-Content -LiteralPath $StartupShortcut -Encoding ASCII
 }
 
 if ($StartNow) {
   if ($TrayExecutable) {
-    Start-Process -FilePath $TrayExecutable -WindowStyle Hidden
+    Start-Process -FilePath $TrayExecutable
   } else {
     Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $RunScript) -WindowStyle Hidden
   }
