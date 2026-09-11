@@ -839,67 +839,48 @@ ORDER BY FechaCierre DESC;`;
 async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
   const days = Math.max(1, Math.round(Number(config.icgConsumptionLookbackDays || 30)));
   const sql = `
-DECLARE @LineTable sysname = CASE
-  WHEN OBJECT_ID('TIQUETSLIN','U') IS NOT NULL THEN 'TIQUETSLIN'
-  WHEN OBJECT_ID('TICKETLIN','U') IS NOT NULL THEN 'TICKETLIN'
-  ELSE NULL
-END;
-
-IF @LineTable IS NOT NULL
+IF OBJECT_ID('TIQUETSCONSUMO','U') IS NOT NULL
 BEGIN
-  DECLARE @HasHora bit = CASE WHEN COL_LENGTH(@LineTable, 'HORA') IS NULL THEN 0 ELSE 1 END;
-  DECLARE @HasDescripcion bit = CASE WHEN COL_LENGTH(@LineTable, 'DESCRIPCION') IS NULL THEN 0 ELSE 1 END;
-  DECLARE @HasReferencia bit = CASE WHEN COL_LENGTH(@LineTable, 'REFERENCIA') IS NULL THEN 0 ELSE 1 END;
-  DECLARE @HasCodAlmacen bit = CASE WHEN COL_LENGTH(@LineTable, 'CODALMACEN') IS NULL THEN 0 ELSE 1 END;
-  DECLARE @HasFo bit = CASE WHEN COL_LENGTH(@LineTable, 'FO') IS NULL THEN 0 ELSE 1 END;
-  DECLARE @DateExpr nvarchar(max) = CASE
-    WHEN @HasHora = 1 THEN 'COALESCE(TRY_CONVERT(datetime,l.HORA), TRY_CONVERT(datetime,c.HORAFIN), TRY_CONVERT(datetime,c.FECHA), GETDATE())'
-    ELSE 'COALESCE(TRY_CONVERT(datetime,c.HORAFIN), TRY_CONVERT(datetime,c.FECHA), GETDATE())'
-  END;
-  DECLARE @FoExpr nvarchar(max) = CASE
-    WHEN @HasFo = 1 THEN 'ISNULL(CAST(l.FO AS varchar(30)),'''')'
-    ELSE 'ISNULL(CAST(c.FO AS varchar(30)),'''')'
-  END;
-  DECLARE @JoinExpr nvarchar(max) = CASE
-    WHEN @HasFo = 1 THEN 'c.FO=l.FO AND c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N'
-    ELSE 'c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N'
-  END;
-  DECLARE @DescExpr nvarchar(max) = CASE
-    WHEN @HasDescripcion = 1 THEN 'COALESCE(NULLIF(l.DESCRIPCION,''''), NULLIF(a.DESCRIPCION,''''), '''')'
-    ELSE 'COALESCE(NULLIF(a.DESCRIPCION,''''), '''')'
-  END;
-  DECLARE @RefExpr nvarchar(max) = CASE
-    WHEN @HasReferencia = 1 THEN 'COALESCE(NULLIF(l.REFERENCIA,''''), NULLIF(a.REFERENCIA,''''), '''')'
-    ELSE 'COALESCE(NULLIF(a.REFERENCIA,''''), '''')'
-  END;
-  DECLARE @WarehouseExpr nvarchar(max) = CASE
-    WHEN @HasCodAlmacen = 1 THEN 'ISNULL(l.CODALMACEN,'''')'
-    ELSE ''''''
-  END;
-  DECLARE @Sql nvarchar(max) = N'
-SELECT
-  ' + @FoExpr + N' AS FO,
-  ISNULL(CAST(l.SERIE AS varchar(30)),'''') AS SERIE,
-  ISNULL(CAST(l.NUMERO AS varchar(30)),'''') AS NUMERO,
-  ISNULL(CAST(l.N AS varchar(30)),'''') AS N,
-  ISNULL(CAST(l.NUMLINEA AS varchar(30)),'''') AS NUMLINEA,
-  ISNULL(CAST(l.CODARTICULO AS varchar(30)),'''') AS CODARTICULO,
-  ISNULL(CAST(l.UNIDADES AS varchar(30)),'''') AS CONSUMO,
-  ' + @WarehouseExpr + N' AS CODALMACEN,
-  '''' AS CODMACRO,
-  ISNULL(CONVERT(varchar(10), ' + @DateExpr + N', 120),'''') AS FECHA,
-  ISNULL(CONVERT(varchar(19), ' + @DateExpr + N', 120),'''') AS FECHAHORA,
-  ' + @DescExpr + N' AS DESCRIPCION,
-  ' + @RefExpr + N' AS REFERENCIA,
-  ISNULL(CAST(a.USASTOCKS AS varchar(10)),'''') AS USASTOCKS
-FROM ' + QUOTENAME(@LineTable) + N' l
-LEFT JOIN TIQUETSCAB c ON ' + @JoinExpr + N'
-LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(l.CODARTICULO AS varchar(30))
-WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= ''19000101'')
-  AND CONVERT(date, ' + @DateExpr + N') >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
-  AND ISNULL(l.UNIDADES,0) <> 0
-ORDER BY ' + @DateExpr + N' DESC, l.SERIE DESC, l.NUMERO DESC, l.N DESC, l.NUMLINEA DESC;';
-  EXEC sp_executesql @Sql;
+  WITH consumo AS (
+    SELECT
+      ISNULL(CAST(tc.FO AS varchar(30)),'') AS FO,
+      ISNULL(CAST(tc.SERIE AS varchar(30)),'') AS SERIE,
+      ISNULL(CAST(tc.NUMERO AS varchar(30)),'') AS NUMERO,
+      ISNULL(CAST(tc.N AS varchar(30)),'') AS N,
+      ISNULL(CAST(tc.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
+      ISNULL(CAST(tc.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
+      ISNULL(tc.CODALMACEN,'') AS CODALMACEN,
+      ISNULL(CAST(tc.CODMACRO AS varchar(30)),'') AS CODMACRO,
+      MIN(COALESCE(TRY_CONVERT(datetime, tc.FECHAHORA), TRY_CONVERT(datetime, tc.FECHA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) AS FECHAHORA,
+      SUM(ISNULL(tc.CONSUMO,0)) AS CONSUMO,
+      MAX(ISNULL(a.DESCRIPCION,'')) AS DESCRIPCION,
+      MAX(ISNULL(a.REFERENCIA,'')) AS REFERENCIA,
+      MAX(ISNULL(CAST(a.USASTOCKS AS varchar(10)),'')) AS USASTOCKS
+    FROM TIQUETSCONSUMO tc
+    LEFT JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
+    LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tc.CODARTICULO AS varchar(30))
+    WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+      AND CONVERT(date, COALESCE(TRY_CONVERT(datetime, tc.FECHAHORA), TRY_CONVERT(datetime, tc.FECHA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
+    GROUP BY tc.FO, tc.SERIE, tc.NUMERO, tc.N, tc.NUMLINEA, tc.CODARTICULO, tc.CODALMACEN, tc.CODMACRO
+  )
+  SELECT
+    FO,
+    SERIE,
+    NUMERO,
+    N,
+    NUMLINEA,
+    CODARTICULO,
+    ISNULL(CAST(CONSUMO AS varchar(30)),'') AS CONSUMO,
+    CODALMACEN,
+    CODMACRO,
+    ISNULL(CONVERT(varchar(10),FECHAHORA,120),'') AS FECHA,
+    ISNULL(CONVERT(varchar(19),FECHAHORA,120),'') AS FECHAHORA,
+    DESCRIPCION,
+    REFERENCIA,
+    USASTOCKS
+  FROM consumo
+  WHERE ISNULL(CONSUMO,0) <> 0
+  ORDER BY FECHAHORA DESC, SERIE DESC, NUMERO DESC, N DESC, NUMLINEA DESC, CODARTICULO DESC, CODALMACEN DESC;
 END
 ELSE
 BEGIN

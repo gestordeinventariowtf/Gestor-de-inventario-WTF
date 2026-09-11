@@ -125,8 +125,9 @@ const recentConsumptionPreviewBody = adapterSource.slice(
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
-assert.ok(/TIQUETSLIN/i.test(recentConsumptionPreviewBody) && /TICKETLIN/i.test(recentConsumptionPreviewBody), "La cola del Host debe leer lineas de venta ICG, no desglose de consumos WTF/Mise.");
-assert.ok(!/FROM\s+TIQUETSCONSUMO/i.test(recentConsumptionPreviewBody), "La cola visible del Host no debe alimentarse desde TIQUETSCONSUMO porque esa tabla puede traer consumos/desgloses internos.");
+assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(recentConsumptionPreviewBody), "La cola visible del Host debe alimentarse exclusivamente desde TIQUETSCONSUMO.");
+assert.ok(!/TIQUETSLIN|TICKETLIN|TIQUETLIN/i.test(recentConsumptionPreviewBody), "La cola del Host no debe usar TIQUETLIN, TIQUETSLIN ni TICKETLIN como fuente activa.");
+assert.ok(/GROUP BY\s+tc\.FO,\s*tc\.SERIE,\s*tc\.NUMERO,\s*tc\.N,\s*tc\.NUMLINEA,\s*tc\.CODARTICULO,\s*tc\.CODALMACEN/i.test(recentConsumptionPreviewBody), "TIQUETSCONSUMO debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 
 const catalogSyncBody = adapterSource.slice(
