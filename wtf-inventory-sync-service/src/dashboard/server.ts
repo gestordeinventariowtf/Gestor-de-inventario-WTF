@@ -107,6 +107,7 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     quarantineDir: config.quarantineDir,
     autoApplyIcgBackup: config.autoApplyIcgBackup,
     icgBackupPath: config.icgBackupPath,
+    icgSqlDataPath: config.icgSqlDataPath,
     icgBackupPollSeconds: config.icgBackupPollSeconds,
     icgConsumptionLookbackDays: config.icgConsumptionLookbackDays,
     sqlServer: config.sqlServer,
@@ -329,7 +330,7 @@ function renderDashboard(): string {
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function refreshAll(){
-      msg.textContent=' Buscando movimientos de consumo nuevos en ICG Local...';
+      msg.textContent=' Actualizando catalogos, referencias, stocks y precios desde ICG Local...';
       const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
       const j=await r.json();
       const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
@@ -353,7 +354,7 @@ function renderDashboard(): string {
     function renderConfig(cfg){
       cfgWebApp.textContent=cfg.webAppUrl||'';
       cfgFirebase.textContent=((cfg.firebaseProjectId||'')+' / '+(cfg.firebaseCollection||'')+' / '+(cfg.firebaseDocumentId||'')).trim();
-      cfgIcgDb.textContent=(cfg.icgLiveDatabaseName||cfg.icgAuditDbName||'')+' - '+(cfg.icgBackupPath||'');
+      cfgIcgDb.textContent=(cfg.icgLiveDatabaseName||cfg.icgAuditDbName||'')+' - '+(cfg.icgSqlDataPath||cfg.icgBackupPath||'');
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);

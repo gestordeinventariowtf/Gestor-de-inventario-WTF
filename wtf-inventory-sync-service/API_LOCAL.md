@@ -30,13 +30,20 @@ POST /api/refresh-all
 
 Ejecuta la lectura de la Base de Datos ICG Local y actualiza la web.
 
-## Procesar Base de Datos ICG Local
+## Actualizar Articulos ICG
 
 ```text
 POST /api/sync-icg-backup
 ```
 
-Lee la base local configurada, calcula cierres, ventas, articulos y consumos, y sincroniza la informacion hacia WTF Sistema Web.
+Lee la base local activa `FRS_WTFOODVZL` y sincroniza hacia WTF Sistema Web solamente:
+
+- `ARTICULOS`
+- `REFERENCIAS`
+- `STOCKS`
+- `PRECIOSVENTA`
+
+Este endpoint no lee `TIQUETSCONSUMO`, no calcula consumos, no genera salidas y no aplica descuentos automaticos.
 
 ## Notas de seguridad
 

@@ -11,7 +11,7 @@ const logger = new Logger("./logs");
 let backupSyncInFlight = false;
 
 function icgSourceDatabaseName(): string {
-  return String(config.icgLiveDatabaseName || "").trim() || config.icgAuditDbName;
+  return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
 
 async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
@@ -26,7 +26,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
       skipped: 0,
       pending: 0,
       errors: [],
-      message: "La sincronizacion del backup ICG ya esta en curso."
+      message: "La actualizacion de catalogos ICG ya esta en curso."
     };
   }
   backupSyncInFlight = true;
@@ -37,8 +37,8 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
         await store.upsertMovement(movement);
       }
     }
-    await store.appendAudit({ accion: "icg_backup_sync", ...result });
-    await logger.write("icg.log", "Backup SQL ICG sincronizado", result);
+    await store.appendAudit({ accion: "icg_catalog_sync", ...result });
+    await logger.write("icg.log", "Catalogos SQL ICG sincronizados", result);
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -54,8 +54,8 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
       errors: [message],
       message
     };
-    await store.appendAudit({ accion: "icg_backup_sync_error", ...result });
-    await logger.error("Fallo en sincronizacion de backup SQL ICG", result);
+    await store.appendAudit({ accion: "icg_catalog_sync_error", ...result });
+    await logger.error("Fallo en actualizacion de catalogos SQL ICG", result);
     return result;
   } finally {
     backupSyncInFlight = false;
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
 
 function windowlessBackupPoll(): void {
   setInterval(() => {
-    syncIcgBackup().catch((error) => logger.error("Fallo en sincronizacion programada de backup SQL ICG", error instanceof Error ? error.message : error));
+    syncIcgBackup().catch((error) => logger.error("Fallo en actualizacion programada de catalogos SQL ICG", error instanceof Error ? error.message : error));
   }, config.icgBackupPollSeconds * 1000);
 }
 

@@ -11,20 +11,18 @@ const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
-  TiquetsLin: ["GUIDLINEA", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA"],
-  TicketLin: ["GUIDLINEA", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "DESCRIPCION", "UNIDADES", "PRECIO", "PRECIOIVA", "TOTAL", "REFERENCIA", "HORA", "FECHA", "TicketICG", "MovimientoICGId"],
-  TiquetsConsumo: ["MovimientoICGId", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO"],
-  Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioVentaSinImpuestos", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
+  TiquetsConsumo: ["MovimientoICGId", "PhysicalIcgKey", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO", "FECHA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS"],
+  Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioRestaurante", "PrecioAppsDelivery", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
   Kits: ["CODARTICULO", "LINEAKIT", "CODARTKIT", "REFERENCIA", "DESCRIPCIOKIT", "REFERENCIAKIT", "UNIDADES", "PRECIOUNIDAD", "TOTALLINEA"],
   Moviments: ["ID", "CODALMACENORIGEN", "CODALMACENDESTINO", "NUMSERIE", "CODARTICULO", "FECHA", "HORA", "TIPO", "UNIDADES", "SERIEDOC", "NUMDOC"],
   Stocks: ["CODARTICULO", "CODALMACEN", "STOCK", "PEDIDO", "ASERVIR", "MINIMO", "FECHAMODIFICADO"],
   ComprasCab: ["SERIE", "NUMERO", "N", "FECHA", "CODPROVEEDOR", "CODALMACEN", "SUFACTURA", "TOTALBRUTO", "TOTALNETO"],
   ComprasLin: ["SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "REFERENCIA", "DESCRIPCION", "UDSTOTAL", "PRECIO", "TOTAL", "CODALMACEN"],
-  PreciosVenta: ["CODARTICULO", "CodArticulo", "Referencia", "Descripcion", "CODFORMATO", "CodFormato", "IDTARIFAV", "VALOR", "Valor", "PRECIOVENTA", "PrecioVenta", "PRECIO", "Precio", "PVP", "PrecioDefecto", "_source", "_updatedAt"],
+  PreciosVenta: ["CODARTICULO", "CodArticulo", "CODFORMATO", "CodFormato", "IDTARIFAV", "TarifaNombre", "VALOR", "Valor", "_source", "_updatedAt"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"],
-  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "GUIDLINEA", "PhysicalIcgKey", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
 };
 
 const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
@@ -140,28 +138,21 @@ function icgTicketIdentityFromLine(line: Partial<IcgBackupConsumptionRow>): stri
   return [line.fo, line.serie, line.numero, line.n].map((part) => String(part || "").trim()).filter(Boolean).join("-");
 }
 
-function icgGuidLinea(line: Partial<IcgBackupConsumptionRow> | AnyRecord | undefined | null): string {
-  return firstText(line as AnyRecord, ["guidLinea", "GUIDLINEA", "GuidLinea", "Guidlinea", "guidlinea"]);
-}
-
-function icgStableTicketLineIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
-  const guidLinea = icgGuidLinea(line);
-  if (guidLinea) return `guidlinea|${normalizar(guidLinea)}`;
+function tiquetsConsumoPrimaryKey(line: Partial<IcgBackupConsumptionRow>): string {
   return [
-    String(line.fecha || fallbackDate || "").slice(0, 10),
     line.fo || "",
     line.serie || "",
     line.numero || "",
     line.n || "",
     line.numLinea || "",
-    line.codArticulo || "",
-    line.referencia || ""
+    line.codArticulo || ""
   ].map((part) => normalizar(part)).join("|");
 }
 
 function icgStableConsumptionIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
   return [
-    icgStableTicketLineIdentity(line, fallbackDate),
+    "tiquetsconsumo-v1",
+    tiquetsConsumoPrimaryKey(line),
     line.codAlmacen || ""
   ].map((part) => normalizar(part)).join("|");
 }
@@ -169,10 +160,10 @@ function icgStableConsumptionIdentity(line: Partial<IcgBackupConsumptionRow>, fa
 export function movementIcgIdFromLine(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
   const stableIdentity = icgStableConsumptionIdentity(line, fallbackDate);
   if (icgTicketIdentityFromLine(line) && line.numLinea && line.codArticulo) {
-    return quickHashText(["icg-line-stable-v2", stableIdentity].join("|"));
+    return quickHashText(["icg-consumo-stable-v1", stableIdentity].join("|"));
   }
   const existing = String(line.movimientoIcgId || "").trim();
-  return existing || quickHashText(["icg-line-stable-v2", stableIdentity].join("|"));
+  return existing || quickHashText(["icg-consumo-stable-v1", stableIdentity].join("|"));
 }
 
 function icgTicketIdentityFromConsumptionRow(row: AnyRecord): string {
@@ -215,43 +206,25 @@ function consumptionAuditKeyFromRow(row: AnyRecord): string {
 }
 
 export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string): string {
-  const guidLinea = icgGuidLinea(line);
-  if (guidLinea) {
-    return [
-      "icg-physical-guidlinea-v1",
-      normalizar(guidLinea),
-      targetKey(target),
-      normalizar(product)
-    ].join("|");
-  }
   return [
-    "icg-physical-v1",
+    "icg-physical-tiquetsconsumo-v1",
     normalizar(icgTicketIdentityFromLine(line)),
     normalizar(line.numLinea || ""),
     normalizar(line.codArticulo || ""),
-    normalizar(line.referencia || ""),
+    normalizar(line.codAlmacen || ""),
     targetKey(target),
     normalizar(product)
   ].join("|");
 }
 
 function consumptionPhysicalKeyFromRow(row: AnyRecord): string {
-  const guidLinea = icgGuidLinea(row);
-  if (guidLinea) {
-    return [
-      "icg-physical-guidlinea-v1",
-      normalizar(guidLinea),
-      targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
-      normalizar(bridgeWtfProduct(row))
-    ].join("|");
-  }
   const ticket = firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"]);
   return [
-    "icg-physical-v1",
+    "icg-physical-tiquetsconsumo-v1",
     normalizar(ticket),
     normalizar(firstText(row, ["NumLinea", "NUMLINEA"])),
     normalizar(bridgeCode(row)),
-    normalizar(bridgeReference(row)),
+    normalizar(firstText(row, ["CodAlmacen", "CODALMACEN"])),
     targetKey(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Modulo || ""),
     normalizar(bridgeWtfProduct(row))
   ].join("|");
@@ -354,16 +327,22 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     columns: DATASET_COLUMNS.Articulos,
     rows: []
   };
-  appState.icgFrontRestData.datasets.TiquetsLin = appState.icgFrontRestData.datasets.TiquetsLin || {
-    key: "TiquetsLin",
-    label: "Lineas tickets",
-    columns: DATASET_COLUMNS.TiquetsLin,
+  appState.icgFrontRestData.datasets.Referencias = appState.icgFrontRestData.datasets.Referencias || {
+    key: "Referencias",
+    label: "Codigos / referencias",
+    columns: DATASET_COLUMNS.Referencias,
     rows: []
   };
-  appState.icgFrontRestData.datasets.TicketLin = appState.icgFrontRestData.datasets.TicketLin || {
-    key: "TicketLin",
-    label: "TICKETLIN SQL",
-    columns: DATASET_COLUMNS.TicketLin,
+  appState.icgFrontRestData.datasets.Stocks = appState.icgFrontRestData.datasets.Stocks || {
+    key: "Stocks",
+    label: "Stocks",
+    columns: DATASET_COLUMNS.Stocks,
+    rows: []
+  };
+  appState.icgFrontRestData.datasets.TiquetsConsumo = appState.icgFrontRestData.datasets.TiquetsConsumo || {
+    key: "TiquetsConsumo",
+    label: "TIQUETSCONSUMO SQL",
+    columns: DATASET_COLUMNS.TiquetsConsumo,
     rows: []
   };
   appState.icgFrontRestData.datasets.PreciosVenta = appState.icgFrontRestData.datasets.PreciosVenta || {
@@ -417,99 +396,104 @@ function mergeBackupArticlesIntoIcgData(icg: AnyRecord, articles: AnyRecord[]): 
   });
 }
 
-function mergeBackupTicketLinesIntoIcgData(icg: AnyRecord, ticketLines: AnyRecord[]): void {
-  if (!Array.isArray(ticketLines) || !ticketLines.length) return;
-  const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "Lineas tickets", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
-  const currentSql = icg.datasets.TicketLin || { key: "TicketLin", label: "TICKETLIN SQL", columns: DATASET_COLUMNS.TicketLin, rows: [] };
-  const existingRows = Array.isArray(current.rows) ? current.rows : [];
-  const existingSqlRows = Array.isArray(currentSql.rows) ? currentSql.rows : [];
+function mergeLookupRowsIntoIcgData(icg: AnyRecord, key: string, rows: AnyRecord[], keyFields: string[], label: string): void {
+  if (!Array.isArray(rows) || !rows.length) return;
+  const columns = DATASET_COLUMNS[key] || [];
+  const current = icg.datasets[key] || { key, label, columns, rows: [] };
   const byKey = new Map<string, AnyRecord>();
-  function rowKey(row: AnyRecord): string {
-    const guidLinea = icgGuidLinea(row);
-    if (guidLinea) return `guidlinea|${normalizar(guidLinea)}`;
-    return [
-      firstText(row, ["FECHA", "Fecha", "fecha"]),
-      firstText(row, ["FO", "fo"]),
-      firstText(row, ["SERIE", "Serie", "serie"]),
-      firstText(row, ["NUMERO", "Numero", "numero"]),
-      firstText(row, ["N", "n"]),
-      firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
-      firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
-      firstText(row, ["REFERENCIA", "Referencia", "referencia"])
-    ].map((value) => normalizar(value)).join("|");
-  }
+  (Array.isArray(current.rows) ? current.rows : []).forEach((row: AnyRecord) => {
+    const rowKey = keyFields.map((field) => normalizar(row[field] ?? "")).join("|");
+    if (rowKey.replace(/\|/g, "")) byKey.set(rowKey, row);
+  });
+  rows.forEach((row) => {
+    const rowKey = keyFields.map((field) => normalizar(row[field] ?? "")).join("|");
+    if (!rowKey.replace(/\|/g, "")) return;
+    byKey.set(rowKey, Object.assign({}, byKey.get(rowKey) || {}, row, {
+      _source: "Base SQL ICG",
+      _updatedAt: new Date().toISOString()
+    }));
+  });
+  icg.datasets[key] = Object.assign({}, current, {
+    columns: Array.from(new Set([...(current.columns || []), ...columns, "_source", "_updatedAt"])),
+    rows: Array.from(byKey.values())
+  });
+}
+
+function consumptionSourceRowKey(row: AnyRecord): string {
+  return [
+    firstText(row, ["FO", "fo"]),
+    firstText(row, ["SERIE", "Serie", "serie"]),
+    firstText(row, ["NUMERO", "Numero", "numero"]),
+    firstText(row, ["N", "n"]),
+    firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
+    firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"])
+  ].map((value) => normalizar(value)).join("|");
+}
+
+function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fecha: string): AnyRecord {
+  const ticketIcg = icgTicketIdentityFromLine(line);
+  const sourcePhysicalKey = ["icg-consumo-source-v1", tiquetsConsumoPrimaryKey(line), line.codAlmacen || ""].map((part) => normalizar(part)).join("|");
+  return {
+    MovimientoICGId: movementIcgIdFromLine(line, fecha),
+    PhysicalIcgKey: sourcePhysicalKey,
+    FO: line.fo || "",
+    SERIE: line.serie || "",
+    NUMERO: line.numero || "",
+    N: line.n || "",
+    NUMLINEA: line.numLinea || "",
+    CODARTICULO: line.codArticulo || "",
+    CONSUMO: line.consumo ?? "",
+    CODALMACEN: line.codAlmacen || "",
+    CODMACRO: line.codMacro || "",
+    FECHA: line.fecha || fecha || "",
+    FECHAHORA: line.fechaHora || line.fecha || fecha || "",
+    DESCRIPCION: line.descripcion || "",
+    REFERENCIA: line.referencia || "",
+    USASTOCKS: "T",
+    TicketICG: ticketIcg,
+    _source: "TIQUETSCONSUMO SQL ICG",
+    _updatedAt: new Date().toISOString()
+  };
+}
+
+function mergeBackupTiquetsConsumoIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[], fecha: string): void {
+  if (!Array.isArray(sourceRows) || !sourceRows.length) return;
+  const current = icg.datasets.TiquetsConsumo || { key: "TiquetsConsumo", label: "TIQUETSCONSUMO SQL", columns: DATASET_COLUMNS.TiquetsConsumo, rows: [] };
+  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const byKey = new Map<string, AnyRecord>();
   existingRows.forEach((row: AnyRecord) => {
-    const key = rowKey(row);
+    const key = consumptionSourceRowKey(row);
     if (key.replace(/\|/g, "")) byKey.set(key, row);
   });
-  existingSqlRows.forEach((row: AnyRecord) => {
-    const key = rowKey(row);
-    if (key.replace(/\|/g, "")) byKey.set(key, row);
-  });
-  ticketLines.forEach((row) => {
-    const key = rowKey(row);
+  sourceRows.forEach((row) => {
+    const key = consumptionSourceRowKey(row);
     if (!key.replace(/\|/g, "")) return;
-    const ticketIcg = icgTicketIdentityFromLine({
-      fo: firstText(row, ["FO", "fo"]),
-      serie: firstText(row, ["SERIE", "Serie", "serie"]),
-      numero: firstText(row, ["NUMERO", "Numero", "numero"]),
-      n: firstText(row, ["N", "n"])
-    });
-    const movementId = movementIcgIdFromLine({
+    const line: Partial<IcgBackupConsumptionRow> = {
+      fecha: firstText(row, ["FECHA", "Fecha", "fecha"]),
+      fechaHora: firstText(row, ["FECHAHORA", "FechaHora", "fechaHora"]),
       fo: firstText(row, ["FO", "fo"]),
       serie: firstText(row, ["SERIE", "Serie", "serie"]),
       numero: firstText(row, ["NUMERO", "Numero", "numero"]),
       n: firstText(row, ["N", "n"]),
       numLinea: firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
-      guidLinea: icgGuidLinea(row),
       codArticulo: firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
       referencia: firstText(row, ["REFERENCIA", "Referencia", "referencia"]),
-      fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
-      fecha: firstText(row, ["FECHA", "Fecha", "fecha"])
-    }, firstText(row, ["FECHA", "Fecha", "fecha"]));
-    byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
-      TicketICG: ticketIcg,
-      MovimientoICGId: movementId,
-      _source: "TICKETLIN SQL ICG",
-      _updatedAt: new Date().toISOString()
-    }));
+      descripcion: firstText(row, ["DESCRIPCION", "Descripcion", "descripcion"]),
+      codAlmacen: firstText(row, ["CODALMACEN", "CodAlmacen", "codAlmacen"]),
+      codMacro: firstText(row, ["CODMACRO", "CodMacro", "codMacro"]),
+      consumo: parseNumber(row.CONSUMO ?? row.Consumo ?? row.consumo)
+    };
+    byKey.set(key, Object.assign({}, byKey.get(key) || {}, consumptionRowFromBackupLine(line, fecha), row));
   });
   const mergedRows = Array.from(byKey.values()).sort((a, b) => {
-    const ticketA = [a.FECHA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
-    const ticketB = [b.FECHA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
+    const ticketA = [a.FECHA || "", a.FECHAHORA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
+    const ticketB = [b.FECHA || "", b.FECHAHORA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
     return String(ticketB).localeCompare(String(ticketA), undefined, { numeric: true });
   });
-  icg.datasets.TiquetsLin = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsLin, "TicketICG", "MovimientoICGId"])),
+  icg.datasets.TiquetsConsumo = Object.assign({}, current, {
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsConsumo, "TicketICG", "_source", "_updatedAt"])),
     rows: mergedRows
   });
-  icg.datasets.TicketLin = Object.assign({}, currentSql, {
-    columns: Array.from(new Set([...(currentSql.columns || []), ...DATASET_COLUMNS.TicketLin])),
-    rows: mergedRows
-  });
-  const articles = icg.datasets.Articulos;
-  if (!articles || !Array.isArray(articles.rows)) return;
-  const latestPriceByCode = new Map<string, number>();
-  ticketLines.forEach((row) => {
-    const code = normalizar(bridgeCode(row));
-    const price = parseNumber(row.PRECIO ?? row.Precio);
-    if (code && price > 0) latestPriceByCode.set(code, price);
-  });
-  articles.rows = articles.rows.map((row: AnyRecord) => {
-    const code = normalizar(bridgeCode(row));
-    const price = code ? latestPriceByCode.get(code) : 0;
-    if (!(price && price > 0) || parseNumber(row.PrecioVentaSinImpuestos || row.PrecioVenta || row.PRECIOVENTA) > 0) return row;
-    return Object.assign({}, row, {
-      PrecioVentaSinImpuestos: price,
-      PrecioVenta: price,
-      PRECIOVENTA: price,
-      Precio: price,
-      PRECIO: price,
-      _salePriceSource: "TICKETLIN SQL ICG",
-      _salePriceUpdatedAt: new Date().toISOString()
-    });
-  });
-  articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO"])));
 }
 
 function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[]): void {
@@ -526,6 +510,10 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     if (key.replace(/\|/g, "")) byKey.set(key, row);
   });
   salePrices.forEach((row) => {
+    const tarifa = normalizar(row.IDTARIFAV || row.IDTarifaV || "");
+    if (tarifa !== "1" && tarifa !== "2") return;
+    const price = parseNumber(row.VALOR ?? row.Valor);
+    if (!(price > 0)) return;
     const key = [
       row.CodArticulo || row.CODARTICULO || "",
       row.CodFormato || row.CODFORMATO || "",
@@ -533,74 +521,52 @@ function mergeBackupSalePricesIntoIcgData(icg: AnyRecord, salePrices: AnyRecord[
     ].map((value) => normalizar(value)).join("|");
     if (!key.replace(/\|/g, "")) return;
     byKey.set(key, Object.assign({}, byKey.get(key) || {}, row, {
+      TarifaNombre: tarifa === "1" ? "Precio Restaurante" : "Precio APPS Delivery",
       _source: row._source || "PRECIOSVENTA SQL ICG",
       _updatedAt: new Date().toISOString()
     }));
   });
   icg.datasets.PreciosVenta = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta, "CodArticulo", "CodFormato", "Valor", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP", "PrecioDefecto", "_source", "_updatedAt"])),
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.PreciosVenta])),
     rows: Array.from(byKey.values()).sort((a, b) => String(a.CodArticulo || a.CODARTICULO || "").localeCompare(String(b.CodArticulo || b.CODARTICULO || ""), undefined, { numeric: true }))
   });
 
-  const bestPriceByCode = new Map<string, number>();
-  Array.from(byKey.values()).forEach((row) => {
+  const priceByCode = new Map<string, { restaurant?: number; apps?: number }>();
+  Array.from(byKey.values())
+    .sort((a, b) => parseNumber(a.CODFORMATO || a.CodFormato) - parseNumber(b.CODFORMATO || b.CodFormato))
+    .forEach((row) => {
     const code = normalizar(bridgeCode(row));
-    const price = parseNumber(row.VALOR ?? row.Valor ?? row.Precio ?? row.PRECIO ?? row.PrecioVenta ?? row.PRECIOVENTA);
+    const tariff = normalizar(row.IDTARIFAV || row.IDTarifaV || "");
+    const price = parseNumber(row.VALOR ?? row.Valor);
     if (!code || !(price > 0)) return;
-    const previous = bestPriceByCode.get(code) || 0;
-    if (price > previous) bestPriceByCode.set(code, price);
+    const currentPrices = priceByCode.get(code) || {};
+    if (tariff === "1" && currentPrices.restaurant === undefined) currentPrices.restaurant = price;
+    if (tariff === "2" && currentPrices.apps === undefined) currentPrices.apps = price;
+    priceByCode.set(code, currentPrices);
   });
   const articles = icg.datasets.Articulos;
   if (!articles || !Array.isArray(articles.rows)) return;
   articles.rows = articles.rows.map((row: AnyRecord) => {
     const code = normalizar(bridgeCode(row));
-    const price = code ? bestPriceByCode.get(code) : 0;
-    if (!(price && price > 0)) return row;
+    const prices = code ? priceByCode.get(code) : null;
+    if (!prices || (!(prices.restaurant && prices.restaurant > 0) && !(prices.apps && prices.apps > 0))) return row;
+    const restaurantPrice = prices.restaurant ?? "";
+    const appsPrice = prices.apps ?? "";
+    const legacyPrice = prices.restaurant ?? prices.apps ?? "";
     return Object.assign({}, row, {
-      PrecioVentaSinImpuestos: price,
-      PrecioVenta: price,
-      PRECIOVENTA: price,
-      Precio: price,
-      PRECIO: price,
-      PVP: price,
+      PrecioVentaSinImpuestos: legacyPrice,
+      PrecioRestaurante: restaurantPrice,
+      PrecioAppsDelivery: appsPrice,
+      PrecioVenta: legacyPrice,
+      PRECIOVENTA: legacyPrice,
+      Precio: legacyPrice,
+      PRECIO: legacyPrice,
+      PVP: legacyPrice,
       _salePriceSource: "PRECIOSVENTA SQL ICG",
       _salePriceUpdatedAt: new Date().toISOString()
     });
   });
-  articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])));
-}
-
-function salePriceRowsFromTicketLines(ticketLines: AnyRecord[]): AnyRecord[] {
-  const byCode = new Map<string, AnyRecord>();
-  (Array.isArray(ticketLines) ? ticketLines : []).forEach((row) => {
-    const code = firstText(row, ["CODARTICULO", "CodArticulo", "Codigo", "CODIGO"]);
-    if (!code) return;
-    const price = parseNumber(firstText(row, ["PRECIO", "Precio", "PRECIOIVA", "PrecioIva"]));
-    if (!(price > 0)) return;
-    const key = normalizar(code);
-    const currentPrice = parseNumber(byCode.get(key)?.Valor || byCode.get(key)?.VALOR || 0);
-    if (currentPrice > 0 && currentPrice >= price) return;
-    byCode.set(key, {
-      CODARTICULO: code,
-      CodArticulo: code,
-      CODFORMATO: "",
-      CodFormato: "",
-      IDTARIFAV: "TICKETLIN",
-      VALOR: price,
-      Valor: price,
-      PRECIO: price,
-      Precio: price,
-      PRECIOVENTA: price,
-      PrecioVenta: price,
-      PVP: price,
-      Referencia: firstText(row, ["REFERENCIA", "Referencia"]),
-      Descripcion: firstText(row, ["DESCRIPCION", "Descripcion"]),
-      PrecioDefecto: "Si",
-      _source: "TICKETLIN SQL ICG",
-      _updatedAt: new Date().toISOString()
-    });
-  });
-  return Array.from(byCode.values());
+  articles.columns = Array.from(new Set((articles.columns || []).map((column: string) => column === "PCoste" ? "PrecioVentaSinImpuestos" : column).concat(["PrecioVentaSinImpuestos", "PrecioRestaurante", "PrecioAppsDelivery", "PrecioVenta", "PRECIOVENTA", "Precio", "PRECIO", "PVP"])));
 }
 
 function documentUrl(config: ServiceConfig): string {
@@ -772,15 +738,6 @@ async function runSql(config: ServiceConfig, database: string, sql: string): Pro
   return stdout || "";
 }
 
-async function resolveIcgTicketLineTable(config: ServiceConfig, databaseName: string): Promise<string> {
-  const sql = "SELECT CASE WHEN OBJECT_ID('dbo.TICKETLIN','U') IS NOT NULL THEN 'TICKETLIN' WHEN OBJECT_ID('dbo.TIQUETSLIN','U') IS NOT NULL THEN 'TIQUETSLIN' ELSE '' END AS TableName;";
-  const row = parseSqlRows(await runSql(config, databaseName, sql))[0] || {};
-  const tableName = String(row.TableName || "").trim().toUpperCase();
-  if (tableName === "TICKETLIN") return "TICKETLIN";
-  if (tableName === "TIQUETSLIN") return "TIQUETSLIN";
-  throw new Error("No se encontro dbo.TICKETLIN ni dbo.TIQUETSLIN en la Base de Datos ICG Local.");
-}
-
 function quoteSql(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -818,7 +775,7 @@ function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyReco
       Pagos: Number(parseNumber(row.Pagos).toFixed(2)),
       Propina: Number(parseNumber(row.Propina).toFixed(2)),
       Estado: row.Estado || "Calculado desde Base de Datos ICG Local",
-      Observacion: row.Observacion || "Generado desde TIQUETSCAB, TIQUETSLIN y pagos de la base local."
+      Observacion: row.Observacion || "Generado desde TIQUETSCAB, TIQUETSCONSUMO y pagos de la base local."
     };
   }).filter((row) => row.FechaCierre);
 }
@@ -837,7 +794,7 @@ function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyR
   return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || "")));
 }
 
-async function readBackupDailyClosures(config: ServiceConfig, databaseName: string, ticketLineTable: string): Promise<AnyRecord[]> {
+async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
   const paymentsExists = parseSqlRows(await runSql(config, databaseName, "SELECT CASE WHEN OBJECT_ID('TIQUETSPAG','U') IS NULL THEN 0 ELSE 1 END AS Existe;"))[0]?.Existe === "1";
   const paymentsJoin = paymentsExists
     ? "LEFT JOIN (SELECT FO,SERIE,NUMERO,N,SUM(IMPORTE) AS PAGOS FROM TIQUETSPAG GROUP BY FO,SERIE,NUMERO,N) p ON p.FO=c.FO AND p.SERIE=c.SERIE AND p.NUMERO=c.NUMERO AND p.N=c.N"
@@ -858,7 +815,7 @@ WITH cab AS (
 ),
 lineas AS (
   SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
-  FROM ${ticketLineTable}
+  FROM TIQUETSCONSUMO
   GROUP BY FO,SERIE,NUMERO,N
 )
 SELECT
@@ -880,7 +837,7 @@ ORDER BY FechaCierre DESC;`;
 }
 
 function sourceDatabaseName(config: ServiceConfig): string {
-  return String(config.icgLiveDatabaseName || "").trim() || config.icgAuditDbName;
+  return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
 
 function auditBackupConfig(config: ServiceConfig): ServiceConfig {
@@ -913,15 +870,16 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   rows: IcgBackupConsumptionRow[];
   tableCounts: Record<string, number>;
   articles: AnyRecord[];
+  references: AnyRecord[];
+  stocks: AnyRecord[];
   salePrices: AnyRecord[];
-  ticketLines: AnyRecord[];
+  tiquetsConsumoRows: AnyRecord[];
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
-  const ticketLineTable = await resolveIcgTicketLineTable(config, databaseName);
-  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), MAX(Fecha), 120) AS Fecha FROM (SELECT MAX(CONVERT(date,c.FECHA)) AS Fecha FROM TIQUETSCONSUMO tc JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101') UNION ALL SELECT MAX(CONVERT(date,FECHA)) AS Fecha FROM TIQUETSCAB WHERE (FECHAANULACION IS NULL OR FECHAANULACION <= '19000101')) q;"))[0]?.Fecha;
-  const closures = await readBackupDailyClosures(config, databaseName, ticketLineTable).catch(() => []);
-  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('TIQUETSCAB','TICKETLIN','TIQUETSLIN','TIQUETSCONSUMO','ARTICULOS','REFERENCIAS','KITS','STOCKS','MOVIMENTS','PRECIOSVENTA') GROUP BY t.name;";
+  const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), CONVERT(date, GETDATE()), 120) AS Fecha;"))[0]?.Fecha;
+  const closures: AnyRecord[] = [];
+  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA') GROUP BY t.name;";
   const articlesSql = `
 SELECT
   CAST(CODARTICULO AS varchar(30)) AS CodArticulo,
@@ -930,7 +888,6 @@ SELECT
   ISNULL(CAST(DPTO AS varchar(30)),'') AS Dpto,
   ISNULL(CAST(SECCION AS varchar(30)),'') AS Seccion,
   ISNULL(CAST(UNIDADES AS varchar(30)),'') AS Unidades,
-  '' AS PrecioVentaSinImpuestos,
   ISNULL(UNIDADMEDIDA,'') AS UnidadMedida,
   ISNULL(CAST(SECOMPRA AS varchar(10)),'') AS SeCompra,
   ISNULL(CAST(SEVENDE AS varchar(10)),'') AS SeVende,
@@ -943,6 +900,25 @@ SELECT
   ISNULL(CONVERT(varchar(19),FECHAMODIFICADO,120),'') AS FechaModificado
 FROM ARTICULOS
 ORDER BY CODARTICULO;`;
+  const referencesSql = `
+SELECT
+  ISNULL(REFERENCIA,'') AS REFERENCIA,
+  ISNULL(CODIGO,'') AS CODIGO,
+  ISNULL(CAST(TIPOREF AS varchar(30)),'') AS TIPOREF,
+  ISNULL(CAST(CODPROVEEDOR AS varchar(30)),'') AS CODPROVEEDOR
+FROM REFERENCIAS
+ORDER BY REFERENCIA, CODIGO;`;
+  const stocksSql = `
+SELECT
+  CAST(CODARTICULO AS varchar(30)) AS CODARTICULO,
+  ISNULL(CODALMACEN,'') AS CODALMACEN,
+  ISNULL(CAST(STOCK AS varchar(30)),'') AS STOCK,
+  ISNULL(CAST(PEDIDO AS varchar(30)),'') AS PEDIDO,
+  ISNULL(CAST(ASERVIR AS varchar(30)),'') AS ASERVIR,
+  ISNULL(CAST(MINIMO AS varchar(30)),'') AS MINIMO,
+  ISNULL(CONVERT(varchar(19),FECHAMODIFICADO,120),'') AS FECHAMODIFICADO
+FROM STOCKS
+ORDER BY CODARTICULO, CODALMACEN;`;
   const salePricesSql = `
 IF OBJECT_ID('PRECIOSVENTA','U') IS NOT NULL
 BEGIN
@@ -952,10 +928,13 @@ BEGIN
     ISNULL(CAST(CODFORMATO AS varchar(30)),'') AS CODFORMATO,
     ISNULL(CAST(CODFORMATO AS varchar(30)),'') AS CodFormato,
     ISNULL(CAST(IDTARIFAV AS varchar(30)),'') AS IDTARIFAV,
+    CASE WHEN IDTARIFAV = 1 THEN 'Precio Restaurante' WHEN IDTARIFAV = 2 THEN 'Precio APPS Delivery' ELSE '' END AS TarifaNombre,
     ISNULL(CAST(VALOR AS varchar(30)),'') AS VALOR,
     ISNULL(CAST(VALOR AS varchar(30)),'') AS Valor
   FROM PRECIOSVENTA
-  WHERE VALOR IS NOT NULL AND VALOR > 0
+  WHERE IDTARIFAV IN (1,2)
+    AND VALOR IS NOT NULL AND VALOR > 0
+    AND (DESCATALOGADO IS NULL OR DESCATALOGADO = 0)
   ORDER BY CODARTICULO, IDTARIFAV, CODFORMATO;
 END
 ELSE
@@ -966,106 +945,40 @@ BEGIN
     CAST('' AS varchar(30)) AS CODFORMATO,
     CAST('' AS varchar(30)) AS CodFormato,
     CAST('' AS varchar(30)) AS IDTARIFAV,
+    CAST('' AS varchar(40)) AS TarifaNombre,
     CAST('' AS varchar(30)) AS VALOR,
     CAST('' AS varchar(30)) AS Valor;
 END`;
-  const lookbackDays = Math.max(1, Math.round(config.icgConsumptionLookbackDays || 30));
-  const ticketLinesSql = `
-DECLARE @hasta date=ISNULL(TRY_CONVERT(date,'${quoteSql(latest || "")}'), CONVERT(date, GETDATE()));
-DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
-SELECT
-  ISNULL(CAST(l.GUIDLINEA AS varchar(80)),'') AS GUIDLINEA,
-  CAST(l.FO AS varchar(30)) AS FO,
-  CAST(l.SERIE AS varchar(30)) AS SERIE,
-  CAST(l.NUMERO AS varchar(30)) AS NUMERO,
-  CAST(l.N AS varchar(30)) AS N,
-  CAST(l.NUMLINEA AS varchar(30)) AS NUMLINEA,
-  CAST(l.CODARTICULO AS varchar(30)) AS CODARTICULO,
-  ISNULL(a.DESCRIPCION, ISNULL(l.DESCRIPCION,'')) AS DESCRIPCION,
-  ISNULL(CAST(l.UNIDADES AS varchar(30)),'') AS UNIDADES,
-  ISNULL(CAST(l.PRECIO AS varchar(30)),'') AS PRECIO,
-  ISNULL(CAST(l.PRECIOIVA AS varchar(30)),'') AS PRECIOIVA,
-  ISNULL(CAST(l.TOTAL AS varchar(30)),'') AS TOTAL,
-  ISNULL(a.REFERENCIA,'') AS REFERENCIA,
-  ISNULL(CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120),'') AS HORA,
-  CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS FECHA
-FROM ${ticketLineTable} l
-JOIN TIQUETSCAB c ON c.FO=l.FO AND c.SERIE=l.SERIE AND c.NUMERO=l.NUMERO AND c.N=l.N
-LEFT JOIN ARTICULOS a ON a.CODARTICULO=l.CODARTICULO
-WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta
-  AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-ORDER BY c.FECHA DESC,l.SERIE,l.NUMERO,l.N,l.NUMLINEA;`;
   const countRows = parseSqlRows(await runSql(config, databaseName, countSql));
   const articles = parseSqlRows(await runSql(config, databaseName, articlesSql));
+  const references = await runSql(config, databaseName, referencesSql).then(parseSqlRows).catch(() => []);
+  const stocks = await runSql(config, databaseName, stocksSql).then(parseSqlRows).catch(() => []);
   const salePrices = await runSql(config, databaseName, salePricesSql)
-    .then((raw) => parseSqlRows(raw).filter((row) => parseNumber(row.VALOR || row.Valor || row.PRECIO || row.Precio || row.PRECIOVENTA || row.PrecioVenta) > 0))
+    .then((raw) => parseSqlRows(raw).filter((row) => ["1", "2"].includes(normalizar(row.IDTARIFAV || row.IDTarifaV || "")) && parseNumber(row.VALOR || row.Valor) > 0))
     .catch(() => []);
-  const ticketLines = parseSqlRows(await runSql(config, databaseName, ticketLinesSql));
+  const tiquetsConsumoRows: AnyRecord[] = [];
   if (!latest) {
     return {
       fecha: "",
       rows: [],
       tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
       articles,
+      references,
+      stocks,
       salePrices,
-      ticketLines,
+      tiquetsConsumoRows,
       closures
     };
   }
-  const dataSql = `
-DECLARE @hasta date='${quoteSql(latest)}';
-DECLARE @desde date=DATEADD(day, -(${lookbackDays} - 1), @hasta);
-SELECT
-  CONVERT(varchar(10), CONVERT(date,c.FECHA), 120) AS fecha,
-  CONVERT(varchar(19), DATEADD(SECOND, DATEDIFF(SECOND, CAST('00:00:00' AS time), COALESCE(TRY_CONVERT(time,l.HORA), TRY_CONVERT(time,c.HORAFIN), TRY_CONVERT(time,c.HORAINI), CAST('00:00:00' AS time))), CONVERT(datetime, CONVERT(date,c.FECHA))), 120) AS fechaHora,
-  ISNULL(CAST(l.GUIDLINEA AS varchar(80)),'') AS guidLinea,
-  CAST(tc.FO AS varchar(30)) AS fo,
-  CAST(tc.SERIE AS varchar(30)) AS serie,
-  CAST(tc.NUMERO AS varchar(30)) AS numero,
-  CAST(tc.N AS varchar(30)) AS n,
-  CAST(tc.NUMLINEA AS varchar(30)) AS numLinea,
-  CAST(tc.CODARTICULO AS varchar(30)) AS codArticulo,
-  ISNULL(a.REFERENCIA,'') AS referencia,
-  ISNULL(a.DESCRIPCION,'') AS descripcion,
-  ISNULL(tc.CODALMACEN,'') AS codAlmacen,
-  CAST(tc.CONSUMO AS decimal(18,4)) AS consumo,
-  CAST(1 AS int) AS lineas
-FROM TIQUETSCONSUMO tc
-JOIN TIQUETSCAB c ON c.FO=tc.FO AND c.SERIE=tc.SERIE AND c.NUMERO=tc.NUMERO AND c.N=tc.N
-LEFT JOIN ${ticketLineTable} l ON l.FO=tc.FO AND l.SERIE=tc.SERIE AND l.NUMERO=tc.NUMERO AND l.N=tc.N AND l.NUMLINEA=tc.NUMLINEA
-LEFT JOIN ARTICULOS a ON a.CODARTICULO=tc.CODARTICULO
-WHERE CONVERT(date,c.FECHA) >= @desde AND CONVERT(date,c.FECHA) <= @hasta AND (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-  AND ISNULL(tc.CONSUMO,0) > 0
-ORDER BY c.FECHA, fechaHora, tc.FO,tc.SERIE,tc.NUMERO,tc.N,tc.NUMLINEA,tc.CODARTICULO,tc.CODALMACEN;`;
-  const sqlRows = parseSqlRows(await runSql(config, databaseName, dataSql));
   return {
     fecha: latest,
-    rows: sqlRows.map((row) => {
-      const mapped = {
-      fecha: String(row.fecha || latest),
-      fechaHora: String(row.fechaHora || ""),
-      fo: String(row.fo || ""),
-      serie: String(row.serie || ""),
-      numero: String(row.numero || ""),
-      n: String(row.n || ""),
-      numLinea: String(row.numLinea || ""),
-      guidLinea: String(row.guidLinea || row.GUIDLINEA || ""),
-      tipoMovimiento: (parseNumber(row.consumo) < 0 ? "devolucion" : "venta") as "devolucion" | "venta",
-      codArticulo: String(row.codArticulo || ""),
-      referencia: String(row.referencia || ""),
-      descripcion: String(row.descripcion || ""),
-      codAlmacen: String(row.codAlmacen || ""),
-      consumo: parseNumber(row.consumo),
-      lineas: Math.round(parseNumber(row.lineas))
-      };
-      return Object.assign(mapped, {
-        movimientoIcgId: movementIcgIdFromLine(mapped, latest)
-      });
-    }).filter((row) => row.consumo > 0 && row.codArticulo),
+    rows: [],
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
     articles,
+    references,
+    stocks,
     salePrices,
-    ticketLines,
+    tiquetsConsumoRows,
     closures
   };
 }
@@ -1100,8 +1013,14 @@ function createBackupMovement(
     raw: {
       importKey,
       movimientoIcgId: movementIcgIdFromLine(line, fecha),
-      guidLinea: icgGuidLinea(line),
+      physicalSourceKey: icgStableConsumptionIdentity(line, fecha),
+      fo: line.fo || "",
+      serie: line.serie || "",
+      numero: line.numero || "",
+      n: line.n || "",
+      numLinea: line.numLinea || "",
       codAlmacen: line.codAlmacen,
+      codMacro: line.codMacro || "",
       productoIcg: line.descripcion,
       consumo: line.consumo,
       lineas: line.lineas,
@@ -1111,87 +1030,16 @@ function createBackupMovement(
   };
 }
 
-function ticketLineToConsumptionIdentity(row: AnyRecord): Partial<IcgBackupConsumptionRow> {
-  return {
-    fecha: firstText(row, ["FECHA", "Fecha", "fecha"]),
-    fechaHora: firstText(row, ["HORA", "Hora", "fechaHora"]),
-    guidLinea: icgGuidLinea(row),
-    fo: firstText(row, ["FO", "fo"]),
-    serie: firstText(row, ["SERIE", "Serie", "serie"]),
-    numero: firstText(row, ["NUMERO", "Numero", "numero"]),
-    n: firstText(row, ["N", "n"]),
-    numLinea: firstText(row, ["NUMLINEA", "NumLinea", "numLinea"]),
-    codArticulo: firstText(row, ["CODARTICULO", "CodArticulo", "codArticulo"]),
-    referencia: firstText(row, ["REFERENCIA", "Referencia", "referencia"]),
-    descripcion: firstText(row, ["DESCRIPCION", "Descripcion", "descripcion"])
-  };
+export function icgPhysicalConsumptionSourceKey(line: Partial<IcgBackupConsumptionRow>): string {
+  return icgStableConsumptionIdentity(line);
 }
 
-function createTicketLineMovement(row: AnyRecord, fallbackDate: string): SyncMovement | null {
-  const line = ticketLineToConsumptionIdentity(row);
-  const code = String(line.codArticulo || "").trim();
-  const movementId = movementIcgIdFromLine(line, fallbackDate);
-  if (!code || !movementId) return null;
-  const ticketIdentity = icgTicketIdentityFromLine(line);
-  const importKey = quickHashText(["icg-ticketlin", movementId].join("|"));
-  const cantidad = Math.abs(parseNumber(firstText(row, ["UNIDADES", "Unidades", "unidades"])));
-  const precio = parseNumber(firstText(row, ["PRECIOIVA", "PrecioIva", "PRECIO", "Precio"]));
-  const total = parseNumber(firstText(row, ["TOTAL", "Total"]));
-  return {
-    id: `icg-ticketlin-${importKey}`,
-    movimientoIcgId: movementId,
-    idempotencyKey: `icg-ticketlin-${importKey}`,
-    fecha: String(line.fechaHora || line.fecha || fallbackDate || new Date().toISOString()).replace(" ", "T"),
-    origen: "ICG FrontRest",
-    destino: "Sistema Web",
-    tipo: "salida",
-    codigoProducto: code,
-    nombreProducto: line.descripcion || `ICG ${code}`,
-    cantidad: cantidad || 0,
-    unidad: "Uni",
-    almacen: "TICKETLIN",
-    estado: "sincronizado",
-    mensaje: "Linea vendida recibida desde TICKETLIN. Informativa: no genera descuento por si sola.",
-    intentos: 0,
-    referencia: line.referencia || "",
-    raw: {
-      importKey,
-      movimientoIcgId: movementId,
-      ticket: ticketIdentity,
-      fo: line.fo || "",
-      serie: line.serie || "",
-      numero: line.numero || "",
-      n: line.n || "",
-      numLinea: line.numLinea || "",
-      fechaHora: line.fechaHora || "",
-      precio,
-      total
-    }
-  };
-}
-
-export function icgPhysicalLineKey(line: Partial<IcgBackupConsumptionRow>): string {
-  return icgStableTicketLineIdentity(line);
-}
-
-function ticketLineMovementsForHost(ticketLines: AnyRecord[], rowsToApply: IcgBackupConsumptionRow[], fallbackDate: string): SyncMovement[] {
-  const consumedLineKeys = new Set((Array.isArray(rowsToApply) ? rowsToApply : []).map(icgPhysicalLineKey).filter((key) => key.replace(/\|/g, "")));
-  const byId = new Map<string, SyncMovement>();
-  (Array.isArray(ticketLines) ? ticketLines : []).forEach((row) => {
-    const line = ticketLineToConsumptionIdentity(row);
-    const lineKey = icgPhysicalLineKey(line);
-    if (lineKey && consumedLineKeys.has(lineKey)) return;
-    const movement = createTicketLineMovement(row, fallbackDate);
-    if (!movement || !movement.movimientoIcgId) return;
-    byId.set(movement.movimientoIcgId, movement);
-  });
-  return Array.from(byId.values());
-}
-
-export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], ticketLines: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
+export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], tiquetsConsumoRows: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
+    sourcePath: config.icgSqlDataPath,
+    sourceMode: String(config.icgLiveDatabaseName || "").trim() ? "live-sql" : "backup",
     databaseName: sourceDatabaseName(config),
     fecha,
     totalLines: rowsToApply.length,
@@ -1206,7 +1054,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   };
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
-  const ticketLineHostMovements = ticketLineMovementsForHost(ticketLines, rowsToApply, fecha);
+  const sourceConsumptionRows = tiquetsConsumoRows.length ? tiquetsConsumoRows : rowsToApply.map((line) => consumptionRowFromBackupLine(line, fecha));
   const cloudPause = await readIcgControlPause(config);
   if (cloudPause.paused) {
     icg.inventoryImpactPaused = true;
@@ -1224,12 +1072,12 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const movementId = movementIcgIdFromLine(line, fecha);
       const importKey = quickHashText(["icg-paused", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
       return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
-    }).concat(ticketLineHostMovements);
+    });
     return result;
   }
   mergeBackupArticlesIntoIcgData(icg, articles);
-  mergeBackupTicketLinesIntoIcgData(icg, ticketLines);
-  mergeBackupSalePricesIntoIcgData(icg, salePriceRowsFromTicketLines(ticketLines).concat(salePrices));
+  mergeBackupTiquetsConsumoIntoIcgData(icg, sourceConsumptionRows, fecha);
+  mergeBackupSalePricesIntoIcgData(icg, salePrices);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
   if (closures.length) {
     icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
@@ -1397,7 +1245,6 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const pendingRow = {
         Fecha: fecha,
         MovimientoICGId: movementId,
-        GUIDLINEA: icgGuidLinea(line),
         ModuloWTF: "",
         ProductoWTF: "",
         ProductoMise: "",
@@ -1413,6 +1260,8 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Estado: "Sin vinculo",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
+        Serie: line.serie || "",
+        Numero: line.numero || "",
         TicketICG: ticketIdentity,
         NumLinea: line.numLinea || "",
         TipoMovimiento: isIcgReturn ? "Devolucion ICG / pendiente" : "Venta ICG / pendiente"
@@ -1448,8 +1297,9 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const consumoRow: AnyRecord = {
         Fecha: fecha,
         MovimientoICGId: movementId,
-        GUIDLINEA: icgGuidLinea(line),
         PhysicalIcgKey: physicalKey,
+        Serie: line.serie || "",
+        Numero: line.numero || "",
         ModuloWTF: targetLabel(target),
         targetKey: target,
         ProductoWTF: producto,
@@ -1636,67 +1486,54 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   icg.processedBackupDates.unshift({ fecha, backupPath: config.icgBackupPath, processedAt: now, applied: result.applied, matched: result.matched, pending: result.pending, errors: result.errors });
   icg.sourceName = path.basename(config.icgBackupPath);
   icg.updatedAt = now;
-  if (ticketLineHostMovements.length) {
-    result.movements = (result.movements || []).concat(ticketLineHostMovements);
-  }
-  result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0 || ticketLineHostMovements.length > 0;
+  result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0 || sourceConsumptionRows.length > 0;
   result.message = result.applied
     ? `Backup ICG aplicado: ${result.applied} descuentos. Pendientes para revision: ${result.pending}.`
-    : ticketLineHostMovements.length
-      ? `Datos ICG actualizados: ${ticketLineHostMovements.length} lineas TICKETLIN recibidas para auditoria. No generaron descuentos automaticos.`
-    : `Backup ICG leido sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
+    : `Backup ICG leido desde TIQUETSCONSUMO sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
+  await writeAppState(config, appState, result);
+  return result;
+}
+
+async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<ReturnType<typeof readLatestBackupConsumption>>): Promise<IcgBackupSyncResult> {
+  const appState = await readAppState(config);
+  const icg = ensureIcgData(appState);
+  mergeBackupArticlesIntoIcgData(icg, data.articles);
+  mergeLookupRowsIntoIcgData(icg, "Referencias", data.references, ["REFERENCIA", "CODIGO"], "Codigos / referencias");
+  mergeLookupRowsIntoIcgData(icg, "Stocks", data.stocks, ["CODARTICULO", "CODALMACEN"], "Stocks");
+  mergeBackupSalePricesIntoIcgData(icg, data.salePrices);
+  const now = new Date().toISOString();
+  icg.sourceName = sourceDatabaseName(config);
+  icg.updatedAt = now;
+  const result: IcgBackupSyncResult = {
+    ok: true,
+    backupPath: config.icgBackupPath,
+    sourcePath: config.icgSqlDataPath,
+    sourceMode: "live-sql",
+    databaseName: sourceDatabaseName(config),
+    fecha: data.fecha || now.slice(0, 10),
+    totalLines: 0,
+    matched: 0,
+    applied: 0,
+    skipped: 0,
+    pending: 0,
+    errors: [],
+    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. No se leyo TIQUETSCONSUMO ni se aplicaron descuentos automaticos.`,
+    tableCounts: data.tableCounts,
+    movements: []
+  };
   await writeAppState(config, appState, result);
   return result;
 }
 
 export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<IcgBackupSyncResult> {
-  if (!config.autoApplyIcgBackup) {
-    return {
-      ok: true,
-      backupPath: config.icgBackupPath,
-      databaseName: sourceDatabaseName(config),
-      totalLines: 0,
-      matched: 0,
-      applied: 0,
-      skipped: 0,
-      pending: 0,
-      errors: [],
-      message: "Sincronizacion de backup ICG desactivada."
-    };
-  }
   let activeConfig = config;
   let data: Awaited<ReturnType<typeof readLatestBackupConsumption>>;
-  try {
-    await restoreIcgBackupForAudit(activeConfig);
+  if (String(config.icgLiveDatabaseName || "").trim()) {
     data = await readLatestBackupConsumption(activeConfig);
-  } catch (error) {
-    if (!String(config.icgLiveDatabaseName || "").trim()) throw error;
+  } else {
     activeConfig = auditBackupConfig(config);
     await restoreIcgBackupForAudit(activeConfig);
     data = await readLatestBackupConsumption(activeConfig);
   }
-  if (!data.fecha || !data.rows.length) {
-    if (data.closures.length || data.articles.length || data.salePrices.length || data.ticketLines.length) {
-      const fecha = data.fecha || String(data.closures[0]?.FechaCierre || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
-      const result = await applyBackupConsumptionToFirestore(activeConfig, [], fecha, data.tableCounts, data.articles, data.closures, data.salePrices, data.ticketLines);
-      result.message = data.ticketLines.length
-        ? `Datos ICG actualizados desde Base de Datos Local. Se recibieron ${data.ticketLines.length} lineas TICKETLIN; no se encontraron consumos nuevos para aplicar.`
-        : "Datos ICG actualizados desde Base de Datos Local. No se encontraron consumos para aplicar.";
-      return result;
-    }
-    return {
-      ok: true,
-      backupPath: activeConfig.icgBackupPath,
-      databaseName: sourceDatabaseName(activeConfig),
-      totalLines: 0,
-      matched: 0,
-      applied: 0,
-      skipped: 0,
-      pending: 0,
-      errors: [],
-      message: "Backup ICG restaurado, pero no contiene consumos para aplicar.",
-      tableCounts: data.tableCounts
-    };
-  }
-  return applyBackupConsumptionToFirestore(activeConfig, data.rows, data.fecha, data.tableCounts, data.articles, data.closures, data.salePrices, data.ticketLines);
+  return syncIcgCatalogToFirestore(activeConfig, data);
 }

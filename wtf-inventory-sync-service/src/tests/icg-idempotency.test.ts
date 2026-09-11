@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   consumptionAuditKey,
   consumptionPhysicalKey,
-  icgPhysicalLineKey,
+  icgPhysicalConsumptionSourceKey,
   movementIcgIdFromLine
 } from "../adapters/icg-backup-sync-adapter.js";
 import type { IcgBackupConsumptionRow } from "../core/types.js";
+
+const adapterSourcePath = fs.existsSync("src/adapters/icg-backup-sync-adapter.ts")
+  ? "src/adapters/icg-backup-sync-adapter.ts"
+  : path.resolve(__dirname, "../adapters/icg-backup-sync-adapter.js");
+const adapterSource = fs.readFileSync(adapterSourcePath, "utf8");
 
 const baseLine: IcgBackupConsumptionRow = {
   fecha: "2026-09-08",
@@ -31,21 +38,22 @@ const samePhysicalLineDifferentClock: IcgBackupConsumptionRow = {
   lineas: 5
 };
 
-const anotherTicketLine: IcgBackupConsumptionRow = {
+const anotherConsumptionLine: IcgBackupConsumptionRow = {
   ...baseLine,
   numLinea: "5"
 };
 
-const guidLine: IcgBackupConsumptionRow = {
+const anotherArticleSameLine: IcgBackupConsumptionRow = {
   ...baseLine,
-  guidLinea: "E3A89F91-1CC8-4F4E-ABCD-000000001234"
+  codArticulo: "10044",
+  referencia: "10044",
+  descripcion: "Agua Mineral"
 };
 
-const sameGuidDifferentClockAndLine: IcgBackupConsumptionRow = {
-  ...guidLine,
-  fechaHora: "2026-09-08 23:59:59",
-  numLinea: "99",
-  consumo: 3
+const sameArticleDifferentTicket: IcgBackupConsumptionRow = {
+  ...baseLine,
+  numero: "170",
+  consumo: 2
 };
 
 assert.equal(
@@ -55,15 +63,27 @@ assert.equal(
 );
 
 assert.equal(
-  icgPhysicalLineKey(baseLine),
-  icgPhysicalLineKey(samePhysicalLineDifferentClock),
-  "La llave fisica de TICKETLIN no debe depender de la hora."
+  icgPhysicalConsumptionSourceKey(baseLine),
+  icgPhysicalConsumptionSourceKey(samePhysicalLineDifferentClock),
+  "La llave fuente de TIQUETSCONSUMO no debe depender de la hora ni de cambios de cantidad."
 );
 
 assert.notEqual(
   movementIcgIdFromLine(baseLine, "2026-09-08"),
-  movementIcgIdFromLine(anotherTicketLine, "2026-09-08"),
+  movementIcgIdFromLine(anotherConsumptionLine, "2026-09-08"),
   "Dos lineas distintas del mismo ticket deben mantener IDs independientes."
+);
+
+assert.notEqual(
+  movementIcgIdFromLine(baseLine, "2026-09-08"),
+  movementIcgIdFromLine(anotherArticleSameLine, "2026-09-08"),
+  "Dos articulos ICG distintos no pueden compartir el mismo MovimientoICGId."
+);
+
+assert.notEqual(
+  movementIcgIdFromLine(baseLine, "2026-09-08"),
+  movementIcgIdFromLine(sameArticleDifferentTicket, "2026-09-08"),
+  "El mismo articulo vendido en otra factura debe generar un MovimientoICGId independiente."
 );
 
 assert.equal(
@@ -78,22 +98,24 @@ assert.notEqual(
   "Productos WTF distintos necesitan llaves fisicas distintas para no bloquear mapeos validos."
 );
 
+assert.notEqual(
+  consumptionPhysicalKey(baseLine, "Inventario Bar", "Agua Tonica"),
+  consumptionPhysicalKey(sameArticleDifferentTicket, "Inventario Bar", "Agua Tonica"),
+  "La proteccion fisica debe separar facturas distintas aunque sea el mismo articulo."
+);
+
 assert.equal(
   consumptionAuditKey(baseLine, "Inventario Bar", "Agua Tonica", "2026-09-08"),
   consumptionAuditKey(samePhysicalLineDifferentClock, "Inventario Bar", "Agua Tonica", "2026-09-08"),
   "La auditoria de consumo no debe duplicarse por cambios de hora."
 );
 
-assert.equal(
-  movementIcgIdFromLine(guidLine, "2026-09-08"),
-  movementIcgIdFromLine(sameGuidDifferentClockAndLine, "2026-09-08"),
-  "GUIDLINEA debe ser la identidad prioritaria aunque cambie hora, cantidad o NUMLINEA."
+const catalogReaderBody = adapterSource.slice(
+  adapterSource.indexOf("export async function readLatestBackupConsumption"),
+  adapterSource.indexOf("function createBackupMovement")
 );
 
-assert.equal(
-  consumptionPhysicalKey(guidLine, "Inventario Bar", "Agua Tonica"),
-  consumptionPhysicalKey(sameGuidDifferentClockAndLine, "Inventario Bar", "Agua Tonica"),
-  "La proteccion de descuento debe usar GUIDLINEA como llave fisica prioritaria."
-);
+assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
+assert.ok(!/FROM\s+TIQUETSCONSUMO/i.test(catalogReaderBody), "Actualizar Articulos ICG no debe leer TIQUETSCONSUMO.");
 
 console.log("ICG idempotency tests passed");

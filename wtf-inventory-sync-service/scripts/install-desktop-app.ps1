@@ -121,7 +121,7 @@ WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
 WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
-WTF_AUTO_APPLY_ICG_BACKUP=true
+WTF_AUTO_APPLY_ICG_BACKUP=false
 WTF_API_KEY=
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
@@ -135,23 +135,23 @@ WTF_QUARANTINE_DIR=$DataDir\data\quarantine
 ICG_BACKUP_PATH=C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1
 ICG_SQL_SERVER=localhost
 ICG_LIVE_DATABASE_NAME=FRS_WTFOODVZL
-ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL
+ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA
 ICG_AUDIT_DB_NAME=WTF_AUDIT_FRS_WTFOODVZL
 ICG_SQL_DATA_DIR=C:\ICG\BACKUP\WTF_AUDIT_SQL
 ICG_BACKUP_POLL_SECONDS=30
 ICG_CONSUMPTION_LOOKBACK_DAYS=30
 ICG_SQL_ENABLED=true
-ICG_SQL_CONNECTION_STRING=Server=localhost;Database=ICGFrontRest;Trusted_Connection=True;TrustServerCertificate=True
+ICG_SQL_CONNECTION_STRING=Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
 }
 
-Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_BACKUP" -Value "true"
+Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_BACKUP" -Value "false"
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
 Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value "WTF_AUDIT_FRS_WTFOODVZL"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\BACKUP\WTF_AUDIT_SQL"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
@@ -166,12 +166,12 @@ Set-Location "$InstallDir"
 `$env:ICG_BACKUP_PATH = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 `$env:ICG_SQL_SERVER = "localhost"
 `$env:ICG_LIVE_DATABASE_NAME = "FRS_WTFOODVZL"
-`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA\FRS_WTFOODVZL"
+`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 `$env:ICG_AUDIT_DB_NAME = "WTF_AUDIT_FRS_WTFOODVZL"
 `$env:ICG_SQL_DATA_DIR = "C:\ICG\BACKUP\WTF_AUDIT_SQL"
 `$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:ICG_CONSUMPTION_LOOKBACK_DAYS = "30"
-`$env:WTF_AUTO_APPLY_ICG_BACKUP = "true"
+`$env:WTF_AUTO_APPLY_ICG_BACKUP = "false"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"
 `$env:ICG_IMPORT_DIR = "$DataDir\data\outbox"

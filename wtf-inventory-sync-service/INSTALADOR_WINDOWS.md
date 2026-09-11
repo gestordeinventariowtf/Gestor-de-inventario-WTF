@@ -16,7 +16,9 @@ http://127.0.0.1:8787
 
 - Inicia con Windows si se activa desde el icono de bandeja.
 - Lee la Base de Datos ICG Local automaticamente cada cierto intervalo.
-- Permite forzar la lectura con el boton `Procesar Base de Datos ICG Local`.
+- Permite forzar la lectura con el boton `Actualizar Articulos ICG`.
+- Lee la base activa `FRS_WTFOODVZL` desde SQL Server. La ruta esperada de los archivos de datos es `C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA`.
+- Este flujo no aplica descuentos automaticos ni genera salidas de inventario.
 - No envia datos hacia ICG FrontRest.
 
 ## Rutas principales

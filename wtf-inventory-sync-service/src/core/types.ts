@@ -90,7 +90,6 @@ export interface ImportResult {
 
 export interface IcgBackupConsumptionRow {
   movimientoIcgId?: string;
-  guidLinea?: string;
   fecha: string;
   fechaHora?: string;
   fo?: string;
@@ -103,6 +102,7 @@ export interface IcgBackupConsumptionRow {
   referencia: string;
   descripcion: string;
   codAlmacen: string;
+  codMacro?: string;
   consumo: number;
   lineas: number;
 }
@@ -110,6 +110,8 @@ export interface IcgBackupConsumptionRow {
 export interface IcgBackupSyncResult {
   ok: boolean;
   backupPath: string;
+  sourcePath?: string;
+  sourceMode?: "live-sql" | "backup";
   databaseName: string;
   fecha?: string;
   totalLines: number;
