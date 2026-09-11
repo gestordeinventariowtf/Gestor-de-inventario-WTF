@@ -114,10 +114,15 @@ const catalogReaderBody = adapterSource.slice(
   adapterSource.indexOf("export async function readLatestBackupConsumption"),
   adapterSource.indexOf("function createBackupMovement")
 );
+const recentConsumptionPreviewBody = adapterSource.slice(
+  adapterSource.indexOf("async function readRecentIcgConsumptionPreview"),
+  adapterSource.indexOf("function sourceDatabaseName")
+);
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
 assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(adapterSource), "La vista previa debe leer TIQUETSCONSUMO para alimentar la cola del Host.");
+assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 
 const catalogSyncBody = adapterSource.slice(
   adapterSource.indexOf("async function syncIcgCatalogToFirestore"),

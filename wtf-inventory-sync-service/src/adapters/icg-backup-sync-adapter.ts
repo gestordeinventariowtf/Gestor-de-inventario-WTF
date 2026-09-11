@@ -841,7 +841,7 @@ async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseNa
   const sql = `
 IF OBJECT_ID('TIQUETSCONSUMO','U') IS NOT NULL
 BEGIN
-  SELECT TOP 5000
+  SELECT
     ISNULL(CAST(FO AS varchar(30)),'') AS FO,
     ISNULL(CAST(SERIE AS varchar(30)),'') AS SERIE,
     ISNULL(CAST(NUMERO AS varchar(30)),'') AS NUMERO,

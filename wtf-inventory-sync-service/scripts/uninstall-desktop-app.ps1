@@ -27,6 +27,36 @@ function Resolve-InstallDir {
   return (Join-Path $env:ProgramFiles "WTF ICG Host")
 }
 
+function Stop-WtfIcgHostProcesses {
+  param([string]$Path)
+
+  Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+  $normalizedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+  $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $name = [string]$_.Name
+    $commandLine = [string]$_.CommandLine
+    $executablePath = [string]$_.ExecutablePath
+    (
+      $name -ieq "node.exe" -or
+      $name -ieq "powershell.exe" -or
+      $name -ieq "cmd.exe"
+    ) -and (
+      $commandLine -like "*WTF ICG Host*" -or
+      $commandLine -like "*wtf-icg-host*" -or
+      $commandLine -like "*dist\main.js*" -or
+      $executablePath -like "$normalizedPath*"
+    )
+  }
+
+  foreach ($process in $processes) {
+    try {
+      Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {}
+  }
+}
+
 function Remove-DirectoryWithRetry {
   param([string]$Path)
   if (!(Test-Path $Path)) { return }
@@ -35,8 +65,7 @@ function Remove-DirectoryWithRetry {
       Remove-Item -LiteralPath $Path -Recurse -Force
       return
     } catch {
-      Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Stop-WtfIcgHostProcesses -Path $Path
       Start-Sleep -Milliseconds 750
       if ($attempt -eq 3) {
         throw "No se pudo eliminar '$Path'. Cierra cualquier ventana del WTF ICG Host y ejecuta el desinstalador como administrador. Detalle: $($_.Exception.Message)"
@@ -48,8 +77,7 @@ function Remove-DirectoryWithRetry {
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 
-Get-Process -Name "wtf-icg-host-tray" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "wtf-icg-host" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Stop-WtfIcgHostProcesses -Path $InstallDir
 
 $RunKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
 if (Test-Path $RunKey) {
@@ -72,4 +100,4 @@ if (Test-Path $InstallDir) {
   Remove-DirectoryWithRetry -Path $InstallDir
 }
 
-Write-Host "WTF ICG Host fue desinstalado. Los datos de operacion en ProgramData se conservan para auditoria." -ForegroundColor Green
+Write-Host "WTF ICG Host fue desinstalado y la carpeta de instalacion fue eliminada por completo." -ForegroundColor Green
