@@ -255,7 +255,7 @@ function renderDashboard(): string {
       </section>
       <section class="card">
         <h2>Cola de movimientos</h2>
-        <div class="table-wrap"><table><thead><tr><th>Cierre / fecha</th><th>Ruta</th><th>Producto</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Cierre / fecha</th><th>Ruta</th><th>Articulo ICG</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="rows"></tbody></table></div>
       </section>
     </section>
     <section id="sectionConfiguracion" class="panel-section">
@@ -313,7 +313,7 @@ function renderDashboard(): string {
       document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
       renderConfig(currentConfig);
     }
-    function renderQueueRow(r){return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(r.nombreProducto)+'</strong><br><small>'+esc(r.codigoProducto)+' '+esc(r.referencia||'')+'</small></td><td>'+esc(r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
     function formatMovementDate(r){
       const raw=String((r&&r.fecha)||'').trim();
       if(!raw) return '';
@@ -354,7 +354,9 @@ function renderDashboard(): string {
     function renderConfig(cfg){
       cfgWebApp.textContent=cfg.webAppUrl||'';
       cfgFirebase.textContent=((cfg.firebaseProjectId||'')+' / '+(cfg.firebaseCollection||'')+' / '+(cfg.firebaseDocumentId||'')).trim();
-      cfgIcgDb.textContent=(cfg.icgLiveDatabaseName||cfg.icgAuditDbName||'')+' - '+(cfg.icgSqlDataPath||cfg.icgBackupPath||'');
+      const liveDbName=cfg.icgLiveDatabaseName||'FRS_WTFOODVZL';
+      const liveSqlPath=cfg.icgSqlDataPath||'C:\\\\ICG\\\\Microsoft SQL Server\\\\MSSQL12.MSSQLSERVER\\\\MSSQL\\\\DATA';
+      cfgIcgDb.textContent=liveDbName+' - SQL Server local - '+liveSqlPath;
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);

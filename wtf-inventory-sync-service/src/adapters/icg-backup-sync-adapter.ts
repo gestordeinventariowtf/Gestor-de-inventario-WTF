@@ -840,6 +840,17 @@ function sourceDatabaseName(config: ServiceConfig): string {
   return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
 
+async function assertLiveIcgDatabaseIsAvailable(config: ServiceConfig, databaseName: string): Promise<void> {
+  const rows = parseSqlRows(await runSql(config, "master", `
+SELECT
+  CASE WHEN DB_ID(N'${quoteSql(databaseName)}') IS NULL THEN 0 ELSE 1 END AS Existe,
+  ISNULL(CONVERT(varchar(260), SERVERPROPERTY('InstanceDefaultDataPath')), '') AS DataPath;`));
+  const exists = String(rows[0]?.Existe || "").trim() === "1";
+  if (!exists) {
+    throw new Error(`No se encontro la base ICG activa [${databaseName}] en SQL Server local. Verifica que SQL Server este encendido y que los archivos FRS_WTFOODVZL.mdf y FRS_WTFOODVZL_LOG.ldf esten adjuntos desde C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA. No se usara el backup como fuente diaria.`);
+  }
+}
+
 function auditBackupConfig(config: ServiceConfig): ServiceConfig {
   return Object.assign({}, config, { icgLiveDatabaseName: "" });
 }
@@ -877,6 +888,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   closures: AnyRecord[];
 }> {
   const databaseName = sourceDatabaseName(config);
+  await assertLiveIcgDatabaseIsAvailable(config, databaseName);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), CONVERT(date, GETDATE()), 120) AS Fecha;"))[0]?.Fecha;
   const closures: AnyRecord[] = [];
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA') GROUP BY t.name;";
@@ -1002,7 +1014,7 @@ function createBackupMovement(
     destino: "Sistema Web",
     tipo: line.tipoMovimiento === "devolucion" || line.consumo < 0 ? "decomiso" : "salida",
     codigoProducto: line.codArticulo,
-    nombreProducto: productoWtf || line.descripcion || `ICG ${line.codArticulo}`,
+    nombreProducto: line.descripcion || `ICG ${line.codArticulo}`,
     cantidad,
     unidad,
     almacen: line.codAlmacen || "ICG",
@@ -1022,6 +1034,7 @@ function createBackupMovement(
       codAlmacen: line.codAlmacen,
       codMacro: line.codMacro || "",
       productoIcg: line.descripcion,
+      productoWtf: productoWtf || "",
       consumo: line.consumo,
       lineas: line.lineas,
       fechaHora: line.fechaHora || "",
@@ -1526,14 +1539,7 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
 }
 
 export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<IcgBackupSyncResult> {
-  let activeConfig = config;
-  let data: Awaited<ReturnType<typeof readLatestBackupConsumption>>;
-  if (String(config.icgLiveDatabaseName || "").trim()) {
-    data = await readLatestBackupConsumption(activeConfig);
-  } else {
-    activeConfig = auditBackupConfig(config);
-    await restoreIcgBackupForAudit(activeConfig);
-    data = await readLatestBackupConsumption(activeConfig);
-  }
+  const activeConfig = Object.assign({}, config, { icgLiveDatabaseName: sourceDatabaseName(config) });
+  const data = await readLatestBackupConsumption(activeConfig);
   return syncIcgCatalogToFirestore(activeConfig, data);
 }
