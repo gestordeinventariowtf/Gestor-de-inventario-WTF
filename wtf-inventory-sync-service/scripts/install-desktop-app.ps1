@@ -111,6 +111,46 @@ function Stop-WtfIcgHostProcesses {
   }
 }
 
+function Ensure-DataAccessLinks {
+  param(
+    [string]$InstalledRoot,
+    [string]$OperationalDataRoot
+  )
+
+  $DataPath = Join-Path $OperationalDataRoot "data"
+  $InstallDataPath = Join-Path $InstalledRoot "data"
+  if (!(Test-Path $DataPath)) {
+    New-Item -ItemType Directory -Force -Path $DataPath | Out-Null
+  }
+
+  if (Test-Path $InstallDataPath) {
+    $item = Get-Item -LiteralPath $InstallDataPath -Force
+    $isLink = (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    if (!$isLink) {
+      $backupPath = Join-Path $InstalledRoot ("data-respaldo-instalador-" + (Get-Date -Format "yyyyMMddHHmmss"))
+      Move-Item -LiteralPath $InstallDataPath -Destination $backupPath -Force
+    } else {
+      Remove-Item -LiteralPath $InstallDataPath -Force
+    }
+  }
+
+  try {
+    New-Item -ItemType Junction -Path $InstallDataPath -Target $DataPath -Force | Out-Null
+  } catch {
+    $openDataCmd = Join-Path $InstalledRoot "Abrir Carpeta Data WTF ICG Host.cmd"
+    @"
+@echo off
+start "" "$DataPath"
+"@ | Set-Content -LiteralPath $openDataCmd -Encoding ASCII
+  }
+
+  $openDataCmd = Join-Path $InstalledRoot "Abrir Carpeta Data WTF ICG Host.cmd"
+  @"
+@echo off
+start "" "$DataPath"
+"@ | Set-Content -LiteralPath $openDataCmd -Encoding ASCII
+}
+
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 $SourceRoot = Split-Path -Parent $PSScriptRoot
@@ -138,6 +178,8 @@ Get-ChildItem -Path $SourceRoot -Force | Where-Object {
     }
   }
 }
+
+Ensure-DataAccessLinks -InstalledRoot $InstallDir -OperationalDataRoot $DataDir
 
 $HostExecutable = Resolve-HostExecutable $InstallDir
 $TrayExecutable = Resolve-TrayExecutable $InstallDir

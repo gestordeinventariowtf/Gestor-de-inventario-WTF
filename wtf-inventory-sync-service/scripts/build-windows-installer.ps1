@@ -350,6 +350,10 @@ C:\ProgramData\WTF ICG Host\data\inbox
 C:\ProgramData\WTF ICG Host\data\outbox
 C:\ProgramData\WTF ICG Host\data\processed
 C:\ProgramData\WTF ICG Host\data\quarantine
+
+Acceso visible:
+C:\Program Files\WTF ICG Host\data
+C:\Program Files\WTF ICG Host\Abrir Carpeta Data WTF ICG Host.cmd
 "@ | Set-Content -LiteralPath $ReadmeInstall -Encoding UTF8
 
 New-Item -ItemType Directory -Force -Path $Release | Out-Null
