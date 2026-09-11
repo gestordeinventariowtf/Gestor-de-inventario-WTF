@@ -1,6 +1,7 @@
 param(
   [string]$InstallDir = "",
-  [string]$TaskName = "WTF ICG Host"
+  [string]$TaskName = "WTF ICG Host",
+  [switch]$FromTemp
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,6 +78,32 @@ function Remove-DirectoryWithRetry {
 
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
+
+$ResolvedInstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+$ScriptPath = if ($PSCommandPath) { [IO.Path]::GetFullPath($PSCommandPath) } else { "" }
+if (!$FromTemp -and $ScriptPath -and $ScriptPath.StartsWith($ResolvedInstallDir, [StringComparison]::OrdinalIgnoreCase)) {
+  $TempUninstallDir = Join-Path $env:TEMP ("wtf-icg-host-uninstall-" + [Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $TempUninstallDir | Out-Null
+  $TempScript = Join-Path $TempUninstallDir "uninstall-desktop-app.ps1"
+  Copy-Item -LiteralPath $PSCommandPath -Destination $TempScript -Force
+  Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-WindowStyle",
+    "Hidden",
+    "-File",
+    $TempScript,
+    "-InstallDir",
+    $InstallDir,
+    "-TaskName",
+    $TaskName,
+    "-FromTemp"
+  ) -WindowStyle Hidden
+  exit 0
+}
+
+Set-Location $env:TEMP
 
 Stop-WtfIcgHostProcesses -Path $InstallDir
 

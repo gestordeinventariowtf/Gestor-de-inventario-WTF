@@ -180,7 +180,6 @@ class WtfIcgHostSetup {
         WorkingDirectory = target,
         UseShellExecute = true
       });
-      if (proc != null) proc.WaitForExit();
       return 0;
     } catch (Exception ex) {
       Console.Error.WriteLine(ex.Message);
@@ -363,71 +362,8 @@ if (Test-Path $InnerZipPath) {
 }
 Compress-WithRetry -SourceGlob (Join-Path $Payload "*") -Destination $InnerZipPath
 
-$IExpress = Join-Path $env:WINDIR "System32\iexpress.exe"
-if ($BuildSelfExtractingExe -and (Test-Path $IExpress)) {
-  $IExpressWork = Join-Path $env:TEMP "wtf-icg-host-iexpress"
-  $ShortPayload = Join-Path $IExpressWork "payload"
-  $ShortExe = Join-Path $IExpressWork "$PackageName.exe"
-  if (Test-Path $IExpressWork) {
-    Remove-Item -LiteralPath $IExpressWork -Recurse -Force
-  }
-  New-Item -ItemType Directory -Force -Path $ShortPayload | Out-Null
-  Copy-Item -LiteralPath $InnerZipPath -Destination (Join-Path $ShortPayload "payload.zip") -Force
-  $ExeSetupCmd = Join-Path $ShortPayload "setup.cmd"
-  @"
-@echo off
-setlocal
-set TARGET=%TEMP%\WTF-ICG-Host-Setup-%RANDOM%%RANDOM%
-mkdir "%TARGET%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%~dp0payload.zip' -DestinationPath '%TARGET%' -Force"
-call "%TARGET%\INSTALAR-WTF-ICG-HOST.cmd"
-endlocal
-"@ | Set-Content -LiteralPath $ExeSetupCmd -Encoding ASCII
-
-  $SedPath = Join-Path $IExpressWork "$PackageName.sed"
-  $ExeFiles = Get-ChildItem -Path $ShortPayload -File
-  $FileList = ($ExeFiles | ForEach-Object { "$($_.Name)=" }) -join "`r`n"
-  @"
-[Version]
-Class=IEXPRESS
-SEDVersion=3
-[Options]
-PackagePurpose=InstallApp
-ShowInstallProgramWindow=1
-HideExtractAnimation=0
-UseLongFileName=1
-InsideCompressed=0
-CAB_FixedSize=0
-CAB_ResvCodeSigning=0
-RebootMode=N
-InstallPrompt=
-DisplayLicense=
-FinishMessage=WTF ICG Host fue instalado.
-TargetName=$ShortExe
-FriendlyName=WTF ICG Host Setup
-AppLaunched=setup.cmd
-PostInstallCmd=<None>
-AdminQuietInstCmd=setup.cmd
-UserQuietInstCmd=setup.cmd
-SourceFiles=SourceFiles
-[SourceFiles]
-SourceFiles0=$ShortPayload
-[SourceFiles0]
-%FILELIST%
-"@.Replace("%FILELIST%", $FileList) | Set-Content -LiteralPath $SedPath -Encoding ASCII
-
-  try {
-    & $IExpress /N /Q $SedPath | Out-Null
-    if (Test-Path $ShortExe) {
-      Copy-Item -LiteralPath $ShortExe -Destination $ExePath -Force
-    } else {
-      Write-Warning "IExpress no genero el .exe. Generando instalador alternativo."
-      Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
-    }
-  } catch {
-    Write-Warning "No se pudo generar el .exe con IExpress. Generando instalador alternativo."
-    Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
-  }
+if ($BuildSelfExtractingExe) {
+  Build-SelfExtractingInstallerFallback -ZipSource $InnerZipPath -OutputPath $ExePath
 }
 
 Write-Host "Paquete generado:" -ForegroundColor Green
