@@ -240,7 +240,9 @@ class WtfIcgHostLauncher {
         FileName = node,
         Arguments = escapedMain + extraArgs,
         WorkingDirectory = installRoot,
-        UseShellExecute = false
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        WindowStyle = ProcessWindowStyle.Hidden
       });
       if (proc == null) return 1;
       proc.WaitForExit();
