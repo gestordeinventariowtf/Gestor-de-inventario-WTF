@@ -116,6 +116,14 @@ const catalogReaderBody = adapterSource.slice(
 );
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
-assert.ok(!/FROM\s+TIQUETSCONSUMO/i.test(catalogReaderBody), "Actualizar Articulos ICG no debe leer TIQUETSCONSUMO.");
+assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
+assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(adapterSource), "La vista previa debe leer TIQUETSCONSUMO para alimentar la cola del Host.");
+
+const catalogSyncBody = adapterSource.slice(
+  adapterSource.indexOf("async function syncIcgCatalogToFirestore"),
+  adapterSource.indexOf("export async function syncIcgBackupConsumption")
+);
+assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
+assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 
 console.log("ICG idempotency tests passed");

@@ -836,6 +836,72 @@ ORDER BY FechaCierre DESC;`;
   return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), path.basename(config.icgBackupPath || databaseName));
 }
 
+async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
+  const days = Math.max(1, Math.min(30, Math.round(Number(config.icgConsumptionLookbackDays || 1))));
+  const sql = `
+IF OBJECT_ID('TIQUETSCONSUMO','U') IS NOT NULL
+BEGIN
+  SELECT TOP 5000
+    ISNULL(CAST(FO AS varchar(30)),'') AS FO,
+    ISNULL(CAST(SERIE AS varchar(30)),'') AS SERIE,
+    ISNULL(CAST(NUMERO AS varchar(30)),'') AS NUMERO,
+    ISNULL(CAST(N AS varchar(30)),'') AS N,
+    ISNULL(CAST(NUMLINEA AS varchar(30)),'') AS NUMLINEA,
+    ISNULL(CAST(CODARTICULO AS varchar(30)),'') AS CODARTICULO,
+    ISNULL(CAST(CONSUMO AS varchar(30)),'') AS CONSUMO,
+    ISNULL(CODALMACEN,'') AS CODALMACEN,
+    ISNULL(CAST(CODMACRO AS varchar(30)),'') AS CODMACRO,
+    ISNULL(CONVERT(varchar(10),FECHA,120),'') AS FECHA,
+    ISNULL(CONVERT(varchar(19),FECHAHORA,120),CONVERT(varchar(19),FECHA,120)) AS FECHAHORA,
+    ISNULL(DESCRIPCION,'') AS DESCRIPCION,
+    ISNULL(REFERENCIA,'') AS REFERENCIA,
+    ISNULL(CAST(USASTOCKS AS varchar(10)),'') AS USASTOCKS
+  FROM TIQUETSCONSUMO
+  WHERE CONVERT(date, ISNULL(FECHAHORA, FECHA)) >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
+    AND ISNULL(CONSUMO,0) <> 0
+  ORDER BY ISNULL(FECHAHORA, FECHA) DESC, SERIE DESC, NUMERO DESC, N DESC, NUMLINEA DESC;
+END
+ELSE
+BEGIN
+  SELECT TOP 0
+    CAST('' AS varchar(30)) AS FO,
+    CAST('' AS varchar(30)) AS SERIE,
+    CAST('' AS varchar(30)) AS NUMERO,
+    CAST('' AS varchar(30)) AS N,
+    CAST('' AS varchar(30)) AS NUMLINEA,
+    CAST('' AS varchar(30)) AS CODARTICULO,
+    CAST('' AS varchar(30)) AS CONSUMO,
+    CAST('' AS varchar(30)) AS CODALMACEN,
+    CAST('' AS varchar(30)) AS CODMACRO,
+    CAST('' AS varchar(30)) AS FECHA,
+    CAST('' AS varchar(30)) AS FECHAHORA,
+    CAST('' AS varchar(120)) AS DESCRIPCION,
+    CAST('' AS varchar(60)) AS REFERENCIA,
+    CAST('' AS varchar(10)) AS USASTOCKS;
+END`;
+  return parseSqlRows(await runSql(config, databaseName, sql)).map((row) => {
+    const consumo = parseNumber(row.CONSUMO);
+    const tipoMovimiento: IcgBackupConsumptionRow["tipoMovimiento"] = consumo < 0 ? "devolucion" : "venta";
+    return {
+      fecha: firstText(row, ["FECHA", "Fecha"]),
+      fechaHora: firstText(row, ["FECHAHORA", "FechaHora"]),
+      fo: firstText(row, ["FO", "fo"]),
+      serie: firstText(row, ["SERIE", "Serie"]),
+      numero: firstText(row, ["NUMERO", "Numero"]),
+      n: firstText(row, ["N", "n"]),
+      numLinea: firstText(row, ["NUMLINEA", "NumLinea"]),
+      tipoMovimiento,
+      codArticulo: firstText(row, ["CODARTICULO", "CodArticulo"]),
+      referencia: firstText(row, ["REFERENCIA", "Referencia"]),
+      descripcion: firstText(row, ["DESCRIPCION", "Descripcion"]),
+      codAlmacen: firstText(row, ["CODALMACEN", "CodAlmacen"]),
+      codMacro: firstText(row, ["CODMACRO", "CodMacro"]),
+      consumo,
+      lineas: 1
+    };
+  }).filter((row) => row.codArticulo && row.consumo !== 0);
+}
+
 function sourceDatabaseName(config: ServiceConfig): string {
   return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
@@ -968,11 +1034,12 @@ END`;
   const salePrices = await runSql(config, databaseName, salePricesSql)
     .then((raw) => parseSqlRows(raw).filter((row) => ["1", "2"].includes(normalizar(row.IDTARIFAV || row.IDTarifaV || "")) && parseNumber(row.VALOR || row.Valor) > 0))
     .catch(() => []);
-  const tiquetsConsumoRows: AnyRecord[] = [];
+  const previewConsumptionRows = await readRecentIcgConsumptionPreview(config, databaseName).catch(() => []);
+  const tiquetsConsumoRows: AnyRecord[] = previewConsumptionRows.map((line) => consumptionRowFromBackupLine(line, line.fecha || latest || ""));
   if (!latest) {
     return {
       fecha: "",
-      rows: [],
+      rows: previewConsumptionRows,
       tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
       articles,
       references,
@@ -984,7 +1051,7 @@ END`;
   }
   return {
     fecha: latest,
-    rows: [],
+    rows: previewConsumptionRows,
     tableCounts: Object.fromEntries(countRows.map((row) => [String(row.tableName), Math.round(parseNumber(row.rowsCount))])),
     articles,
     references,
@@ -1524,15 +1591,18 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     sourceMode: "live-sql",
     databaseName: sourceDatabaseName(config),
     fecha: data.fecha || now.slice(0, 10),
-    totalLines: 0,
+    totalLines: data.rows.length,
     matched: 0,
     applied: 0,
-    skipped: 0,
+    skipped: data.rows.length,
     pending: 0,
     errors: [],
-    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. No se leyo TIQUETSCONSUMO ni se aplicaron descuentos automaticos.`,
+    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. Se revisaron ${data.rows.length} linea(s) ICG recientes solo para vista previa; no se aplicaron salidas ni descuentos automaticos.`,
     tableCounts: data.tableCounts,
-    movements: []
+    movements: data.rows.map((line) => {
+      const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, data.fecha || now.slice(0, 10)), line.codAlmacen || ""].join("|"));
+      return createBackupMovement(line, data.fecha || now.slice(0, 10), importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
+    })
   };
   await writeAppState(config, appState, result);
   return result;
