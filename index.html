@@ -10852,6 +10852,8 @@
     const applyingRemoteRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
+    const uiAuditLastEventRef = useRef({});
+    const uiAuditLastNavigationRef = useRef("");
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
     useEffect(() => {
@@ -11324,6 +11326,157 @@
       });
       return found || null;
     }, [usuarios, authUserEmail]);
+    function getAuditPageLabel(pageKey) {
+      const labels = {
+        dashboard: "Dashboard",
+        dashboardGeneral: "Dashboard General",
+        sharp: "Sharp de Limpieza",
+        icg: "ICG FrontRest",
+        icgHost: "ICG Host",
+        inventario: "Inventario",
+        cuartoFrio: "Cuarto Frio",
+        entradas: "Registrar Entrada",
+        salidas: "Registrar Salida",
+        decomiso: "Registrar Decomiso",
+        recuento: "Recuento de Inventario",
+        mise: "Mise an Place",
+        listado: "Listado de Compra",
+        registros: "Registros de Movimientos",
+        histDecomiso: "Historial Decomiso Cocina",
+        historialMermas: "Historial de Mermas",
+        costeoPlatos: "Costeo de Platos",
+        finanzas: "Finanzas",
+        activosOperativos: "Activos Operativos",
+        employeeCenter: "Centro del Colaborador",
+        usuarios: "Usuarios y Permisos",
+        aiAssistant: "Asistente IA",
+        notificaciones: "Notificaciones",
+        systemLogs: "Logs de Sistema",
+        produccion: "Produccion"
+      };
+      return labels[pageKey] || pageKey || "Sistema";
+    }
+    function getAuditModuleLabel() {
+      if (modulo === "bar") return "Bar";
+      if (modulo === "cocina") return "Cocina";
+      if (modulo === "sharp") return "Sharp de Limpieza";
+      if (modulo === "icg") return "ICG FrontRest";
+      if (modulo === "icgHost") return "ICG Host";
+      if (modulo === "finanzas") return "Finanzas";
+      if (modulo === "employeeCenter") return "Centro del Colaborador";
+      return getAuditPageLabel(page);
+    }
+    function shouldSkipAuditField(target) {
+      if (!target) return true;
+      const text = [
+        target.type,
+        target.name,
+        target.id,
+        target.placeholder,
+        target.getAttribute && target.getAttribute("aria-label"),
+        target.getAttribute && target.getAttribute("title"),
+        target.closest && target.closest("[data-no-audit]") ? "data-no-audit" : ""
+      ].join(" ").toLowerCase();
+      return /password|contrase|contrasena|clave|pin|token|secret|client.?id|api.?key|credential|authorization|data-no-audit/.test(text);
+    }
+    function getAuditTargetLabel(target) {
+      if (!target) return "elemento";
+      let labelNode = null;
+      if (target.id) {
+        try {
+          const safeId = window.CSS && typeof window.CSS.escape === "function" ? window.CSS.escape(target.id) : String(target.id).replace(/"/g, '\\"');
+          labelNode = document.querySelector(`label[for="${safeId}"]`);
+        } catch (error) {
+          labelNode = null;
+        }
+      }
+      const wrappedLabel = target.closest ? target.closest("label") : null;
+      const text = [
+        target.getAttribute && (target.getAttribute("aria-label") || target.getAttribute("title") || target.getAttribute("placeholder")),
+        labelNode && labelNode.innerText,
+        wrappedLabel && wrappedLabel.innerText,
+        target.innerText,
+        target.value && target.tagName === "BUTTON" ? target.value : ""
+      ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      return (text || target.name || target.id || target.tagName || "elemento").slice(0, 90);
+    }
+    function getAuditFieldValue(target) {
+      if (!target || shouldSkipAuditField(target)) return "Dato protegido";
+      if (target.type === "checkbox" || target.type === "radio") return target.checked ? "Marcado" : "Desmarcado";
+      if (target.tagName === "SELECT") {
+        const selected = target.options && target.selectedIndex >= 0 ? target.options[target.selectedIndex] : null;
+        return `Seleccionado: ${(selected && selected.text || target.value || "").slice(0, 80)}`;
+      }
+      if (target.type === "file") return target.files && target.files.length ? `Archivo cargado (${target.files.length})` : "Sin archivo";
+      if (target.value) return `Campo editado (${String(target.value).length} caracteres)`;
+      return "Campo editado";
+    }
+    function addUiAuditLog(action, detail, targetKey) {
+      if (!currentUser) return;
+      const now = Date.now();
+      const key = [action, targetKey || detail, page, modulo || ""].join("|");
+      const last = uiAuditLastEventRef.current[key] || 0;
+      if (now - last < 1200) return;
+      uiAuditLastEventRef.current[key] = now;
+      addSystemLog({
+        modulo: getAuditModuleLabel(),
+        accion: action,
+        producto: getAuditPageLabel(page),
+        detalle: detail
+      }, currentUser);
+    }
+    useEffect(() => {
+      if (!currentUser) return;
+      const key = [modulo || "sin-modulo", page || "dashboard"].join("|");
+      if (uiAuditLastNavigationRef.current === key) return;
+      uiAuditLastNavigationRef.current = key;
+      addSystemLog({
+        modulo: getAuditModuleLabel(),
+        accion: "Navegacion",
+        producto: getAuditPageLabel(page),
+        detalle: `Abrio ${getAuditPageLabel(page)}`
+      }, currentUser);
+    }, [currentUser, page, modulo]);
+    useEffect(() => {
+      if (!currentUser) return;
+      function findActionTarget(target) {
+        return target && target.closest ? target.closest("button, a, [role='button'], .nav-item, .tab") : null;
+      }
+      function handleAuditClick(event) {
+        const target = findActionTarget(event.target);
+        if (!target || target.disabled || target.getAttribute("aria-disabled") === "true") return;
+        const label = getAuditTargetLabel(target);
+        addUiAuditLog("Interaccion de usuario", `Click en ${label}`, `click:${label}`);
+      }
+      function handleAuditChange(event) {
+        const target = event.target;
+        if (!target || shouldSkipAuditField(target)) return;
+        const tag = target.tagName;
+        const type = String(target.type || "").toLowerCase();
+        if (tag === "SELECT" || type === "checkbox" || type === "radio" || type === "file") {
+          const label = getAuditTargetLabel(target);
+          addUiAuditLog("Campo modificado", `${label}: ${getAuditFieldValue(target)}`, `change:${label}`);
+        }
+      }
+      function handleAuditBlur(event) {
+        const target = event.target;
+        if (!target || shouldSkipAuditField(target)) return;
+        const tag = target.tagName;
+        const type = String(target.type || "").toLowerCase();
+        if ((tag === "INPUT" || tag === "TEXTAREA") && !["checkbox", "radio", "file", "button", "submit", "reset"].includes(type)) {
+          const label = getAuditTargetLabel(target);
+          addUiAuditLog("Campo editado", `${label}: ${getAuditFieldValue(target)}`, `blur:${label}`);
+        }
+      }
+      document.addEventListener("click", handleAuditClick, true);
+      document.addEventListener("change", handleAuditChange, true);
+      document.addEventListener("blur", handleAuditBlur, true);
+      return function() {
+        document.removeEventListener("click", handleAuditClick, true);
+        document.removeEventListener("change", handleAuditChange, true);
+        document.removeEventListener("blur", handleAuditBlur, true);
+      };
+    }, [currentUser, page, modulo]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
