@@ -5816,7 +5816,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+      columns: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "Ticket", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -6460,6 +6460,13 @@
     if (parts.length >= 3) return `${parts[1]}-${parts[2]}`;
     return raw;
   }
+  function getIcgVisibleTicket(row) {
+    if (!row) return "";
+    const serie = icgCellText(row.Serie || row.SERIE || row.serie || row.NumSerie || row.NUMSERIE || row.SerieDoc || row.SERIEDOC || "").trim();
+    const numero = icgCellText(row.Numero || row.NUMERO || row.numero || row.NumDoc || row.NUMDOC || row.NumFactura || row.NUMFACTURA || row.Factura || "").trim();
+    const visible = [serie, numero].filter(Boolean).join("-");
+    return visible || formatIcgTicketDisplay(row.Ticket || row.TicketICG || row.TicketKey || row.Factura || "");
+  }
   function getIcgLineNumber(row) {
     return icgCellText(row && (row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || row.linea || "")).trim();
   }
@@ -6840,6 +6847,7 @@
     const productMise = bridge && icgCellText(bridge.ProductoMise) || icgCellText(row.ProductoMise || row.ProductoWTF) || productWtf;
     const fecha = icgCellText(row.Fecha || row.fecha) || normalizedData.updatedAt || new Date().toISOString().slice(0, 10);
     const ticketValue = icgCellText(row.TicketICG || row.Ticket || row.TicketKey || row.Factura || "");
+    const ticketDisplay = getIcgVisibleTicket(row);
     const fechaHora = icgCellText(row.FechaHora || row.fechaHora || row.Hora || row.HORA || "");
     const lineNumber = icgCellText(row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || index + 1);
     const code = bridge && icgCellText(bridge.CodArticulo || bridge.Codigo) || icgCellText(row.CodArticulo || row.Codigo) || "";
@@ -6864,7 +6872,7 @@
       _id: rowId,
       Fecha: fecha,
       MovimientoICGId: movementId,
-      Ticket: ticketValue,
+      Ticket: ticketDisplay || formatIcgTicketDisplay(ticketValue),
       TicketICG: ticketValue,
       Serie: row.Serie || row.SERIE || "",
       Numero: row.Numero || row.NUMERO || "",
@@ -6898,6 +6906,7 @@
     }, row, {
       _id: rowId,
       MovimientoICGId: movementId,
+      Ticket: ticketDisplay || formatIcgTicketDisplay(ticketValue),
       TicketICG: ticketValue,
       Serie: row.Serie || row.SERIE || "",
       Numero: row.Numero || row.NUMERO || "",
@@ -7003,6 +7012,7 @@
       const lineNumber = getIcgLineNumber(line) || icgCellText(line._id || line.ID || line.id || lineIndex + 1);
       const lineMoment = getIcgLineMoment(line);
       const movementId = getIcgMovementId(line, lineIndex + 1);
+      const ticketDisplay = getIcgVisibleTicket(line);
       bridgesToApply.forEach(function(bridge) {
         const targetKey = normalizeIcgWtfTarget(bridge && icgCellText(bridge.ModuloWTF || bridge.DestinoWTF || bridge.Destino || bridge.Modulo));
         const productWtf = bridge ? icgCellText(bridge.ProductoWTF || bridge.ProductoMise) : "";
@@ -7038,10 +7048,10 @@
           _id: existing._id || `${movementId}-${targetKey}-${quickHashText(productWtf || "sin-vinculo")}`,
           Fecha: fecha || new Date().toISOString().slice(0, 10),
           MovimientoICGId: movementId,
-          Ticket: ticketKey || existing.Ticket || "",
+          Ticket: ticketDisplay || formatIcgTicketDisplay(ticketKey || existing.Ticket || existing.TicketICG || ""),
           TicketICG: ticketKey || existing.TicketICG || existing.Ticket || "",
-          Serie: line.Serie || line.SERIE || "",
-          Numero: line.Numero || line.NUMERO || "",
+          Serie: line.Serie || line.SERIE || line.serie || line.NumSerie || line.NUMSERIE || line.SerieDoc || line.SERIEDOC || "",
+          Numero: line.Numero || line.NUMERO || line.numero || line.NumDoc || line.NUMDOC || line.NumFactura || line.NUMFACTURA || "",
           FechaHora: lineMoment || existing.FechaHora || "",
           NumLinea: lineNumber || existing.NumLinea || "",
           IcgAuditKey: auditKey,
@@ -20590,7 +20600,7 @@
               const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
               return [/* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || `single-${group.key}`, className: blocked ? "tr-out-stock" : "" },
                 /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
-                /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, formatIcgTicketDisplay(row.Ticket || row.TicketICG || "") || "-"),
+                /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, getIcgVisibleTicket(row) || "-"),
                 /* @__PURE__ */ React.createElement("td", null,
                   /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, row.ProductoICG || "-"),
                   /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Cod: ", row.CodArticulo || "-", " / Ref: ", row.Referencia || "-", row.NumLinea ? ` / Linea ${row.NumLinea}` : "")
@@ -20618,7 +20628,7 @@
             }));
             return [/* @__PURE__ */ React.createElement("tr", { key: `group-${group.key}`, className: "icg-consumption-group-row", style: { background: "#f8fafc" } },
               /* @__PURE__ */ React.createElement("td", null, source.Fecha || "-"),
-              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, formatIcgTicketDisplay(source.Ticket || source.TicketICG || "") || "-"),
+              /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, getIcgVisibleTicket(source) || "-"),
               /* @__PURE__ */ React.createElement("td", null,
                 /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 900 } }, source.ProductoICG || "-"),
                 /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", fontWeight: 700 } }, "Cod: ", source.CodArticulo || "-", " / Ref: ", source.Referencia || "-", source.NumLinea ? ` / Linea ${source.NumLinea}` : "")

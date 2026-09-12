@@ -127,7 +127,9 @@ assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIO
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
 assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(recentConsumptionPreviewBody), "La cola visible del Host debe alimentarse exclusivamente desde TIQUETSCONSUMO.");
 assert.ok(!/TIQUETSLIN|TICKETLIN|TIQUETLIN/i.test(recentConsumptionPreviewBody), "La cola del Host no debe usar TIQUETLIN, TIQUETSLIN ni TICKETLIN como fuente activa.");
-assert.ok(/GROUP BY\s+tc\.FO,\s*tc\.SERIE,\s*tc\.NUMERO,\s*tc\.N,\s*tc\.NUMLINEA,\s*tc\.CODARTICULO,\s*tc\.CODALMACEN/i.test(recentConsumptionPreviewBody), "TIQUETSCONSUMO debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
+assert.ok(/GROUP BY[\s\S]*tc\.NUMLINEA,\s*tc\.CODARTICULO,\s*tc\.CODALMACEN/i.test(recentConsumptionPreviewBody), "TIQUETSCONSUMO debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tc\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSCONSUMO debe alimentar SERIE con respaldo desde TIQUETSCAB.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tc\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSCONSUMO debe alimentar NUMERO con respaldo desde TIQUETSCAB.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 
 const catalogSyncBody = adapterSource.slice(
@@ -151,6 +153,7 @@ assert.ok(!/result\.movements\?\.push\s*\(\s*createBackupMovement/i.test(applyBa
 assert.ok(/result\.movements\s*=\s*Array\.from\(queueMovementByIcg\.values\(\)\)/.test(applyBackupBody), "La cola visible debe publicarse una sola vez por MovimientoICGId.");
 assert.ok(applyBackupBody.includes("const icgConsumptionDate = line.fecha"), "Ventas ICG debe conservar la fecha original de cada fila TIQUETSCONSUMO.");
 assert.ok(applyBackupBody.includes("Fecha: icgConsumptionDate"), "ConsumoMiseVentas no debe usar la fecha global del proceso como fecha de venta.");
+assert.ok(applyBackupBody.includes("const ticketDisplay = icgTicketDisplayFromLine(line)"), "Ventas ICG debe guardar Ticket visible como SERIE-NUMERO.");
 assert.ok(applyBackupBody.includes("const pausedMovementDate = line.fecha"), "La cola pausada debe conservar la fecha original de TIQUETSCONSUMO.");
 assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La cola consolidada debe conservar la fecha original de TIQUETSCONSUMO.");
 assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSCONSUMO por movimiento.");
