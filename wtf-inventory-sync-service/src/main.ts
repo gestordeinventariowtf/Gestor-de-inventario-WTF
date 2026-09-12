@@ -32,7 +32,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
   backupSyncInFlight = true;
   try {
     const result = await syncIcgBackupConsumption(config);
-    if (Array.isArray(result.movements)) {
+    if (Array.isArray(result.movements) && !result.preserveLocalIcgQueue) {
       await store.replaceIcgPreviewMovements(result.movements);
     }
     await store.appendAudit({ accion: "icg_catalog_sync", ...result });

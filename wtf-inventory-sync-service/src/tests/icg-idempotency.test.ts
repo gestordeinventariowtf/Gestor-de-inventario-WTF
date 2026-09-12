@@ -136,7 +136,11 @@ const catalogSyncBody = adapterSource.slice(
 );
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
+assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSCONSUMO, el Host debe conservar la cola local anterior.");
+assert.ok(catalogSyncBody.includes("TIQUETSCONSUMO leido correctamente, sin movimientos"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
+assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSCONSUMO"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
+assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSCONSUMO falla.");
 
 const applyBackupBody = adapterSource.slice(
   adapterSource.indexOf("export async function applyBackupConsumptionToFirestore"),

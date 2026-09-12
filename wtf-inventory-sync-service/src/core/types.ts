@@ -123,4 +123,7 @@ export interface IcgBackupSyncResult {
   message: string;
   tableCounts?: Record<string, number>;
   movements?: SyncMovement[];
+  preserveLocalIcgQueue?: boolean;
+  previewReadOk?: boolean;
+  previewReadError?: string;
 }

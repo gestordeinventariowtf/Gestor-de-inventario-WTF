@@ -973,6 +973,8 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   salePrices: AnyRecord[];
   tiquetsConsumoRows: AnyRecord[];
   closures: AnyRecord[];
+  previewReadOk: boolean;
+  previewReadError: string;
 }> {
   const databaseName = sourceDatabaseName(config);
   await assertLiveIcgDatabaseIsAvailable(config, databaseName);
@@ -1055,7 +1057,15 @@ END`;
   const salePrices = await runSql(config, databaseName, salePricesSql)
     .then((raw) => parseSqlRows(raw).filter((row) => ["1", "2"].includes(normalizar(row.IDTARIFAV || row.IDTarifaV || "")) && parseNumber(row.VALOR || row.Valor) > 0))
     .catch(() => []);
-  const previewConsumptionRows = await readRecentIcgConsumptionPreview(config, databaseName).catch(() => []);
+  let previewConsumptionRows: IcgBackupConsumptionRow[] = [];
+  let previewReadOk = true;
+  let previewReadError = "";
+  try {
+    previewConsumptionRows = await readRecentIcgConsumptionPreview(config, databaseName);
+  } catch (error) {
+    previewReadOk = false;
+    previewReadError = error instanceof Error ? error.message : String(error);
+  }
   const tiquetsConsumoRows: AnyRecord[] = previewConsumptionRows.map((line) => consumptionRowFromBackupLine(line, line.fecha || latest || ""));
   if (!latest) {
     return {
@@ -1067,7 +1077,9 @@ END`;
       stocks,
       salePrices,
       tiquetsConsumoRows,
-      closures
+      closures,
+      previewReadOk,
+      previewReadError
     };
   }
   return {
@@ -1079,7 +1091,9 @@ END`;
     stocks,
     salePrices,
     tiquetsConsumoRows,
-    closures
+    closures,
+    previewReadOk,
+    previewReadError
   };
 }
 
@@ -1636,8 +1650,13 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   const now = new Date().toISOString();
   icg.sourceName = sourceDatabaseName(config);
   icg.updatedAt = now;
+  const previewMessage = data.previewReadOk === false
+    ? `No se pudo leer TIQUETSCONSUMO para la cola visible: ${data.previewReadError || "error no especificado"}. Se conserva la cola local anterior.`
+    : data.rows.length
+      ? `TIQUETSCONSUMO leido correctamente: ${data.rows.length} linea(s) ICG reciente(s) cargada(s) para vista previa.`
+      : "TIQUETSCONSUMO leido correctamente, sin movimientos en el rango configurado.";
   const result: IcgBackupSyncResult = {
-    ok: true,
+    ok: data.previewReadOk !== false,
     backupPath: config.icgBackupPath,
     sourcePath: config.icgSqlDataPath,
     sourceMode: "live-sql",
@@ -1648,10 +1667,13 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     applied: 0,
     skipped: data.rows.length,
     pending: 0,
-    errors: [],
-    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. Se revisaron ${data.rows.length} linea(s) ICG recientes solo para vista previa; no se aplicaron salidas ni descuentos automaticos.`,
+    errors: data.previewReadOk === false && data.previewReadError ? [data.previewReadError] : [],
+    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. ${previewMessage} No se aplicaron salidas ni descuentos automaticos.`,
     tableCounts: data.tableCounts,
-    movements: data.rows.map((line) => {
+    preserveLocalIcgQueue: data.previewReadOk === false,
+    previewReadOk: data.previewReadOk,
+    previewReadError: data.previewReadError,
+    movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
       const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, data.fecha || now.slice(0, 10)), line.codAlmacen || ""].join("|"));
       return createBackupMovement(line, data.fecha || now.slice(0, 10), importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
     })
