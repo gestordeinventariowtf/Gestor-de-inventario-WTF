@@ -483,7 +483,8 @@ function mergeBackupTiquetsConsumoIntoIcgData(icg: AnyRecord, sourceRows: AnyRec
       codMacro: firstText(row, ["CODMACRO", "CodMacro", "codMacro"]),
       consumo: parseNumber(row.CONSUMO ?? row.Consumo ?? row.consumo)
     };
-    byKey.set(key, Object.assign({}, byKey.get(key) || {}, consumptionRowFromBackupLine(line, fecha), row));
+    const rowDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
+    byKey.set(key, Object.assign({}, byKey.get(key) || {}, consumptionRowFromBackupLine(line, rowDate), row));
   });
   const mergedRows = Array.from(byKey.values()).sort((a, b) => {
     const ticketA = [a.FECHA || "", a.FECHAHORA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
@@ -1066,7 +1067,10 @@ END`;
     previewReadOk = false;
     previewReadError = error instanceof Error ? error.message : String(error);
   }
-  const tiquetsConsumoRows: AnyRecord[] = previewConsumptionRows.map((line) => consumptionRowFromBackupLine(line, line.fecha || latest || ""));
+  const tiquetsConsumoRows: AnyRecord[] = previewConsumptionRows.map((line) => {
+    const rowDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || latest || "";
+    return consumptionRowFromBackupLine(line, rowDate);
+  });
   if (!latest) {
     return {
       fecha: "",
@@ -1184,9 +1188,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     result.movements = rowsToApply.map((line) => {
       const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
       const ticketIdentity = icgTicketIdentityFromLine(line);
-      const movementId = movementIcgIdFromLine(line, fecha);
+      const pausedMovementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
+      const movementId = movementIcgIdFromLine(line, pausedMovementDate);
       const importKey = quickHashText(["icg-paused", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
-      return createBackupMovement(line, fecha, importKey, "pendiente_revision", result.message);
+      return createBackupMovement(line, pausedMovementDate, importKey, "pendiente_revision", result.message);
     });
     return result;
   }
@@ -1289,9 +1294,10 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     error: 6
   };
   function rememberIcgQueueMovement(line: IcgBackupConsumptionRow, estado: SyncMovement["estado"], mensaje: string): void {
-    const movementId = movementIcgIdFromLine(line, fecha);
+    const queueMovementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
+    const movementId = movementIcgIdFromLine(line, queueMovementDate);
     const queueKey = quickHashText(["icg-queue", movementId, icgTicketIdentityFromLine(line), line.codArticulo, line.codAlmacen].join("|"));
-    const next = createBackupMovement(line, fecha, queueKey, estado, mensaje);
+    const next = createBackupMovement(line, queueMovementDate, queueKey, estado, mensaje);
     const current = queueMovementByIcg.get(movementId);
     if (!current) {
       queueMovementByIcg.set(movementId, next);
@@ -1369,15 +1375,16 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
 
   for (const line of rowsToApply) {
     const eventDate = String(line.fechaHora || line.fecha || fecha).replace(" ", "T");
+    const icgConsumptionDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
     const ticketIdentity = icgTicketIdentityFromLine(line);
-    const movementId = movementIcgIdFromLine(line, fecha);
+    const movementId = movementIcgIdFromLine(line, icgConsumptionDate);
     const isIcgReturn = line.tipoMovimiento === "devolucion" || line.consumo < 0;
     const matchedLinks = links.filter((row) => {
       const linkCode = normalizar(bridgeCode(row));
       const linkRef = normalizar(bridgeReference(row));
       return (linkCode && normalizar(line.codArticulo) === linkCode) || (linkRef && normalizar(line.referencia) === linkRef);
     });
-    const pendingAuditKey = consumptionAuditKey(line, "", "", fecha);
+    const pendingAuditKey = consumptionAuditKey(line, "", "", icgConsumptionDate);
     const pendingImportKey = quickHashText(["icg-bak", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey) || appliedConsumptionAuditKeys.has(pendingAuditKey))) {
       result.skipped += 1;
@@ -1388,7 +1395,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       result.pending += 1;
       rememberIcgQueueMovement(line, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF.");
       const pendingRow = {
-        Fecha: fecha,
+        Fecha: icgConsumptionDate,
         MovimientoICGId: movementId,
         ModuloWTF: "",
         ProductoWTF: "",
@@ -1417,13 +1424,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     for (const link of matchedLinks) {
       const target = targetKey(link.ModuloWTF || link.DestinoWTF || link.Modulo || "Mise an Place Cocina");
       const producto = bridgeWtfProduct(link);
-      const auditKey = consumptionAuditKey(line, target, producto, fecha);
+      const auditKey = consumptionAuditKey(line, target, producto, icgConsumptionDate);
       const importKey = quickHashText(["icg-bak", movementId, target, producto].join("|"));
       const physicalKey = consumptionPhysicalKey(line, target, producto);
       const movementTargetKey = [movementId, target, normalizar(producto)].join("|");
       const qtyFactor = bridgeQuantity(link) || 1;
       const cantidad = Number((Math.abs(line.consumo) * qtyFactor).toFixed(4));
-      const legacyKey = consumptionAggregationKey(line.fecha || fecha, line.codArticulo, line.referencia, line.codAlmacen, target, producto, ticketIdentity);
+      const legacyKey = consumptionAggregationKey(icgConsumptionDate, line.codArticulo, line.referencia, line.codAlmacen, target, producto, ticketIdentity);
       const legacyRemaining = legacyAppliedRemaining.get(legacyKey) || 0;
       if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || appliedConsumptionAuditKeys.has(auditKey) || appliedConsumptionPhysicalKeys.has(physicalKey) || appliedMovementTargets.has(movementTargetKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
@@ -1440,7 +1447,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const list: AnyRecord[] = Array.isArray(appState[target]) ? appState[target] : [];
       const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
       const consumoRow: AnyRecord = {
-        Fecha: fecha,
+        Fecha: icgConsumptionDate,
         MovimientoICGId: movementId,
         PhysicalIcgKey: physicalKey,
         Serie: line.serie || "",
@@ -1674,8 +1681,9 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     previewReadOk: data.previewReadOk,
     previewReadError: data.previewReadError,
     movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
-      const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, data.fecha || now.slice(0, 10)), line.codAlmacen || ""].join("|"));
-      return createBackupMovement(line, data.fecha || now.slice(0, 10), importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
+      const movementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || data.fecha || now.slice(0, 10);
+      const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, movementDate), line.codAlmacen || ""].join("|"));
+      return createBackupMovement(line, movementDate, importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
     })
   };
   await writeAppState(config, appState, result);

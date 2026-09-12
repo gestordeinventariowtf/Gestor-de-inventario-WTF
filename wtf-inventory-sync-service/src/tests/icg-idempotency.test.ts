@@ -149,5 +149,10 @@ const applyBackupBody = adapterSource.slice(
 assert.ok(applyBackupBody.includes("queueMovementByIcg"), "La cola del Host debe consolidarse por articulo/movimiento ICG, no por cada producto WTF/Mise vinculado.");
 assert.ok(!/result\.movements\?\.push\s*\(\s*createBackupMovement/i.test(applyBackupBody), "El desglose WTF/Mise no debe insertar multiples lineas en la cola visible del Host.");
 assert.ok(/result\.movements\s*=\s*Array\.from\(queueMovementByIcg\.values\(\)\)/.test(applyBackupBody), "La cola visible debe publicarse una sola vez por MovimientoICGId.");
+assert.ok(applyBackupBody.includes("const icgConsumptionDate = line.fecha"), "Ventas ICG debe conservar la fecha original de cada fila TIQUETSCONSUMO.");
+assert.ok(applyBackupBody.includes("Fecha: icgConsumptionDate"), "ConsumoMiseVentas no debe usar la fecha global del proceso como fecha de venta.");
+assert.ok(applyBackupBody.includes("const pausedMovementDate = line.fecha"), "La cola pausada debe conservar la fecha original de TIQUETSCONSUMO.");
+assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La cola consolidada debe conservar la fecha original de TIQUETSCONSUMO.");
+assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSCONSUMO por movimiento.");
 
 console.log("ICG idempotency tests passed");
