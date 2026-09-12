@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
-  TiquetsConsumo: ["MovimientoICGId", "PhysicalIcgKey", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO", "FECHA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "Ticket"],
+  TiquetsLin: ["MovimientoICGId", "PhysicalIcgKey", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "UNIDADES", "CONSUMO", "PRECIO", "PRECIOIVA", "TIPOIVA", "CODVENDEDOR", "CODALMACEN", "FECHA", "HORA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "Ticket"],
   Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioRestaurante", "PrecioAppsDelivery", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
   Kits: ["CODARTICULO", "LINEAKIT", "CODARTKIT", "REFERENCIA", "DESCRIPCIOKIT", "REFERENCIAKIT", "UNIDADES", "PRECIOUNIDAD", "TOTALLINEA"],
@@ -166,7 +166,7 @@ function icgTicketDisplayFromLine(line: Partial<IcgBackupConsumptionRow>): strin
   return [lineSerie(line), lineNumero(line)].map((part) => String(part || "").trim()).filter(Boolean).join("-") || icgTicketIdentityFromLine(line);
 }
 
-function tiquetsConsumoPrimaryKey(line: Partial<IcgBackupConsumptionRow>): string {
+function tiquetsLinPrimaryKey(line: Partial<IcgBackupConsumptionRow>): string {
   return [
     lineFo(line),
     lineSerie(line),
@@ -179,8 +179,8 @@ function tiquetsConsumoPrimaryKey(line: Partial<IcgBackupConsumptionRow>): strin
 
 function icgStableConsumptionIdentity(line: Partial<IcgBackupConsumptionRow>, fallbackDate = ""): string {
   return [
-    "tiquetsconsumo-v1",
-    tiquetsConsumoPrimaryKey(line),
+    "tiquetslin-v1",
+    tiquetsLinPrimaryKey(line),
     line.codAlmacen || ""
   ].map((part) => normalizar(part)).join("|");
 }
@@ -235,7 +235,7 @@ function consumptionAuditKeyFromRow(row: AnyRecord): string {
 
 export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, target: string, product: string): string {
   return [
-    "icg-physical-tiquetsconsumo-v1",
+    "icg-physical-tiquetslin-v1",
     normalizar(icgTicketIdentityFromLine(line)),
     normalizar(line.numLinea || ""),
     normalizar(line.codArticulo || ""),
@@ -248,7 +248,7 @@ export function consumptionPhysicalKey(line: Partial<IcgBackupConsumptionRow>, t
 function consumptionPhysicalKeyFromRow(row: AnyRecord): string {
   const ticket = firstText(row, ["TicketICG", "Ticket", "TicketKey", "Factura"]);
   return [
-    "icg-physical-tiquetsconsumo-v1",
+    "icg-physical-tiquetslin-v1",
     normalizar(ticket),
     normalizar(firstText(row, ["NumLinea", "NUMLINEA"])),
     normalizar(bridgeCode(row)),
@@ -367,10 +367,10 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
     columns: DATASET_COLUMNS.Stocks,
     rows: []
   };
-  appState.icgFrontRestData.datasets.TiquetsConsumo = appState.icgFrontRestData.datasets.TiquetsConsumo || {
-    key: "TiquetsConsumo",
-    label: "TIQUETSCONSUMO SQL",
-    columns: DATASET_COLUMNS.TiquetsConsumo,
+  appState.icgFrontRestData.datasets.TiquetsLin = appState.icgFrontRestData.datasets.TiquetsLin || {
+    key: "TiquetsLin",
+    label: "TIQUETSLIN SQL",
+    columns: DATASET_COLUMNS.TiquetsLin,
     rows: []
   };
   appState.icgFrontRestData.datasets.PreciosVenta = appState.icgFrontRestData.datasets.PreciosVenta || {
@@ -461,7 +461,7 @@ function consumptionSourceRowKey(row: AnyRecord): string {
 function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fecha: string): AnyRecord {
   const ticketIcg = icgTicketIdentityFromLine(line);
   const ticketDisplay = icgTicketDisplayFromLine(line);
-  const sourcePhysicalKey = ["icg-consumo-source-v1", tiquetsConsumoPrimaryKey(line), line.codAlmacen || ""].map((part) => normalizar(part)).join("|");
+  const sourcePhysicalKey = ["icg-consumo-source-v1", tiquetsLinPrimaryKey(line), line.codAlmacen || ""].map((part) => normalizar(part)).join("|");
   return {
     MovimientoICGId: movementIcgIdFromLine(line, fecha),
     PhysicalIcgKey: sourcePhysicalKey,
@@ -471,24 +471,30 @@ function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fe
     N: lineN(line),
     NUMLINEA: lineNumLinea(line),
     CODARTICULO: line.codArticulo || "",
+    UNIDADES: line.consumo ?? "",
     CONSUMO: line.consumo ?? "",
+    PRECIO: lineText(line, ["precio", "PRECIO", "Precio"]),
+    PRECIOIVA: lineText(line, ["precioIva", "PRECIOIVA", "PrecioIva"]),
+    TIPOIVA: lineText(line, ["tipoIva", "TIPOIVA", "TipoIva"]),
+    CODVENDEDOR: lineText(line, ["codVendedor", "CODVENDEDOR", "CodVendedor"]),
     CODALMACEN: line.codAlmacen || "",
     CODMACRO: line.codMacro || "",
     FECHA: line.fecha || fecha || "",
+    HORA: line.fechaHora || line.fecha || fecha || "",
     FECHAHORA: line.fechaHora || line.fecha || fecha || "",
     DESCRIPCION: line.descripcion || "",
     REFERENCIA: line.referencia || "",
     USASTOCKS: "T",
     Ticket: ticketDisplay,
     TicketICG: ticketIcg,
-    _source: "TIQUETSCONSUMO SQL ICG",
+    _source: "TIQUETSLIN SQL ICG",
     _updatedAt: new Date().toISOString()
   };
 }
 
-function mergeBackupTiquetsConsumoIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[], fecha: string): void {
+function mergeBackupTiquetsLinIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[], fecha: string): void {
   if (!Array.isArray(sourceRows) || !sourceRows.length) return;
-  const current = icg.datasets.TiquetsConsumo || { key: "TiquetsConsumo", label: "TIQUETSCONSUMO SQL", columns: DATASET_COLUMNS.TiquetsConsumo, rows: [] };
+  const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "TIQUETSLIN SQL", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
   const existingRows = Array.isArray(current.rows) ? current.rows : [];
   const byKey = new Map<string, AnyRecord>();
   existingRows.forEach((row: AnyRecord) => {
@@ -521,8 +527,8 @@ function mergeBackupTiquetsConsumoIntoIcgData(icg: AnyRecord, sourceRows: AnyRec
     const ticketB = [b.FECHA || "", b.FECHAHORA || "", b.SERIE || "", b.NUMERO || "", b.N || "", b.NUMLINEA || ""].join("|");
     return String(ticketB).localeCompare(String(ticketA), undefined, { numeric: true });
   });
-  icg.datasets.TiquetsConsumo = Object.assign({}, current, {
-    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsConsumo, "TicketICG", "_source", "_updatedAt"])),
+  icg.datasets.TiquetsLin = Object.assign({}, current, {
+    columns: Array.from(new Set([...(current.columns || []), ...DATASET_COLUMNS.TiquetsLin, "TicketICG", "_source", "_updatedAt"])),
     rows: mergedRows
   });
 }
@@ -806,7 +812,7 @@ function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyReco
       Pagos: Number(parseNumber(row.Pagos).toFixed(2)),
       Propina: Number(parseNumber(row.Propina).toFixed(2)),
       Estado: row.Estado || "Calculado desde Base de Datos ICG Local",
-      Observacion: row.Observacion || "Generado desde TIQUETSCAB, TIQUETSCONSUMO y pagos de la base local."
+      Observacion: row.Observacion || "Generado desde TIQUETSCAB, TIQUETSLIN y pagos de la base local."
     };
   }).filter((row) => row.FechaCierre);
 }
@@ -845,9 +851,9 @@ WITH cab AS (
   WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
 ),
 lineas AS (
-  SELECT FO,SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
-  FROM TIQUETSCONSUMO
-  GROUP BY FO,SERIE,NUMERO,N
+  SELECT SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
+  FROM TIQUETSLIN
+  GROUP BY SERIE,NUMERO,N
 )
 SELECT
   CONVERT(varchar(10), c.FechaCierre, 120) AS FechaCierre,
@@ -860,7 +866,7 @@ SELECT
   'Calculado desde Base de Datos ICG Local' AS Estado,
   'Generado sin CMS desde SQL/backup local' AS Observacion
 FROM cab c
-LEFT JOIN lineas l ON l.FO=c.FO AND l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
+LEFT JOIN lineas l ON l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
 ${paymentsJoin}
 GROUP BY c.FechaCierre
 ORDER BY FechaCierre DESC;`;
@@ -870,37 +876,38 @@ ORDER BY FechaCierre DESC;`;
 async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
   const days = Math.max(1, Math.round(Number(config.icgConsumptionLookbackDays || 30)));
   const sql = `
-IF OBJECT_ID('TIQUETSCONSUMO','U') IS NOT NULL
+IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
   WITH consumo AS (
     SELECT
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tc.FO AS varchar(30)),''), CAST(c.FO AS varchar(30))) AS varchar(30)),'') AS FO,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tc.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))) AS varchar(30)),'') AS SERIE,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tc.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))) AS varchar(30)),'') AS NUMERO,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tc.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30)),'') AS N,
-      ISNULL(CAST(tc.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
-      ISNULL(CAST(tc.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
-      ISNULL(tc.CODALMACEN,'') AS CODALMACEN,
-      ISNULL(CAST(tc.CODMACRO AS varchar(30)),'') AS CODMACRO,
-      MIN(COALESCE(TRY_CONVERT(datetime, tc.FECHAHORA), TRY_CONVERT(datetime, tc.FECHA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) AS FECHAHORA,
-      SUM(ISNULL(tc.CONSUMO,0)) AS CONSUMO,
-      MAX(ISNULL(a.DESCRIPCION,'')) AS DESCRIPCION,
-      MAX(ISNULL(a.REFERENCIA,'')) AS REFERENCIA,
+      ISNULL(CAST(c.FO AS varchar(30)),'') AS FO,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))) AS varchar(30)),'') AS SERIE,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))) AS varchar(30)),'') AS NUMERO,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30)),'') AS N,
+      ISNULL(CAST(tl.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
+      ISNULL(CAST(tl.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
+      CAST('' AS varchar(30)) AS CODALMACEN,
+      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) AS FECHAHORA,
+      SUM(ISNULL(tl.UNIDADES,0)) AS CONSUMO,
+      SUM(ISNULL(tl.UNIDADES,0)) AS UNIDADES,
+      MAX(ISNULL(CAST(tl.PRECIO AS varchar(30)),'')) AS PRECIO,
+      MAX(ISNULL(CAST(tl.PRECIOIVA AS varchar(30)),'')) AS PRECIOIVA,
+      MAX(ISNULL(CAST(tl.TIPOIVA AS varchar(30)),'')) AS TIPOIVA,
+      MAX(ISNULL(CAST(tl.CODVENDEDOR AS varchar(30)),'')) AS CODVENDEDOR,
+      MAX(ISNULL(NULLIF(tl.DESCRIPCION,''), ISNULL(a.DESCRIPCION,''))) AS DESCRIPCION,
+      MAX(ISNULL(NULLIF(tl.REFERENCIA,''), ISNULL(a.REFERENCIA,''))) AS REFERENCIA,
       MAX(ISNULL(CAST(a.USASTOCKS AS varchar(10)),'')) AS USASTOCKS
-    FROM TIQUETSCONSUMO tc
-    LEFT JOIN TIQUETSCAB c ON c.FO=tc.FO
-      AND (c.SERIE=tc.SERIE OR NULLIF(CAST(tc.SERIE AS varchar(30)),'') IS NULL)
-      AND (c.NUMERO=tc.NUMERO OR NULLIF(CAST(tc.NUMERO AS varchar(30)),'') IS NULL)
-      AND (c.N=tc.N OR NULLIF(CAST(tc.N AS varchar(30)),'') IS NULL)
-    LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tc.CODARTICULO AS varchar(30))
+    FROM TIQUETSLIN tl
+    LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
+    LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-      AND CONVERT(date, COALESCE(TRY_CONVERT(datetime, tc.FECHAHORA), TRY_CONVERT(datetime, tc.FECHA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
+      AND CONVERT(date, COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
     GROUP BY
-      COALESCE(NULLIF(CAST(tc.FO AS varchar(30)),''), CAST(c.FO AS varchar(30))),
-      COALESCE(NULLIF(CAST(tc.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
-      COALESCE(NULLIF(CAST(tc.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))),
-      COALESCE(NULLIF(CAST(tc.N AS varchar(30)),''), CAST(c.N AS varchar(30))),
-      tc.NUMLINEA, tc.CODARTICULO, tc.CODALMACEN, tc.CODMACRO
+      c.FO,
+      COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
+      COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))),
+      COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))),
+      tl.NUMLINEA, tl.CODARTICULO
   )
   SELECT
     FO,
@@ -909,17 +916,23 @@ BEGIN
     N,
     NUMLINEA,
     CODARTICULO,
+    ISNULL(CAST(UNIDADES AS varchar(30)),'') AS UNIDADES,
     ISNULL(CAST(CONSUMO AS varchar(30)),'') AS CONSUMO,
     CODALMACEN,
-    CODMACRO,
+    CAST('' AS varchar(30)) AS CODMACRO,
     ISNULL(CONVERT(varchar(10),FECHAHORA,120),'') AS FECHA,
+    ISNULL(CONVERT(varchar(19),FECHAHORA,120),'') AS HORA,
     ISNULL(CONVERT(varchar(19),FECHAHORA,120),'') AS FECHAHORA,
+    PRECIO,
+    PRECIOIVA,
+    TIPOIVA,
+    CODVENDEDOR,
     DESCRIPCION,
     REFERENCIA,
     USASTOCKS
   FROM consumo
   WHERE ISNULL(CONSUMO,0) <> 0
-  ORDER BY FECHAHORA DESC, SERIE DESC, NUMERO DESC, N DESC, NUMLINEA DESC, CODARTICULO DESC, CODALMACEN DESC;
+  ORDER BY FECHAHORA DESC, SERIE DESC, NUMERO DESC, N DESC, NUMLINEA DESC, CODARTICULO DESC;
 END
 ELSE
 BEGIN
@@ -930,11 +943,17 @@ BEGIN
     CAST('' AS varchar(30)) AS N,
     CAST('' AS varchar(30)) AS NUMLINEA,
     CAST('' AS varchar(30)) AS CODARTICULO,
+    CAST('' AS varchar(30)) AS UNIDADES,
     CAST('' AS varchar(30)) AS CONSUMO,
     CAST('' AS varchar(30)) AS CODALMACEN,
     CAST('' AS varchar(30)) AS CODMACRO,
     CAST('' AS varchar(30)) AS FECHA,
+    CAST('' AS varchar(30)) AS HORA,
     CAST('' AS varchar(30)) AS FECHAHORA,
+    CAST('' AS varchar(30)) AS PRECIO,
+    CAST('' AS varchar(30)) AS PRECIOIVA,
+    CAST('' AS varchar(30)) AS TIPOIVA,
+    CAST('' AS varchar(30)) AS CODVENDEDOR,
     CAST('' AS varchar(120)) AS DESCRIPCION,
     CAST('' AS varchar(60)) AS REFERENCIA,
     CAST('' AS varchar(10)) AS USASTOCKS;
@@ -942,9 +961,10 @@ END`;
   return parseSqlRows(await runSql(config, databaseName, sql)).map((row) => {
     const consumo = parseNumber(row.CONSUMO);
     const tipoMovimiento: IcgBackupConsumptionRow["tipoMovimiento"] = consumo < 0 ? "devolucion" : "venta";
+    const fechaHora = firstText(row, ["HORA", "Hora", "FECHAHORA", "FechaHora"]);
     return {
       fecha: firstText(row, ["FECHA", "Fecha"]),
-      fechaHora: firstText(row, ["FECHAHORA", "FechaHora"]),
+      fechaHora,
       fo: firstText(row, ["FO", "fo"]),
       serie: firstText(row, ["SERIE", "Serie"]),
       numero: firstText(row, ["NUMERO", "Numero"]),
@@ -957,6 +977,10 @@ END`;
       codAlmacen: firstText(row, ["CODALMACEN", "CodAlmacen"]),
       codMacro: firstText(row, ["CODMACRO", "CodMacro"]),
       consumo,
+      precio: firstText(row, ["PRECIO", "Precio"]),
+      precioIva: firstText(row, ["PRECIOIVA", "PrecioIva"]),
+      tipoIva: firstText(row, ["TIPOIVA", "TipoIva"]),
+      codVendedor: firstText(row, ["CODVENDEDOR", "CodVendedor"]),
       lineas: 1
     };
   }).filter((row) => row.codArticulo && row.consumo !== 0);
@@ -1010,7 +1034,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   references: AnyRecord[];
   stocks: AnyRecord[];
   salePrices: AnyRecord[];
-  tiquetsConsumoRows: AnyRecord[];
+  tiquetsLinRows: AnyRecord[];
   closures: AnyRecord[];
   previewReadOk: boolean;
   previewReadError: string;
@@ -1019,7 +1043,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   await assertLiveIcgDatabaseIsAvailable(config, databaseName);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), CONVERT(date, GETDATE()), 120) AS Fecha;"))[0]?.Fecha;
   const closures: AnyRecord[] = [];
-  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA') GROUP BY t.name;";
+  const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA','TIQUETSLIN') GROUP BY t.name;";
   const articlesSql = `
 SELECT
   CAST(CODARTICULO AS varchar(30)) AS CodArticulo,
@@ -1105,7 +1129,7 @@ END`;
     previewReadOk = false;
     previewReadError = error instanceof Error ? error.message : String(error);
   }
-  const tiquetsConsumoRows: AnyRecord[] = previewConsumptionRows.map((line) => {
+  const tiquetsLinRows: AnyRecord[] = previewConsumptionRows.map((line) => {
     const rowDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || latest || "";
     return consumptionRowFromBackupLine(line, rowDate);
   });
@@ -1118,7 +1142,7 @@ END`;
       references,
       stocks,
       salePrices,
-      tiquetsConsumoRows,
+      tiquetsLinRows,
       closures,
       previewReadOk,
       previewReadError
@@ -1132,7 +1156,7 @@ END`;
     references,
     stocks,
     salePrices,
-    tiquetsConsumoRows,
+    tiquetsLinRows,
     closures,
     previewReadOk,
     previewReadError
@@ -1191,7 +1215,7 @@ export function icgPhysicalConsumptionSourceKey(line: Partial<IcgBackupConsumpti
   return icgStableConsumptionIdentity(line);
 }
 
-export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], tiquetsConsumoRows: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
+export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], tiquetsLinRows: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
   const result: IcgBackupSyncResult = {
     ok: false,
     backupPath: config.icgBackupPath,
@@ -1211,7 +1235,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   };
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
-  const sourceConsumptionRows = tiquetsConsumoRows.length ? tiquetsConsumoRows : rowsToApply.map((line) => consumptionRowFromBackupLine(line, fecha));
+  const sourceConsumptionRows = tiquetsLinRows.length ? tiquetsLinRows : rowsToApply.map((line) => consumptionRowFromBackupLine(line, fecha));
   const cloudPause = await readIcgControlPause(config);
   if (cloudPause.paused) {
     icg.inventoryImpactPaused = true;
@@ -1234,7 +1258,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     return result;
   }
   mergeBackupArticlesIntoIcgData(icg, articles);
-  mergeBackupTiquetsConsumoIntoIcgData(icg, sourceConsumptionRows, fecha);
+  mergeBackupTiquetsLinIntoIcgData(icg, sourceConsumptionRows, fecha);
   mergeBackupSalePricesIntoIcgData(icg, salePrices);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
   if (closures.length) {
@@ -1683,7 +1707,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   result.ok = result.errors.length === 0 || result.applied > 0 || result.pending > 0 || sourceConsumptionRows.length > 0;
   result.message = result.applied
     ? `Backup ICG aplicado: ${result.applied} descuentos. Pendientes para revision: ${result.pending}.`
-    : `Backup ICG leido desde TIQUETSCONSUMO sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
+    : `Backup ICG leido desde TIQUETSLIN sin descuentos aplicados. Pendientes para revision: ${result.pending}.`;
   await writeAppState(config, appState, result);
   return result;
 }
@@ -1699,10 +1723,10 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   icg.sourceName = sourceDatabaseName(config);
   icg.updatedAt = now;
   const previewMessage = data.previewReadOk === false
-    ? `No se pudo leer TIQUETSCONSUMO para la cola visible: ${data.previewReadError || "error no especificado"}. Se conserva la cola local anterior.`
+    ? `No se pudo leer TIQUETSLIN para la cola visible: ${data.previewReadError || "error no especificado"}. Se conserva la cola local anterior.`
     : data.rows.length
-      ? `TIQUETSCONSUMO leido correctamente: ${data.rows.length} linea(s) ICG reciente(s) cargada(s) para vista previa.`
-      : "TIQUETSCONSUMO leido correctamente, sin movimientos en el rango configurado.";
+      ? `TIQUETSLIN leido correctamente: ${data.rows.length} linea(s) ICG reciente(s) cargada(s) para vista previa.`
+      : "TIQUETSLIN leido correctamente, sin movimientos en el rango configurado.";
   const result: IcgBackupSyncResult = {
     ok: data.previewReadOk !== false,
     backupPath: config.icgBackupPath,

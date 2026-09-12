@@ -104,6 +104,10 @@ export interface IcgBackupConsumptionRow {
   codAlmacen: string;
   codMacro?: string;
   consumo: number;
+  precio?: string;
+  precioIva?: string;
+  tipoIva?: string;
+  codVendedor?: string;
   lineas: number;
 }
 

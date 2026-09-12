@@ -4627,7 +4627,7 @@
   function getFirebaseComparableIcgData(data) {
     const normalized = ensureIcgFrontRestData(data);
     const datasets = {};
-    ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios", "TiquetsConsumo"].forEach(function(key) {
+    ["VinculosMiseICG", "ConsumoMiseVentas", "CierresDiarios", "TiquetsLin"].forEach(function(key) {
       datasets[key] = compactIcgDatasetForFirebase(normalized, key, 0);
     });
     ["Articulos", "Referencias", "Stocks", "PreciosVenta"].forEach(function(key) {
@@ -5798,10 +5798,10 @@
       icon: "fa-receipt",
       columns: ["Serie", "Numero", "NumFactura", "Fecha", "HoraIni", "HoraFin", "Mesa", "Sala", "Caja", "CodCliente", "CodVendedor", "TotalBruto", "TotalNeto", "Subtotal", "IVAINC", "Propina", "FechaAnulacion"]
     },
-    TiquetsConsumo: {
-      label: "TIQUETSCONSUMO SQL",
+    TiquetsLin: {
+      label: "TIQUETSLIN SQL",
       icon: "fa-table-list",
-      columns: ["MovimientoICGId", "PhysicalIcgKey", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "CONSUMO", "CODALMACEN", "CODMACRO", "FECHA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "TicketICG"]
+      columns: ["MovimientoICGId", "PhysicalIcgKey", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "UNIDADES", "CONSUMO", "PRECIO", "PRECIOIVA", "TIPOIVA", "CODVENDEDOR", "CODALMACEN", "FECHA", "HORA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "Ticket", "TicketICG"]
     },
     TiquetsPag: {
       label: "Pagos",
@@ -5961,7 +5961,7 @@
         rows: Array.isArray(current.rows) ? current.rows : []
       };
     });
-    delete datasets.TiquetsLin;
+    delete datasets[["Tiquets", "Consumo"].join("")];
     delete datasets.TicketLin;
     return Object.assign({}, base, input, {
       audit: Object.assign({}, base.audit, input.audit || {}),
@@ -6009,7 +6009,7 @@
     const datasets = Object.assign({}, normalized.datasets || {});
     const ignoredAt = new Date().toISOString();
     let ignored = 0;
-    ["ConsumoMiseVentas", "TiquetsConsumo"].forEach(function(tableKey) {
+    ["ConsumoMiseVentas", "TiquetsLin"].forEach(function(tableKey) {
       const ds = datasets[tableKey];
       if (!ds || !Array.isArray(ds.rows)) return;
       const rows = [];
@@ -6476,7 +6476,7 @@
   function getIcgStableLineIdentity(row, fallbackIndex) {
     if (!row) return "";
     return [
-      "tiquetsconsumo-v1",
+      "tiquetslin-v1",
       row.FO || row.fo || "",
       row.Serie || row.SERIE || row.serie || "",
       row.Numero || row.NUMERO || row.numero || "",
@@ -6488,7 +6488,7 @@
   }
   function getIcgConsumptionAuditKey(parts) {
     return [
-      "icg-consumption-tiquetsconsumo-v1",
+      "icg-consumption-tiquetslin-v1",
       normalizar(parts && parts.ticket),
       normalizar(parts && parts.linea),
       normalizar(parts && parts.codArticulo),
@@ -6513,7 +6513,7 @@
   }
   function getIcgPhysicalConsumptionKey(parts) {
     return [
-      "icg-physical-tiquetsconsumo-v1",
+      "icg-physical-tiquetslin-v1",
       normalizar(parts && parts.ticket),
       normalizar(parts && parts.linea),
       normalizar(parts && parts.codArticulo),
@@ -6569,7 +6569,7 @@
     const tickets = icgRows(normalizedData, "TiquetsCab").filter(function(row) {
       return row && !(row.FechaAnulacion || row.Anulado || row.Cancelado);
     });
-    const lines = icgRows(normalizedData, "TiquetsConsumo");
+    const lines = icgRows(normalizedData, "TiquetsLin");
     const payments = icgRows(normalizedData, "TiquetsPag");
     const map = {};
     tickets.forEach(function(row, index) {
@@ -6644,7 +6644,7 @@
     const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
       return !(row.FechaAnulacion || row.Anulado || row.Cancelado);
     });
-    const lineas = icgRows(data, "TiquetsConsumo");
+    const lineas = icgRows(data, "TiquetsLin");
     const pagos = icgRows(data, "TiquetsPag");
     const groups = {};
     tickets.forEach(function(row) {
@@ -6964,7 +6964,7 @@
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
     const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas");
-    const lines = icgRows(normalizedData, "TiquetsConsumo");
+    const lines = icgRows(normalizedData, "TiquetsLin");
     const bridges = icgRows(normalizedData, "VinculosMiseICG").map(sanitizeIcgBridgeRow);
     const ticketMap = buildIcgSalesTickets(normalizedData).reduce(function(acc, ticket) {
       acc[ticket.ticketKey] = ticket;
@@ -20854,7 +20854,7 @@
                 /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, price ? formatIcgMoney(price) : "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontWeight: 800 } }, total ? formatIcgMoney(total) : "-")
               );
-            }), !(selectedTicketDetail.Lineas || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este ticket no tiene consumos asociados en TIQUETSCONSUMO.")))
+            }), !(selectedTicketDetail.Lineas || []).length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este ticket no tiene consumos asociados en TIQUETSLIN.")))
           ))
         )
       )),

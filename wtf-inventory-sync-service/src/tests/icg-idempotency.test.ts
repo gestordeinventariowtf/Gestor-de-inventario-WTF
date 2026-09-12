@@ -69,7 +69,7 @@ assert.equal(
 assert.equal(
   icgPhysicalConsumptionSourceKey(baseLine),
   icgPhysicalConsumptionSourceKey(samePhysicalLineDifferentClock),
-  "La llave fuente de TIQUETSCONSUMO no debe depender de la hora ni de cambios de cantidad."
+  "La llave fuente de TIQUETSLIN no debe depender de la hora ni de cambios de cantidad."
 );
 
 assert.notEqual(
@@ -125,11 +125,13 @@ const recentConsumptionPreviewBody = adapterSource.slice(
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
-assert.ok(/FROM\s+TIQUETSCONSUMO/i.test(recentConsumptionPreviewBody), "La cola visible del Host debe alimentarse exclusivamente desde TIQUETSCONSUMO.");
-assert.ok(!/TIQUETSLIN|TICKETLIN|TIQUETLIN/i.test(recentConsumptionPreviewBody), "La cola del Host no debe usar TIQUETLIN, TIQUETSLIN ni TICKETLIN como fuente activa.");
-assert.ok(/GROUP BY[\s\S]*tc\.NUMLINEA,\s*tc\.CODARTICULO,\s*tc\.CODALMACEN/i.test(recentConsumptionPreviewBody), "TIQUETSCONSUMO debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
-assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tc\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSCONSUMO debe alimentar SERIE con respaldo desde TIQUETSCAB.");
-assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tc\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSCONSUMO debe alimentar NUMERO con respaldo desde TIQUETSCAB.");
+assert.ok(/FROM\s+TIQUETSLIN/i.test(recentConsumptionPreviewBody), "La cola visible del Host debe alimentarse exclusivamente desde TIQUETSLIN.");
+const oldConsumptionTablePattern = new RegExp(["TIQUETS", "CONSUMO"].join("") + "|TICKETLIN|TIQUETLIN", "i");
+assert.ok(!oldConsumptionTablePattern.test(recentConsumptionPreviewBody), "La cola del Host no debe usar fuentes antiguas de consumos ni tickets.");
+assert.ok(/GROUP BY[\s\S]*tl\.NUMLINEA,\s*tl\.CODARTICULO/i.test(recentConsumptionPreviewBody), "TIQUETSLIN debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
+assert.ok(/TRY_CONVERT\s*\(\s*datetime,\s*tl\.HORA/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar la fecha desde HORA.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE con respaldo desde TIQUETSCAB.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO con respaldo desde TIQUETSCAB.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 
 const catalogSyncBody = adapterSource.slice(
@@ -138,11 +140,11 @@ const catalogSyncBody = adapterSource.slice(
 );
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
-assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSCONSUMO, el Host debe conservar la cola local anterior.");
-assert.ok(catalogSyncBody.includes("TIQUETSCONSUMO leido correctamente, sin movimientos"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
-assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSCONSUMO"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
+assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
+assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
+assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
-assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSCONSUMO falla.");
+assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSLIN falla.");
 
 const applyBackupBody = adapterSource.slice(
   adapterSource.indexOf("export async function applyBackupConsumptionToFirestore"),
@@ -151,11 +153,11 @@ const applyBackupBody = adapterSource.slice(
 assert.ok(applyBackupBody.includes("queueMovementByIcg"), "La cola del Host debe consolidarse por articulo/movimiento ICG, no por cada producto WTF/Mise vinculado.");
 assert.ok(!/result\.movements\?\.push\s*\(\s*createBackupMovement/i.test(applyBackupBody), "El desglose WTF/Mise no debe insertar multiples lineas en la cola visible del Host.");
 assert.ok(/result\.movements\s*=\s*Array\.from\(queueMovementByIcg\.values\(\)\)/.test(applyBackupBody), "La cola visible debe publicarse una sola vez por MovimientoICGId.");
-assert.ok(applyBackupBody.includes("const icgConsumptionDate = line.fecha"), "Ventas ICG debe conservar la fecha original de cada fila TIQUETSCONSUMO.");
+assert.ok(applyBackupBody.includes("const icgConsumptionDate = line.fecha"), "Ventas ICG debe conservar la fecha original de cada fila TIQUETSLIN.");
 assert.ok(applyBackupBody.includes("Fecha: icgConsumptionDate"), "ConsumoMiseVentas no debe usar la fecha global del proceso como fecha de venta.");
 assert.ok(applyBackupBody.includes("const ticketDisplay = icgTicketDisplayFromLine(line)"), "Ventas ICG debe guardar Ticket visible como SERIE-NUMERO.");
-assert.ok(applyBackupBody.includes("const pausedMovementDate = line.fecha"), "La cola pausada debe conservar la fecha original de TIQUETSCONSUMO.");
-assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La cola consolidada debe conservar la fecha original de TIQUETSCONSUMO.");
-assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSCONSUMO por movimiento.");
+assert.ok(applyBackupBody.includes("const pausedMovementDate = line.fecha"), "La cola pausada debe conservar la fecha original de TIQUETSLIN.");
+assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La cola consolidada debe conservar la fecha original de TIQUETSLIN.");
+assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSLIN por movimiento.");
 
 console.log("ICG idempotency tests passed");
