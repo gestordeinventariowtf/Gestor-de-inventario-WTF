@@ -22,7 +22,7 @@ const DATASET_COLUMNS: Record<string, string[]> = {
   PreciosVenta: ["CODARTICULO", "CodArticulo", "CODFORMATO", "CodFormato", "IDTARIFAV", "TarifaNombre", "VALOR", "Valor", "_source", "_updatedAt"],
   Proveedores: ["CODPROVEEDOR", "NOMPROVEEDOR", "NOMCOMERCIAL", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL"],
   Clientes: ["CODCLIENTE", "NOMBRECOMERCIAL", "NOMBRECLIENTE", "ALIAS", "TELEFONO1", "TELEFONO2", "E_MAIL", "ESTADO", "NUMTARJETA"],
-  ConsumoMiseVentas: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "Ticket", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+  ConsumoMiseVentas: ["Fecha", "Hora", "FechaHora", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "N", "Ticket", "TicketICG", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "ExistenciaActual", "ExistenciaNueva", "MotivoRevision", "Archivo", "ImportKey", "IcgAuditKey", "FuenteSQL", "Estado"]
 };
 
 const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
@@ -32,10 +32,12 @@ const FIREBASE_APP_STATE_SHARD_KEYS = [
   "regSalidas",
   "recetasProduccion",
   "barRegSalidas",
+  "barHistSalidaRapida",
   "systemLogs",
   "histSalidaRapida",
   "regEntradas",
   "barRegEntradas",
+  "barHistEntradaRapida",
   "barRecetasProduccion",
   "assetManagementData",
   "employeeCenterData",
@@ -874,7 +876,6 @@ ORDER BY FechaCierre DESC;`;
 }
 
 async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
-  const days = Math.max(1, Math.round(Number(config.icgConsumptionLookbackDays || 30)));
   const sql = `
 IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
@@ -887,7 +888,7 @@ BEGIN
       ISNULL(CAST(tl.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
       ISNULL(CAST(tl.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
       CAST('' AS varchar(30)) AS CODALMACEN,
-      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) AS FECHAHORA,
+      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA))) AS FECHAHORA,
       SUM(ISNULL(tl.UNIDADES,0)) AS CONSUMO,
       SUM(ISNULL(tl.UNIDADES,0)) AS UNIDADES,
       MAX(ISNULL(CAST(tl.PRECIO AS varchar(30)),'')) AS PRECIO,
@@ -901,7 +902,6 @@ BEGIN
     LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-      AND CONVERT(date, COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA), GETDATE())) >= DATEADD(day, -${days - 1}, CONVERT(date, GETDATE()))
     GROUP BY
       c.FO,
       COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
@@ -1459,6 +1459,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       rememberIcgQueueMovement(line, "pendiente_revision", "Sin vinculo WTF; requiere mapear ProductoMise/ProductoWTF.");
       const pendingRow = {
         Fecha: icgConsumptionDate,
+        Hora: line.fechaHora || line.fecha || fecha,
         MovimientoICGId: movementId,
         ModuloWTF: "",
         ProductoWTF: "",
@@ -1472,11 +1473,13 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: pendingImportKey,
         IcgAuditKey: pendingAuditKey,
+        FuenteSQL: "TIQUETSLIN",
         Estado: "Sin vinculo",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
         Serie: lineSerie(line),
         Numero: lineNumero(line),
+        N: lineN(line),
         Ticket: ticketDisplay,
         TicketICG: ticketIdentity,
         NumLinea: lineNumLinea(line),
@@ -1512,10 +1515,12 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       const item = list.find((row) => normalizar(targetProductName(row, target)) === normalizar(producto));
       const consumoRow: AnyRecord = {
         Fecha: icgConsumptionDate,
+        Hora: line.fechaHora || line.fecha || fecha,
         MovimientoICGId: movementId,
         PhysicalIcgKey: physicalKey,
         Serie: lineSerie(line),
         Numero: lineNumero(line),
+        N: lineN(line),
         Ticket: ticketDisplay,
         ModuloWTF: targetLabel(target),
         targetKey: target,
@@ -1530,6 +1535,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         Archivo: path.basename(config.icgBackupPath),
         ImportKey: importKey,
         IcgAuditKey: auditKey,
+        FuenteSQL: "TIQUETSLIN",
         Estado: "Pendiente",
         CodAlmacen: line.codAlmacen,
         FechaHora: line.fechaHora || line.fecha || fecha,
@@ -1615,7 +1621,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       if (existenciaAnterior + 1e-9 < cantidad) {
         const deficit = Number((cantidad - existenciaAnterior).toFixed(4));
         const message = `${targetProductName(item, target)} no tiene existencia suficiente para descuento ICG. Disponible: ${Number(existenciaAnterior.toFixed(4))} ${item.medida || consumoRow.Unidad || ""}. Solicitado: ${Number(cantidad.toFixed(4))} ${consumoRow.Unidad || item.medida || ""}. Faltante: ${deficit}.`;
-        consumoRow.Estado = "Stock insuficiente";
+        consumoRow.Estado = "Sin Existencia / No Aplicar";
         consumoRow.ExistenciaActual = existenciaAnterior;
         consumoRow.ExistenciaNueva = existenciaAnterior;
         consumoRow.MotivoRevision = message;
@@ -1725,8 +1731,8 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   const previewMessage = data.previewReadOk === false
     ? `No se pudo leer TIQUETSLIN para la cola visible: ${data.previewReadError || "error no especificado"}. Se conserva la cola local anterior.`
     : data.rows.length
-      ? `TIQUETSLIN leido correctamente: ${data.rows.length} linea(s) ICG reciente(s) cargada(s) para vista previa.`
-      : "TIQUETSLIN leido correctamente, sin movimientos en el rango configurado.";
+      ? `TIQUETSLIN leido correctamente: ${data.rows.length} linea(s) ICG historica(s) cargada(s) para vista previa.`
+      : "TIQUETSLIN leido correctamente, sin movimientos disponibles.";
   const result: IcgBackupSyncResult = {
     ok: data.previewReadOk !== false,
     backupPath: config.icgBackupPath,

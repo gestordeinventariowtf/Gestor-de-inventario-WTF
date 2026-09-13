@@ -133,6 +133,7 @@ assert.ok(/TRY_CONVERT\s*\(\s*datetime,\s*tl\.HORA/i.test(recentConsumptionPrevi
 assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE con respaldo desde TIQUETSCAB.");
 assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO con respaldo desde TIQUETSCAB.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
+assert.ok(!/DATEADD\s*\(|GETDATE\s*\(\)\s*\)/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe filtrar ventas antiguas por fecha actual del servidor.");
 
 const catalogSyncBody = adapterSource.slice(
   adapterSource.indexOf("async function syncIcgCatalogToFirestore"),
@@ -141,7 +142,7 @@ const catalogSyncBody = adapterSource.slice(
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
-assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
+assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos disponibles"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
 assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSLIN falla.");

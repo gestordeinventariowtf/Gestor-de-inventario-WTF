@@ -2440,6 +2440,8 @@
     regProduccion: "wtf_bar_reg_produccion",
     recetasProduccion: "wtf_bar_recetas_produccion",
     productionHolds: "wtf_production_holds_bar",
+    histEntradaRapida: "wtf_bar_hist_entrada_rapida",
+    histSalidaRapida: "wtf_bar_hist_salida_rapida",
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
@@ -4587,7 +4589,9 @@
       barRegRecuento: normalizeMovementRows(state.barRegRecuento || [], movementDeletedKeys.barRegRecuento),
       barRegProduccion: normalizeProductionHistoryRows(state.barRegProduccion || [], productionHistoryDeletedKeys.barRegProduccion),
       barProductionHolds: normalizeProductionHolds(state.barProductionHolds || [], productionHoldDeletedKeys.barProductionHolds),
-      barRecetasProduccion: (state.barRecetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })
+      barRecetasProduccion: (state.barRecetasProduccion || []).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); }),
+      barHistEntradaRapida: normalizeMovementRows(state.barHistEntradaRapida || [], movementDeletedKeys.barHistEntradaRapida),
+      barHistSalidaRapida: normalizeMovementRows(state.barHistSalidaRapida || [], movementDeletedKeys.barHistSalidaRapida)
     });
   }
   function compactIcgDatasetForFirebase(data, key, rowLimit) {
@@ -4659,10 +4663,12 @@
     "regSalidas",
     "recetasProduccion",
     "barRegSalidas",
+    "barHistSalidaRapida",
     "systemLogs",
     "histSalidaRapida",
     "regEntradas",
     "barRegEntradas",
+    "barHistEntradaRapida",
     "barRecetasProduccion",
     "assetManagementData",
     "employeeCenterData",
@@ -5816,7 +5822,7 @@
     ConsumoMiseVentas: {
       label: "Consumo Mise ventas",
       icon: "fa-fire-burner",
-      columns: ["Fecha", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "Ticket", "TicketICG", "FechaHora", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "Estado"]
+      columns: ["Fecha", "Hora", "FechaHora", "MovimientoICGId", "PhysicalIcgKey", "Serie", "Numero", "N", "Ticket", "TicketICG", "NumLinea", "ModuloWTF", "ProductoWTF", "ProductoMise", "CodArticulo", "Referencia", "ProductoICG", "UnidadesVendidas", "CantidadDescontar", "Unidad", "Archivo", "ImportKey", "IcgAuditKey", "FuenteSQL", "Estado"]
     },
     VinculosMiseICG: {
       label: "Vinculos Mise ICG",
@@ -6876,6 +6882,8 @@
       TicketICG: ticketValue,
       Serie: row.Serie || row.SERIE || "",
       Numero: row.Numero || row.NUMERO || "",
+      N: row.N || row.n || "",
+      Hora: row.Hora || row.HORA || fechaHora,
       FechaHora: fechaHora,
       NumLinea: lineNumber,
       ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
@@ -6889,6 +6897,7 @@
       CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
       Archivo: sourceName,
+      FuenteSQL: row.FuenteSQL || row._source || "TIQUETSLIN",
       ImportKey: importKey,
       PhysicalIcgKey: physicalIcgKey,
       IcgAuditKey: getIcgConsumptionAuditKey({
@@ -6910,6 +6919,8 @@
       TicketICG: ticketValue,
       Serie: row.Serie || row.SERIE || "",
       Numero: row.Numero || row.NUMERO || "",
+      N: row.N || row.n || "",
+      Hora: row.Hora || row.HORA || fechaHora,
       FechaHora: fechaHora,
       NumLinea: lineNumber,
       ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
@@ -6922,6 +6933,7 @@
       UnidadesVendidas: Number(unitsSold.toFixed(4)),
       CantidadDescontar: Number((qtyPerSale ? unitsSold * qtyPerSale : previousDiscount).toFixed(4)),
       Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || row.Unidad || "Uni",
+      FuenteSQL: row.FuenteSQL || row._source || "TIQUETSLIN",
       ImportKey: importKey,
       PhysicalIcgKey: physicalIcgKey,
       IcgAuditKey: getIcgConsumptionAuditKey({
@@ -7052,6 +7064,8 @@
           TicketICG: ticketKey || existing.TicketICG || existing.Ticket || "",
           Serie: line.Serie || line.SERIE || line.serie || line.NumSerie || line.NUMSERIE || line.SerieDoc || line.SERIEDOC || "",
           Numero: line.Numero || line.NUMERO || line.numero || line.NumDoc || line.NUMDOC || line.NumFactura || line.NUMFACTURA || "",
+          N: line.N || line.n || existing.N || "",
+          Hora: line.Hora || line.HORA || lineMoment || existing.Hora || existing.HORA || "",
           FechaHora: lineMoment || existing.FechaHora || "",
           NumLinea: lineNumber || existing.NumLinea || "",
           IcgAuditKey: auditKey,
@@ -7068,6 +7082,7 @@
           CantidadDescontar: discountQty,
           Unidad: bridge && icgCellText(bridge.Unidad || bridge.Medida) || "Uni",
           Archivo: sourceName,
+          FuenteSQL: line.FuenteSQL || line._source || "TIQUETSLIN",
           ImportKey: importKey,
           Estado: existing.Estado || (legacyAlreadyApplied ? "Aplicado" : bridge ? "Pendiente" : "Sin vinculo")
         });
@@ -10839,6 +10854,8 @@
     const [barRegProduccion, setBarRegProduccion] = useState(() => normalizeProductionHistoryRows(load(BAR_KEYS.regProduccion, []), initialProductionHistoryDeletedKeys.barRegProduccion));
     const [barRecetasProduccion, setBarRecetasProduccion] = useState(() => normalizeRecipeRows(load(BAR_KEYS.recetasProduccion, []) || []).filter(function(row) { return !isRecipeRowDeleted(row, initialRecipeDeletedKeys.barRecetasProduccion); }));
     const [barProductionHolds, setBarProductionHolds] = useState(() => normalizeProductionHolds(load(BAR_KEYS.productionHolds, []), initialProductionHoldDeletedKeys.barProductionHolds));
+    const [barHistEntradaRapida, setBarHistEntradaRapida] = useState(() => normalizeMovementRows(load(BAR_KEYS.histEntradaRapida, []), initialMovementDeletedKeys.barHistEntradaRapida));
+    const [barHistSalidaRapida, setBarHistSalidaRapida] = useState(() => normalizeMovementRows(load(BAR_KEYS.histSalidaRapida, []), initialMovementDeletedKeys.barHistSalidaRapida));
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
     const [recipeDeletedKeys, setRecipeDeletedKeys] = useState(() => initialRecipeDeletedKeys);
@@ -10966,6 +10983,8 @@
       barRegProduccion,
       barProductionHolds,
       barRecetasProduccion,
+      barHistEntradaRapida,
+      barHistSalidaRapida,
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
@@ -11127,6 +11146,8 @@
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(normalizeProductionHistoryRows(nextState.barRegProduccion, nextState.productionHistoryDeletedKeys && nextState.productionHistoryDeletedKeys.barRegProduccion));
       if (Array.isArray(nextState.barProductionHolds)) setBarProductionHolds(normalizeProductionHolds(nextState.barProductionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.barProductionHolds));
       if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(normalizeRecipeRows(nextState.barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
+      if (Array.isArray(nextState.barHistEntradaRapida)) setBarHistEntradaRapida(normalizeMovementRows(nextState.barHistEntradaRapida, nextMovementDeletedKeys.barHistEntradaRapida));
+      if (Array.isArray(nextState.barHistSalidaRapida)) setBarHistSalidaRapida(normalizeMovementRows(nextState.barHistSalidaRapida, nextMovementDeletedKeys.barHistSalidaRapida));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
       }, 0);
@@ -11325,6 +11346,8 @@
     useEffect(() => save(BAR_KEYS.regProduccion, normalizeProductionHistoryRows(barRegProduccion, productionHistoryDeletedKeys.barRegProduccion)), [barRegProduccion, productionHistoryDeletedKeys]);
     useEffect(() => save(BAR_KEYS.recetasProduccion, normalizeRecipeRows(barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.barRecetasProduccion); })), [barRecetasProduccion, recipeDeletedKeys]);
     useEffect(() => save(BAR_KEYS.productionHolds, normalizeProductionHolds(barProductionHolds, productionHoldDeletedKeys.barProductionHolds)), [barProductionHolds, productionHoldDeletedKeys]);
+    useEffect(() => save(BAR_KEYS.histEntradaRapida, normalizeMovementRows(barHistEntradaRapida, movementDeletedKeys.barHistEntradaRapida)), [barHistEntradaRapida, movementDeletedKeys]);
+    useEffect(() => save(BAR_KEYS.histSalidaRapida, normalizeMovementRows(barHistSalidaRapida, movementDeletedKeys.barHistSalidaRapida)), [barHistSalidaRapida, movementDeletedKeys]);
     useEffect(() => {
       const result = repairInventoryCodArticuloCollections([
         { key: "inventario", rows: inventario },
@@ -11728,7 +11751,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -11745,7 +11768,7 @@
         window.removeEventListener("wtf:pwa-resume", handlePwaSync);
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, firebaseStatus]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida, firebaseStatus]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -12388,6 +12411,10 @@
     const activeProductionHoldDeletedKey = esBar ? "barProductionHolds" : "productionHolds";
     const activeMiseAnPlace = esBar ? barMiseAnPlace : miseAnPlace;
     const setActiveMise = esBar ? setBarMise : setMise;
+    const activeHistEntradaRapida = esBar ? barHistEntradaRapida : histEntradaRapida;
+    const setActiveHistEntradaRapida = esBar ? setBarHistEntradaRapida : setHistEntradaRapida;
+    const activeHistSalidaRapida = esBar ? barHistSalidaRapida : histSalidaRapida;
+    const setActiveHistSalidaRapida = esBar ? setBarHistSalidaRapida : setHistSalidaRapida;
     const hasCocinaBarLinkAccess = isAdminUser(currentUser) || Boolean(currentUser && Array.isArray(currentUser.permisos) && currentUser.permisos.includes("linkCocinaBar"));
     const otherModuleLabel = esBar ? "Cocina" : "Bar";
     const otherInventario = esBar ? inventario : barInventario;
@@ -12554,9 +12581,15 @@
           const total = miseMoves.filter((row) => normalizar(row.target.producto) === normalizar(item.producto)).reduce((sum, move) => sum + move.cantidad, 0);
           return total ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - total).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
-        setHistSalidaRapida((prev) => prev.concat(miseMoves.map(function(move) {
-          return { id: `icg-${move.physicalIcgKey ? quickHashText(move.physicalIcgKey) : move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.existenciaAnterior, existenciaNueva: move.existenciaNueva, importKey: move.importKey, movimientoIcgId: move.movimientoIcgId, physicalIcgKey: move.physicalIcgKey };
-        })));
+        setHistSalidaRapida((prev) => {
+          const current = Array.isArray(prev) ? prev : [];
+          const nextRows = miseMoves.map(function(move) {
+            return { id: `icg-${move.physicalIcgKey ? quickHashText(move.physicalIcgKey) : move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.existenciaAnterior, existenciaNueva: move.existenciaNueva, importKey: move.importKey, movimientoIcgId: move.movimientoIcgId, physicalIcgKey: move.physicalIcgKey };
+          });
+          return current.concat(nextRows.filter(function(row) {
+            return !hasMovementAlreadyRegistered(current, row);
+          }));
+        });
       }
       const barMiseMoves = movements.filter((move) => move.targetKey === "miseBar");
       if (barMiseMoves.length) {
@@ -12564,6 +12597,15 @@
           const total = barMiseMoves.filter((row) => normalizar(row.target.producto) === normalizar(item.producto)).reduce((sum, move) => sum + move.cantidad, 0);
           return total ? { ...item, existencia: Math.max(0, Number((getMiseSafeNumber(item.existencia, 0) - total).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: getUserDisplayLabel(currentUser), movementSource: "ICG FrontRest", movimientosActualizadosAt: now } : item;
         }));
+        setBarHistSalidaRapida((prev) => {
+          const current = Array.isArray(prev) ? prev : [];
+          const nextRows = barMiseMoves.map(function(move) {
+            return { id: `icg-${move.physicalIcgKey ? quickHashText(move.physicalIcgKey) : move.importKey || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`, fecha: move.row.FechaHora || now, producto: move.target.producto, cantidad: move.cantidad, medida: move.target.medida || move.unidad || "Uni", usuario: getUserDisplayLabel(currentUser), origen: "ICG FrontRest", existenciaAnterior: move.existenciaAnterior, existenciaNueva: move.existenciaNueva, importKey: move.importKey, movimientoIcgId: move.movimientoIcgId, physicalIcgKey: move.physicalIcgKey };
+          });
+          return current.concat(nextRows.filter(function(row) {
+            return !hasMovementAlreadyRegistered(current, row);
+          }));
+        });
       }
       const appliedImportList = candidates.map((row) => row.ImportKey).filter(Boolean);
       appliedImportList.physicalKeys = movements.map((move) => move.physicalIcgKey).filter(Boolean);
@@ -12712,8 +12754,8 @@
       entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
-      recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: "histEntradaRapida", histSalidaRapida: "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
       histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios, movementStateKey: "histDecomisoCocina", onMarkMovementRowsDeleted: markMovementRowsDeleted }),
@@ -12726,7 +12768,7 @@
       aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
@@ -20121,7 +20163,7 @@
         if (appliedImportKeys.has(row.ImportKey) || appliedAuditKeys.has(rowAuditKey) || appliedPhysicalIcgKeys.has(rowPhysicalKey) || (movementTargetKey && appliedMovementTargets.has(movementTargetKey))) estado = "Aplicado";
         else if (!productName) estado = "Sin vinculo";
         else if (!target) estado = "Producto WTF no encontrado";
-        else if (convertedDiscountQty == null || stockDiscountQty > getMiseSafeNumber(target.existencia, 0) + 1e-9) estado = "Sin existencia";
+        else if (convertedDiscountQty == null || stockDiscountQty > getMiseSafeNumber(target.existencia, 0) + 1e-9) estado = "Sin Existencia / No Aplicar";
         else if (inventoryImpactPaused && estado === "Pendiente") estado = "Pausado por auditoria";
         const isAppliedRow = isIcgConsumptionFinalized(Object.assign({}, row, { Estado: estado }));
         const currentExistence = target ? getMiseSafeNumber(target.existencia, 0) : "";
@@ -20248,7 +20290,7 @@
         return String(a.producto || "").localeCompare(String(b.producto || ""));
       });
     }, [inventoryTargets]);
-    const estadoOptions = ["Pendiente", "Aplicado", "Sin vinculo", "Producto WTF no encontrado", "Sin existencia", "Stock insuficiente"];
+    const estadoOptions = ["Pendiente", "Aplicado", "Sin vinculo", "Producto WTF no encontrado", "Sin Existencia / No Aplicar", "Ya procesado", "Error controlado"];
     const filteredRows = (table.rows || []).filter(function(row) {
       const q = normalizar(query);
       if (!q) return true;
@@ -20591,12 +20633,12 @@
           ))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
-          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label, style: ["Producto WTF", "Descontar", "Exist.", "Nueva", "Estado"].includes(label) ? { textAlign: "center" } : void 0 }, label)))),
+          /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Estado"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label, style: ["Producto WTF", "Descontar", "Estado"].includes(label) ? { textAlign: "center" } : void 0 }, label)))),
           /* @__PURE__ */ React.createElement("tbody", null, groupedSalesRows.flatMap(function(group, groupIndex) {
             const source = group.source || {};
             if (group.children.length <= 1) {
               const row = group.children[0] || source;
-              const blocked = row.Estado === "Sin existencia" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo";
+              const blocked = getIcgConsumptionStatusLabel(row.Estado) === "Sin Existencia / No Aplicar" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo";
               const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
               return [/* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || `single-${group.key}`, className: blocked ? "tr-out-stock" : "" },
                 /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
@@ -20609,8 +20651,6 @@
                 /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, textAlign: "center" } }, row.ProductoWTF || row.ProductoMise || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, row.UnidadesVendidas || 0),
                 /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.DescontarTexto || `${row.CantidadDescontar || 0} ${row.Unidad || ""}`),
-                /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.ExistenciaTexto || (row.ExistenciaActual === "" ? "-" : row.ExistenciaActual)),
-                /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, row.ExistenciaNuevaTexto || (row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva)),
                 /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${statusClass}` }, getIcgConsumptionStatusLabel(row.Estado)))
               )];
             }
@@ -20637,11 +20677,9 @@
               /* @__PURE__ */ React.createElement("td", null, renderGroupedTextCell((row) => row.ProductoWTF || row.ProductoMise || "-")),
               /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, renderGroupedCell((row) => row.UnidadesVendidas || 0)),
               /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, renderGroupedCell((row) => row.DescontarTexto || `${row.CantidadDescontar || 0} ${row.Unidad || ""}`)),
-              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, renderGroupedCell((row) => row.ExistenciaTexto || (row.ExistenciaActual === "" ? "-" : row.ExistenciaActual))),
-              /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center", whiteSpace: "nowrap" } }, renderGroupedCell((row) => row.ExistenciaNuevaTexto || (row.ExistenciaNueva === "" ? "-" : row.ExistenciaNueva))),
               /* @__PURE__ */ React.createElement("td", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("span", { className: `pill ${groupStatusClass}` }, getIcgConsumptionStatusLabel(groupStatus)))
             )];
-          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos ICG cargados. Actualiza o importa ventas desde la fuente operativa correspondiente.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "10", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
+          }), salesConsumptionRows.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "8", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos ICG cargados. Actualiza o importa ventas desde la fuente operativa correspondiente.")) : filteredSalesRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "8", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay consumos que coincidan con el filtro.")))
         ))
       );
     }
