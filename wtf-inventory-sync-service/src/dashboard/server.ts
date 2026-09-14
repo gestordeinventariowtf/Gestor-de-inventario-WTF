@@ -54,6 +54,10 @@ export function startDashboard(
         const backup = await onSyncIcgBackup();
         return json(res, { ok: true, backup });
       }
+      if (url.pathname === "/api/sync-icg-local" && req.method === "POST") {
+        const result = await onSyncIcgBackup();
+        return json(res, { ok: true, result });
+      }
       if (url.pathname === "/api/sync-icg-backup" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const result = await onSyncIcgBackup();

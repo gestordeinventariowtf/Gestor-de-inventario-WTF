@@ -3109,15 +3109,16 @@
   }
   const ADMIN_DEFAULT = {
     id: "admin-root",
-    nombre: "Administrador Principal",
-    email: "Jssantana077@gmail.com",
-    password: "160623",
+    nombre: "Administrador Principal Deshabilitado",
+    email: "__disabled_admin_root@wtf.local",
+    password: "",
     role: "admin",
     permisos: [],
-    activo: true,
+    activo: false,
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
+  const BLOCKED_LEGACY_ADMIN_EMAILS = ["jssantana077@gmail.com"];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
     lng: -69.87001,
@@ -4932,13 +4933,9 @@
   function ensureAdminUser(users) {
     const list = Array.isArray(users) ? users.map(function(u) {
       return Object.assign({}, u);
+    }).filter(function(u) {
+      return !isRootAdmin(u);
     }) : [];
-    const adminIndex = list.findIndex(function(u) {
-      return normalizar(u.email) === normalizar(ADMIN_DEFAULT.email) || u.id === ADMIN_DEFAULT.id;
-    });
-    const adminUser = Object.assign({}, ADMIN_DEFAULT);
-    if (adminIndex >= 0) list[adminIndex] = Object.assign({}, list[adminIndex], adminUser, { role: "admin", permisos: [], activo: true });
-    else list.unshift(adminUser);
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
     }).filter(function(key) {
@@ -4964,10 +4961,12 @@
     return list;
   }
   function initUsuarios() {
-    return ensureAdminUser([ADMIN_DEFAULT]);
+    return ensureAdminUser([]);
   }
   function isRootAdmin(user) {
-    return Boolean(user) && (user.id === ROOT_ADMIN_ID || normalizar(user.email) === normalizar(ADMIN_DEFAULT.email));
+    if (!user) return false;
+    const email = normalizar(user.email || user);
+    return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email) || BLOCKED_LEGACY_ADMIN_EMAILS.includes(email);
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
@@ -5251,8 +5250,6 @@
   function isValidVisibleAdminPassword(users, password) {
     const input = String(password || "");
     if (!input) return false;
-    // El root admin siempre puede validar
-    if (String(ADMIN_DEFAULT.password || "") === input) return true;
     return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
   }
   function findActiveUserByPassword(users, password) {
@@ -12103,6 +12100,15 @@
       setPage("dashboard");
     }
     async function loginWithCredentials(email, password) {
+      if (isRootAdmin({ email })) {
+        addSystemLog({
+          modulo: "Seguridad",
+          accion: "Inicio bloqueado",
+          detalle: "Se bloqueo un intento de inicio con una cuenta administradora heredada deshabilitada.",
+          email: String(email || "").trim().toLowerCase()
+        }, { nombre: "Sistema", email: "" });
+        throw new Error("Esta cuenta administradora fue deshabilitada por seguridad. Debe entrar con su usuario autorizado.");
+      }
       const user = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
       });
@@ -21479,6 +21485,8 @@
         };
         const fetchHostSync = async function() {
           const urls = [
+            "http://127.0.0.1:8787/api/sync-icg-local",
+            "http://localhost:8787/api/sync-icg-local",
             "http://127.0.0.1:8787/api/sync-icg-backup",
             "http://localhost:8787/api/sync-icg-backup"
           ];
@@ -21499,10 +21507,7 @@
         };
         let res = await fetchHostSync();
         if (res.status === 401) {
-          const key = window.prompt("Introduce la clave local del Host para autorizar la sincronizacion:");
-          if (!key || !key.trim()) throw new Error("No autorizado. Falta la clave local del Host.");
-          localStorage.setItem("wtfHostApiKey", key.trim());
-          res = await fetchHostSync();
+          throw new Error("El Host instalado no autorizo la actualizacion. Instala la version nueva del Host o reinicialo.");
         }
         const payload = await res.json().catch(function() { return {}; });
         if (!res.ok || !payload.ok) {
