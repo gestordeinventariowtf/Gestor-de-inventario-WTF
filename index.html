@@ -21494,7 +21494,9 @@
             const controller = new AbortController();
             const timer = window.setTimeout(function() { controller.abort(); }, 9e4);
             try {
-              return await fetch(url, { method: "POST", headers: buildHostHeaders(), signal: controller.signal, cache: "no-store" });
+              const response = await fetch(url, { method: "POST", headers: buildHostHeaders(), signal: controller.signal, cache: "no-store" });
+              if ((response.status === 404 || response.status === 405) && url.includes("/api/sync-icg-local")) continue;
+              return response;
             } catch (error) {
               if (error && error.name === "AbortError") {
                 throw new Error("WTF ICG Host tardo demasiado respondiendo. Reinicia el Host y vuelve a intentar.");
