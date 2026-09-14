@@ -20,12 +20,17 @@ export class LocalStore {
 
   async read(): Promise<StoreData> {
     await this.init();
-    const text = await fs.readFile(this.filePath, "utf8");
-    const parsed = JSON.parse(text) as Partial<StoreData>;
+    let parsed: Partial<StoreData>;
+    try {
+      const text = await fs.readFile(this.filePath, "utf8");
+      parsed = JSON.parse(text) as Partial<StoreData>;
+    } catch (error) {
+      return this.recoverCorruptStore(error);
+    }
     return {
       movements: Array.isArray(parsed.movements) ? parsed.movements : [],
       mappings: Array.isArray(parsed.mappings) ? parsed.mappings : [],
-      audit: Array.isArray(parsed.audit) ? parsed.audit : []
+      audit: Array.isArray(parsed.audit) ? this.sanitizeAudit(parsed.audit) : []
     };
   }
 
@@ -107,7 +112,8 @@ export class LocalStore {
 
   async appendAudit(entry: Record<string, unknown>): Promise<void> {
     const data = await this.read();
-    data.audit.unshift({ fecha: new Date().toISOString(), ...entry });
+    data.audit.unshift(this.sanitizeAuditEntry({ fecha: new Date().toISOString(), ...entry }));
+    data.audit = data.audit.slice(0, 1000);
     await this.write(data);
   }
 
@@ -122,5 +128,41 @@ export class LocalStore {
       mappings: data.mappings.length,
       audit: data.audit.length
     };
+  }
+
+  private sanitizeAudit(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+    return entries.slice(0, 1000).map((entry) => this.sanitizeAuditEntry(entry));
+  }
+
+  private sanitizeAuditEntry(entry: Record<string, unknown>): Record<string, unknown> {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(entry || {})) {
+      if (key === "movements" || key === "rows" || key === "rawRows") {
+        if (Array.isArray(value)) sanitized[`${key}Count`] = value.length;
+        continue;
+      }
+      sanitized[key] = value;
+    }
+    return sanitized;
+  }
+
+  private async recoverCorruptStore(error: unknown): Promise<StoreData> {
+    const message = error instanceof Error ? error.message : String(error);
+    const backupPath = `${this.filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    try {
+      await fs.copyFile(this.filePath, backupPath);
+    } catch {}
+    const recovered: StoreData = {
+      movements: [],
+      mappings: [],
+      audit: [{
+        fecha: new Date().toISOString(),
+        accion: "queue_corrupt_recovered",
+        mensaje: message,
+        backupPath
+      }]
+    };
+    await this.write(recovered);
+    return recovered;
   }
 }

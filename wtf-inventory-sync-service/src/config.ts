@@ -38,8 +38,8 @@ export function getConfig(): ServiceConfig {
     icgLiveDatabaseName: String(process.env.ICG_LIVE_DATABASE_NAME || "").trim() || "FRS_WTFOODVZL",
     icgSqlDataPath: path.resolve(process.env.ICG_SQL_DATA_PATH || "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA"),
     icgBackupPath: path.resolve(process.env.ICG_BACKUP_PATH || "C:\\ICG\\BACKUP\\FRS_WTFOODVZL.BAK_1"),
-    icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "WTF_AUDIT_FRS_WTFOODVZL",
-    icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\BACKUP\\WTF_AUDIT_SQL"),
+    icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "",
+    icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA"),
     icgBackupPollSeconds: numberAtLeast(process.env.ICG_BACKUP_POLL_SECONDS, 30, 30),
     icgConsumptionLookbackDays: numberAtLeast(process.env.ICG_CONSUMPTION_LOOKBACK_DAYS, 30, 1)
   };

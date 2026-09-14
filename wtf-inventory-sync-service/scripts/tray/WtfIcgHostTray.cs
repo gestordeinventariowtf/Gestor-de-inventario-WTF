@@ -36,7 +36,6 @@ namespace WtfIcgHostTray
         private Process serviceProcess;
         private ToolStripMenuItem statusItem;
         private ToolStripMenuItem startupItem;
-
         public TrayContext()
         {
             installDir = ResolveInstallDir();
@@ -165,6 +164,7 @@ namespace WtfIcgHostTray
 
         private void OpenPanel()
         {
+            StartHost();
             Process.Start(new ProcessStartInfo { FileName = panelUrl, UseShellExecute = true });
         }
 

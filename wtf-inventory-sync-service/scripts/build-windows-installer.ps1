@@ -293,6 +293,7 @@ $items = @(
   "scripts",
   "package.json",
   "package-lock.json",
+  ".env",
   ".env.example",
   "README.md",
   "API_LOCAL.md",

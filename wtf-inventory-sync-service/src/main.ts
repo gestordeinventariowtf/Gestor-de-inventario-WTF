@@ -77,11 +77,19 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
 
 async function main(): Promise<void> {
   await store.init();
-  await syncIcgBackup();
-  startDashboard(store, config, syncIcgBackup);
+  const server = startDashboard(store, config, syncIcgBackup);
+  server.on("error", async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.error("Fallo al abrir panel local del Host", {
+      port: config.port,
+      message
+    });
+    console.error(`No se pudo abrir http://127.0.0.1:${config.port}: ${message}`);
+  });
   windowlessBackupPoll();
   await logger.app("Servicio iniciado", { port: config.port, mode: config.mode });
   console.log(`WTF Inventory Sync Service listo en http://127.0.0.1:${config.port}`);
+  syncIcgBackup().catch((error) => logger.error("Fallo en sincronizacion inicial SQL ICG", error instanceof Error ? error.message : error));
 }
 
 function windowlessBackupPoll(): void {

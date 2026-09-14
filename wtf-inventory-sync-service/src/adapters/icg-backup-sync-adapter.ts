@@ -1187,6 +1187,11 @@ async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseNa
   const sql = `
 IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
+  DECLARE @UltimaFechaCierre date;
+  SELECT @UltimaFechaCierre = MAX(CONVERT(date,c.FECHA))
+  FROM TIQUETSCAB c
+  WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');
+
   WITH consumo AS (
     SELECT
       ISNULL(CAST(c.FO AS varchar(30)),'') AS FO,
@@ -1210,6 +1215,8 @@ BEGIN
     LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+      AND @UltimaFechaCierre IS NOT NULL
+      AND CONVERT(date,c.FECHA) = @UltimaFechaCierre
     GROUP BY
       c.FO,
       COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
@@ -1315,6 +1322,9 @@ function auditBackupConfig(config: ServiceConfig): ServiceConfig {
 
 export async function restoreIcgBackupForAudit(config: ServiceConfig): Promise<void> {
   if (String(config.icgLiveDatabaseName || "").trim()) return;
+  if (!String(config.icgAuditDbName || "").trim()) {
+    throw new Error("La restauracion audit del backup ICG esta desactivada. El Host debe leer directamente la base SQL local configurada en ICG_LIVE_DATABASE_NAME.");
+  }
   await fs.access(config.icgBackupPath);
   await fs.mkdir(config.icgSqlDataDir, { recursive: true });
   const mdf = path.join(config.icgSqlDataDir, `${config.icgAuditDbName}.mdf`);
@@ -2103,3 +2113,4 @@ export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<I
   const data = await readLatestBackupConsumption(activeConfig);
   return syncIcgCatalogToFirestore(activeConfig, data);
 }
+

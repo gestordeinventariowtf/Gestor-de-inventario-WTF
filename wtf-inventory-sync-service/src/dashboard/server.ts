@@ -38,7 +38,16 @@ export function startDashboard(
       if (url.pathname === "/api/state") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const data = await store.read();
-        return json(res, { ...data, stats: await store.stats(), config: publicConfig(config) });
+        const stats = {
+          movements: data.movements.length,
+          pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
+          approved: data.movements.filter((row) => row.estado === "aprobado").length,
+          synced: data.movements.filter((row) => row.estado === "sincronizado").length,
+          errors: data.movements.filter((row) => row.estado === "error").length,
+          mappings: data.mappings.length,
+          audit: data.audit.length
+        };
+        return json(res, { movements: data.movements, mappings: data.mappings, stats, config: publicConfig(config) });
       }
       if (url.pathname === "/api/refresh-all" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
@@ -407,9 +416,8 @@ function renderDashboard(config: ServiceConfig): string {
     function renderConfig(cfg){
       cfgWebApp.textContent=cfg.webAppUrl||'';
       cfgFirebase.textContent=((cfg.firebaseProjectId||'')+' / '+(cfg.firebaseCollection||'')+' / '+(cfg.firebaseDocumentId||'')).trim();
-      const liveDbName=cfg.icgLiveDatabaseName||'FRS_WTFOODVZL';
       const liveSqlPath=cfg.icgSqlDataPath||'C:\\\\ICG\\\\Microsoft SQL Server\\\\MSSQL12.MSSQLSERVER\\\\MSSQL\\\\DATA';
-      cfgIcgDb.textContent=liveDbName+' - SQL Server local - '+liveSqlPath;
+      cfgIcgDb.textContent=liveSqlPath;
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);
@@ -472,8 +480,9 @@ function json(res: http.ServerResponse, body: unknown, status = 200): void {
 function applyCors(res: http.ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-WTF-API-Key");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-WTF-API-Key,x-wtf-api-key,Authorization");
   res.setHeader("Access-Control-Allow-Private-Network", "true");
+  res.setHeader("Access-Control-Max-Age", "86400");
 }
 
 async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

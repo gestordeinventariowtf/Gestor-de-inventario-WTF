@@ -21472,20 +21472,30 @@
       setBusy(true);
       try {
         const buildHostHeaders = function() {
-          const key = String(localStorage.getItem("wtfHostApiKey") || "").trim();
+          const firebaseHostKey = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.firebaseConfig ? window.WTF_FIREBASE_CONFIG.firebaseConfig.apiKey : "";
+          const key = String(localStorage.getItem("wtfHostApiKey") || firebaseHostKey || "").trim();
+          if (key && !localStorage.getItem("wtfHostApiKey")) localStorage.setItem("wtfHostApiKey", key);
           return key ? { "x-wtf-api-key": key } : {};
         };
-        const fetchHostSync = function() {
-          const controller = new AbortController();
-          const timer = window.setTimeout(function() { controller.abort(); }, 9e4);
-          return fetch("http://127.0.0.1:8787/api/sync-icg-backup", { method: "POST", headers: buildHostHeaders(), signal: controller.signal }).finally(function() {
-            window.clearTimeout(timer);
-          }).catch(function(error) {
-            if (error && error.name === "AbortError") {
-              throw new Error("WTF ICG Host tardo demasiado respondiendo. Reinicia el Host y vuelve a intentar.");
+        const fetchHostSync = async function() {
+          const urls = [
+            "http://127.0.0.1:8787/api/sync-icg-backup",
+            "http://localhost:8787/api/sync-icg-backup"
+          ];
+          for (const url of urls) {
+            const controller = new AbortController();
+            const timer = window.setTimeout(function() { controller.abort(); }, 9e4);
+            try {
+              return await fetch(url, { method: "POST", headers: buildHostHeaders(), signal: controller.signal, cache: "no-store" });
+            } catch (error) {
+              if (error && error.name === "AbortError") {
+                throw new Error("WTF ICG Host tardo demasiado respondiendo. Reinicia el Host y vuelve a intentar.");
+              }
+            } finally {
+              window.clearTimeout(timer);
             }
-            throw error;
-          });
+          }
+          throw new Error("No se pudo conectar con WTF ICG Host local por 127.0.0.1 ni localhost.");
         };
         let res = await fetchHostSync();
         if (res.status === 401) {
