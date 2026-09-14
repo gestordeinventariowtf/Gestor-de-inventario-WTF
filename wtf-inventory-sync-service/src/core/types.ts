@@ -22,6 +22,8 @@ export interface SyncMovement {
   nombreProducto: string;
   cantidad: number;
   unidad: string;
+  precioRestaurante?: string | number;
+  precioAppsDelivery?: string | number;
   almacen: string;
   usuario?: string;
   stockAnterior?: number;
@@ -105,6 +107,8 @@ export interface IcgBackupConsumptionRow {
   codMacro?: string;
   consumo: number;
   precio?: string;
+  precioRestaurante?: string;
+  precioAppsDelivery?: string;
   precioIva?: string;
   tipoIva?: string;
   codVendedor?: string;

@@ -187,8 +187,8 @@ $EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
-WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
-WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
+WTF_WEB_APP_URL=https://gestor-inventario-wtf.web.app
+WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-2d070
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
 WTF_AUTO_APPLY_ICG_BACKUP=false

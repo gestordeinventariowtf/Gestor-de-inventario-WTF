@@ -22,7 +22,7 @@ const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
 const SHARP_PHOTO_STORAGE_PREFIX = "sharp-limpieza/";
 const SHARP_PHOTO_RETENTION_DAYS = 7;
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
-const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-29056@appspot.gserviceaccount.com";
+const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-2d070@appspot.gserviceaccount.com";
 const DEFAULT_BRANCHES = {
   "wtf-av-venezuela": {
     branchId: "wtf-av-venezuela",
@@ -35,7 +35,9 @@ const DEFAULT_BRANCHES = {
 
 if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
-  "https://gestor-de-inventario-wtf-prod-2026.web.app",
+  "https://gestor-inventario-wtf.web.app",
+  "https://gestor-de-inventario-wtf-2d070.web.app",
+  "https://gestor-inventario-wtf-2026.web.app",
   "http://localhost:5000",
   "http://127.0.0.1:5000"
 ]);

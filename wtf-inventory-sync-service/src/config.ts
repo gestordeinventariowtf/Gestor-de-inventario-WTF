@@ -17,8 +17,8 @@ export function getConfig(): ServiceConfig {
   const dataDir = path.resolve(process.env.WTF_DATA_DIR || "./data");
   return {
     port: Number(process.env.WTF_HOST_PORT || 8787),
-    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-de-inventario-wtf-prod-2026.web.app",
-    firebaseProjectId: process.env.WTF_FIREBASE_PROJECT_ID || "gestor-de-inventario-wtf-29056",
+    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-inventario-wtf.web.app",
+    firebaseProjectId: process.env.WTF_FIREBASE_PROJECT_ID || "gestor-de-inventario-wtf-2d070",
     firebaseCollection: process.env.WTF_FIREBASE_COLLECTION || "wtfSistema",
     firebaseDocumentId: process.env.WTF_FIREBASE_DOCUMENT_ID || "estadoGeneral",
     autoApplyIcgBackup: false,

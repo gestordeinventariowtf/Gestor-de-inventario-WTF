@@ -139,6 +139,10 @@ const catalogSyncBody = adapterSource.slice(
   adapterSource.indexOf("async function syncIcgCatalogToFirestore"),
   adapterSource.indexOf("export async function syncIcgBackupConsumption")
 );
+const createMovementBody = adapterSource.slice(
+  adapterSource.indexOf("function createBackupMovement"),
+  adapterSource.indexOf("export function icgPhysicalConsumptionSourceKey")
+);
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
 assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
@@ -146,6 +150,8 @@ assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimien
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
 assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSLIN falla.");
+assert.ok(catalogReaderBody.includes("attachSalePricesToConsumptionRows(previewConsumptionRows, salePrices)"), "La cola informativa del Host debe cargar Precio Restaurante y Precio APPS Delivery internamente.");
+assert.ok(createMovementBody.includes("PrecioRestaurante") && createMovementBody.includes("PrecioAppsDelivery"), "Las filas exportadas hacia Web.App deben conservar los precios de venta sin mostrarlos en la cola visible del Host.");
 
 const applyBackupBody = adapterSource.slice(
   adapterSource.indexOf("export async function applyBackupConsumptionToFirestore"),
@@ -160,5 +166,7 @@ assert.ok(applyBackupBody.includes("const ticketDisplay = icgTicketDisplayFromLi
 assert.ok(applyBackupBody.includes("const pausedMovementDate = line.fecha"), "La cola pausada debe conservar la fecha original de TIQUETSLIN.");
 assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La cola consolidada debe conservar la fecha original de TIQUETSLIN.");
 assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSLIN por movimiento.");
+assert.ok(applyBackupBody.includes("const pricedRowsToApply = attachSalePricesToConsumptionRows(rowsToApply, salePrices)"), "Los descuentos aplicados deben heredar Precio Restaurante y Precio APPS Delivery desde PRECIOSVENTA.");
+assert.ok(applyBackupBody.includes("PrecioRestaurante: line.precioRestaurante") && applyBackupBody.includes("PrecioAppsDelivery: line.precioAppsDelivery"), "ConsumoMiseVentas debe guardar los precios de venta en cada movimiento exportado.");
 
 console.log("ICG idempotency tests passed");

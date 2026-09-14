@@ -4,18 +4,13 @@ import assert from "node:assert/strict";
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 assert.ok(
-  html.includes('["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Estado"]'),
-  "Ventas ICG debe mostrar las columnas del modelo Excel sin Exist. ni Nueva."
+  html.includes('["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"]'),
+  "Ventas ICG debe mostrar Exist. y Nueva como valores historicos congelados del movimiento."
 );
 
 assert.ok(
-  !html.includes('["Fecha", "Ticket", "ICG", "Destino WTF", "Producto WTF", "Vendidas", "Descontar", "Exist.", "Nueva", "Estado"]'),
-  "Ventas ICG no debe volver a mostrar Exist. ni Nueva en la tabla principal."
-);
-
-assert.ok(
-  html.includes('["ProductoMise", "ProductoICG", "CodArticulo", "Referencia", "UnidadesVendidas", "CantidadDescontar"]'),
-  "Tabla externa Consumo Mise ventas debe mostrar solo las seis columnas solicitadas."
+  html.includes('["ProductoMise", "ProductoICG", "CodArticulo", "Referencia", "UnidadesVendidas", "CantidadDescontar", "ExistenciaActual", "ExistenciaNueva"]'),
+  "Tabla externa Consumo Mise ventas debe mostrar columnas de consumo y la existencia historica congelada."
 );
 
 assert.ok(
@@ -25,7 +20,7 @@ assert.ok(
 
 assert.ok(
   html.includes("DescontarTexto") && html.includes("ExistenciaTexto") && html.includes("ExistenciaNuevaTexto"),
-  "Ventas ICG debe conservar existencia previa/nueva calculada para auditoria interna aunque no sea columna visible."
+  "Ventas ICG debe conservar existencia previa/nueva calculada para auditoria."
 );
 
 assert.ok(

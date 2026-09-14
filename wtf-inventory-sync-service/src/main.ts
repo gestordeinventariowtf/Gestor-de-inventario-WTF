@@ -9,27 +9,41 @@ const config = getConfig();
 const store = new LocalStore(config.dataDir);
 const logger = new Logger("./logs");
 let backupSyncInFlight = false;
+let backupSyncStartedAt = 0;
+const BACKUP_SYNC_STALE_MS = 5 * 60 * 1000;
 
 function icgSourceDatabaseName(): string {
   return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
 
 async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
+  const now = Date.now();
   if (backupSyncInFlight) {
-    return {
-      ok: true,
-      backupPath: config.icgBackupPath,
-      databaseName: icgSourceDatabaseName(),
-      totalLines: 0,
-      matched: 0,
-      applied: 0,
-      skipped: 0,
-      pending: 0,
-      errors: [],
-      message: "La actualizacion de catalogos ICG ya esta en curso."
-    };
+    const elapsedMs = backupSyncStartedAt ? now - backupSyncStartedAt : 0;
+    if (elapsedMs >= BACKUP_SYNC_STALE_MS) {
+      await logger.error("Candado de sincronizacion ICG vencido; se libera para permitir un nuevo intento", {
+        elapsedMs,
+        staleAfterMs: BACKUP_SYNC_STALE_MS
+      });
+      backupSyncInFlight = false;
+      backupSyncStartedAt = 0;
+    } else {
+      return {
+        ok: true,
+        backupPath: config.icgBackupPath,
+        databaseName: icgSourceDatabaseName(),
+        totalLines: 0,
+        matched: 0,
+        applied: 0,
+        skipped: 0,
+        pending: 0,
+        errors: [],
+        message: "La actualizacion de catalogos ICG ya esta en curso."
+      };
+    }
   }
   backupSyncInFlight = true;
+  backupSyncStartedAt = now;
   try {
     const result = await syncIcgBackupConsumption(config);
     if (Array.isArray(result.movements) && !result.preserveLocalIcgQueue) {
@@ -57,6 +71,7 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
     return result;
   } finally {
     backupSyncInFlight = false;
+    backupSyncStartedAt = 0;
   }
 }
 

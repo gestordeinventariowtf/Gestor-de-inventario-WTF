@@ -79,7 +79,7 @@ export function startDashboard(
         if (!result.ok) return json(res, result, 404);
         return json(res, result);
       }
-      html(res, renderDashboard());
+      html(res, renderDashboard(config));
     } catch (error) {
       json(res, { ok: false, error: error instanceof Error ? error.message : "Error desconocido" }, 500);
     }
@@ -188,7 +188,8 @@ function findUpdatePackage(updateDirs: string[]): string {
   return "";
 }
 
-function renderDashboard(): string {
+function renderDashboard(config: ServiceConfig): string {
+  const embeddedApiKey = JSON.stringify(config.apiKey || "");
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -249,7 +250,7 @@ function renderDashboard(): string {
       </section>
       <section class="card">
         <div class="actions">
-          <button class="primary" onclick="refreshAll()">Sincronizar</button>
+          <button id="btnSync" class="primary" onclick="refreshAll()">Sincronizar</button>
         </div>
         <p class="muted">Sincronizar revisa la Base de Datos ICG Local, busca cierres o ventas nuevas y alimenta la cola de movimientos para la web.</p>
       </section>
@@ -298,20 +299,63 @@ function renderDashboard(): string {
     </section>
   </main>
   <script>
-    const apiHeaders={};
+    const embeddedApiKey=${embeddedApiKey};
+    let apiHeaders={};
     let currentConfig={};
     applySavedTheme();
+    function refreshApiHeaders(){
+      const key=localStorage.getItem('wtfHostApiKey')||embeddedApiKey||'';
+      if(embeddedApiKey && localStorage.getItem('wtfHostApiKey')!==embeddedApiKey) localStorage.setItem('wtfHostApiKey',embeddedApiKey);
+      apiHeaders=key?{'x-wtf-api-key':key}:{};
+    }
+    function requestApiKey(){
+      const key=prompt('Introduce la clave local del Host para autorizar la sincronizacion:');
+      if(key&&key.trim()){
+        localStorage.setItem('wtfHostApiKey',key.trim());
+        refreshApiHeaders();
+        return true;
+      }
+      return false;
+    }
+    async function fetchWithTimeout(url,options={}){
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),90000);
+      try{
+        return await fetch(url,Object.assign({},options,{signal:controller.signal}));
+      }catch(error){
+        if(error&&error.name==='AbortError') throw new Error('El Host tardo demasiado respondiendo. Reinicia el Host y vuelve a sincronizar.');
+        throw error;
+      }finally{
+        clearTimeout(timer);
+      }
+    }
+    async function authorizedFetch(url,options={}){
+      refreshApiHeaders();
+      const next=Object.assign({},options,{headers:Object.assign({},apiHeaders,options.headers||{})});
+      let res=await fetchWithTimeout(url,next);
+      if(res.status===401){
+        if(!requestApiKey()) return res;
+        const retry=Object.assign({},options,{headers:Object.assign({},apiHeaders,options.headers||{})});
+        res=await fetchWithTimeout(url,retry);
+      }
+      return res;
+    }
     async function load(){
-      const res=await fetch('/api/state',{headers:apiHeaders}); const data=await res.json();
-      if(!data.movements){msg.textContent=' '+(data.error||'No autorizado'); return;}
-      const rows=data.movements||[];
-      currentConfig=data.config||{};
-      total.textContent=rows.length;
-      pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
-      errors.textContent=rows.filter(r=>r.estado==='error').length;
-      mappings.textContent=(data.mappings||[]).length;
-      document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
-      renderConfig(currentConfig);
+      try{
+        const res=await authorizedFetch('/api/state');
+        const data=await res.json();
+        if(!res.ok||!data.movements){msg.textContent=' '+(data.error||'No autorizado'); return;}
+        const rows=data.movements||[];
+        currentConfig=data.config||{};
+        total.textContent=rows.length;
+        pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
+        errors.textContent=rows.filter(r=>r.estado==='error').length;
+        mappings.textContent=(data.mappings||[]).length;
+        document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
+        renderConfig(currentConfig);
+      }catch(error){
+        msg.textContent=' No se pudo cargar el estado del Host: '+(error&&error.message?error.message:error);
+      }
     }
     function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
     function formatMovementDate(r){
@@ -330,14 +374,23 @@ function renderDashboard(): string {
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
     function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function refreshAll(){
+      if(window.btnSync) btnSync.disabled=true;
       msg.textContent=' Actualizando catalogos, referencias, stocks y precios desde ICG Local...';
-      const r=await fetch('/api/refresh-all',{method:'POST',headers:apiHeaders});
-      const j=await r.json();
-      const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
-      msg.textContent=' '+(j.error||backupMsg||'Busqueda completada');
-      load();
+      try{
+        const r=await authorizedFetch('/api/refresh-all',{method:'POST'});
+        let j={};
+        try{j=await r.json();}catch(parseError){throw new Error('El Host no devolvio una respuesta valida.');}
+        if(!r.ok||j.ok===false) throw new Error(j.error||'No se pudo sincronizar.');
+        const backupMsg=j.backup&&j.backup.message?j.backup.message:'';
+        msg.textContent=' '+(backupMsg||'Busqueda completada');
+        await load();
+      }catch(error){
+        msg.textContent=' Error al sincronizar: '+(error&&error.message?error.message:error);
+      }finally{
+        if(window.btnSync) btnSync.disabled=false;
+      }
     }
-    async function state(id,estado){await fetch('/api/movement-state',{method:'POST',headers:{...apiHeaders,'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
+    async function state(id,estado){await authorizedFetch('/api/movement-state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,estado})}); load();}
     function showMainTab(tab){
       tabMovimientos.className='tab '+(tab==='movimientos'?'active':'');
       tabConfiguracion.className='tab '+(tab==='configuracion'?'active':'');
@@ -368,14 +421,14 @@ function renderDashboard(): string {
     function applySavedTheme(){const theme=localStorage.getItem('wtfHostTheme')||'light'; document.body.className=theme==='dark'?'dark':''; setTimeout(()=>{if(window.themeName) themeName.textContent=theme==='dark'?'Oscuro':'Claro';},0);}
     async function applyUpdate(){
       msg.textContent=' Preparando actualizacion...';
-      const r=await fetch('/api/apply-update',{method:'POST',headers:apiHeaders});
+      const r=await authorizedFetch('/api/apply-update',{method:'POST'});
       const j=await r.json();
       msg.textContent=' '+(j.message||j.error||'Actualizacion programada');
       startCountdown(30);
     }
     async function restartHost(){
       msg.textContent=' Reinicio programado...';
-      const r=await fetch('/api/restart-host',{method:'POST',headers:apiHeaders});
+      const r=await authorizedFetch('/api/restart-host',{method:'POST'});
       const j=await r.json();
       msg.textContent=' '+(j.message||j.error||'Reinicio programado');
       startCountdown(30);
@@ -389,20 +442,30 @@ function renderDashboard(): string {
         if(left<=0) clearInterval(timer);
       },1000);
     }
-    load(); setInterval(load,30000);
+    refreshApiHeaders(); load(); setInterval(load,30000);
   </script>
 </body></html>`;
 }
 
 function html(res: http.ServerResponse, body: string): void {
   applyCors(res);
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0"
+  });
   res.end(body);
 }
 
 function json(res: http.ServerResponse, body: unknown, status = 200): void {
   applyCors(res);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0"
+  });
   res.end(JSON.stringify(body));
 }
 
