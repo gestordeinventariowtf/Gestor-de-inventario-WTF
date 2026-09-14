@@ -187,8 +187,8 @@ $EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
-WTF_WEB_APP_URL=https://gestor-inventario-wtf.web.app
-WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-2d070
+WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
+WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
 WTF_AUTO_APPLY_ICG_BACKUP=false
@@ -227,6 +227,7 @@ Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\BACKUP\WTF_A
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_CONSUMPTION_LOOKBACK_DAYS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
 @"
@@ -241,6 +242,7 @@ Set-Location "$InstallDir"
 `$env:ICG_SQL_DATA_DIR = "C:\ICG\BACKUP\WTF_AUDIT_SQL"
 `$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:ICG_CONSUMPTION_LOOKBACK_DAYS = "30"
+`$env:ICG_SQL_CONNECTION_STRING = "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "false"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"

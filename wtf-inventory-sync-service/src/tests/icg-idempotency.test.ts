@@ -122,6 +122,10 @@ const recentConsumptionPreviewBody = adapterSource.slice(
   adapterSource.indexOf("async function readRecentIcgConsumptionPreview"),
   adapterSource.indexOf("function sourceDatabaseName")
 );
+const dailyClosuresBody = adapterSource.slice(
+  adapterSource.indexOf("async function readBackupDailyClosures"),
+  adapterSource.indexOf("async function readRecentIcgConsumptionPreview")
+);
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
@@ -168,5 +172,9 @@ assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La 
 assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSLIN por movimiento.");
 assert.ok(applyBackupBody.includes("const pricedRowsToApply = attachSalePricesToConsumptionRows(rowsToApply, salePrices)"), "Los descuentos aplicados deben heredar Precio Restaurante y Precio APPS Delivery desde PRECIOSVENTA.");
 assert.ok(applyBackupBody.includes("PrecioRestaurante: line.precioRestaurante") && applyBackupBody.includes("PrecioAppsDelivery: line.precioAppsDelivery"), "ConsumoMiseVentas debe guardar los precios de venta en cada movimiento exportado.");
+assert.ok(catalogReaderBody.includes("readBackupDailyClosures(config, databaseName)"), "Actualizar Articulos ICG debe leer cierres diarios desde la base local activa.");
+assert.ok(catalogSyncBody.includes("const visibleClosures = filterIcgDeletedRows(icg, \"CierresDiarios\", data.closures)") && catalogSyncBody.includes("rows: visibleClosures"), "Actualizar Articulos ICG debe reemplazar CierresDiarios con el ultimo cierre leido desde SQL respetando marcas de borrado.");
+assert.ok(/SELECT\s+TOP\s+1\s+\*/i.test(dailyClosuresBody), "CierresDiarios debe traer solo el ultimo cierre desde SQL.");
+assert.ok(/ORDER\s+BY\s+FechaCierre\s+DESC/i.test(dailyClosuresBody), "El ultimo cierre debe elegirse por FechaCierre descendente.");
 
 console.log("ICG idempotency tests passed");

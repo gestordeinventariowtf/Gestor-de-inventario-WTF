@@ -184,6 +184,86 @@ function icgConsumptionDecisionKeys(row: AnyRecord): string[] {
   ].map((key) => String(key || "").trim()).filter(Boolean)));
 }
 
+function normalizeIcgDeletedTableRowKeys(input: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (!input || typeof input !== "object") return out;
+  Object.entries(input as AnyRecord).forEach(([tableKey, value]) => {
+    const key = String(tableKey || "").trim();
+    if (!key) return;
+    const rows = Array.isArray(value) ? value : [];
+    out[key] = Array.from(new Set(rows.map((item) => String(item || "").trim()).filter(Boolean)));
+  });
+  return out;
+}
+
+function canonicalDeletedTableKey(value: unknown): string {
+  return normalizar(String(value == null ? "" : value).trim());
+}
+
+function deletedTableHash(value: unknown): string {
+  return `fnv32-${quickHashText(canonicalDeletedTableKey(value))}`;
+}
+
+function getIcgTableRowDeletionKeys(tableKey: string, row: AnyRecord): string[] {
+  if (!row || typeof row !== "object") return [];
+  const normalizedTable = String(tableKey || "").trim();
+  const rawKeys: string[] = [];
+  const push = (value: unknown) => {
+    const text = String(value == null ? "" : value).trim();
+    if (text) rawKeys.push(text);
+  };
+  push(row._deletedKey);
+  push(row._id);
+  if (normalizedTable === "ConsumoMiseVentas") {
+    icgConsumptionDecisionKeys(row).forEach(push);
+    push(row.MovimientoICGId || row.movimientoIcgId || "");
+    push(row.PhysicalIcgKey || row.physicalIcgKey || "");
+    push(row.ImportKey || "");
+    push(row.IcgAuditKey || "");
+    push([
+      row.TicketICG || row.Ticket || row.Factura || "",
+      row.NumLinea || row.NUMLINEA || "",
+      bridgeCode(row),
+      firstText(row, ["CodAlmacen", "CODALMACEN"]),
+      targetKey(row.targetKey || row.ModuloWTF || ""),
+      normalizar(row.ProductoWTF || row.ProductoMise || "")
+    ].join("|"));
+  } else if (normalizedTable === "TiquetsLin") {
+    push(row.MovimientoICGId || row.movimientoIcgId || "");
+    push(row.PhysicalIcgKey || row.physicalIcgKey || "");
+    push([
+      row.FO || "",
+      row.SERIE || row.Serie || "",
+      row.NUMERO || row.Numero || "",
+      row.N || "",
+      row.NUMLINEA || row.NumLinea || "",
+      row.CODARTICULO || row.CodArticulo || "",
+      row.CODALMACEN || row.CodAlmacen || ""
+    ].join("|"));
+  } else if (normalizedTable === "CierresDiarios") {
+    push(row.FechaCierre || row.Fecha || "");
+    push([row.Archivo || "", row.FechaCierre || row.Fecha || ""].join("|"));
+  } else {
+    push(row.ImportKey || "");
+    push(row.CodArticulo || row.CODARTICULO || row.Codigo || "");
+    push(row.Referencia || row.REFERENCIA || "");
+    push(row.Ticket || row.TicketICG || "");
+    push(JSON.stringify(row));
+  }
+  return Array.from(new Set(rawKeys.map((key) => `${normalizedTable}::${deletedTableHash(key)}`)));
+}
+
+function isIcgTableRowDeleted(icg: AnyRecord, tableKey: string, row: AnyRecord): boolean {
+  const deleted = normalizeIcgDeletedTableRowKeys(icg?.deletedTableRowKeys);
+  const keys = new Set(deleted[String(tableKey || "").trim()] || []);
+  if (!keys.size) return false;
+  return getIcgTableRowDeletionKeys(tableKey, row).some((key) => keys.has(key));
+}
+
+function filterIcgDeletedRows(icg: AnyRecord, tableKey: string, rows: AnyRecord[]): AnyRecord[] {
+  return (Array.isArray(rows) ? rows : []).filter((row) => !isIcgTableRowDeleted(icg, tableKey, row));
+}
+
 function decisionTime(row: AnyRecord): number {
   const raw = row?.decisionUpdatedAt || row?.statusLockedAt || row?.reviewedAt || row?._updatedAt || row?.updatedAt || row?.FechaHora || row?.Hora || row?.Fecha || "";
   const parsed = Date.parse(String(raw));
@@ -487,19 +567,22 @@ function ensureIcgData(appState: AnyRecord): AnyRecord {
   appState.icgFrontRestData.icgHostDiscountsPaused = Boolean(appState.icgFrontRestData.icgHostDiscountsPaused);
   appState.icgFrontRestData.inventoryImpactPauseReason = appState.icgFrontRestData.inventoryImpactPauseReason || "";
   appState.icgFrontRestData.inventoryImpactPausedAt = appState.icgFrontRestData.inventoryImpactPausedAt || "";
+  appState.icgFrontRestData.deletedTableRowKeys = normalizeIcgDeletedTableRowKeys(appState.icgFrontRestData.deletedTableRowKeys);
+  appState.icgFrontRestData.deletedTableRowsUpdatedAt = appState.icgFrontRestData.deletedTableRowsUpdatedAt || "";
   return appState.icgFrontRestData;
 }
 
 function mergeBackupArticlesIntoIcgData(icg: AnyRecord, articles: AnyRecord[]): void {
   if (!Array.isArray(articles) || !articles.length) return;
   const current = icg.datasets.Articulos || { key: "Articulos", label: "Articulos ICG", columns: DATASET_COLUMNS.Articulos, rows: [] };
-  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const existingRows = filterIcgDeletedRows(icg, "Articulos", Array.isArray(current.rows) ? current.rows : []);
   const byCode = new Map<string, AnyRecord>();
   existingRows.forEach((row: AnyRecord) => {
     const code = normalizar(row.CodArticulo || row.CODARTICULO || row.Codigo || "");
     if (code) byCode.set(code, row);
   });
   articles.forEach((row) => {
+    if (isIcgTableRowDeleted(icg, "Articulos", row)) return;
     const code = normalizar(row.CodArticulo || row.CODARTICULO || row.Codigo || "");
     if (!code) return;
     byCode.set(code, Object.assign({}, byCode.get(code) || {}, row, {
@@ -518,11 +601,12 @@ function mergeLookupRowsIntoIcgData(icg: AnyRecord, key: string, rows: AnyRecord
   const columns = DATASET_COLUMNS[key] || [];
   const current = icg.datasets[key] || { key, label, columns, rows: [] };
   const byKey = new Map<string, AnyRecord>();
-  (Array.isArray(current.rows) ? current.rows : []).forEach((row: AnyRecord) => {
+  filterIcgDeletedRows(icg, key, Array.isArray(current.rows) ? current.rows : []).forEach((row: AnyRecord) => {
     const rowKey = keyFields.map((field) => normalizar(row[field] ?? "")).join("|");
     if (rowKey.replace(/\|/g, "")) byKey.set(rowKey, row);
   });
   rows.forEach((row) => {
+    if (isIcgTableRowDeleted(icg, key, row)) return;
     const rowKey = keyFields.map((field) => normalizar(row[field] ?? "")).join("|");
     if (!rowKey.replace(/\|/g, "")) return;
     byKey.set(rowKey, Object.assign({}, byKey.get(rowKey) || {}, row, {
@@ -586,13 +670,14 @@ function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fe
 function mergeBackupTiquetsLinIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[], fecha: string): void {
   if (!Array.isArray(sourceRows) || !sourceRows.length) return;
   const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "TIQUETSLIN SQL", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
-  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const existingRows = filterIcgDeletedRows(icg, "TiquetsLin", Array.isArray(current.rows) ? current.rows : []);
   const byKey = new Map<string, AnyRecord>();
   existingRows.forEach((row: AnyRecord) => {
     const key = consumptionSourceRowKey(row);
     if (key.replace(/\|/g, "")) byKey.set(key, row);
   });
   sourceRows.forEach((row) => {
+    if (isIcgTableRowDeleted(icg, "TiquetsLin", row)) return;
     const key = consumptionSourceRowKey(row);
     if (!key.replace(/\|/g, "")) return;
     const line: Partial<IcgBackupConsumptionRow> = {
@@ -611,7 +696,9 @@ function mergeBackupTiquetsLinIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[
       consumo: parseNumber(row.CONSUMO ?? row.Consumo ?? row.consumo)
     };
     const rowDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
-    byKey.set(key, Object.assign({}, byKey.get(key) || {}, consumptionRowFromBackupLine(line, rowDate), row));
+    const nextRow = Object.assign({}, byKey.get(key) || {}, consumptionRowFromBackupLine(line, rowDate), row);
+    if (isIcgTableRowDeleted(icg, "TiquetsLin", nextRow)) return;
+    byKey.set(key, nextRow);
   });
   const mergedRows = Array.from(byKey.values()).sort((a, b) => {
     const ticketA = [a.FECHA || "", a.FECHAHORA || "", a.SERIE || "", a.NUMERO || "", a.N || "", a.NUMLINEA || ""].join("|");
@@ -627,7 +714,7 @@ function mergeBackupTiquetsLinIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[
 function mergePreviewConsumptionIntoIcgData(icg: AnyRecord, appState: AnyRecord, sourceRows: IcgBackupConsumptionRow[], fecha: string, config: ServiceConfig): number {
   if (!Array.isArray(sourceRows) || !sourceRows.length) return 0;
   const current = icg.datasets.ConsumoMiseVentas || { key: "ConsumoMiseVentas", label: "Consumo Mise ventas", columns: DATASET_COLUMNS.ConsumoMiseVentas, rows: [] };
-  const existingRows = Array.isArray(current.rows) ? current.rows : [];
+  const existingRows = filterIcgDeletedRows(icg, "ConsumoMiseVentas", Array.isArray(current.rows) ? current.rows : []);
   const sourceMovementIds = new Set(sourceRows.map((line) => {
     const consumptionDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha || new Date().toISOString().slice(0, 10);
     return movementIcgIdFromLine(line, consumptionDate);
@@ -693,6 +780,7 @@ function mergePreviewConsumptionIntoIcgData(icg: AnyRecord, appState: AnyRecord,
         FuenteSQL: "TIQUETSLIN",
         Estado: keepStatus ? existing.Estado : link ? "Pendiente" : "Sin vinculo"
       }));
+      if (isIcgTableRowDeleted(icg, "ConsumoMiseVentas", row)) return;
       byKey.set(importKey, row);
       if (row.IcgDecisionId) byKey.set(row.IcgDecisionId, row);
     });
@@ -1072,7 +1160,8 @@ lineas AS (
   SELECT SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
   FROM TIQUETSLIN
   GROUP BY SERIE,NUMERO,N
-)
+),
+daily AS (
 SELECT
   CONVERT(varchar(10), c.FechaCierre, 120) AS FechaCierre,
   CAST(COUNT(*) AS int) AS Tickets,
@@ -1087,8 +1176,11 @@ FROM cab c
 LEFT JOIN lineas l ON l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
 ${paymentsJoin}
 GROUP BY c.FechaCierre
+)
+SELECT TOP 1 *
+FROM daily
 ORDER BY FechaCierre DESC;`;
-  return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), path.basename(config.icgBackupPath || databaseName));
+  return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), databaseName);
 }
 
 async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
@@ -1258,7 +1350,7 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
   const databaseName = sourceDatabaseName(config);
   await assertLiveIcgDatabaseIsAvailable(config, databaseName);
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), CONVERT(date, GETDATE()), 120) AS Fecha;"))[0]?.Fecha;
-  const closures: AnyRecord[] = [];
+  let closures: AnyRecord[] = [];
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA','TIQUETSLIN') GROUP BY t.name;";
   const articlesSql = `
 SELECT
@@ -1332,6 +1424,7 @@ END`;
   const salePrices = await runSql(config, databaseName, salePricesSql)
     .then((raw) => parseSqlRows(raw).filter((row) => ["1", "2"].includes(normalizar(row.IDTARIFAV || row.IDTarifaV || "")) && parseNumber(row.VALOR || row.Valor) > 0))
     .catch(() => []);
+  closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
   let previewConsumptionRows: IcgBackupConsumptionRow[] = [];
   let previewReadOk = true;
   let previewReadError = "";
@@ -1481,10 +1574,16 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   mergeBackupTiquetsLinIntoIcgData(icg, sourceConsumptionRows, fecha);
   mergeBackupSalePricesIntoIcgData(icg, salePrices);
   const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
-  if (closures.length) {
+  const visibleClosures = filterIcgDeletedRows(icg, "CierresDiarios", closures);
+  if (visibleClosures.length) {
     icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
       columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
-      rows: mergeClosureRows(currentClosures.rows || [], closures)
+      rows: visibleClosures
+    });
+  } else if (closures.length) {
+    icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
+      columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
+      rows: filterIcgDeletedRows(icg, "CierresDiarios", Array.isArray(currentClosures.rows) ? currentClosures.rows : [])
     });
   }
   const links = collectIcgBridgeRows(appState).filter(active);
@@ -1945,6 +2044,20 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   mergeLookupRowsIntoIcgData(icg, "Referencias", data.references, ["REFERENCIA", "CODIGO"], "Codigos / referencias");
   mergeLookupRowsIntoIcgData(icg, "Stocks", data.stocks, ["CODARTICULO", "CODALMACEN"], "Stocks");
   mergeBackupSalePricesIntoIcgData(icg, data.salePrices);
+  const visibleClosures = filterIcgDeletedRows(icg, "CierresDiarios", data.closures);
+  if (visibleClosures.length) {
+    const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
+    icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
+      columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
+      rows: visibleClosures
+    });
+  } else if (data.closures.length) {
+    const currentClosures = icg.datasets.CierresDiarios || { key: "CierresDiarios", label: "Cierres diarios", columns: CIERRES_DIARIOS_COLUMNS, rows: [] };
+    icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
+      columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
+      rows: filterIcgDeletedRows(icg, "CierresDiarios", Array.isArray(currentClosures.rows) ? currentClosures.rows : [])
+    });
+  }
   if (data.previewReadOk !== false) {
     mergeBackupTiquetsLinIntoIcgData(icg, data.tiquetsLinRows, data.fecha || new Date().toISOString().slice(0, 10));
     mergePreviewConsumptionIntoIcgData(icg, appState, data.rows, data.fecha || new Date().toISOString().slice(0, 10), config);

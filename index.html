@@ -2428,6 +2428,7 @@
   const PRODUCTION_HOLD_DELETED_KEYS_STORAGE = "wtf_production_hold_deleted_keys";
   const PRODUCTION_HISTORY_DELETED_KEYS_STORAGE = "wtf_production_history_deleted_keys";
   const MOVEMENT_DELETED_KEYS_STORAGE = "wtf_movement_deleted_keys";
+  const ICG_DELETED_TABLE_ROW_KEYS_STORAGE = "wtf_icg_deleted_table_row_keys";
   const MOVEMENT_DELETED_STATE_KEYS = ["regEntradas", "regSalidas", "regDecomiso", "regRecuento", "histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento", "barHistEntradaRapida", "barHistSalidaRapida"];
   const BAR_KEYS = {
     inventario: "wtf_bar_inventario",
@@ -3178,8 +3179,8 @@
       model: "gpt-5.6"
     }
   };
-  const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-2d070";
-  const EXPECTED_HOSTING_HOST = "gestor-inventario-wtf.web.app";
+  const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-29056";
+  const EXPECTED_HOSTING_HOST = "gestor-de-inventario-wtf-prod-2026.web.app";
   function escapeHtml(text) {
     return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
@@ -4781,6 +4782,8 @@
       inventoryImpactPausedAt: normalized.inventoryImpactPausedAt || "",
       inventoryImpactPauseReason: normalized.inventoryImpactPauseReason || "",
       lastIcgEmergencyPause: normalized.lastIcgEmergencyPause || null,
+      deletedTableRowKeys: normalizeIcgDeletedTableRowKeys(normalized.deletedTableRowKeys),
+      deletedTableRowsUpdatedAt: normalized.deletedTableRowsUpdatedAt || "",
       icgLinkGroups: normalizeIcgLinkGroups(normalized.icgLinkGroups),
       datasets
     };
@@ -6080,6 +6083,8 @@
       icgHostDiscountsPaused: false,
       inventoryImpactPausedAt: "",
       inventoryImpactPauseReason: "",
+      deletedTableRowKeys: {},
+      deletedTableRowsUpdatedAt: "",
       icgLinkGroups: [],
       datasets
     };
@@ -6088,6 +6093,7 @@
     const base = buildDefaultIcgFrontRestData();
     const input = data && typeof data === "object" ? data : {};
     const datasets = Object.assign({}, base.datasets, input.datasets || {});
+    const deletedTableRowKeys = mergeIcgDeletedTableRowKeys(loadIcgDeletedTableRowKeysLocal(), input.deletedTableRowKeys);
     Object.keys(base.datasets).forEach(function(key) {
       const current = datasets[key] || {};
       const baseColumns = Array.isArray(base.datasets[key].columns) ? base.datasets[key].columns : [];
@@ -6095,11 +6101,12 @@
         if (key === "Articulos" && col === "PrecioVentaSinImpuestos") return false;
         return !baseColumns.includes(col);
       }) : [];
+      const sourceRows = key === "ConsumoMiseVentas" ? normalizeIcgConsumptionDecisionRows(current.rows) : Array.isArray(current.rows) ? current.rows : [];
       datasets[key] = {
         key,
         label: current.label || base.datasets[key].label,
         columns: Array.from(new Set([].concat(baseColumns, currentColumns))),
-        rows: key === "ConsumoMiseVentas" ? normalizeIcgConsumptionDecisionRows(current.rows) : Array.isArray(current.rows) ? current.rows : []
+        rows: filterIcgDeletedTableRows(key, sourceRows, deletedTableRowKeys)
       };
     });
     delete datasets[["Tiquets", "Consumo"].join("")];
@@ -6116,6 +6123,8 @@
       icgHostDiscountsPaused: Boolean(input.icgHostDiscountsPaused),
       inventoryImpactPausedAt: input.inventoryImpactPausedAt || "",
       inventoryImpactPauseReason: input.inventoryImpactPauseReason || "",
+      deletedTableRowKeys,
+      deletedTableRowsUpdatedAt: input.deletedTableRowsUpdatedAt || "",
       datasets
     });
   }
@@ -6252,6 +6261,127 @@
     ].map(function(key) { return canonicalizeIcgStoredKey(key); }).filter(Boolean);
     return Array.from(new Set(keys));
   }
+  function normalizeIcgDeletedTableRowKeys(input) {
+    const out = {};
+    if (!input || typeof input !== "object") return out;
+    Object.entries(input).forEach(function(entry) {
+      const tableKey = String(entry[0] || "").trim();
+      if (!tableKey) return;
+      const values = Array.isArray(entry[1]) ? entry[1] : [];
+      out[tableKey] = Array.from(new Set(values.map(function(value) {
+        return String(value || "").trim();
+      }).filter(Boolean)));
+    });
+    return out;
+  }
+  function loadIcgDeletedTableRowKeysLocal() {
+    try {
+      return normalizeIcgDeletedTableRowKeys(JSON.parse(localStorage.getItem(ICG_DELETED_TABLE_ROW_KEYS_STORAGE) || "{}"));
+    } catch (error) {
+      return {};
+    }
+  }
+  function saveIcgDeletedTableRowKeysLocal(keys) {
+    try {
+      localStorage.setItem(ICG_DELETED_TABLE_ROW_KEYS_STORAGE, JSON.stringify(normalizeIcgDeletedTableRowKeys(keys)));
+    } catch (error) {
+      console.warn("No se pudieron guardar las marcas de borrado ICG locales:", error);
+    }
+  }
+  function mergeIcgDeletedTableRowKeys() {
+    const merged = {};
+    Array.from(arguments).forEach(function(source) {
+      const normalized = normalizeIcgDeletedTableRowKeys(source);
+      Object.entries(normalized).forEach(function(entry) {
+        const tableKey = String(entry[0] || "").trim();
+        if (!tableKey) return;
+        const current = new Set(merged[tableKey] || []);
+        (Array.isArray(entry[1]) ? entry[1] : []).forEach(function(value) {
+          const text = String(value || "").trim();
+          if (text) current.add(text);
+        });
+        merged[tableKey] = Array.from(current);
+      });
+    });
+    return merged;
+  }
+  function getIcgTableRowDeletionKeys(tableKey, row) {
+    if (!row || typeof row !== "object") return [];
+    const normalizedTable = String(tableKey || "").trim();
+    const rawKeys = [];
+    function push(value) {
+      const text = String(value == null ? "" : value).trim();
+      if (text) rawKeys.push(text);
+    }
+    push(row._deletedKey);
+    push(row._id);
+    if (normalizedTable === "ConsumoMiseVentas") {
+      icgConsumptionDecisionKeys(row).forEach(push);
+      push(row.MovimientoICGId || row.movimientoIcgId || "");
+      push(row.PhysicalIcgKey || row.physicalIcgKey || "");
+      push(row.ImportKey || "");
+      push(row.IcgAuditKey || "");
+      push([
+        row.TicketICG || row.Ticket || row.Factura || "",
+        row.NumLinea || row.NUMLINEA || "",
+        row.CodArticulo || row.CODARTICULO || "",
+        row.CodAlmacen || row.CODALMACEN || "",
+        normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || ""),
+        normalizar(row.ProductoWTF || row.ProductoMise || "")
+      ].join("|"));
+    } else if (normalizedTable === "TiquetsLin") {
+      push(row.MovimientoICGId || row.movimientoIcgId || "");
+      push(row.PhysicalIcgKey || row.physicalIcgKey || "");
+      push([
+        row.FO || "",
+        row.SERIE || row.Serie || "",
+        row.NUMERO || row.Numero || "",
+        row.N || "",
+        row.NUMLINEA || row.NumLinea || "",
+        row.CODARTICULO || row.CodArticulo || "",
+        row.CODALMACEN || row.CodAlmacen || ""
+      ].join("|"));
+    } else if (normalizedTable === "CierresDiarios") {
+      push(row.FechaCierre || row.Fecha || "");
+      push([row.Archivo || "", row.FechaCierre || row.Fecha || ""].join("|"));
+    } else {
+      push(row.ImportKey || "");
+      push(row.CodArticulo || row.CODARTICULO || row.Codigo || "");
+      push(row.Referencia || row.REFERENCIA || "");
+      push(row.Ticket || row.TicketICG || "");
+      push(JSON.stringify(row));
+    }
+    return Array.from(new Set(rawKeys.map(function(key) {
+      return `${normalizedTable}::${quickHashText(canonicalizeIcgStoredKey(key))}`;
+    })));
+  }
+  function isIcgTableRowDeleted(tableKey, row, deletedTableRowKeys) {
+    const keys = normalizeIcgDeletedTableRowKeys(deletedTableRowKeys);
+    const list = new Set(keys[String(tableKey || "").trim()] || []);
+    if (!list.size) return false;
+    return getIcgTableRowDeletionKeys(tableKey, row).some(function(key) { return list.has(key); });
+  }
+  function filterIcgDeletedTableRows(tableKey, rows, deletedTableRowKeys) {
+    return (Array.isArray(rows) ? rows : []).filter(function(row) {
+      return !isIcgTableRowDeleted(tableKey, row, deletedTableRowKeys);
+    });
+  }
+  function addIcgDeletedTableRowKeys(data, tableKey, rows) {
+    const normalized = ensureIcgFrontRestData(data);
+    const deleted = normalizeIcgDeletedTableRowKeys(normalized.deletedTableRowKeys);
+    const key = String(tableKey || "").trim();
+    if (!key) return normalized;
+    const current = new Set(deleted[key] || []);
+    (Array.isArray(rows) ? rows : [rows]).forEach(function(row) {
+      getIcgTableRowDeletionKeys(key, row).forEach(function(item) { current.add(item); });
+    });
+    deleted[key] = Array.from(current);
+    saveIcgDeletedTableRowKeysLocal(deleted);
+    return ensureIcgFrontRestData(Object.assign({}, normalized, {
+      deletedTableRowKeys: deleted,
+      deletedTableRowsUpdatedAt: new Date().toISOString()
+    }));
+  }
   function normalizeIcgConsumptionDecisionRows(rows, nowIso) {
     return (Array.isArray(rows) ? rows : []).map(function(row) {
       return applyIcgConsumptionSnapshotFix(stampIcgConsumptionDecision(row, nowIso));
@@ -6328,15 +6458,22 @@
   function preserveIcgDecisionLocks(nextIcgData, previousIcgData) {
     const next = ensureIcgFrontRestData(nextIcgData);
     const previous = ensureIcgFrontRestData(previousIcgData);
+    const deletedTableRowKeys = mergeIcgDeletedTableRowKeys(loadIcgDeletedTableRowKeysLocal(), previous.deletedTableRowKeys, next.deletedTableRowKeys);
     const nextDatasets = Object.assign({}, next.datasets || {});
     const nextConsumption = Object.assign({}, nextDatasets.ConsumoMiseVentas || {});
-    const previousRows = previous.datasets && previous.datasets.ConsumoMiseVentas ? previous.datasets.ConsumoMiseVentas.rows : [];
-    const nextRows = normalizeIcgConsumptionDecisionRows(mergeIcgConsumptionDecisionRows(nextConsumption.rows || [], previousRows));
+    const previousRows = filterIcgDeletedTableRows("ConsumoMiseVentas", previous.datasets && previous.datasets.ConsumoMiseVentas ? previous.datasets.ConsumoMiseVentas.rows : [], deletedTableRowKeys);
+    const incomingRows = filterIcgDeletedTableRows("ConsumoMiseVentas", nextConsumption.rows || [], deletedTableRowKeys);
+    const nextRows = filterIcgDeletedTableRows("ConsumoMiseVentas", normalizeIcgConsumptionDecisionRows(mergeIcgConsumptionDecisionRows(incomingRows, previousRows)), deletedTableRowKeys);
     nextDatasets.ConsumoMiseVentas = Object.assign({}, nextConsumption, {
       columns: Array.from(new Set([...(nextConsumption.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), ...ICG_TABLE_DEFS.ConsumoMiseVentas.columns])),
       rows: nextRows
     });
-    return Object.assign({}, next, { datasets: nextDatasets });
+    const deletedAt = next.deletedTableRowsUpdatedAt || previous.deletedTableRowsUpdatedAt || "";
+    return ensureIcgFrontRestData(Object.assign({}, next, {
+      deletedTableRowKeys,
+      deletedTableRowsUpdatedAt: deletedAt,
+      datasets: nextDatasets
+    }));
   }
   function preserveIcgDecisionLocksInAppState(nextState, previousState) {
     const next = Object.assign({}, nextState || {});
@@ -11779,7 +11916,11 @@
     useEffect(() => save(KEYS.histDecomisoCocina, normalizeMovementRows(histDecomisoCocina, movementDeletedKeys.histDecomisoCocina)), [histDecomisoCocina, movementDeletedKeys]);
     useEffect(() => save(KEYS.histEntradaRapida, normalizeMovementRows(histEntradaRapida, movementDeletedKeys.histEntradaRapida)), [histEntradaRapida, movementDeletedKeys]);
     useEffect(() => save(KEYS.histSalidaRapida, repairIcgMiseQuickExitUsers(normalizeMovementRows(histSalidaRapida, movementDeletedKeys.histSalidaRapida))), [histSalidaRapida, movementDeletedKeys]);
-    useEffect(() => save(KEYS.icgFrontRest, ensureIcgFrontRestData(icgFrontRestData)), [icgFrontRestData]);
+    useEffect(() => {
+      const normalizedIcg = ensureIcgFrontRestData(icgFrontRestData);
+      saveIcgDeletedTableRowKeysLocal(normalizedIcg.deletedTableRowKeys);
+      save(KEYS.icgFrontRest, normalizedIcg);
+    }, [icgFrontRestData]);
     useEffect(() => save(KEYS.assetManagement, ensureAssetManagementData(assetManagementData)), [assetManagementData]);
     useEffect(() => save(KEYS.employeeCenter, ensureEmployeeCenterData(employeeCenterData)), [employeeCenterData]);
     useEffect(() => save(KEYS.financial, ensureFinancialData(financialData)), [financialData]);
@@ -20724,6 +20865,7 @@
     const [selectedTicketDetail, setSelectedTicketDetail] = useState(null);
     const [selectedClosureDetail, setSelectedClosureDetail] = useState(null);
     const [expandedClosureTickets, setExpandedClosureTickets] = useState({});
+    const [ticketsDetectedCollapsed, setTicketsDetectedCollapsed] = useState(false);
     const [busy, setBusy] = useState(false);
     const autoApplyIcgRef = useRef("");
     const autoAppliedIcgKeysRef = useRef((function() {
@@ -20864,13 +21006,14 @@
     }
     useEffect(function() {
       if (typeof setData !== "function") return;
+      const deletedTableRowKeys = mergeIcgDeletedTableRowKeys(loadIcgDeletedTableRowKeysLocal(), normalized.deletedTableRowKeys);
       const snapshotRows = salesConsumptionRows.filter(function(row) {
-        return row && (row.ImportKey || row.IcgAuditKey || row.PhysicalIcgKey || row.MovimientoICGId || row.movimientoIcgId);
+        return row && (row.ImportKey || row.IcgAuditKey || row.PhysicalIcgKey || row.MovimientoICGId || row.movimientoIcgId) && !isIcgTableRowDeleted("ConsumoMiseVentas", row, deletedTableRowKeys);
       });
       if (!snapshotRows.length) return;
       const datasets = Object.assign({}, normalized.datasets || {});
       const consumo = Object.assign({}, datasets.ConsumoMiseVentas || { key: "ConsumoMiseVentas", label: "Consumo Mise ventas", columns: ICG_TABLE_DEFS.ConsumoMiseVentas.columns, rows: [] });
-      const currentRows = Array.isArray(consumo.rows) ? consumo.rows : [];
+      const currentRows = filterIcgDeletedTableRows("ConsumoMiseVentas", Array.isArray(consumo.rows) ? consumo.rows : [], deletedTableRowKeys);
       let changed = false;
       function rowKeys(row) {
         return [
@@ -20909,6 +21052,7 @@
         return stamped;
       });
       snapshotRows.forEach(function(row) {
+        if (isIcgTableRowDeleted("ConsumoMiseVentas", row, deletedTableRowKeys)) return;
         const exists = nextRows.some(function(existing) {
           const keys = rowKeys(existing);
           return rowKeys(row).some(function(key) { return keys.includes(key); });
@@ -20934,9 +21078,9 @@
       if (!changed) return;
       datasets.ConsumoMiseVentas = Object.assign({}, consumo, {
         columns: Array.from(new Set([...(consumo.columns || ICG_TABLE_DEFS.ConsumoMiseVentas.columns), ...ICG_TABLE_DEFS.ConsumoMiseVentas.columns, "MotivoRevision", "reviewedAt", "IcgDecisionId", "existenceSnapshotAt", "statusLocked", "statusLockedAt", "decisionUpdatedAt", "decisionSource"])),
-        rows: nextRows
+        rows: filterIcgDeletedTableRows("ConsumoMiseVentas", nextRows, deletedTableRowKeys)
       });
-      setData(ensureIcgFrontRestData(Object.assign({}, normalized, { datasets, updatedAt: new Date().toISOString() })));
+      setData(ensureIcgFrontRestData(Object.assign({}, normalized, { deletedTableRowKeys, datasets, updatedAt: new Date().toISOString() })));
     }, [salesConsumptionSignature]);
     const icgBusinessDateKey = getIcgBusinessDateKey(new Date());
     const currentClosureRow = closureRows.find(function(row) {
@@ -21062,10 +21206,11 @@
       const consumo = datasets.ConsumoMiseVentas;
       if (!consumo || !Array.isArray(consumo.rows)) return datasets;
       const rebuilt = buildIcgSalesConsumption(Object.assign({}, normalized, { datasets: Object.assign({}, datasets, { ConsumoMiseVentas: consumo }) }));
+      const deletedTableRowKeys = mergeIcgDeletedTableRowKeys(loadIcgDeletedTableRowKeysLocal(), normalized.deletedTableRowKeys);
       return Object.assign({}, datasets, {
         ConsumoMiseVentas: Object.assign({}, consumo, {
           columns: Array.from(new Set([...(consumo.columns || []), ...ICG_TABLE_DEFS.ConsumoMiseVentas.columns])),
-          rows: rebuilt
+          rows: filterIcgDeletedTableRows("ConsumoMiseVentas", rebuilt, deletedTableRowKeys)
         })
       });
     }
@@ -21171,11 +21316,18 @@
       setPendingAction({
         title: "Eliminar registro ICG",
         run: function() {
-          updateDataset(activeTable, function(ds) {
-            return Object.assign({}, ds, { rows: (ds.rows || []).filter(function(item) { return item._id !== row._id; }) });
+          const protectedData = addIcgDeletedTableRowKeys(normalized, activeTable, row);
+          const datasets = Object.assign({}, protectedData.datasets || {});
+          const currentDs = Object.assign({}, datasets[activeTable] || {});
+          const rowDeletionKeys = new Set(getIcgTableRowDeletionKeys(activeTable, row));
+          datasets[activeTable] = Object.assign({}, currentDs, {
+            rows: (currentDs.rows || []).filter(function(item) {
+              return !getIcgTableRowDeletionKeys(activeTable, item).some(function(key) { return rowDeletionKeys.has(key); });
+            })
           });
+          setData(ensureIcgFrontRestData(Object.assign({}, protectedData, { datasets, updatedAt: new Date().toISOString() })));
           setPendingAction(null);
-          toast("Registro eliminado.", "ok");
+          toast("Registro eliminado y protegido para que no vuelva a aparecer.", "ok");
         }
       });
     }
@@ -21481,8 +21633,11 @@
           )
         ),
         ticketRows.length > 0 && /* @__PURE__ */ React.createElement("div", { style: labBoxStyle },
-          /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "#4338ca" } }), "Facturas / tickets detectados"),
-          /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+            /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-receipt", style: { marginRight: 7, color: "#4338ca" } }), "Facturas / tickets detectados"),
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: function() { setTicketsDetectedCollapsed(function(value) { return !value; }); }, title: ticketsDetectedCollapsed ? "Mostrar facturas y tickets detectados" : "Ocultar facturas y tickets detectados" }, /* @__PURE__ */ React.createElement("i", { className: ticketsDetectedCollapsed ? "fas fa-chevron-down" : "fas fa-chevron-up" }), ticketsDetectedCollapsed ? "Expandir" : "Contraer")
+          ),
+          ticketsDetectedCollapsed ? /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye-slash" }), "Tabla contraida. Usa Expandir para ver el detalle interno de las facturas.") : /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
             /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, ["Fecha", "Ticket", "Hora", "Total", "Lineas vendidas"].map((label) => /* @__PURE__ */ React.createElement("th", { key: label }, label)))),
             /* @__PURE__ */ React.createElement("tbody", null, ticketRows.map(function(ticket) {
               return /* @__PURE__ */ React.createElement("tr", { key: ticket.TicketNotificacionId || ticket.ticketKey },
@@ -21869,7 +22024,7 @@
       name: "WTF Inventory Sync Service",
       generatedAt: new Date().toISOString(),
       mode: "manual_preview",
-      webAppUrl: "https://gestor-inventario-wtf.web.app",
+      webAppUrl: "https://gestor-de-inventario-wtf-prod-2026.web.app",
       queues: {
         icgToWeb: icgToWebQueue,
         webToIcg: webToIcgQueue
@@ -25225,7 +25380,7 @@
     ), modalGas && /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation(), style: { maxWidth: 640 } }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-cloud-upload-alt", style: { marginRight: 7, color: "#1f7a3a" } }), "Configurar Google Workspace"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalGas(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "flex", flexDirection: "column", gap: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 600, marginBottom: 10, color: "#15803d" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-info-circle", style: { marginRight: 6 } }), "Configuracion rapida \u2014 solo se hace una vez"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, /* @__PURE__ */ React.createElement(
       "a",
       {
-        href: "https://console.cloud.google.com/apis/library/drive.googleapis.com?project=gestor-de-inventario-wtf-2d070",
+        href: "https://console.cloud.google.com/apis/library/drive.googleapis.com?project=gestor-de-inventario-wtf-29056",
         target: "_blank",
         rel: "noreferrer",
         style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "white", border: "1px solid #bbf7d0", borderRadius: 6, color: "#1d4ed8", fontSize: 13, textDecoration: "none", fontWeight: 500 }
@@ -25236,7 +25391,7 @@
     ), /* @__PURE__ */ React.createElement(
       "a",
       {
-        href: "https://console.cloud.google.com/apis/credentials/consent?project=gestor-de-inventario-wtf-2d070",
+        href: "https://console.cloud.google.com/apis/credentials/consent?project=gestor-de-inventario-wtf-29056",
         target: "_blank",
         rel: "noreferrer",
         style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "white", border: "1px solid #bbf7d0", borderRadius: 6, color: "#1d4ed8", fontSize: 13, textDecoration: "none", fontWeight: 500 }
@@ -25247,7 +25402,7 @@
     ), /* @__PURE__ */ React.createElement(
       "a",
       {
-        href: "https://console.cloud.google.com/apis/credentials/oauthclient?project=gestor-de-inventario-wtf-2d070",
+        href: "https://console.cloud.google.com/apis/credentials/oauthclient?project=gestor-de-inventario-wtf-29056",
         target: "_blank",
         rel: "noreferrer",
         style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "white", border: "1px solid #bbf7d0", borderRadius: 6, color: "#1d4ed8", fontSize: 13, textDecoration: "none", fontWeight: 500 }
