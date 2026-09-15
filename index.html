@@ -6098,7 +6098,8 @@
         if (key === "Articulos" && col === "PrecioVentaSinImpuestos") return false;
         return !baseColumns.includes(col);
       }) : [];
-      const sourceRows = key === "ConsumoMiseVentas" ? normalizeIcgConsumptionDecisionRows(current.rows) : Array.isArray(current.rows) ? current.rows : [];
+      const rawRows = key === "ConsumoMiseVentas" ? normalizeIcgConsumptionDecisionRows(current.rows) : Array.isArray(current.rows) ? current.rows : [];
+      const sourceRows = key === "ConsumoMiseVentas" || key === "TiquetsLin" ? rawRows.filter(isBillableTiquetsLinRow) : rawRows;
       datasets[key] = {
         key,
         label: current.label || base.datasets[key].label,
@@ -6983,6 +6984,10 @@
   function getIcgLineNumber(row) {
     return icgCellText(row && (row.NumLinea || row.NUMLINEA || row.Linea || row.LINEA || row.linea || "")).trim();
   }
+  function isBillableTiquetsLinRow(row) {
+    const nValue = normalizar(row && (row.N || row.n || ""));
+    return !nValue || nValue === "b";
+  }
   function getIcgLineMoment(row) {
     return icgCellText(row && (row.FechaHora || row.FECHAHORA || row.fechaHora || row.HORA || row.Hora || row.hora || "")).trim();
   }
@@ -7535,8 +7540,8 @@
   }
   function buildIcgSalesConsumption(data) {
     const normalizedData = ensureIcgFrontRestData(data);
-    const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas");
-    const lines = icgRows(normalizedData, "TiquetsLin");
+    const existingConsumption = icgRows(normalizedData, "ConsumoMiseVentas").filter(isBillableTiquetsLinRow);
+    const lines = icgRows(normalizedData, "TiquetsLin").filter(isBillableTiquetsLinRow);
     const bridges = icgRows(normalizedData, "VinculosMiseICG").map(sanitizeIcgBridgeRow);
     const ticketMap = buildIcgSalesTickets(normalizedData).reduce(function(acc, ticket) {
       acc[ticket.ticketKey] = ticket;

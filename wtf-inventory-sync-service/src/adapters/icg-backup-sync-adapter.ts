@@ -667,16 +667,22 @@ function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fe
   };
 }
 
+function isBillableTiquetsLinRow(row: AnyRecord): boolean {
+  const nValue = normalizar(firstText(row, ["N", "n"]));
+  return !nValue || nValue === "b";
+}
+
 function mergeBackupTiquetsLinIntoIcgData(icg: AnyRecord, sourceRows: AnyRecord[], fecha: string): void {
   if (!Array.isArray(sourceRows) || !sourceRows.length) return;
   const current = icg.datasets.TiquetsLin || { key: "TiquetsLin", label: "TIQUETSLIN SQL", columns: DATASET_COLUMNS.TiquetsLin, rows: [] };
-  const existingRows = filterIcgDeletedRows(icg, "TiquetsLin", Array.isArray(current.rows) ? current.rows : []);
+  const existingRows = filterIcgDeletedRows(icg, "TiquetsLin", Array.isArray(current.rows) ? current.rows : []).filter(isBillableTiquetsLinRow);
   const byKey = new Map<string, AnyRecord>();
   existingRows.forEach((row: AnyRecord) => {
     const key = consumptionSourceRowKey(row);
     if (key.replace(/\|/g, "")) byKey.set(key, row);
   });
   sourceRows.forEach((row) => {
+    if (!isBillableTiquetsLinRow(row)) return;
     if (isIcgTableRowDeleted(icg, "TiquetsLin", row)) return;
     const key = consumptionSourceRowKey(row);
     if (!key.replace(/\|/g, "")) return;
@@ -1215,6 +1221,7 @@ BEGIN
     LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+      AND UPPER(LTRIM(RTRIM(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30))))) = 'B'
       AND @UltimaFechaCierre IS NOT NULL
       AND CONVERT(date,c.FECHA) = @UltimaFechaCierre
     GROUP BY
