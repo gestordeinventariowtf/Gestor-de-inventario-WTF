@@ -11873,6 +11873,7 @@
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
+    const lastRemoteMetaSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
@@ -12114,18 +12115,22 @@
       syncTimerRef.current = window.setTimeout(async function() {
         try {
           const snapshotState = appState || getCurrentAppState();
-          const candidateDoc = createFirebaseWriteDoc(snapshotState, reason);
-          if (candidateDoc.signature === lastRemoteSignatureRef.current) {
+          const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
+          if (writeDoc.signature === lastRemoteSignatureRef.current) {
             pendingLocalSignatureRef.current = "";
             pendingLocalAtRef.current = 0;
             hasSessionLocalChangeRef.current = false;
             return;
           }
           pendingLocalAtRef.current = markLocalSyncChange();
-          const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
+          writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
+          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+            if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
+          });
           pendingLocalSignatureRef.current = writeDoc.signature;
           await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
           lastRemoteSignatureRef.current = writeDoc.signature;
+          lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
           hasSessionLocalChangeRef.current = false;
           setFirebaseStatus("connected");
           setFirebaseMessage("Cambios sincronizados");
@@ -12304,13 +12309,10 @@
       try {
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
-        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
-        if (!remoteState) return;
-        const remoteSignature = serializeAppState(remoteState);
-        const currentSignature = serializeAppState(getCurrentAppState());
-        if (remoteSignature === currentSignature) {
+        const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
+        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
-          lastRemoteSignatureRef.current = remoteSignature;
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
           if (data && data.updatedAt) {
@@ -12319,7 +12321,22 @@
           }
           return;
         }
-        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
+        if (!remoteState) return;
+        const remoteSignature = serializeAppState(remoteState);
+        const currentSignature = serializeAppState(getCurrentAppState());
+        if (remoteSignature === currentSignature) {
+          if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+          lastRemoteSignatureRef.current = remoteSignature;
+          lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
+          setFirebaseStatus("connected");
+          setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
+          if (data && data.updatedAt) {
+            const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
+            setLastSyncedAt(formatDatetime(date));
+          }
+          return;
+        }
         const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || hasPendingLocalWrite;
         if (hasCurrentSessionLocalChange && reason !== "manual-sync") {
           setFirebaseMessage("Sincronizacion pausada: cambios locales pendientes");
@@ -12327,6 +12344,7 @@
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
         lastRemoteSignatureRef.current = remoteSignature;
+        lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
         pendingLocalSignatureRef.current = "";
         pendingLocalAtRef.current = 0;
         hasSessionLocalChangeRef.current = false;
@@ -24165,6 +24183,7 @@
     const [productListQuery, setProductListQuery] = useState("");
     const [productListOpen, setProductListOpen] = useState(false);
     const productInputRef = useRef(null);
+    const lastProductPickRef = useRef({ key: "", at: 0 });
     const useCustomProductPicker = typeof window !== "undefined" && window.innerWidth <= 768;
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
@@ -24272,6 +24291,10 @@
     }
     function selectProductOption(option) {
       if (!option) return;
+      const pickKey = `${option.id || ""}-${option.storageKey || ""}-${option.nombre || ""}`;
+      const now = Date.now();
+      if (lastProductPickRef.current.key === pickKey && now - lastProductPickRef.current.at < 450) return;
+      lastProductPickRef.current = { key: pickKey, at: now };
       resolveProductSelection(option.nombre || "");
       setProductListOpen(false);
       if (productInputRef.current && typeof productInputRef.current.blur === "function") productInputRef.current.blur();
@@ -24438,7 +24461,9 @@
                 return /* @__PURE__ */ React.createElement("button", {
                   key: `${p.id}-${p.storageLabel || ""}`,
                   type: "button",
-                  onPointerDown: function(event) { event.preventDefault(); selectProductOption(p); },
+                  onMouseDown: function(event) { event.preventDefault(); selectProductOption(p); },
+                  onTouchEnd: function(event) { event.preventDefault(); selectProductOption(p); },
+                  onClick: function(event) { event.preventDefault(); selectProductOption(p); },
                   style: { width: "100%", border: "none", borderBottom: "1px solid var(--borde)", background: "#fff", padding: "10px 12px", textAlign: "left", display: "grid", gap: 3, cursor: "pointer" }
                 },
                   /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827", fontSize: 13 } }, p.nombre),

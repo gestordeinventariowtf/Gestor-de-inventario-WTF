@@ -2,8 +2,8 @@
   const RESUME_SYNC_EVENT = "wtf:pwa-resume";
   const FOREGROUND_SYNC_EVENT = "wtf:pwa-foreground-sync";
   const SUBSCRIPTION_COLLECTION = "pwaPushSubscriptions";
-  const FOREGROUND_SYNC_MS = 120000;
-  const RESUME_AFTER_MS = 15000;
+  const FOREGROUND_SYNC_MS = 180000;
+  const RESUME_AFTER_MS = 45000;
   let hiddenAt = 0;
   let serviceWorkerRegistration = null;
 
