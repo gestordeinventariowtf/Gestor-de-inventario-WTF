@@ -1161,6 +1161,7 @@ WITH cab AS (
     ISNULL(c.PROPINA,0) AS PROPINA
   FROM TIQUETSCAB c
   WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+    AND CONVERT(date,c.FECHA) >= '20260914'
 ),
 lineas AS (
   SELECT SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
@@ -1183,7 +1184,7 @@ LEFT JOIN lineas l ON l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
 ${paymentsJoin}
 GROUP BY c.FechaCierre
 )
-SELECT TOP 1 *
+SELECT *
 FROM daily
 ORDER BY FechaCierre DESC;`;
   return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), databaseName);
@@ -1193,11 +1194,6 @@ async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseNa
   const sql = `
 IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
-  DECLARE @UltimaFechaCierre date;
-  SELECT @UltimaFechaCierre = MAX(CONVERT(date,c.FECHA))
-  FROM TIQUETSCAB c
-  WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101');
-
   WITH consumo AS (
     SELECT
       ISNULL(CAST(c.FO AS varchar(30)),'') AS FO,
@@ -1222,8 +1218,7 @@ BEGIN
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
       AND UPPER(LTRIM(RTRIM(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30))))) = 'B'
-      AND @UltimaFechaCierre IS NOT NULL
-      AND CONVERT(date,c.FECHA) = @UltimaFechaCierre
+      AND CONVERT(date,c.FECHA) >= '20260914'
     GROUP BY
       c.FO,
       COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
