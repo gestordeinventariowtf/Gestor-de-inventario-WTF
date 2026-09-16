@@ -2556,6 +2556,39 @@
       }, delay)
     };
   }
+  const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
+  const FIREBASE_COOLDOWN_MS = 30 * 60 * 1000;
+  function getFirebaseErrorText(error) {
+    return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
+  }
+  function isFirebaseQuotaOrPermissionError(error) {
+    const text = getFirebaseErrorText(error);
+    return text.includes("permission-denied")
+      || text.includes("missing or insufficient")
+      || text.includes("insufficient permission")
+      || text.includes("resource-exhausted")
+      || text.includes("quota")
+      || text.includes("too many requests")
+      || text.includes("deadline-exceeded")
+      || text.includes("unavailable");
+  }
+  function getFirebaseCooldownUntil() {
+    try {
+      return Number(localStorage.getItem(FIREBASE_COOLDOWN_STORAGE_KEY) || 0) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  function setFirebaseCooldownUntilValue(value) {
+    try {
+      if (value > Date.now()) localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
+      else localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+    } catch (_) {}
+  }
+  function formatFirebaseCooldownMessage(until) {
+    const minutes = Math.max(1, Math.ceil((Number(until || 0) - Date.now()) / 6e4));
+    return `Firebase pausado por limite de lecturas/escrituras. La app sigue en modo local y reintentara en ${minutes} min.`;
+  }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
   }
@@ -11879,6 +11912,7 @@
     const [pendingIcgControlAction, setPendingIcgControlAction] = useState(null);
     const [firebaseStatus, setFirebaseStatus] = useState(() => firebaseCfg.enabled ? "connecting" : "disabled");
     const [firebaseMessage, setFirebaseMessage] = useState(() => firebaseCfg.enabled ? "Conectando Firebase..." : "Solo local");
+    const [firebaseCooldownUntil, setFirebaseCooldownUntil] = useState(() => getFirebaseCooldownUntil());
     const [lastSyncedAt, setLastSyncedAt] = useState("");
     const firebaseDocRef = useRef(null);
     const icgControlDocRef = useRef(null);
@@ -11896,6 +11930,7 @@
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
+    const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
     useEffect(() => {
@@ -11941,6 +11976,21 @@
         document.removeEventListener("focusin", onFocusIn, true);
       };
     }, []);
+    firebaseCooldownUntilRef.current = firebaseCooldownUntil;
+    function isFirebaseCooldownActive() {
+      return Number(firebaseCooldownUntilRef.current || 0) > Date.now();
+    }
+    function activateFirebaseCooldown(error, operation) {
+      if (!isFirebaseQuotaOrPermissionError(error)) return false;
+      const until = Date.now() + FIREBASE_COOLDOWN_MS;
+      firebaseCooldownUntilRef.current = until;
+      setFirebaseCooldownUntilValue(until);
+      setFirebaseCooldownUntil(until);
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+      setFirebaseStatus("error");
+      setFirebaseMessage(`${formatFirebaseCooldownMessage(until)} Ruta: ${operation || "Firebase"}.`);
+      return true;
+    }
     stateSnapshotRef.current = {
       dataVersion: DATA_VERSION,
       inventario,
@@ -12121,6 +12171,11 @@
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (isFirebaseCooldownActive()) {
+        setFirebaseStatus("error");
+        setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
+        return;
+      }
       pendingLocalAtRef.current = Date.now();
       pendingLocalSignatureRef.current = signature || `pending-${pendingLocalAtRef.current}`;
       hasSessionLocalChangeRef.current = true;
@@ -12150,6 +12205,7 @@
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
         } catch (error) {
           console.error("Firebase write error:", error);
+          if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
           setFirebaseStatus("error");
           setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
         }
@@ -12285,6 +12341,7 @@
     async function confirmIcgControlToggle() {
       if (!pendingIcgControlAction) return;
       if (!icgControlDocRef.current) throw new Error("Control ICG no inicializado en Firebase.");
+      if (isFirebaseCooldownActive()) throw new Error(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
       const pause = Boolean(pendingIcgControlAction.paused);
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const userLabel = getIcgControlUserLabel();
@@ -12312,13 +12369,23 @@
         updatedAt: serverTimestamp,
         updatedBy: userLabel
       };
-      await icgControlDocRef.current.set(nextDoc, { merge: true });
+      try {
+        await icgControlDocRef.current.set(nextDoc, { merge: true });
+      } catch (error) {
+        if (activateFirebaseCooldown(error, "wtfSistema/icgControl escritura")) return;
+        throw error;
+      }
       applyIcgControlState(Object.assign({}, nextDoc, { updatedAt: now }));
       setPendingIcgControlAction(null);
       toast(pause ? forgottenLegacyRows ? `ICG pausado. Se olvidaron ${forgottenLegacyRows} movimiento(s) antiguo(s) sin llaves modernas.` : "ICG pausado. No se descontaran productos automaticamente." : forgottenLegacyRows ? `ICG activo. Se olvidaron ${forgottenLegacyRows} movimiento(s) antiguo(s) sin llaves modernas antes de habilitar descuentos.` : "ICG activo. Los descuentos automaticos quedan habilitados.", "ok", 7500);
     }
     async function pullLatestFirebaseSnapshot(reason) {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current || applyingRemoteRef.current) return;
+      if (isFirebaseCooldownActive()) {
+        setFirebaseStatus("error");
+        setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
+        return;
+      }
       try {
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
@@ -12370,6 +12437,7 @@
         }
       } catch (error) {
         console.warn("Firebase foreground pull error:", error);
+        if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral lectura")) return;
         if (firebaseStatus !== "connected") {
           setFirebaseStatus("error");
           setFirebaseMessage(error && error.message ? error.message : "No se pudo refrescar Firebase");
@@ -12747,6 +12815,20 @@
     }
     useEffect(() => {
       if (!firebaseCfg.enabled) return;
+      if (firebaseCooldownUntil > Date.now()) {
+        const remaining = Math.max(1e3, firebaseCooldownUntil - Date.now());
+        firebaseCooldownUntilRef.current = firebaseCooldownUntil;
+        setFirebaseStatus("error");
+        setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntil));
+        const retryTimer = window.setTimeout(function() {
+          setFirebaseCooldownUntilValue(0);
+          firebaseCooldownUntilRef.current = 0;
+          setFirebaseCooldownUntil(0);
+        }, remaining);
+        return function() {
+          window.clearTimeout(retryTimer);
+        };
+      }
       if (!window.firebase || !window.firebase.firestore) {
         setFirebaseStatus("error");
         setFirebaseMessage("SDK Firebase no disponible");
@@ -12779,6 +12861,7 @@
           applyIcgControlState(snapshot.data());
         }, function(error) {
           console.error("ICG control sync error:", error);
+          if (activateFirebaseCooldown(error, "wtfSistema/icgControl lectura")) return;
           setIcgControl(function(prev) {
             return Object.assign({}, prev, {
               loading: false,
@@ -12787,6 +12870,7 @@
           });
         });
         const unsubscribe = docRef.onSnapshot(async (snapshot) => {
+          try {
           if (!firebaseBootstrappedRef.current && snapshot.metadata && snapshot.metadata.fromCache) {
             setFirebaseStatus("connecting");
             setFirebaseMessage("Leyendo datos reales del servidor...");
@@ -12864,8 +12948,15 @@
           setFirebaseStatus("connected");
           setFirebaseMessage("Firebase inicializado");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+          } catch (error) {
+            console.error("Firebase snapshot processing error:", error);
+            if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral procesamiento")) return;
+            setFirebaseStatus("error");
+            setFirebaseMessage(error && error.message ? error.message : "No se pudo procesar Firebase");
+          }
         }, function(error) {
           console.error("Firebase sync error:", error);
+          if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral lectura")) return;
           setFirebaseStatus("error");
           setFirebaseMessage(error && error.message ? error.message : "Error de sincronizaci\xF3n");
         });
@@ -12879,7 +12970,7 @@
         setFirebaseStatus("error");
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase");
       }
-    }, [firebaseCfg]);
+    }, [firebaseCfg, firebaseCooldownUntil]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
@@ -13188,6 +13279,12 @@
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
     function forceFirebaseSyncNow() {
+      if (isFirebaseCooldownActive()) {
+        toast(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current), "error", 8500);
+        setFirebaseStatus("error");
+        setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
+        return;
+      }
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) {
         toast("Firebase aun no esta listo para sincronizar.", "error");
         return;
