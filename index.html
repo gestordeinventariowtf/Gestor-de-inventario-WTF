@@ -3754,6 +3754,8 @@
     return `${prefix || "mov"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
   const SYSTEM_LOG_TEXT_LIMIT = 420;
+  const SYSTEM_LOG_ACTIVE_LIMIT = 2500;
+  const SYSTEM_LOG_SORT_LIMIT = 5000;
   const SYSTEM_LOG_KEEP_FIELDS = [
     "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
     "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
@@ -3787,11 +3789,42 @@
       detalle: ""
     }, compact);
   }
+  function getSystemLogKey(row) {
+    if (!row || typeof row !== "object") return "";
+    return row.id || [
+      row.fecha || "",
+      row.email || row.usuario || "",
+      row.modulo || "",
+      row.accion || "",
+      row.producto || "",
+      row.detalle || "",
+      row.movimientoIcgId || "",
+      row.physicalIcgKey || ""
+    ].join("|");
+  }
   function normalizeSystemLogs(logs) {
     const rows = Array.isArray(logs) ? logs.filter(Boolean) : [];
-    return rows.map(compactSystemLogEntry).sort(function(a, b) {
-      return String(b.fecha || "").localeCompare(String(a.fecha || ""));
+    const seen = new Set();
+    const compacted = [];
+    const hardLimit = Math.max(SYSTEM_LOG_ACTIVE_LIMIT, SYSTEM_LOG_SORT_LIMIT);
+    for (let index = 0; index < rows.length; index += 1) {
+      const compact = compactSystemLogEntry(rows[index]);
+      const key = getSystemLogKey(compact);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      compacted.push(compact);
+      if (compacted.length >= hardLimit) break;
+    }
+    let ordered = compacted;
+    const needsSort = compacted.length > 1 && compacted.length <= SYSTEM_LOG_SORT_LIMIT && compacted.some(function(row, index) {
+      return index > 0 && String(row.fecha || "") > String(compacted[index - 1].fecha || "");
     });
+    if (needsSort) {
+      ordered = compacted.slice().sort(function(a, b) {
+        return String(b.fecha || "").localeCompare(String(a.fecha || ""));
+      });
+    }
+    return ordered.slice(0, SYSTEM_LOG_ACTIVE_LIMIT);
   }
   function buildSystemLogEntry(user, payload) {
     const safePayload = payload && typeof payload === "object" ? payload : {};
@@ -11835,9 +11868,11 @@
       return cloneData(stateSnapshotRef.current || {});
     }
     function addSystemLog(payload, userOverride) {
-      const entry = buildSystemLogEntry(userOverride || currentUser, payload);
+      const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
       setSystemLogs(function(prev) {
-        return normalizeSystemLogs([entry].concat(prev || []));
+        const rows = Array.isArray(prev) ? prev : [];
+        const next = [entry].concat(rows);
+        return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
       return entry;
     }
@@ -12192,7 +12227,7 @@
       }
     }
     useEffect(() => save("wtf_correos", correos), [correos]);
-    useEffect(() => save(KEYS.systemLogs, normalizeSystemLogs(systemLogs)), [systemLogs]);
+    useEffect(() => save(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
