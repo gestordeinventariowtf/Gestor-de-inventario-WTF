@@ -23949,6 +23949,7 @@
     const [success, setSuccess] = useState("");
     const [bulkRows, setBulkRows] = useState([]);
     const [productListQuery, setProductListQuery] = useState("");
+    const [productListOpen, setProductListOpen] = useState(false);
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
       salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
@@ -24049,6 +24050,11 @@
       setError("");
       setSuccess("");
       return exact;
+    }
+    function selectProductOption(option) {
+      if (!option) return;
+      resolveProductSelection(option.nombre || "");
+      setProductListOpen(false);
     }
     function resolveMovementResponsible() {
       if (!requiresResponsiblePassword) return currentUser;
@@ -24175,15 +24181,16 @@
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
             /* @__PURE__ */ React.createElement("input", {
               className: `form-control ${error && !producto ? "error" : ""}`,
-              list: "prod-list",
               value: producto,
-              onFocus: () => setProductListQuery(producto || ""),
+              onFocus: () => { setProductListQuery(producto || ""); setProductListOpen(true); },
               onChange: (e) => {
                 const value = e.target.value;
                 setProductListQuery(value);
+                setProductListOpen(true);
                 const exact = productos.find((p) => normalizar(p.nombre) === normalizar(value));
                 if (exact) {
                   resolveProductSelection(value);
+                  setProductListOpen(false);
                   return;
                 }
                 setProducto(value);
@@ -24191,11 +24198,27 @@
                 setError("");
                 setSuccess("");
               },
-              onBlur: (e) => resolveProductSelection(e.target.value),
+              onBlur: (e) => {
+                window.setTimeout(function() { setProductListOpen(false); }, 160);
+                resolveProductSelection(e.target.value);
+              },
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
-            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, getVisibleProductOptions().map((p) => /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.nombre, " — ", p.storageLabel || "Inventario", " — ", formatQty4(p.existencia), " ", p.medida))),
+            productListOpen && getVisibleProductOptions().length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, border: "1px solid var(--borde)", borderRadius: 8, overflow: "hidden", background: "#fff", boxShadow: "0 10px 24px rgba(15, 23, 42, .12)", position: "relative", zIndex: 30 } },
+              getVisibleProductOptions().map(function(p) {
+                return /* @__PURE__ */ React.createElement("button", {
+                  key: `${p.id}-${p.storageLabel || ""}`,
+                  type: "button",
+                  onMouseDown: function(event) { event.preventDefault(); selectProductOption(p); },
+                  onTouchStart: function(event) { event.preventDefault(); selectProductOption(p); },
+                  style: { width: "100%", border: "none", borderBottom: "1px solid var(--borde)", background: "#fff", padding: "10px 12px", textAlign: "left", display: "grid", gap: 3, cursor: "pointer" }
+                },
+                  /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827", fontSize: 13 } }, p.nombre),
+                  /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", fontSize: 12, fontWeight: 700 } }, p.storageLabel || "Inventario", " · ", formatQty4(p.existencia), " ", p.medida)
+                );
+              })
+            ),
             prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 14px" } },
               /* @__PURE__ */ React.createElement("span", null, "Existencia total: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, formatQty4(prodInfo.existencia), " ", prodInfo.medida)),
               getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia) && /* @__PURE__ */ React.createElement("span", null, "Equivalente: ", getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia)),
