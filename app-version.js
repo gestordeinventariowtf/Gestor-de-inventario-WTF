@@ -1,6 +1,6 @@
 (function () {
   const VERSION_URL = "/version.json";
-  const CHECK_INTERVAL_MS = 60000;
+  const CHECK_INTERVAL_MS = 10000;
   const STORAGE_KEY = "wtf_app_loaded_version";
   const ACK_KEY = "wtf_app_acknowledged_version";
   const RELOAD_FLAG = "wtf_app_update_reload_started";
@@ -204,6 +204,9 @@
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) checkForUpdates();
     });
+    window.addEventListener("focus", checkForUpdates);
+    window.addEventListener("pageshow", checkForUpdates);
+    window.addEventListener("online", checkForUpdates);
     window.addEventListener("wtf:pwa-update-ready", function () {
       fetchVersion().then(function (latestVersion) {
         if (latestVersion && !isAcceptedVersion(latestVersion)) showUpdateBanner(latestVersion);

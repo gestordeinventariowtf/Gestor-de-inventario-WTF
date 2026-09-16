@@ -11999,12 +11999,23 @@
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      pendingLocalAtRef.current = markLocalSyncChange();
-      const writeDoc = createFirebaseWriteDoc(appState, reason);
-      pendingLocalSignatureRef.current = writeDoc.signature;
+      pendingLocalAtRef.current = Date.now();
+      pendingLocalSignatureRef.current = signature || `pending-${pendingLocalAtRef.current}`;
+      hasSessionLocalChangeRef.current = true;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
         try {
+          const snapshotState = appState || getCurrentAppState();
+          const candidateDoc = createFirebaseWriteDoc(snapshotState, reason);
+          if (candidateDoc.signature === lastRemoteSignatureRef.current) {
+            pendingLocalSignatureRef.current = "";
+            pendingLocalAtRef.current = 0;
+            hasSessionLocalChangeRef.current = false;
+            return;
+          }
+          pendingLocalAtRef.current = markLocalSyncChange();
+          const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
+          pendingLocalSignatureRef.current = writeDoc.signature;
           await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
           lastRemoteSignatureRef.current = writeDoc.signature;
           hasSessionLocalChangeRef.current = false;
@@ -12723,16 +12734,7 @@
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      const appState = getCurrentAppState();
-      const signature = serializeAppState(appState);
-      if (signature === lastRemoteSignatureRef.current) {
-        if (pendingLocalSignatureRef.current === signature) {
-          pendingLocalSignatureRef.current = "";
-          pendingLocalAtRef.current = 0;
-        }
-        return;
-      }
-      scheduleFirebaseWrite(appState, signature, 500, "web-client");
+      scheduleFirebaseWrite(null, "", 700, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
@@ -12742,7 +12744,7 @@
       function handlePwaSync(event) {
         const now = Date.now();
         const reason = event && event.detail && event.detail.reason || "pwa";
-        if (reason === "foreground-interval" && now - lastPullAt < 25000) return;
+        if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
         pullLatestFirebaseSnapshot(reason);
