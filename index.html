@@ -25748,6 +25748,8 @@
     }
     function confirmEdit(newCantidad) {
       if (!pendingEdit) return;
+      const editAt = new Date(Date.now() + 1).toISOString();
+      const editorLabel = getUserDisplayLabel(currentUser);
       const oldCantidad = Number(pendingEdit.record.cantidad || 0);
       const delta = newCantidad - oldCantidad;
       const field = pendingEdit.tab === "entradas" ? "entrada" : pendingEdit.tab === "salidas" ? "salida" : "decomiso";
@@ -25772,16 +25774,30 @@ Cantidad solicitada: ${newCantidad}`);
       setInventario(function(prev) {
         return prev.map(function(row) {
           if (row.id !== productRow.id) return row;
-          return Object.assign({}, row, {
+          return withInventoryMovementStamp(Object.assign({}, row, {
             [field]: Number((row[field] || 0) + delta)
-          });
+          }), editAt, editorLabel, `Edicion de registro ${pendingEdit.tab}`);
         });
       });
+      if (typeof onMarkMovementRowsDeleted === "function") {
+        const stateKey = movementStateKeys[pendingEdit.tab];
+        if (stateKey) onMarkMovementRowsDeleted(stateKey, pendingEdit.record);
+      }
       const updateMovement = function(arr, target) {
         const targetKey = target.key || getMovementKey(target.record);
         return arr.map(function(row, i) {
           const matches = targetKey ? getMovementKey(row) === targetKey : i === target.index;
-          return matches ? Object.assign({}, row, { cantidad: newCantidad, updatedAt: new Date().toISOString() }) : row;
+          if (!matches) return row;
+          const stableId = row.id || row._id || target.record.id || target.record._id || createMovementId(`edit-${target.tab}`);
+          return Object.assign({}, row, {
+            _id: row._id || stableId,
+            id: stableId,
+            cantidad: newCantidad,
+            updatedAt: editAt,
+            movementUpdatedAt: editAt,
+            movementUpdatedBy: editorLabel,
+            movementEditReplacesKey: targetKey || ""
+          });
         });
       };
       if (pendingEdit.tab === "entradas") setRegEntradas(updateMovement(regEntradas, pendingEdit));
