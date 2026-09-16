@@ -3673,20 +3673,43 @@
   function createMovementId(prefix) {
     return `${prefix || "mov"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
+  const SYSTEM_LOG_TEXT_LIMIT = 420;
+  const SYSTEM_LOG_KEEP_FIELDS = [
+    "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
+    "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
+    "movimientoIcgId", "physicalIcgKey", "ticket", "serie", "numero", "storageKey"
+  ];
+  function compactSystemLogText(value) {
+    const text = String(value == null ? "" : value);
+    return text.length > SYSTEM_LOG_TEXT_LIMIT ? `${text.slice(0, SYSTEM_LOG_TEXT_LIMIT)}...` : text;
+  }
+  function compactSystemLogEntry(row) {
+    const source = row && typeof row === "object" ? row : {};
+    const compact = {};
+    SYSTEM_LOG_KEEP_FIELDS.forEach(function(key) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+      const value = source[key];
+      if (value == null) return;
+      if (typeof value === "object") {
+        compact[key] = compactSystemLogText(JSON.stringify(value));
+        return;
+      }
+      compact[key] = typeof value === "string" ? compactSystemLogText(value) : value;
+    });
+    return Object.assign({
+      id: createMovementId("syslog"),
+      fecha: new Date().toISOString(),
+      usuario: "Sistema",
+      email: "",
+      modulo: "Sistema",
+      accion: "Evento",
+      producto: "",
+      detalle: ""
+    }, compact);
+  }
   function normalizeSystemLogs(logs) {
     const rows = Array.isArray(logs) ? logs.filter(Boolean) : [];
-    return rows.map(function(row) {
-      return Object.assign({
-        id: createMovementId("syslog"),
-        fecha: new Date().toISOString(),
-        usuario: "Sistema",
-        email: "",
-        modulo: "Sistema",
-        accion: "Evento",
-        producto: "",
-        detalle: ""
-      }, row);
-    }).sort(function(a, b) {
+    return rows.map(compactSystemLogEntry).sort(function(a, b) {
       return String(b.fecha || "").localeCompare(String(a.fecha || ""));
     });
   }
@@ -4794,7 +4817,6 @@
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
     "regProduccion",
-    "icgFrontRestData",
     "regSalidas",
     "recetasProduccion",
     "barRegSalidas",
@@ -4809,6 +4831,9 @@
     "employeeCenterData",
     "financialData"
   ];
+  const FIREBASE_EXTERNAL_STATE_DOCS = {
+    icgFrontRestData: "icgFrontRestData"
+  };
   function splitFirebaseAppStateIntoShards(state) {
     const mainState = Object.assign({}, state || {});
     const shards = [];
@@ -4854,6 +4879,20 @@
       return null;
     }
   }
+  async function readFirebaseExternalStateDoc(docRef, key) {
+    if (!docRef || !docRef.parent || !key) return null;
+    const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+    try {
+      const snapshot = await docRef.parent.doc(docId).get();
+      if (!snapshot.exists) return null;
+      const data = snapshot.data() || {};
+      if (data.appStateCompressed) return decodeFirebaseCompressedState(data.appStateCompressed);
+      if (typeof data.appState !== "undefined") return data.appState;
+    } catch (error) {
+      console.error("No se pudo leer el documento externo Firebase:", key, error);
+    }
+    return null;
+  }
   async function decodeFirebaseAppState(data, docRef) {
     if (!data) return null;
     let state = null;
@@ -4868,18 +4907,23 @@
     }
     if (!state) return null;
     const shardKeys = Array.isArray(data.appStateShardKeys) ? data.appStateShardKeys : [];
-    if (!docRef || !shardKeys.length) return state;
-    await Promise.all(shardKeys.map(async function(key) {
-      try {
-        const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
-        if (!shardSnapshot.exists) return;
-        const shardData = shardSnapshot.data() || {};
-        const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
-        if (typeof shardValue !== "undefined" && shardValue !== null) state[key] = shardValue;
-      } catch (error) {
-        console.error("No se pudo leer el segmento Firebase:", key, error);
-      }
-    }));
+    if (docRef && shardKeys.length) {
+      await Promise.all(shardKeys.map(async function(key) {
+        try {
+          const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
+          if (!shardSnapshot.exists) return;
+          const shardData = shardSnapshot.data() || {};
+          const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
+          if (typeof shardValue !== "undefined" && shardValue !== null) state[key] = shardValue;
+        } catch (error) {
+          console.error("No se pudo leer el segmento Firebase:", key, error);
+        }
+      }));
+    }
+    const externalIcgFrontRestData = await readFirebaseExternalStateDoc(docRef, "icgFrontRestData");
+    if (typeof externalIcgFrontRestData !== "undefined" && externalIcgFrontRestData !== null) {
+      state.icgFrontRestData = externalIcgFrontRestData;
+    }
     return state;
   }
   function isIcgShardGuardError(error) {
@@ -4893,6 +4937,7 @@
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
     const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
+    const externalDocs = Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : [];
     if (shards.length) {
       await Promise.all(shards.map(async function(shard) {
         try {
@@ -4901,6 +4946,11 @@
           if (shard.key !== "icgFrontRestData" || !isIcgShardGuardError(error)) throw error;
           console.warn("Se mantiene el shard ICG sin cambios mientras ICG esta pausado:", error);
         }
+      }));
+    }
+    if (externalDocs.length && docRef.parent) {
+      await Promise.all(externalDocs.map(async function(externalDoc) {
+        await docRef.parent.doc(externalDoc.id).set(externalDoc.doc, { merge: true });
       }));
     }
     await docRef.set(writeDoc.doc, { merge: true });
@@ -11609,9 +11659,37 @@
       }
     }
     function createFirebaseWriteDoc(appState, reason) {
-      const firebaseState = prepareFirebaseAppStateForWrite(appState);
-      const signature = serializeAppState(firebaseState);
+      const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
+      const signature = serializeAppState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
+      const firebaseState = Object.assign({}, fullFirebaseState);
+      const externalDocs = [];
+      const externalIcgFrontRestData = Object.prototype.hasOwnProperty.call(firebaseState, "icgFrontRestData") ? firebaseState.icgFrontRestData : null;
+      if (Object.prototype.hasOwnProperty.call(firebaseState, "icgFrontRestData")) {
+        delete firebaseState.icgFrontRestData;
+        const externalCompressed = encodeFirebaseAppState(externalIcgFrontRestData || {});
+        const externalJsonBytes = JSON.stringify(externalIcgFrontRestData || {}).length;
+        externalDocs.push({
+          id: FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData,
+          key: "icgFrontRestData",
+          doc: Object.assign({
+            key: "icgFrontRestData",
+            sourceDocumentId: firebaseCfg.documentId,
+            syncMeta,
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: reason,
+            appStateFormat: externalCompressed ? "pako-base64-json-v1" : "json",
+            appStateJsonBytes: externalJsonBytes,
+            appStateCompressedBytes: externalCompressed ? externalCompressed.length : 0
+          }, externalCompressed ? {
+            appStateCompressed: externalCompressed,
+            appState: window.firebase.firestore.FieldValue.delete()
+          } : {
+            appState: externalIcgFrontRestData || {},
+            appStateCompressed: window.firebase.firestore.FieldValue.delete()
+          })
+        });
+      }
       const splitState = splitFirebaseAppStateIntoShards(firebaseState);
       const compressed = encodeFirebaseAppState(splitState.mainState);
       const shards = splitState.shards.map(function(shard) {
@@ -11640,18 +11718,24 @@
         updatedBy: reason,
         appStateShardVersion: 1,
         appStateShardKeys: shards.map(function(shard) { return shard.key; }),
+        appStateExternalVersion: 1,
+        appStateExternalKeys: externalDocs.map(function(externalDoc) { return externalDoc.key; }),
         appStateFormat: compressed ? "pako-base64-json-v1" : "json",
-        appStateJsonBytes: JSON.stringify(firebaseState).length,
+        appStateJsonBytes: JSON.stringify(fullFirebaseState).length,
         appStateMainJsonBytes: JSON.stringify(splitState.mainState).length,
         appStateCompressedBytes: compressed ? compressed.length : 0,
         appStateShardCompressedBytes: shards.reduce(function(total, shard) {
           return total + Number(shard.doc.appStateCompressedBytes || 0);
+        }, 0),
+        appStateExternalCompressedBytes: externalDocs.reduce(function(total, externalDoc) {
+          return total + Number(externalDoc.doc.appStateCompressedBytes || 0);
         }, 0)
       };
       if (compressed) {
         return {
           signature,
           shards,
+          externalDocs,
           doc: Object.assign({}, baseDoc, {
             appStateCompressed: compressed,
             appState: window.firebase.firestore.FieldValue.delete()
@@ -11661,6 +11745,7 @@
       return {
         signature,
         shards,
+        externalDocs,
         doc: Object.assign({}, baseDoc, {
           appState: splitState.mainState,
           appStateCompressed: window.firebase.firestore.FieldValue.delete()
