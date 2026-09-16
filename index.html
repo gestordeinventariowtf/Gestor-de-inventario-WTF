@@ -76,9 +76,11 @@
       z-index: 200;
       transition: transform .28s cubic-bezier(.4,0,.2,1);
       will-change: transform;
+      transform: translate3d(0,0,0);
+      contain: layout paint;
       overflow: hidden;
     }
-    .sidebar.collapsed { transform: translateX(-100%); }
+    .sidebar.collapsed { transform: translate3d(-100%,0,0); }
 
     .sidebar-overlay {
       display: none;
@@ -87,6 +89,7 @@
       background: rgba(0,0,0,.45);
       z-index: 199;
       transition: opacity .28s;
+      will-change: opacity;
     }
     .sidebar-overlay.visible { display: block; }
 
@@ -11679,7 +11682,6 @@
     const toast = useToast();
     const firebaseCfg = useMemo(() => getFirebaseSyncConfig(), []);
     const [page, setPage] = useState(() => sessionStorage.getItem("wtf_modulo") === "sharp" ? "sharp" : "dashboard");
-    const [pageFx, setPageFx] = useState(0);
     const [inventorySearchTarget, setInventorySearchTarget] = useState(null);
     const [movementDraftTarget, setMovementDraftTarget] = useState(null);
     const [selfAccessModal, setSelfAccessModal] = useState(false);
@@ -12777,13 +12779,19 @@
       if (options && options.inventorySearchTarget) {
         setInventorySearchTarget(Object.assign({}, options.inventorySearchTarget, { pageKey: p, ts: Date.now() }));
       }
-      setPage(p);
-      setPageFx(Date.now());
-      try {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } catch (err) {
+      const applyNavigation = function() {
+        setPage(p);
+        try {
+          window.scrollTo({ top: 0, behavior: "auto" });
+        } catch (err) {
+        }
+      };
+      if (isMobile()) {
+        setSidebarOpen(false);
+        window.requestAnimationFrame ? window.requestAnimationFrame(applyNavigation) : window.setTimeout(applyNavigation, 0);
+        return;
       }
-      if (isMobile()) setSidebarOpen(false);
+      applyNavigation();
     }
     function handleAiAction(action) {
       if (!isAllowedAiAction(action)) return false;
@@ -13438,10 +13446,6 @@
     const setActiveInv = esBar ? setBarInventario : setInventario;
     const activeCuartoFrio = esBar ? barCuartoFrioInventario : cuartoFrioInventario;
     const setActiveCuartoFrio = esBar ? setBarCuartoFrioInventario : setCuartoFrioInventario;
-    const activeProductos = activeInv.filter((r) => r.tipo === "producto").map((p) => ({
-      ...p,
-      existencia: getInventoryExistence(p)
-    }));
     const activeEntradas = esBar ? barRegEntradas : regEntradas;
     const setActiveEntradas = esBar ? setBarRegEntradas : setRegEntradas;
     const activeSalidas = esBar ? barRegSalidas : regSalidas;
@@ -13484,37 +13488,43 @@
       { storageKey: "inventario", storageLabel: "Inventario", rows: activeInv },
       { storageKey: "cuartoFrio", storageLabel: "Cuarto Frio", rows: activeCuartoFrio }
     ];
-    const activeMovementProductosRaw = uniqueInventoryProductsForSearch(movementSourceRows.flatMap(function(source) {
-      return (Array.isArray(source.rows) ? source.rows : []).filter((r) => r.tipo === "producto").map((p) => ({
-        ...p,
-        storageKey: source.storageKey,
-        storageLabel: source.storageLabel,
-        existencia: getInventoryExistence(p)
-      }));
-    }), "").sort(function(a, b) {
-      return String(a.nombre || "").localeCompare(String(b.nombre || "")) || String(a.storageLabel || "").localeCompare(String(b.storageLabel || ""));
-    });
-    const activeMovementProductos = Array.from(new Set(activeMovementProductosRaw.map(function(p) {
-      return normalizar(p.nombre);
-    }))).map(function(key) {
-      const locations = activeMovementProductosRaw.filter(function(p) { return normalizar(p.nombre) === key; });
-      const first = locations[0] || {};
-      return {
-        ...first,
-        storageKey: locations.length > 1 ? "" : first.storageKey,
-        storageLabel: locations.length > 1 ? "Inventario / Cuarto Frio" : first.storageLabel,
-        existencia: locations.reduce(function(total, item) { return total + Number(item.existencia || 0); }, 0),
-        locations
-      };
-    }).sort(function(a, b) {
-      return String(a.nombre || "").localeCompare(String(b.nombre || ""));
-    });
-    const activeMovementSources = activeMovementProductosRaw.reduce(function(acc, item) {
-      if (!acc.some(function(source) { return source.storageKey === item.storageKey; })) {
-        acc.push({ storageKey: item.storageKey, label: item.storageLabel });
-      }
-      return acc;
-    }, []);
+    const activeMovementProductosRaw = useMemo(function() {
+      return uniqueInventoryProductsForSearch(movementSourceRows.flatMap(function(source) {
+        return (Array.isArray(source.rows) ? source.rows : []).filter((r) => r.tipo === "producto").map((p) => ({
+          ...p,
+          storageKey: source.storageKey,
+          storageLabel: source.storageLabel,
+          existencia: getInventoryExistence(p)
+        }));
+      }), "").sort(function(a, b) {
+        return String(a.nombre || "").localeCompare(String(b.nombre || "")) || String(a.storageLabel || "").localeCompare(String(b.storageLabel || ""));
+      });
+    }, [hasCocinaBarLinkAccess, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, activeInv, activeCuartoFrio]);
+    const activeMovementProductos = useMemo(function() {
+      return Array.from(new Set(activeMovementProductosRaw.map(function(p) {
+        return normalizar(p.nombre);
+      }))).map(function(key) {
+        const locations = activeMovementProductosRaw.filter(function(p) { return normalizar(p.nombre) === key; });
+        const first = locations[0] || {};
+        return {
+          ...first,
+          storageKey: locations.length > 1 ? "" : first.storageKey,
+          storageLabel: locations.length > 1 ? "Inventario / Cuarto Frio" : first.storageLabel,
+          existencia: locations.reduce(function(total, item) { return total + Number(item.existencia || 0); }, 0),
+          locations
+        };
+      }).sort(function(a, b) {
+        return String(a.nombre || "").localeCompare(String(b.nombre || ""));
+      });
+    }, [activeMovementProductosRaw]);
+    const activeMovementSources = useMemo(function() {
+      return activeMovementProductosRaw.reduce(function(acc, item) {
+        if (!acc.some(function(source) { return source.storageKey === item.storageKey; })) {
+          acc.push({ storageKey: item.storageKey, label: item.storageLabel });
+        }
+        return acc;
+      }, []);
+    }, [activeMovementProductosRaw]);
     function activeAddMovimiento(tipo, productoNombre, cantidad, storageKey, options = {}) {
       const matches = activeMovementProductosRaw.filter(function(item) {
         return normalizar(item.nombre) === normalizar(productoNombre) && (!storageKey || item.storageKey === storageKey);
@@ -13536,14 +13546,16 @@
       { key: "inventarioBar", pageKey: "inventario", moduleTarget: "bar", label: "Inventario Bar", inventario: barInventario },
       { key: "cuartoFrioBar", pageKey: "cuartoFrio", moduleTarget: "bar", label: "Cuarto Frio Bar", inventario: barCuartoFrioInventario }
     ] : [{ key: "inventario", label: "Inventario", inventario: activeInv }, { key: "cuartoFrio", label: "Cuarto Frio", inventario: activeCuartoFrio }];
-    const icgInventoryTargets = [
-      ...inventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
-      ...cuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
-      ...miseAnPlace.map((p) => ({ targetKey: "miseCocina", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p })),
-      ...barInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
-      ...barCuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
-      ...barMiseAnPlace.map((p) => ({ targetKey: "miseBar", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p }))
-    ];
+    const icgInventoryTargets = useMemo(function() {
+      return [
+        ...inventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+        ...cuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioCocina", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+        ...miseAnPlace.map((p) => ({ targetKey: "miseCocina", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p })),
+        ...barInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "inventarioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+        ...barCuartoFrioInventario.filter((r) => r.tipo === "producto").map((p) => ({ targetKey: "cuartoFrioBar", producto: p.nombre, medida: p.medida, existencia: getInventoryExistence(p), item: p })),
+        ...barMiseAnPlace.map((p) => ({ targetKey: "miseBar", producto: p.producto, medida: p.medida || "Uni", existencia: getMiseSafeNumber(p.existencia, 0), item: p }))
+      ];
+    }, [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
     function applyIcgInventoryImpact(rows) {
       if (isIcgInventoryImpactPaused(icgFrontRestData)) {
         throw new Error(getIcgInventoryPauseMessage(icgFrontRestData));
@@ -13864,32 +13876,32 @@
         return next;
       });
     }
-    const pages = {
-      dashboard: /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
-      dashboardGeneral: /* @__PURE__ */ React.createElement(DashboardGeneral, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion }),
-      sharp: /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
-      icg: /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
-      icgHost: /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
-      inventario: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      cuartoFrio: /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      entradas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
-      salidas: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
-      decomiso: /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
-      recuento: /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      mise: /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
-      listado: /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
-      registros: /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      histDecomiso: /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios, movementStateKey: "histDecomisoCocina", onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      historialMermas: /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
-      costeoPlatos: /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData, unifiedAccess: hasCocinaBarLinkAccess, linkedModuleLabel: otherModuleLabel, linkedInventario: otherInventario, linkedCuartoFrioInventario: otherCuartoFrio, linkedMiseAnPlace: esBar ? miseAnPlace : barMiseAnPlace, linkedRecetas: esBar ? recetasProduccion : barRecetasProduccion }),
-      finanzas: /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
-      activosOperativos: /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
-      employeeCenter: /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
-      usuarios: /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
-      aiAssistant: /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
-      notificaciones: /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
-      systemLogs: /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
-      produccion: /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+    const pageRenderers = {
+      dashboard: () => /* @__PURE__ */ React.createElement(Dashboard, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, regEntradas: activeEntradas, regSalidas: activeSalidas, regDecomiso: activeDecomiso, onQuickNavigate: navigate }),
+      dashboardGeneral: () => /* @__PURE__ */ React.createElement(DashboardGeneral, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion }),
+      sharp: () => /* @__PURE__ */ React.createElement(SharpLimpiezaPage, null),
+      icg: () => /* @__PURE__ */ React.createElement(IcgFrontRestPage, { data: icgFrontRestData, setData: setIcgFrontRestData, usuarios, currentUser, miseAnPlace, inventoryTargets: icgInventoryTargets, onApplyInventoryImpact: applyIcgInventoryImpact }),
+      icgHost: () => /* @__PURE__ */ React.createElement(IcgHostPage, { icgData: icgFrontRestData, inventoryTargets: icgInventoryTargets, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas }),
+      inventario: () => /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeInv, setInventario: setActiveInv, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Inventario", sourceKey: esBar ? "inventarioBar" : "inventarioCocina", inventoryStateKey: esBar ? "barInventario" : "inventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: true, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: migrateProductsToCuartoFrio, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      cuartoFrio: () => /* @__PURE__ */ React.createElement(InventarioPage, { inventario: activeCuartoFrio, setInventario: setActiveCuartoFrio, usuarios, currentUser, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina", pageLabel: "Cuarto Frio", sourceKey: esBar ? "cuartoFrioBar" : "cuartoFrioCocina", inventoryStateKey: esBar ? "barCuartoFrioInventario" : "cuartoFrioInventario", onMarkDeleted: markInventoryRowDeleted, allowMigration: false, migrateTargetLabel: "Cuarto Frio", onMigrateProducts: null, searchSources: inventorySearchSourcesForPage, codeSources: inventoryCodeSources, onNavigateToPage: navigate, inventorySearchTarget, miseAnPlace: activeMiseAnPlace, icgFrontRestData, setIcgFrontRestData, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso", recuento: esBar ? "barRegRecuento" : "regRecuento" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      entradas: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
+      salidas: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
+      decomiso: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
+      recuento: () => /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      mise: () => /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      listado: () => /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      registros: () => /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      histDecomiso: () => /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios, movementStateKey: "histDecomisoCocina", onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      historialMermas: () => /* @__PURE__ */ React.createElement(HistorialMermasPage, { producciones: activeProduccion, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      costeoPlatos: () => /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData, unifiedAccess: hasCocinaBarLinkAccess, linkedModuleLabel: otherModuleLabel, linkedInventario: otherInventario, linkedCuartoFrioInventario: otherCuartoFrio, linkedMiseAnPlace: esBar ? miseAnPlace : barMiseAnPlace, linkedRecetas: esBar ? recetasProduccion : barRecetasProduccion }),
+      finanzas: () => /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
+      activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
+      employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
+      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
+      aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
+      notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
+      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
+      produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
@@ -14101,7 +14113,7 @@
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: `${activePage}-${pageFx}`, className: "content page-enter" }, pages[activePage]), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
