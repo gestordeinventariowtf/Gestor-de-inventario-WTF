@@ -11,8 +11,8 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/pwa-icon.svg" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
@@ -24164,6 +24164,8 @@
     const [bulkRows, setBulkRows] = useState([]);
     const [productListQuery, setProductListQuery] = useState("");
     const [productListOpen, setProductListOpen] = useState(false);
+    const productInputRef = useRef(null);
+    const useCustomProductPicker = typeof window !== "undefined" && window.innerWidth <= 768;
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
       salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
@@ -24236,10 +24238,13 @@
       const selected = locations.find(function(loc) { return loc.storageKey === row.storageKey; }) || (locations.length === 1 ? locations[0] : null);
       return { info, locations, selected };
     }
-    function getVisibleProductOptions() {
+    const visibleProductOptions = useMemo(function() {
       const q = normalizar(productListQuery || producto || "");
       const source = q ? productos.filter((p) => normalizar(p.nombre).includes(q) || normalizar(p.storageLabel || "").includes(q) || normalizar(p.medida || "").includes(q)) : productos;
       return source.slice(0, 8);
+    }, [productos, productListQuery, producto]);
+    function getVisibleProductOptions() {
+      return visibleProductOptions;
     }
     function resolveProductSelection(value) {
       const cleanValue = String(value || "").trim();
@@ -24269,6 +24274,7 @@
       if (!option) return;
       resolveProductSelection(option.nombre || "");
       setProductListOpen(false);
+      if (productInputRef.current && typeof productInputRef.current.blur === "function") productInputRef.current.blur();
     }
     function resolveMovementResponsible() {
       if (!requiresResponsiblePassword) return currentUser;
@@ -24393,14 +24399,22 @@
           ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
+            !useCustomProductPicker && /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map(function(p) {
+              return /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.storageLabel || "Inventario", " · ", formatQty4(p.existencia), " ", p.medida);
+            })),
             /* @__PURE__ */ React.createElement("input", {
+              ref: productInputRef,
               className: `form-control ${error && !producto ? "error" : ""}`,
+              list: !useCustomProductPicker ? "prod-list" : void 0,
               value: producto,
-              onFocus: () => { setProductListQuery(producto || ""); setProductListOpen(true); },
+              onFocus: () => {
+                setProductListQuery(producto || "");
+                if (useCustomProductPicker) setProductListOpen(true);
+              },
               onChange: (e) => {
                 const value = e.target.value;
                 setProductListQuery(value);
-                setProductListOpen(true);
+                setProductListOpen(useCustomProductPicker);
                 const exact = productos.find((p) => normalizar(p.nombre) === normalizar(value));
                 if (exact) {
                   resolveProductSelection(value);
@@ -24413,19 +24427,18 @@
                 setSuccess("");
               },
               onBlur: (e) => {
-                window.setTimeout(function() { setProductListOpen(false); }, 160);
+                if (useCustomProductPicker) window.setTimeout(function() { setProductListOpen(false); }, 140);
                 resolveProductSelection(e.target.value);
               },
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
-            productListOpen && getVisibleProductOptions().length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, border: "1px solid var(--borde)", borderRadius: 8, overflow: "hidden", background: "#fff", boxShadow: "0 10px 24px rgba(15, 23, 42, .12)", position: "relative", zIndex: 30 } },
-              getVisibleProductOptions().map(function(p) {
+            useCustomProductPicker && productListOpen && visibleProductOptions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, border: "1px solid var(--borde)", borderRadius: 8, overflow: "hidden", background: "#fff", boxShadow: "0 10px 24px rgba(15, 23, 42, .12)", position: "relative", zIndex: 30 } },
+              visibleProductOptions.map(function(p) {
                 return /* @__PURE__ */ React.createElement("button", {
                   key: `${p.id}-${p.storageLabel || ""}`,
                   type: "button",
-                  onMouseDown: function(event) { event.preventDefault(); selectProductOption(p); },
-                  onTouchStart: function(event) { event.preventDefault(); selectProductOption(p); },
+                  onPointerDown: function(event) { event.preventDefault(); selectProductOption(p); },
                   style: { width: "100%", border: "none", borderBottom: "1px solid var(--borde)", background: "#fff", padding: "10px 12px", textAlign: "left", display: "grid", gap: 3, cursor: "pointer" }
                 },
                   /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827", fontSize: 13 } }, p.nombre),
