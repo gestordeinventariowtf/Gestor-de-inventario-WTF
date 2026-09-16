@@ -24181,10 +24181,7 @@
     const [success, setSuccess] = useState("");
     const [bulkRows, setBulkRows] = useState([]);
     const [productListQuery, setProductListQuery] = useState("");
-    const [productListOpen, setProductListOpen] = useState(false);
     const productInputRef = useRef(null);
-    const lastProductPickRef = useRef({ key: "", at: 0 });
-    const useCustomProductPicker = typeof window !== "undefined" && window.innerWidth <= 768;
     const cfg = {
       entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
       salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
@@ -24257,14 +24254,6 @@
       const selected = locations.find(function(loc) { return loc.storageKey === row.storageKey; }) || (locations.length === 1 ? locations[0] : null);
       return { info, locations, selected };
     }
-    const visibleProductOptions = useMemo(function() {
-      const q = normalizar(productListQuery || producto || "");
-      const source = q ? productos.filter((p) => normalizar(p.nombre).includes(q) || normalizar(p.storageLabel || "").includes(q) || normalizar(p.medida || "").includes(q)) : productos;
-      return source.slice(0, 8);
-    }, [productos, productListQuery, producto]);
-    function getVisibleProductOptions() {
-      return visibleProductOptions;
-    }
     function resolveProductSelection(value) {
       const cleanValue = String(value || "").trim();
       if (!cleanValue) {
@@ -24288,16 +24277,6 @@
       setError("");
       setSuccess("");
       return exact;
-    }
-    function selectProductOption(option) {
-      if (!option) return;
-      const pickKey = `${option.id || ""}-${option.storageKey || ""}-${option.nombre || ""}`;
-      const now = Date.now();
-      if (lastProductPickRef.current.key === pickKey && now - lastProductPickRef.current.at < 450) return;
-      lastProductPickRef.current = { key: pickKey, at: now };
-      resolveProductSelection(option.nombre || "");
-      setProductListOpen(false);
-      if (productInputRef.current && typeof productInputRef.current.blur === "function") productInputRef.current.blur();
     }
     function resolveMovementResponsible() {
       if (!requiresResponsiblePassword) return currentUser;
@@ -24422,26 +24401,28 @@
           ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
             /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Producto"),
-            !useCustomProductPicker && /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map(function(p) {
+            /* @__PURE__ */ React.createElement("datalist", { id: "prod-list" }, productos.map(function(p) {
               return /* @__PURE__ */ React.createElement("option", { key: `${p.id}-${p.storageLabel || ""}`, value: p.nombre }, p.storageLabel || "Inventario", " · ", formatQty4(p.existencia), " ", p.medida);
             })),
             /* @__PURE__ */ React.createElement("input", {
               ref: productInputRef,
               className: `form-control ${error && !producto ? "error" : ""}`,
-              list: !useCustomProductPicker ? "prod-list" : void 0,
+              list: "prod-list",
               value: producto,
               onFocus: () => {
                 setProductListQuery(producto || "");
-                if (useCustomProductPicker) setProductListOpen(true);
               },
               onChange: (e) => {
                 const value = e.target.value;
                 setProductListQuery(value);
-                setProductListOpen(useCustomProductPicker);
                 const exact = productos.find((p) => normalizar(p.nombre) === normalizar(value));
                 if (exact) {
                   resolveProductSelection(value);
-                  setProductListOpen(false);
+                  window.setTimeout(function() {
+                    if (productInputRef.current && document.activeElement === productInputRef.current && typeof productInputRef.current.blur === "function") {
+                      productInputRef.current.blur();
+                    }
+                  }, 0);
                   return;
                 }
                 setProducto(value);
@@ -24450,27 +24431,11 @@
                 setSuccess("");
               },
               onBlur: (e) => {
-                if (useCustomProductPicker) window.setTimeout(function() { setProductListOpen(false); }, 140);
                 resolveProductSelection(e.target.value);
               },
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
-            useCustomProductPicker && productListOpen && visibleProductOptions.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, border: "1px solid var(--borde)", borderRadius: 8, overflow: "hidden", background: "#fff", boxShadow: "0 10px 24px rgba(15, 23, 42, .12)", position: "relative", zIndex: 30 } },
-              visibleProductOptions.map(function(p) {
-                return /* @__PURE__ */ React.createElement("button", {
-                  key: `${p.id}-${p.storageLabel || ""}`,
-                  type: "button",
-                  onMouseDown: function(event) { event.preventDefault(); selectProductOption(p); },
-                  onTouchEnd: function(event) { event.preventDefault(); selectProductOption(p); },
-                  onClick: function(event) { event.preventDefault(); selectProductOption(p); },
-                  style: { width: "100%", border: "none", borderBottom: "1px solid var(--borde)", background: "#fff", padding: "10px 12px", textAlign: "left", display: "grid", gap: 3, cursor: "pointer" }
-                },
-                  /* @__PURE__ */ React.createElement("strong", { style: { color: "#111827", fontSize: 13 } }, p.nombre),
-                  /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", fontSize: 12, fontWeight: 700 } }, p.storageLabel || "Inventario", " · ", formatQty4(p.existencia), " ", p.medida)
-                );
-              })
-            ),
             prodInfo && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 5, fontSize: 12, color: "var(--gris)", display: "flex", flexWrap: "wrap", gap: "10px 14px" } },
               /* @__PURE__ */ React.createElement("span", null, "Existencia total: ", /* @__PURE__ */ React.createElement("span", { className: prodInfo.existencia <= 0 ? "exist-zero" : "exist-ok" }, formatQty4(prodInfo.existencia), " ", prodInfo.medida)),
               getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia) && /* @__PURE__ */ React.createElement("span", null, "Equivalente: ", getPackageEquivalentText(existenceInfo || prodInfo, (existenceInfo || prodInfo).existencia)),
