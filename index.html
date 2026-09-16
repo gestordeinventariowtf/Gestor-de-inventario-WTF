@@ -1661,6 +1661,32 @@
     }
     tbody td { padding: 9px 12px; border-bottom: 1px solid var(--borde); vertical-align: middle; }
     tbody tr:hover td { background: #f9fafb; }
+    .inventory-main-table,
+    .inventory-main-table tbody td {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .inventory-main-table thead th {
+      font-size: 11px;
+    }
+    .inventory-main-table tbody td > div:first-child,
+    .inventory-main-table tbody td[style*="font-weight"] {
+      font-size: 13px !important;
+      line-height: 1.35;
+    }
+    .inventory-main-table tbody td [style*="font-size: 11px"],
+    .inventory-main-table tbody td [style*="font-size:11px"] {
+      font-size: 11px !important;
+      line-height: 1.3;
+    }
+    .inventory-main-table tbody td [style*="font-size: 12px"],
+    .inventory-main-table tbody td [style*="font-size:12px"] {
+      font-size: 12px !important;
+      line-height: 1.3;
+    }
+    .inventory-main-table .pill {
+      font-size: 11px !important;
+    }
     .tr-search-target td { background: #ecfdf5 !important; box-shadow: inset 0 0 0 999px rgba(34, 197, 94, .08); }
     tbody tr:last-child td { border-bottom: 0; }
     .tr-separator td { background: #fce8e8 !important; font-weight: 700; color: #7f1d1d; text-align: center; font-size: 12px; letter-spacing: .06em; }
@@ -3735,6 +3761,22 @@
     const physicalIcgKey = canonicalizeIcgPhysicalKey(row.physicalIcgKey || row.PhysicalIcgKey || "");
     const movementProductKey = normalizar(row.producto || row.ProductoWTF || row.ProductoMise || "");
     const movementTargetKey = normalizeIcgWtfTarget(row.storageKey || row.ModuloWTF || row.origen || "");
+    const isRecountReport = Array.isArray(row.detalles);
+    if (isRecountReport && (row.id || row._id)) return `recount-report:${row.id || row._id}`;
+    if (isRecountReport) {
+      return [
+        "recount-report",
+        row.fecha || "",
+        row.conteoFecha || "",
+        row.targetKey || "",
+        row.destino || "",
+        row.usuario || "",
+        row.totalLineas == null ? "" : String(row.totalLineas),
+        row.aplicadas == null ? "" : String(row.aplicadas),
+        row.ajustes == null ? "" : String(row.ajustes),
+        quickHashText(JSON.stringify(row.detalles || []))
+      ].join("|");
+    }
     if (physicalIcgKey) return ["physical-icg", physicalIcgKey, movementProductKey, movementTargetKey].join("|");
     if (movementIcgId) {
       return [
@@ -3769,7 +3811,9 @@
     const physicalIcgKey = canonicalizeIcgPhysicalKey(row.physicalIcgKey || row.PhysicalIcgKey || "");
     const movementProductKey = normalizar(row.producto || row.ProductoWTF || row.ProductoMise || "");
     const movementTargetKey = normalizeIcgWtfTarget(row.storageKey || row.ModuloWTF || row.origen || "");
+    const isRecountReport = Array.isArray(row.detalles);
     if (primary) keys.push(primary);
+    if (isRecountReport && (row.id || row._id)) keys.push(`recount-report:${row.id || row._id}`);
     if (physicalIcgKey) keys.push(["physical-icg", physicalIcgKey, movementProductKey, movementTargetKey].join("|"));
     if (movementIcgId) {
       keys.push([
@@ -4599,6 +4643,109 @@
       return String(a.nombre || a.producto || "").localeCompare(String(b.nombre || b.producto || ""));
     });
   }
+  function getPersistedRowMergeKey(row) {
+    if (row == null) return "";
+    if (typeof row !== "object") return `value:${normalizar(row)}`;
+    const fields = [
+      "id",
+      "_id",
+      "key",
+      "uid",
+      "codigo",
+      "codArticulo",
+      "CodArticulo",
+      "CODARTICULO",
+      "referencia",
+      "Referencia",
+      "email",
+      "correo",
+      "numero",
+      "Numero",
+      "serieNumero",
+      "ticket",
+      "Ticket",
+      "MovimientoICGId",
+      "movimientoICGId",
+      "PhysicalIcgKey",
+      "physicalIcgKey",
+      "nombre",
+      "producto",
+      "titulo"
+    ];
+    for (const field of fields) {
+      const value = row[field];
+      if (value != null && String(value).trim()) return `${field}:${normalizar(value)}`;
+    }
+    return "";
+  }
+  function clonePersistedValue(value) {
+    if (value && typeof value === "object") {
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch (error) {
+        return Array.isArray(value) ? value.slice() : Object.assign({}, value);
+      }
+    }
+    return value;
+  }
+  function mergeGenericPersistedRows(localRows, remoteRows) {
+    const map = new Map();
+    function add(row, source) {
+      if (row == null || row === "") return;
+      let key = getPersistedRowMergeKey(row);
+      if (!key) {
+        try {
+          key = `json:${quickHashText(JSON.stringify(row))}`;
+        } catch (error) {
+          key = `value:${normalizar(row)}`;
+        }
+      }
+      const incoming = clonePersistedValue(row);
+      const current = map.get(key);
+      if (typeof current === "undefined") {
+        map.set(key, incoming);
+        return;
+      }
+      if (!incoming || typeof incoming !== "object" || !current || typeof current !== "object") {
+        map.set(key, source === "local" ? incoming : current);
+        return;
+      }
+      const incomingTime = getRowUpdateTime(incoming);
+      const currentTime = getRowUpdateTime(current);
+      const preferIncoming = incomingTime > currentTime || (incomingTime === currentTime && source === "local");
+      map.set(key, Object.assign({}, preferIncoming ? current : incoming, preferIncoming ? incoming : current));
+    }
+    (Array.isArray(remoteRows) ? remoteRows : []).forEach(function(row) { add(row, "remote"); });
+    (Array.isArray(localRows) ? localRows : []).forEach(function(row) { add(row, "local"); });
+    return Array.from(map.values());
+  }
+  function mergeGenericPersistedData(localValue, remoteValue) {
+    if (Array.isArray(localValue) || Array.isArray(remoteValue)) {
+      return mergeGenericPersistedRows(localValue, remoteValue);
+    }
+    const localIsObject = localValue && typeof localValue === "object";
+    const remoteIsObject = remoteValue && typeof remoteValue === "object";
+    if (localIsObject || remoteIsObject) {
+      const localObj = localIsObject ? localValue : {};
+      const remoteObj = remoteIsObject ? remoteValue : {};
+      const localTime = getRowUpdateTime(localObj);
+      const remoteTime = getRowUpdateTime(remoteObj);
+      const preferLocal = localTime >= remoteTime;
+      const first = preferLocal ? remoteObj : localObj;
+      const second = preferLocal ? localObj : remoteObj;
+      const merged = Object.assign({}, first, second);
+      Array.from(new Set([].concat(Object.keys(remoteObj), Object.keys(localObj)))).forEach(function(key) {
+        const localChild = localObj[key];
+        const remoteChild = remoteObj[key];
+        if (Array.isArray(localChild) || Array.isArray(remoteChild) || (localChild && typeof localChild === "object") || (remoteChild && typeof remoteChild === "object")) {
+          merged[key] = mergeGenericPersistedData(localChild, remoteChild);
+        }
+      });
+      return merged;
+    }
+    if (localValue !== void 0 && localValue !== null && localValue !== "") return localValue;
+    return remoteValue;
+  }
   // Todo modulo persistido debe pasar por esta fusion antes de aplicar datos remotos.
   function mergeRemoteAppStateWithLocal(remoteState, localState, options) {
     const mergeOptions = options && typeof options === "object" ? options : {};
@@ -4618,6 +4765,8 @@
       "barRegSalidas",
       "barRegDecomiso",
       "barRegRecuento",
+      "barHistEntradaRapida",
+      "barHistSalidaRapida",
       "systemLogs"
     ].forEach(function(key) {
       if (key === "systemLogs") next[key] = normalizeSystemLogs(mergeMovementRows(localState && localState[key], remoteState && remoteState[key], next.movementDeletedKeys[key]));
@@ -4658,6 +4807,11 @@
     next.appSecurity = mergeAppSecurity(localState && localState.appSecurity, remoteState && remoteState.appSecurity);
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
+    next.assetManagementData = ensureAssetManagementData(mergeGenericPersistedData(localState && localState.assetManagementData, remoteState && remoteState.assetManagementData));
+    next.icgFrontRestData = ensureIcgFrontRestData(mergeGenericPersistedData(localState && localState.icgFrontRestData, remoteState && remoteState.icgFrontRestData));
+    next.neveras = mergeGenericPersistedRows(localState && localState.neveras, remoteState && remoteState.neveras);
+    next.correos = mergeGenericPersistedRows(localState && localState.correos, remoteState && remoteState.correos);
+    next.googleConfig = normalizeGoogleConfig(mergeGenericPersistedData(localState && localState.googleConfig, remoteState && remoteState.googleConfig));
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -4733,6 +4887,7 @@
       financialData: ensureFinancialData(state.financialData),
       neveras: state.neveras || [],
       correos: state.correos || [],
+      googleConfig: normalizeGoogleConfig(state.googleConfig),
       usuarios: ensureAdminUser(state.usuarios || []),
       appSecurity: normalizeAppSecurity(state.appSecurity),
       systemLogs: normalizeSystemLogs(state.systemLogs || []),
@@ -11605,6 +11760,7 @@
       financialData,
       neveras,
       correos,
+      googleConfig,
       usuarios,
       appSecurity,
       systemLogs,
@@ -11775,16 +11931,28 @@
     }
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
-      nextState = preserveIcgDecisionLocksInAppState(nextState, getCurrentAppState());
+      const currentState = getCurrentAppState();
+      nextState = mergeRemoteAppStateWithLocal(
+        preserveIcgDecisionLocksInAppState(nextState, currentState),
+        currentState
+      );
       applyingRemoteRef.current = true;
-      if (Array.isArray(nextState.inventario)) setInventario(normalizeInventoryRowsForDisplay(nextState.inventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario));
-      if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.cuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario));
+      if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
+        const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.inventario, deleted), deleted);
+      });
+      if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(function(prev) {
+        const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario;
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.cuartoFrioInventario, deleted), deleted);
+      });
       if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.miseAnPlace); })));
       const nextMovementDeletedKeys = normalizeMovementDeletedKeys(nextState.movementDeletedKeys);
       if (Array.isArray(nextState.regEntradas)) setRegEntradas(normalizeMovementRows(nextState.regEntradas, nextMovementDeletedKeys.regEntradas));
       if (Array.isArray(nextState.regSalidas)) setRegSalidas(normalizeMovementRows(nextState.regSalidas, nextMovementDeletedKeys.regSalidas));
       if (Array.isArray(nextState.regDecomiso)) setRegDecomiso(normalizeMovementRows(nextState.regDecomiso, nextMovementDeletedKeys.regDecomiso));
-      if (Array.isArray(nextState.regRecuento)) setRegRecuento(normalizeMovementRows(nextState.regRecuento, nextMovementDeletedKeys.regRecuento));
+      if (Array.isArray(nextState.regRecuento)) setRegRecuento(function(prev) {
+        return mergeMovementRows(prev, nextState.regRecuento, nextMovementDeletedKeys.regRecuento);
+      });
       if (Array.isArray(nextState.regProduccion)) setRegProduccion(normalizeProductionHistoryRows(nextState.regProduccion, nextState.productionHistoryDeletedKeys && nextState.productionHistoryDeletedKeys.regProduccion));
       if (Array.isArray(nextState.recetasProduccion)) setRecetasProduccion(normalizeRecipeRows(nextState.recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.recetasProduccion); }));
       if (Array.isArray(nextState.productionHolds)) setProductionHolds(normalizeProductionHolds(nextState.productionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.productionHolds));
@@ -11804,16 +11972,25 @@
       if (nextState.financialData && typeof nextState.financialData === "object") setFinancialData(ensureFinancialData(nextState.financialData));
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
+      if (nextState.googleConfig && typeof nextState.googleConfig === "object") setGoogleConfig(normalizeGoogleConfig(nextState.googleConfig));
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
-      if (Array.isArray(nextState.barInventario)) setBarInventario(repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(nextState.barInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario)));
-      if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario));
+      if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
+        const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
+        return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
+      });
+      if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(function(prev) {
+        const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario;
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barCuartoFrioInventario, deleted), deleted);
+      });
       if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.barMiseAnPlace); })));
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(normalizeMovementRows(nextState.barRegEntradas, nextMovementDeletedKeys.barRegEntradas));
       if (Array.isArray(nextState.barRegSalidas)) setBarRegSalidas(repairBarAguaSalidasRows(normalizeMovementRows(nextState.barRegSalidas, nextMovementDeletedKeys.barRegSalidas)));
       if (Array.isArray(nextState.barRegDecomiso)) setBarRegDecomiso(normalizeMovementRows(nextState.barRegDecomiso, nextMovementDeletedKeys.barRegDecomiso));
-      if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(normalizeMovementRows(nextState.barRegRecuento, nextMovementDeletedKeys.barRegRecuento));
+      if (Array.isArray(nextState.barRegRecuento)) setBarRegRecuento(function(prev) {
+        return mergeMovementRows(prev, nextState.barRegRecuento, nextMovementDeletedKeys.barRegRecuento);
+      });
       if (Array.isArray(nextState.barRegProduccion)) setBarRegProduccion(normalizeProductionHistoryRows(nextState.barRegProduccion, nextState.productionHistoryDeletedKeys && nextState.productionHistoryDeletedKeys.barRegProduccion));
       if (Array.isArray(nextState.barProductionHolds)) setBarProductionHolds(normalizeProductionHolds(nextState.barProductionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.barProductionHolds));
       if (Array.isArray(nextState.barRecetasProduccion)) setBarRecetasProduccion(normalizeRecipeRows(nextState.barRecetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, nextState.recipeDeletedKeys && nextState.recipeDeletedKeys.barRecetasProduccion); }));
@@ -12470,7 +12647,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -12487,7 +12664,7 @@
         window.removeEventListener("wtf:pwa-resume", handlePwaSync);
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida, firebaseStatus]);
+    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida, firebaseStatus]);
     useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
@@ -22935,7 +23112,7 @@
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || ""), codArticulo: String(p.codArticulo || "").trim() || suggestedCodArticulo }));
       openAddProductoModal();
     } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => generateInventoryCountPdf(inventario, pageLabel, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF"));
-    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
+    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "inventory-main-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
   }
   function InventarioReubicarModal({ inventario, onClose, onConfirm }) {
     const [step, setStep] = useState(1);
@@ -23034,6 +23211,11 @@
     const conteoFisico = Number(countedQty);
     if (!Number.isFinite(conteoFisico)) return 0;
     return Number((conteoFisico - sistemaActual).toFixed(4));
+  }
+  function formatRecountAdjustmentValue(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number) || Math.abs(number) < 1e-4) return "0";
+    return `${number > 0 ? "+" : "-"}${formatMiseQty(Math.abs(number))}`;
   }
   function getRecountMatchScore(query, row) {
     const q = normalizar(query);
@@ -23678,7 +23860,7 @@
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Usar"), /* @__PURE__ */ React.createElement("th", null, "Detectado"), /* @__PURE__ */ React.createElement("th", null, "Producto WTF"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Sistema"), /* @__PURE__ */ React.createElement("th", null, "Mov. despues"), /* @__PURE__ */ React.createElement("th", null, "Ajuste"), /* @__PURE__ */ React.createElement("th", null, ""))),
           /* @__PURE__ */ React.createElement("tbody", null, previewRows.map(function(row) {
             const ajusteClass = row.ajuste > 0 ? "pill pill-verde" : row.ajuste < 0 ? "pill pill-rojo" : "pill pill-gris";
-            return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(row.selected), onChange: (e) => updateRow(row.id, { selected: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.productoDetectado || row.raw || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: row.producto || "", onChange: (e) => updateRow(row.id, { producto: e.target.value }), placeholder: "Seleccionar producto" }), row.score ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Coincidencia IA: ", row.score, "%") : null), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: Number.isFinite(Number(row.cantidadContada)) ? row.cantidadContada : "", onChange: (e) => updateRow(row.id, { cantidadContada: e.target.value }) })), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.existenciaActual) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.deltaPosterior) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, row.ajuste > 0 ? "+" : "", formatMiseQty(row.ajuste)) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin vinculo")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar linea", onClick: () => deleteReviewRow(row.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
+            return /* @__PURE__ */ React.createElement("tr", { key: row.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: Boolean(row.selected), onChange: (e) => updateRow(row.id, { selected: e.target.checked }) })), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.productoDetectado || row.raw || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: datalistId, value: row.producto || "", onChange: (e) => updateRow(row.id, { producto: e.target.value }), placeholder: "Seleccionar producto" }), row.score ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 3 } }, "Coincidencia IA: ", row.score, "%") : null), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0", step: "0.0001", value: Number.isFinite(Number(row.cantidadContada)) ? row.cantidadContada : "", onChange: (e) => updateRow(row.id, { cantidadContada: e.target.value }) })), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.existenciaActual) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? formatMiseQty(row.deltaPosterior) : "-"), /* @__PURE__ */ React.createElement("td", null, row.product ? /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, formatRecountAdjustmentValue(row.ajuste)) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo" }, "Sin vinculo")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar linea", onClick: () => deleteReviewRow(row.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
           }), !previewRows.length && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "8", style: { textAlign: "center", padding: 28, color: "var(--gris)" } }, "Sube una foto, lee con IA o agrega lineas manuales.")))
         ))
       ),
@@ -23686,7 +23868,7 @@
         /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, "Informes de recuento"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, (Array.isArray(regRecuento) ? regRecuento : []).length, " registros")),
         /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null,
           /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Aplicado"), /* @__PURE__ */ React.createElement("th", null, "Conteo"), /* @__PURE__ */ React.createElement("th", null, "Area"), /* @__PURE__ */ React.createElement("th", null, "Lineas"), /* @__PURE__ */ React.createElement("th", null, "Ajustes"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))),
-          /* @__PURE__ */ React.createElement("tbody", null, [...(Array.isArray(regRecuento) ? regRecuento : [])].reverse().slice(0, 30).map(function(row) {
+          /* @__PURE__ */ React.createElement("tbody", null, [...(Array.isArray(regRecuento) ? regRecuento : [])].reverse().map(function(row) {
             return /* @__PURE__ */ React.createElement("tr", { key: row.id || row.fecha }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.fecha)), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, whiteSpace: "nowrap" } }, formatDatetime(row.conteoFecha)), /* @__PURE__ */ React.createElement("td", null, row.destino), /* @__PURE__ */ React.createElement("td", null, row.aplicadas || 0), /* @__PURE__ */ React.createElement("td", null, row.ajustes || 0), /* @__PURE__ */ React.createElement("td", null, row.usuario || "-"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Ver movimientos", onClick: () => setViewReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-azul btn-icon", title: "Editar informe", onClick: () => editReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar y revertir", onClick: () => deleteReport(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
           }), !(Array.isArray(regRecuento) && regRecuento.length) && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "7", style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "Sin informes de recuento.")))
         ))
@@ -23704,7 +23886,7 @@
               /* @__PURE__ */ React.createElement("tbody", null, (Array.isArray(viewReport.detalles) ? viewReport.detalles : []).map(function(row, index) {
                 const ajuste = Number(row.ajuste || 0);
                 const ajusteClass = ajuste > 0 ? "pill pill-verde" : ajuste < 0 ? "pill pill-rojo" : "pill pill-gris";
-                return /* @__PURE__ */ React.createElement("tr", { key: row.movementId || `${row.producto}-${index}` }, /* @__PURE__ */ React.createElement("td", null, row.producto), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.cantidadContada), " ", row.medida || ""), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaSistemaAntes)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.movimientosPosteriores)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaAjustada)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, ajuste > 0 ? "+" : "", formatMiseQty(ajuste))));
+                return /* @__PURE__ */ React.createElement("tr", { key: row.movementId || `${row.producto}-${index}` }, /* @__PURE__ */ React.createElement("td", null, row.producto), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.cantidadContada), " ", row.medida || ""), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaSistemaAntes)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.movimientosPosteriores)), /* @__PURE__ */ React.createElement("td", null, formatMiseQty(row.existenciaAjustada)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: ajusteClass }, formatRecountAdjustmentValue(ajuste))));
               }))
             )),
             /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
