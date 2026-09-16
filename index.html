@@ -24101,8 +24101,12 @@
       const effectiveLocations = Array.isArray(effectiveProduct && effectiveProduct.locations) ? effectiveProduct.locations : effectiveProduct ? [effectiveProduct] : [];
       const effectiveSelectedLocation = effectiveLocations.find(function(loc) { return loc.storageKey === selectedStorageKey; }) || (effectiveLocations.length === 1 ? effectiveLocations[0] : selectedLocation);
       const effectiveExistenceInfo = effectiveSelectedLocation || effectiveProduct || existenceInfo;
-      const effectiveCantidadAplicada = !isNaN(cant) && effectiveExistenceInfo ? convertMovementQtyToStock(effectiveExistenceInfo, cant, selectedCantidadUnidad) : cant;
+      const effectiveUnitOptions = getMovementUnitOptions(effectiveExistenceInfo);
+      const effectiveSelectedCantidadUnidad = effectiveUnitOptions.some(function(option) { return normalizeUnit(option) === normalizeUnit(selectedCantidadUnidad); }) ? selectedCantidadUnidad : effectiveUnitOptions[0] || selectedCantidadUnidad;
+      const effectiveCantidadAplicada = !isNaN(cant) && effectiveExistenceInfo ? convertMovementQtyToStock(effectiveExistenceInfo, cant, effectiveSelectedCantidadUnidad) : cant;
       const effectiveConversionError = !isNaN(cant) && effectiveExistenceInfo && effectiveCantidadAplicada == null;
+      const effectiveTransferibleToMise = tipo === "salida" && effectiveExistenceInfo && effectiveExistenceInfo.autoTransferirAMise === true;
+      const effectiveTransferToMise = transferToMise || (effectiveTransferibleToMise && resolvedProduct && !prodInfo);
       if (!String(producto || "").trim() && !(effectiveProduct && effectiveProduct.nombre)) return setError("Seleccione un producto.");
       if (isNaN(cant) || cant <= 0) return setError("Ingrese una cantidad válida mayor a cero.");
       if (effectiveLocations.length > 1 && !effectiveSelectedLocation) return setError("Seleccione la ubicacion exacta del producto.");
@@ -24110,8 +24114,8 @@
       try {
         const responsibleUser = resolveMovementResponsible();
         const productName = effectiveProduct && effectiveProduct.nombre ? effectiveProduct.nombre : producto;
-        addMovimiento(tipo, productName, effectiveCantidadAplicada, effectiveSelectedLocation ? effectiveSelectedLocation.storageKey : effectiveProduct && effectiveProduct.storageKey, { transferToMise: transferibleToMise && transferToMise, responsibleUser });
-        setSuccess(`${cfg.label} registrada.\n\nProducto: ${productName}\nCantidad digitada: ${cant} ${selectedCantidadUnidad}\nCantidad aplicada: ${effectiveCantidadAplicada} ${(effectiveExistenceInfo && effectiveExistenceInfo.medida) || ""}`);
+        addMovimiento(tipo, productName, effectiveCantidadAplicada, effectiveSelectedLocation ? effectiveSelectedLocation.storageKey : effectiveProduct && effectiveProduct.storageKey, { transferToMise: effectiveTransferibleToMise && effectiveTransferToMise, responsibleUser });
+        setSuccess(`${cfg.label} registrada.\n\nProducto: ${productName}\nCantidad digitada: ${cant} ${effectiveSelectedCantidadUnidad}\nCantidad aplicada: ${effectiveCantidadAplicada} ${(effectiveExistenceInfo && effectiveExistenceInfo.medida) || ""}`);
         setProducto("");
         setCantidad("");
         setCantidadUnidad("");
@@ -24122,6 +24126,9 @@
       } catch (e) {
         setError(e.message);
       }
+    }
+    function keepSaveButtonClickable(event) {
+      if (event && event.button === 0) event.preventDefault();
     }
     return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: bulkRows.length ? 920 : 560 } },
       /* @__PURE__ */ React.createElement("div", { className: "card" },
@@ -24161,7 +24168,7 @@
             ),
             /* @__PURE__ */ React.createElement("div", { style: { padding: 12, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" } },
               /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris", onClick: () => { setBulkRows([]); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar lista"),
-              /* @__PURE__ */ React.createElement("button", { type: "button", className: `btn btn-${cfg.color}`, onClick: guardarMasivo }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), "Guardar ", cfg.label.toLowerCase(), " masiva")
+              /* @__PURE__ */ React.createElement("button", { type: "button", className: `btn btn-${cfg.color}`, onMouseDown: keepSaveButtonClickable, onClick: guardarMasivo }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), "Guardar ", cfg.label.toLowerCase(), " masiva")
             )
           ),
           /* @__PURE__ */ React.createElement("div", { className: "form-group" },
@@ -24236,8 +24243,8 @@
             /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "El historial guardar\xE1 el usuario due\xF1o de esta contrase\xF1a.")
           ),
           /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" } },
-            /* @__PURE__ */ React.createElement("button", { className: `btn btn-${cfg.color}`, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb),
-            /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setTransferToMise(false); setResponsablePassword(""); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: `btn btn-${cfg.color}`, onMouseDown: keepSaveButtonClickable, onClick: guardar, disabled: excede, style: { flex: 1, minWidth: 140 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}` }), cfg.verb),
+            /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-gris", onClick: () => { setProducto(""); setCantidad(""); setCantidadUnidad(""); setSelectedStorageKey(""); setTransferToMise(false); setResponsablePassword(""); setError(""); setSuccess(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")
           )
         )
       )
