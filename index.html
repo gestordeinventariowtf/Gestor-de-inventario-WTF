@@ -24026,6 +24026,30 @@
       const source = q ? productos.filter((p) => normalizar(p.nombre).includes(q) || normalizar(p.storageLabel || "").includes(q) || normalizar(p.medida || "").includes(q)) : productos;
       return source.slice(0, 8);
     }
+    function resolveProductSelection(value) {
+      const cleanValue = String(value || "").trim();
+      if (!cleanValue) {
+        setProducto("");
+        setSelectedStorageKey("");
+        return null;
+      }
+      const exact = productos.find((p) => normalizar(p.nombre) === normalizar(cleanValue));
+      if (!exact) {
+        setProducto(cleanValue);
+        setSelectedStorageKey("");
+        return null;
+      }
+      const locations = Array.isArray(exact.locations) ? exact.locations : [exact];
+      setProducto(exact.nombre || cleanValue);
+      setProductListQuery(exact.nombre || cleanValue);
+      setSelectedStorageKey(function(prev) {
+        if (prev && locations.some(function(loc) { return loc.storageKey === prev; })) return prev;
+        return locations.length === 1 ? String(locations[0].storageKey || "") : "";
+      });
+      setError("");
+      setSuccess("");
+      return exact;
+    }
     function resolveMovementResponsible() {
       if (!requiresResponsiblePassword) return currentUser;
       const resolved = findActiveUserByPassword(usuarios, responsablePassword);
@@ -24072,21 +24096,29 @@
     function guardar() {
       setError("");
       setSuccess("");
-      if (!producto.trim()) return setError("Seleccione un producto.");
+      const resolvedProduct = resolveProductSelection(producto);
+      const effectiveProduct = resolvedProduct || prodInfo;
+      const effectiveLocations = Array.isArray(effectiveProduct && effectiveProduct.locations) ? effectiveProduct.locations : effectiveProduct ? [effectiveProduct] : [];
+      const effectiveSelectedLocation = effectiveLocations.find(function(loc) { return loc.storageKey === selectedStorageKey; }) || (effectiveLocations.length === 1 ? effectiveLocations[0] : selectedLocation);
+      const effectiveExistenceInfo = effectiveSelectedLocation || effectiveProduct || existenceInfo;
+      const effectiveCantidadAplicada = !isNaN(cant) && effectiveExistenceInfo ? convertMovementQtyToStock(effectiveExistenceInfo, cant, selectedCantidadUnidad) : cant;
+      const effectiveConversionError = !isNaN(cant) && effectiveExistenceInfo && effectiveCantidadAplicada == null;
+      if (!String(producto || "").trim() && !(effectiveProduct && effectiveProduct.nombre)) return setError("Seleccione un producto.");
       if (isNaN(cant) || cant <= 0) return setError("Ingrese una cantidad válida mayor a cero.");
-      if (productLocations.length > 1 && !selectedLocation) return setError("Seleccione la ubicacion exacta del producto.");
-      if (conversionError || cantidadAplicada == null || cantidadAplicada <= 0) return setError("No se pudo convertir la cantidad a la unidad base del inventario.");
+      if (effectiveLocations.length > 1 && !effectiveSelectedLocation) return setError("Seleccione la ubicacion exacta del producto.");
+      if (effectiveConversionError || effectiveCantidadAplicada == null || effectiveCantidadAplicada <= 0) return setError("No se pudo convertir la cantidad a la unidad base del inventario.");
       try {
         const responsibleUser = resolveMovementResponsible();
-        addMovimiento(tipo, producto, cantidadAplicada, selectedLocation ? selectedLocation.storageKey : prodInfo && prodInfo.storageKey, { transferToMise: transferibleToMise && transferToMise, responsibleUser });
-        setSuccess(`${cfg.label} registrada.\n\nProducto: ${producto}\nCantidad digitada: ${cant} ${selectedCantidadUnidad}\nCantidad aplicada: ${cantidadAplicada} ${(existenceInfo && existenceInfo.medida) || ""}`);
+        const productName = effectiveProduct && effectiveProduct.nombre ? effectiveProduct.nombre : producto;
+        addMovimiento(tipo, productName, effectiveCantidadAplicada, effectiveSelectedLocation ? effectiveSelectedLocation.storageKey : effectiveProduct && effectiveProduct.storageKey, { transferToMise: transferibleToMise && transferToMise, responsibleUser });
+        setSuccess(`${cfg.label} registrada.\n\nProducto: ${productName}\nCantidad digitada: ${cant} ${selectedCantidadUnidad}\nCantidad aplicada: ${effectiveCantidadAplicada} ${(effectiveExistenceInfo && effectiveExistenceInfo.medida) || ""}`);
         setProducto("");
         setCantidad("");
         setCantidadUnidad("");
         setSelectedStorageKey("");
         setTransferToMise(false);
         setResponsablePassword("");
-        toast(`${cfg.label} guardada: ${producto} x${cant}`);
+        toast(`${cfg.label} guardada: ${productName} x${cant}`);
       } catch (e) {
         setError(e.message);
       }
@@ -24139,7 +24171,20 @@
               list: "prod-list",
               value: producto,
               onFocus: () => setProductListQuery(producto || ""),
-              onChange: (e) => { setProductListQuery(e.target.value); setProducto(e.target.value); setSelectedStorageKey(""); setError(""); setSuccess(""); },
+              onChange: (e) => {
+                const value = e.target.value;
+                setProductListQuery(value);
+                const exact = productos.find((p) => normalizar(p.nombre) === normalizar(value));
+                if (exact) {
+                  resolveProductSelection(value);
+                  return;
+                }
+                setProducto(value);
+                setSelectedStorageKey("");
+                setError("");
+                setSuccess("");
+              },
+              onBlur: (e) => resolveProductSelection(e.target.value),
               placeholder: `Seleccione un producto de ${storageLabel}...`,
               autoComplete: "off"
             }),
