@@ -1,12 +1,15 @@
 (function () {
   const VERSION_URL = "/version.json";
   const CHECK_INTERVAL_MS = 30000;
+  const MIN_CHECK_GAP_MS = 5000;
   const STORAGE_KEY = "wtf_app_loaded_version";
   const ACK_KEY = "wtf_app_acknowledged_version";
   const RELOAD_FLAG = "wtf_app_update_reload_started";
   let currentVersion = "";
   let bannerShown = false;
   let pendingVersion = "";
+  let checkingVersion = false;
+  let lastCheckAt = 0;
 
   function readBuildId(payload) {
     if (!payload || typeof payload !== "object") return "";
@@ -178,7 +181,12 @@
     document.body.appendChild(banner);
   }
 
-  function checkForUpdates() {
+  function checkForUpdates(force) {
+    const now = Date.now();
+    if (checkingVersion) return;
+    if (!force && now - lastCheckAt < MIN_CHECK_GAP_MS) return;
+    checkingVersion = true;
+    lastCheckAt = now;
     fetchVersion().then(function (latestVersion) {
       if (!latestVersion) return;
       if (latestVersion === getAcknowledgedVersion()) {
@@ -193,20 +201,22 @@
       if (latestVersion !== currentVersion) {
         showUpdateBanner(latestVersion);
       }
-    }).catch(function () {});
+    }).catch(function () {}).finally(function () {
+      checkingVersion = false;
+    });
   }
 
   function start() {
     currentVersion = getStoredVersion();
     try { window.sessionStorage.removeItem(RELOAD_FLAG); } catch (_) {}
-    checkForUpdates();
+    checkForUpdates(true);
     window.setInterval(checkForUpdates, CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", function () {
-      if (!document.hidden) checkForUpdates();
+      if (!document.hidden) checkForUpdates(true);
     });
-    window.addEventListener("focus", checkForUpdates);
-    window.addEventListener("pageshow", checkForUpdates);
-    window.addEventListener("online", checkForUpdates);
+    window.addEventListener("focus", function () { checkForUpdates(true); });
+    window.addEventListener("pageshow", function () { checkForUpdates(true); });
+    window.addEventListener("online", function () { checkForUpdates(true); });
     window.addEventListener("wtf:pwa-update-ready", function () {
       fetchVersion().then(function (latestVersion) {
         if (latestVersion && !isAcceptedVersion(latestVersion)) showUpdateBanner(latestVersion);

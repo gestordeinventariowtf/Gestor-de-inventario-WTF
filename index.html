@@ -2544,6 +2544,18 @@
       console.error("No se pudo guardar en localStorage:", key, error);
     }
   }
+  const localSaveQueue = {};
+  function saveSoon(key, val, delay = 450) {
+    if (localSaveQueue[key]) clearTimeout(localSaveQueue[key].timer);
+    localSaveQueue[key] = {
+      value: val,
+      timer: setTimeout(function() {
+        const queued = localSaveQueue[key];
+        delete localSaveQueue[key];
+        save(key, queued ? queued.value : val);
+      }, delay)
+    };
+  }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
   }
@@ -11883,6 +11895,7 @@
     const applyingRemoteRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
+    const pullLatestFirebaseSnapshotRef = useRef(null);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
     useEffect(() => {
@@ -12363,8 +12376,9 @@
         }
       }
     }
+    pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
     useEffect(() => save("wtf_correos", correos), [correos]);
-    useEffect(() => save(KEYS.systemLogs, systemLogs), [systemLogs]);
+    useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
@@ -12409,7 +12423,7 @@
     useEffect(() => {
       const normalizedIcg = ensureIcgFrontRestData(icgFrontRestData);
       saveIcgDeletedTableRowKeysLocal(normalizedIcg.deletedTableRowKeys);
-      save(KEYS.icgFrontRest, normalizedIcg);
+      saveSoon(KEYS.icgFrontRest, normalizedIcg);
     }, [icgFrontRestData]);
     useEffect(() => save(KEYS.assetManagement, ensureAssetManagementData(assetManagementData)), [assetManagementData]);
     useEffect(() => save(KEYS.employeeCenter, ensureEmployeeCenterData(employeeCenterData)), [employeeCenterData]);
@@ -12882,7 +12896,7 @@
         if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
-        pullLatestFirebaseSnapshot(reason);
+        if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
       }
       window.addEventListener("wtf:pwa-resume", handlePwaSync);
       window.addEventListener("wtf:pwa-foreground-sync", handlePwaSync);
@@ -12890,7 +12904,7 @@
         window.removeEventListener("wtf:pwa-resume", handlePwaSync);
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida, firebaseStatus]);
+    }, []);
     useEffect(() => {
       if (modulo) sessionStorage.setItem("wtf_modulo", modulo);
       else sessionStorage.removeItem("wtf_modulo");
