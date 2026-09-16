@@ -3245,6 +3245,111 @@
     { key: "systemLogs", label: "Logs de Sistema" },
     { key: "linkCocinaBar", label: "Enlazar COCINA Y BAR" }
   ];
+  const APP_ROUTE_DEFINITIONS = [
+    { path: "", page: "dashboard", modulo: null },
+    { path: "dashboard", page: "dashboard", modulo: "cocina" },
+    { path: "dashboard-general", page: "dashboardGeneral", modulo: "cocina" },
+    { path: "inventario", page: "inventario", modulo: "cocina" },
+    { path: "cuarto-frio", page: "cuartoFrio", modulo: "cocina" },
+    { path: "entrada", page: "entradas", modulo: "cocina" },
+    { path: "entradas", page: "entradas", modulo: "cocina" },
+    { path: "salida", page: "salidas", modulo: "cocina" },
+    { path: "salidas", page: "salidas", modulo: "cocina" },
+    { path: "decomiso", page: "decomiso", modulo: "cocina" },
+    { path: "recuento", page: "recuento", modulo: "cocina" },
+    { path: "mise", page: "mise", modulo: "cocina" },
+    { path: "mise-an-place", page: "mise", modulo: "cocina" },
+    { path: "listado-compra", page: "listado", modulo: "cocina" },
+    { path: "registros", page: "registros", modulo: "cocina" },
+    { path: "historial-decomiso", page: "histDecomiso", modulo: "cocina" },
+    { path: "historial-mermas", page: "historialMermas", modulo: "cocina" },
+    { path: "produccion", page: "produccion", modulo: "cocina" },
+    { path: "costeo-platos", page: "costeoPlatos", modulo: "cocina" },
+    { path: "activos-operativos", page: "activosOperativos", modulo: "cocina" },
+    { path: "notificaciones", page: "notificaciones", modulo: "cocina" },
+    { path: "logs-sistema", page: "systemLogs", modulo: "cocina" },
+    { path: "asistente-ia", page: "aiAssistant", modulo: "cocina" },
+    { path: "bar", page: "dashboard", modulo: "bar" },
+    { path: "bar/dashboard", page: "dashboard", modulo: "bar" },
+    { path: "bar/dashboard-general", page: "dashboardGeneral", modulo: "bar" },
+    { path: "bar/inventario", page: "inventario", modulo: "bar" },
+    { path: "bar/cuarto-frio", page: "cuartoFrio", modulo: "bar" },
+    { path: "bar/entrada", page: "entradas", modulo: "bar" },
+    { path: "bar/entradas", page: "entradas", modulo: "bar" },
+    { path: "bar/salida", page: "salidas", modulo: "bar" },
+    { path: "bar/salidas", page: "salidas", modulo: "bar" },
+    { path: "bar/decomiso", page: "decomiso", modulo: "bar" },
+    { path: "bar/recuento", page: "recuento", modulo: "bar" },
+    { path: "bar/mise", page: "mise", modulo: "bar" },
+    { path: "bar/mise-an-place", page: "mise", modulo: "bar" },
+    { path: "bar/listado-compra", page: "listado", modulo: "bar" },
+    { path: "bar/registros", page: "registros", modulo: "bar" },
+    { path: "bar/historial-decomiso", page: "histDecomiso", modulo: "bar" },
+    { path: "bar/historial-mermas", page: "historialMermas", modulo: "bar" },
+    { path: "bar/produccion", page: "produccion", modulo: "bar" },
+    { path: "bar/costeo-platos", page: "costeoPlatos", modulo: "bar" },
+    { path: "bar/activos-operativos", page: "activosOperativos", modulo: "bar" },
+    { path: "bar/notificaciones", page: "notificaciones", modulo: "bar" },
+    { path: "bar/logs-sistema", page: "systemLogs", modulo: "bar" },
+    { path: "bar/asistente-ia", page: "aiAssistant", modulo: "bar" },
+    { path: "finanzas", page: "finanzas", modulo: "finanzas" },
+    { path: "icg-frontrest", page: "icg", modulo: "icg" },
+    { path: "icg", page: "icg", modulo: "icg" },
+    { path: "icg-host", page: "icgHost", modulo: "icgHost" },
+    { path: "sharp", page: "sharp", modulo: "sharp" },
+    { path: "sharp-limpieza", page: "sharp", modulo: "sharp" },
+    { path: "colaborador", page: "employeeCenter", modulo: "employeeCenter" },
+    { path: "centro-colaborador", page: "employeeCenter", modulo: "employeeCenter" },
+    { path: "usuarios", page: "usuarios", modulo: "cocina" }
+  ];
+  const APP_ROUTE_BY_PATH = APP_ROUTE_DEFINITIONS.reduce(function(map, route) {
+    map[route.path] = route;
+    return map;
+  }, {});
+  const APP_ROUTE_BY_PAGE_MODULE = APP_ROUTE_DEFINITIONS.reduce(function(map, route) {
+    const key = `${route.modulo || ""}:${route.page}`;
+    if (!map[key]) map[key] = route;
+    return map;
+  }, {});
+  function normalizeAppRoutePath(path) {
+    return String(path || "").replace(/^\/+|\/+$/g, "").toLowerCase();
+  }
+  function getBrowserRoutePath() {
+    if (typeof window === "undefined") return "";
+    const hash = String(window.location.hash || "").replace(/^#\/?/, "");
+    if (hash) return normalizeAppRoutePath(hash);
+    return normalizeAppRoutePath(window.location.pathname);
+  }
+  function getAppRouteFromLocation() {
+    const routePath = getBrowserRoutePath();
+    return APP_ROUTE_BY_PATH[routePath] || null;
+  }
+  function getRouteForPage(pageKey, moduloKey) {
+    const directKey = `${moduloKey || ""}:${pageKey || "dashboard"}`;
+    const direct = APP_ROUTE_BY_PAGE_MODULE[directKey];
+    if (direct) return direct;
+    if ((moduloKey === "cocina" || moduloKey === "bar") && pageKey === "usuarios") return APP_ROUTE_BY_PATH.usuarios;
+    return APP_ROUTE_BY_PAGE_MODULE[`:${pageKey || "dashboard"}`] || APP_ROUTE_BY_PATH[""];
+  }
+  function updateBrowserAppRoute(pageKey, moduloKey, replace) {
+    if (typeof window === "undefined" || !window.history || !window.history.pushState) return;
+    const route = getRouteForPage(pageKey, moduloKey);
+    const path = route && route.path ? `/${route.path}` : "/";
+    const nextUrl = window.location.protocol === "file:" ? `${window.location.pathname}${path === "/" ? "" : "#" + path}` : path;
+    const currentUrl = window.location.protocol === "file:" ? `${window.location.pathname}${window.location.hash || ""}` : `${window.location.pathname}${window.location.search || ""}${window.location.hash || ""}`;
+    if (currentUrl === nextUrl) return;
+    const method = replace ? "replaceState" : "pushState";
+    window.history[method]({ page: pageKey, modulo: moduloKey || null }, "", nextUrl);
+  }
+  function getInitialAppRoute() {
+    const route = getAppRouteFromLocation();
+    if (route) return route;
+    const storedModulo = sessionStorage.getItem("wtf_modulo") || null;
+    return {
+      page: storedModulo === "sharp" ? "sharp" : "dashboard",
+      modulo: storedModulo
+    };
+  }
   const DEFAULT_FIREBASE_SYNC_CONFIG = {
     enabled: false,
     firebaseConfig: {
@@ -11681,7 +11786,8 @@
   function App() {
     const toast = useToast();
     const firebaseCfg = useMemo(() => getFirebaseSyncConfig(), []);
-    const [page, setPage] = useState(() => sessionStorage.getItem("wtf_modulo") === "sharp" ? "sharp" : "dashboard");
+    const initialAppRoute = useMemo(() => getInitialAppRoute(), []);
+    const [page, setPage] = useState(() => initialAppRoute.page || "dashboard");
     const [inventorySearchTarget, setInventorySearchTarget] = useState(null);
     const [movementDraftTarget, setMovementDraftTarget] = useState(null);
     const [selfAccessModal, setSelfAccessModal] = useState(false);
@@ -11718,7 +11824,7 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
-    const [modulo, setModulo] = useState(() => sessionStorage.getItem("wtf_modulo") || null);
+    const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
     const [screenPrivacyOverlay, setScreenPrivacyOverlay] = useState(false);
@@ -12361,9 +12467,7 @@
       setAuthUserEmail("");
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
-      sessionStorage.removeItem("wtf_modulo");
-      setModulo(null);
-      setPage("dashboard");
+      resetToModuleSelector(true);
       toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
     }, [currentUser, appSecurity]);
     function resetGoogleSession() {
@@ -12438,9 +12542,7 @@
       setAuthUserEmail("");
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
-      sessionStorage.removeItem("wtf_modulo");
-      setModulo(null);
-      setPage("dashboard");
+      resetToModuleSelector(true);
     }
     function revokeAdminSessionsEverywhere() {
       if (!isAdminUser(currentUser)) return;
@@ -12496,9 +12598,15 @@
         accion: "Inicio de sesion",
         detalle: loginDetail
       }, user);
-      sessionStorage.removeItem("wtf_modulo");
-      setModulo(null);
-      setPage("dashboard");
+      const routeAfterLogin = getAppRouteFromLocation();
+      if (routeAfterLogin && routeAfterLogin.modulo) {
+        sessionStorage.setItem("wtf_modulo", routeAfterLogin.modulo);
+        setModulo(routeAfterLogin.modulo);
+        setPage(routeAfterLogin.page || "dashboard");
+        updateBrowserAppRoute(routeAfterLogin.page || "dashboard", routeAfterLogin.modulo, true);
+      } else {
+        resetToModuleSelector(true);
+      }
       return user;
     }
     async function requestLoginTerminalAuthorization(email, password) {
@@ -12557,6 +12665,12 @@
         detalle: `Se bloqueo el intento de abrir ${targetLabel || "un modulo"} usando Administrador Principal.`
       });
     }
+    function resetToModuleSelector(replace) {
+      sessionStorage.removeItem("wtf_modulo");
+      setModulo(null);
+      setPage("dashboard");
+      updateBrowserAppRoute("dashboard", null, replace);
+    }
     function selectModulo(targetModulo, targetPage, targetLabel) {
       if (isRootAdminOperationalBlocked(currentUser)) {
         notifyRootAdminOperationalBlock(targetLabel || targetModulo);
@@ -12565,6 +12679,7 @@
       sessionStorage.setItem("wtf_modulo", targetModulo);
       setModulo(targetModulo);
       setPage(targetPage || "dashboard");
+      updateBrowserAppRoute(targetPage || "dashboard", targetModulo, false);
     }
     function updateOwnAccess(payload) {
       if (!currentUser || !payload) return;
@@ -12759,6 +12874,30 @@
       };
     }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida, firebaseStatus]);
     useEffect(() => {
+      if (modulo) sessionStorage.setItem("wtf_modulo", modulo);
+      else sessionStorage.removeItem("wtf_modulo");
+    }, [modulo]);
+    useEffect(() => {
+      function handleBrowserRouteChange() {
+        const route = getAppRouteFromLocation();
+        if (!route || !route.modulo) {
+          sessionStorage.removeItem("wtf_modulo");
+          setModulo(null);
+          setPage("dashboard");
+          return;
+        }
+        sessionStorage.setItem("wtf_modulo", route.modulo);
+        setModulo(route.modulo);
+        setPage(route.page || "dashboard");
+      }
+      window.addEventListener("popstate", handleBrowserRouteChange);
+      window.addEventListener("hashchange", handleBrowserRouteChange);
+      return function() {
+        window.removeEventListener("popstate", handleBrowserRouteChange);
+        window.removeEventListener("hashchange", handleBrowserRouteChange);
+      };
+    }, []);
+    useEffect(() => {
       function onResize() {
         if (window.innerWidth <= 768) setSidebarOpen(false);
         else setSidebarOpen(true);
@@ -12772,6 +12911,7 @@
         notifyRootAdminOperationalBlock(p);
         return;
       }
+      const routeModulo = options && options.moduleTarget ? options.moduleTarget : modulo;
       if (options && options.moduleTarget) {
         sessionStorage.setItem("wtf_modulo", options.moduleTarget);
         setModulo(options.moduleTarget);
@@ -12781,6 +12921,7 @@
       }
       const applyNavigation = function() {
         setPage(p);
+        updateBrowserAppRoute(p, routeModulo, false);
         try {
           window.scrollTo({ top: 0, behavior: "auto" });
         } catch (err) {
@@ -12889,13 +13030,15 @@
           return item.key !== "autorizacionRecetas" && hasAccess(item.key);
         }) || { key: "dashboard" }).key;
         setPage(firstAllowed);
+        updateBrowserAppRoute(firstAllowed, modulo, true);
       }
-    }, [currentUser, page]);
+    }, [currentUser, page, modulo]);
     useEffect(() => {
       if (currentUser && modulo && !canUseModulo(modulo)) {
         sessionStorage.removeItem("wtf_modulo");
         setModulo(null);
         setPage("dashboard");
+        updateBrowserAppRoute("dashboard", null, true);
       }
     }, [currentUser, modulo]);
     useEffect(() => {
@@ -12906,6 +13049,7 @@
         sessionStorage.setItem("wtf_modulo", "employeeCenter");
         setModulo("employeeCenter");
         setPage("employeeCenter");
+        updateBrowserAppRoute("employeeCenter", "employeeCenter", true);
       }
     }, [currentUser, modulo, employeeCenterData, authUserEmail]);
     useEffect(() => {
@@ -12973,23 +13117,29 @@
     useEffect(() => {
       if (modulo === "sharp" && page !== "sharp" && page !== "usuarios") {
         setPage("sharp");
+        updateBrowserAppRoute("sharp", modulo, true);
       }
       if (modulo === "icg" && page !== "icg" && page !== "usuarios") {
         setPage("icg");
+        updateBrowserAppRoute("icg", modulo, true);
       }
       if (modulo === "icgHost" && page !== "icgHost" && page !== "usuarios") {
         setPage("icgHost");
+        updateBrowserAppRoute("icgHost", modulo, true);
       }
       if (modulo === "finanzas" && page !== "finanzas" && page !== "usuarios") {
         setPage("finanzas");
+        updateBrowserAppRoute("finanzas", modulo, true);
       }
       if (modulo === "employeeCenter" && page !== "employeeCenter" && page !== "usuarios") {
         setPage("employeeCenter");
+        updateBrowserAppRoute("employeeCenter", modulo, true);
       }
     }, [modulo, page]);
     useEffect(() => {
       if ((modulo === "cocina" || modulo === "bar") && page === "sharp") {
         setPage("dashboard");
+        updateBrowserAppRoute("dashboard", modulo, true);
       }
     }, [modulo, page]);
     useEffect(() => {
@@ -13896,7 +14046,7 @@
       costeoPlatos: () => /* @__PURE__ */ React.createElement(CosteoPlatosPage, { moduleLabel: esBar ? "Bar" : "Cocina", inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, recetas: activeRecetasProduccion, icgFrontRestData, setIcgFrontRestData, unifiedAccess: hasCocinaBarLinkAccess, linkedModuleLabel: otherModuleLabel, linkedInventario: otherInventario, linkedCuartoFrioInventario: otherCuartoFrio, linkedMiseAnPlace: esBar ? miseAnPlace : barMiseAnPlace, linkedRecetas: esBar ? recetasProduccion : barRecetasProduccion }),
       finanzas: () => /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
-      employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); } }),
+      employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); resetToModuleSelector(false); } }),
       usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
@@ -14113,7 +14263,7 @@
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => { sessionStorage.removeItem("wtf_modulo"); setModulo(null); setPage("dashboard"); }, title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => resetToModuleSelector(false), title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -14136,7 +14286,7 @@
         title: "Clave requerida para cambiar de módulo",
         usuarios,
         onClose: () => setPedirClaveModulo(false),
-        onConfirm: () => { setPedirClaveModulo(false); sessionStorage.removeItem("wtf_modulo"); setModulo(null); }
+        onConfirm: () => { setPedirClaveModulo(false); resetToModuleSelector(false); }
       }
     ));
   }
