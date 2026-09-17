@@ -2557,7 +2557,7 @@
     };
   }
   const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
-  const FIREBASE_COOLDOWN_MS = 30 * 60 * 1000;
+  const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
   function getFirebaseErrorText(error) {
     return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
   }
@@ -2584,6 +2584,9 @@
       if (value > Date.now()) localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
       else localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
     } catch (_) {}
+  }
+  function clearFirebaseCooldownValue() {
+    setFirebaseCooldownUntilValue(0);
   }
   function formatFirebaseCooldownMessage(until) {
     const minutes = Math.max(1, Math.ceil((Number(until || 0) - Date.now()) / 6e4));
@@ -11991,6 +11994,13 @@
       setFirebaseMessage(`${formatFirebaseCooldownMessage(until)} Ruta: ${operation || "Firebase"}.`);
       return true;
     }
+    function clearFirebaseCooldown(reason) {
+      clearFirebaseCooldownValue();
+      firebaseCooldownUntilRef.current = 0;
+      setFirebaseCooldownUntil(0);
+      setFirebaseStatus("connecting");
+      setFirebaseMessage(reason || "Reintentando conexion con Firebase...");
+    }
     stateSnapshotRef.current = {
       dataVersion: DATA_VERSION,
       inventario,
@@ -13280,13 +13290,13 @@
     const [confirmNevera, setConfirmNevera] = useState(null);
     function forceFirebaseSyncNow() {
       if (isFirebaseCooldownActive()) {
-        toast(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current), "error", 8500);
-        setFirebaseStatus("error");
-        setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
-        return;
+        clearFirebaseCooldown("Pausa Firebase liberada manualmente. Reintentando conexion...");
+        toast("Pausa Firebase liberada. Reintentando sincronizacion...", "info", 6500);
       }
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) {
-        toast("Firebase aun no esta listo para sincronizar.", "error");
+        setFirebaseStatus("connecting");
+        setFirebaseMessage("Preparando reconexion con Firebase...");
+        toast("Firebase se esta preparando para reconectar. Intenta de nuevo en unos segundos si no sincroniza automaticamente.", "info", 7500);
         return;
       }
       setFirebaseStatus("connecting");
