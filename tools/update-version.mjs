@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 function safeExec(command) {
   try {
@@ -23,9 +23,20 @@ const payload = {
 };
 
 writeFileSync("version.json", JSON.stringify(payload, null, 2) + "\n", "utf8");
+try {
+  const indexPath = "index.html";
+  const indexHtml = readFileSync(indexPath, "utf8");
+  const versionScript = `<script>window.WTF_APP_VERSION = "${buildId}";</script>`;
+  const nextIndexHtml = indexHtml.includes("window.WTF_APP_VERSION")
+    ? indexHtml.replace(/<script>window\.WTF_APP_VERSION = "[^"]*";<\/script>/, versionScript)
+    : indexHtml.replace('<script src="./firebase-config.js"></script>', `<script src="./firebase-config.js"></script>\n  ${versionScript}`);
+  if (nextIndexHtml !== indexHtml) writeFileSync(indexPath, nextIndexHtml, "utf8");
+} catch (error) {
+  console.warn(`No se pudo actualizar WTF_APP_VERSION en index.html: ${error && error.message ? error.message : error}`);
+}
 
 if (process.argv.includes("--stage")) {
-  safeExec("git add version.json");
+  safeExec("git add version.json index.html");
 }
 
 console.log(`Version actualizada: ${buildId}`);

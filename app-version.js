@@ -195,6 +195,11 @@
         removeUpdateBanner();
         return;
       }
+      if (window.WTF_APP_VERSION && String(window.WTF_APP_VERSION) === latestVersion) {
+        acknowledgeVersion(latestVersion);
+        removeUpdateBanner();
+        return;
+      }
       if (latestVersion === getAcknowledgedVersion()) {
         setStoredVersion(latestVersion);
         removeUpdateBanner();
@@ -218,7 +223,8 @@
   }
 
   function start() {
-    currentVersion = getStoredVersion();
+    currentVersion = String(window.WTF_APP_VERSION || "").trim() || getStoredVersion();
+    if (window.WTF_APP_VERSION) setStoredVersion(currentVersion);
     try { window.sessionStorage.removeItem(RELOAD_FLAG); } catch (_) {}
     checkForUpdates(true);
     window.setInterval(checkForUpdates, CHECK_INTERVAL_MS);
