@@ -6,13 +6,27 @@
   const RESUME_AFTER_MS = 45000;
   let hiddenAt = 0;
   let serviceWorkerRegistration = null;
+  let lastForegroundSyncAt = 0;
+  let lastResumeSyncAt = 0;
 
   function getFirebaseConfig() {
     return window.WTF_FIREBASE_CONFIG || {};
   }
 
   function dispatchSyncEvent(name, reason) {
+    const now = Date.now();
+    if (name === FOREGROUND_SYNC_EVENT && now - lastForegroundSyncAt < FOREGROUND_SYNC_MS - 1000) return;
+    if (name === RESUME_SYNC_EVENT && now - lastResumeSyncAt < 120000 && reason !== "manual-sync") return;
+    if (name === FOREGROUND_SYNC_EVENT) lastForegroundSyncAt = now;
+    if (name === RESUME_SYNC_EVENT) lastResumeSyncAt = now;
     window.dispatchEvent(new CustomEvent(name, { detail: { reason: reason || "pwa" } }));
+  }
+
+  function withTimeout(promise, ms, reason) {
+    return Promise.race([
+      promise,
+      new Promise((resolve) => window.setTimeout(() => resolve({ ok: false, reason: reason || "timeout" }), ms))
+    ]);
   }
 
   function urlBase64ToUint8Array(base64String) {
@@ -82,14 +96,17 @@
       return { ok: false, reason: "ios-home-screen-required" };
     }
     const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
-    const permission = await Notification.requestPermission();
+    const permission = await withTimeout(Notification.requestPermission(), 20000, "permission-timeout");
+    if (permission && permission.ok === false) return permission;
     if (permission !== "granted") return { ok: false, reason: "permission-denied" };
-    const currentSubscription = await registration.pushManager.getSubscription();
+    const currentSubscription = await withTimeout(registration.pushManager.getSubscription(), 15000, "subscription-timeout");
+    if (currentSubscription && currentSubscription.ok === false) return currentSubscription;
     if (currentSubscription) await currentSubscription.unsubscribe().catch(() => false);
-    const subscription = await registration.pushManager.subscribe({
+    const subscription = await withTimeout(registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-    });
+    }), 25000, "subscription-timeout");
+    if (subscription && subscription.ok === false) return subscription;
     await savePushSubscription(subscription);
     await showLocalNotification("WTF Sistema", "Notificaciones activadas en este dispositivo.").catch(() => null);
     return { ok: true };
@@ -164,11 +181,14 @@
     button.addEventListener("click", async () => {
       button.disabled = true;
       button.textContent = "Activando...";
-      const result = await enablePushNotifications().catch(() => ({ ok: false }));
+      const result = await withTimeout(enablePushNotifications(), 35000, "activation-timeout").catch(() => ({ ok: false }));
       if (result.ok) button.remove();
       else {
-        button.textContent = "Notificaciones no activadas";
-        window.setTimeout(() => button.remove(), 2500);
+        button.disabled = false;
+        button.textContent = result.reason === "ios-home-screen-required" ? "Abrir desde inicio" : result.reason === "permission-denied" ? "Permiso bloqueado" : "Reintentar notificaciones";
+        window.setTimeout(() => {
+          if (button && button.parentNode && Notification.permission !== "default") button.remove();
+        }, 4500);
       }
     });
     document.body.appendChild(button);

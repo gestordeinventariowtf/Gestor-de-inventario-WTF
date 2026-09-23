@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260923232948-8f984c9";</script>
+  <script>window.WTF_APP_VERSION = "20260923234241-a974b27";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5232,7 +5232,7 @@
       appliedPhysicalIcgKeys: Array.isArray(normalized.appliedPhysicalIcgKeys) ? normalized.appliedPhysicalIcgKeys : [],
       notifiedIcgSaleIds: Array.isArray(normalized.notifiedIcgSaleIds) ? normalized.notifiedIcgSaleIds : [],
       icgNotificationsInitialized: Boolean(normalized.icgNotificationsInitialized),
-      notifyIcgTicketClosures: normalized.notifyIcgTicketClosures !== false,
+      notifyIcgTicketClosures: normalized.notifyIcgTicketClosures === true,
       inventoryImpactPaused: Boolean(normalized.inventoryImpactPaused),
       icgHostDiscountsPaused: Boolean(normalized.icgHostDiscountsPaused),
       inventoryImpactPausedAt: normalized.inventoryImpactPausedAt || "",
@@ -5293,7 +5293,7 @@
   function encodeFirebaseAppState(state) {
     try {
       if (!window.pako || !window.TextEncoder) return null;
-      return bytesToBase64(window.pako.deflate(new TextEncoder().encode(JSON.stringify(state || {})), { level: 6 }));
+      return bytesToBase64(window.pako.deflate(new TextEncoder().encode(JSON.stringify(state || {})), { level: 1 }));
     } catch (error) {
       console.error("No se pudo comprimir el estado para Firebase:", error);
       return null;
@@ -6591,7 +6591,7 @@
       appliedPhysicalIcgKeys: [],
       notifiedIcgSaleIds: [],
       icgNotificationsInitialized: false,
-      notifyIcgTicketClosures: true,
+      notifyIcgTicketClosures: false,
       inventoryImpactPaused: false,
       icgHostDiscountsPaused: false,
       inventoryImpactPausedAt: "",
@@ -6632,7 +6632,7 @@
       appliedPhysicalIcgKeys: Array.isArray(input.appliedPhysicalIcgKeys) ? input.appliedPhysicalIcgKeys : [],
       notifiedIcgSaleIds: Array.isArray(input.notifiedIcgSaleIds) ? input.notifiedIcgSaleIds : [],
       icgNotificationsInitialized: Boolean(input.icgNotificationsInitialized),
-      notifyIcgTicketClosures: input.notifyIcgTicketClosures !== false,
+      notifyIcgTicketClosures: input.notifyIcgTicketClosures === true,
       inventoryImpactPaused: Boolean(input.inventoryImpactPaused),
       icgHostDiscountsPaused: Boolean(input.icgHostDiscountsPaused),
       inventoryImpactPausedAt: input.inventoryImpactPausedAt || "",
@@ -13060,7 +13060,8 @@
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      scheduleFirebaseWrite(null, "", 2200, "web-client");
+      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 6500 : 2600;
+      scheduleFirebaseWrite(null, "", mobileSyncDelay, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
@@ -21842,7 +21843,7 @@
         })));
         return;
       }
-      if (normalized.notifyIcgTicketClosures === false) return;
+      if (normalized.notifyIcgTicketClosures !== true) return;
       const pending = ticketRows.filter(function(row) {
         return row.TicketNotificacionId && !already.has(row.TicketNotificacionId);
       }).slice(0, 20);
