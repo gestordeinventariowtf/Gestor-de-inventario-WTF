@@ -2573,24 +2573,19 @@
       || text.includes("unavailable");
   }
   function getFirebaseCooldownUntil() {
-    try {
-      return Number(localStorage.getItem(FIREBASE_COOLDOWN_STORAGE_KEY) || 0) || 0;
-    } catch (_) {
-      return 0;
-    }
+    clearFirebaseCooldownValue();
+    return 0;
   }
   function setFirebaseCooldownUntilValue(value) {
     try {
-      if (value > Date.now()) localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
-      else localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+      localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
     } catch (_) {}
   }
   function clearFirebaseCooldownValue() {
     setFirebaseCooldownUntilValue(0);
   }
   function formatFirebaseCooldownMessage(until) {
-    const minutes = Math.max(1, Math.ceil((Number(until || 0) - Date.now()) / 6e4));
-    return `Firebase pausado por limite de lecturas/escrituras. La app sigue en modo local y reintentara en ${minutes} min.`;
+    return "Firebase intento sincronizar nuevamente.";
   }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
@@ -12053,18 +12048,10 @@
     }, []);
     firebaseCooldownUntilRef.current = firebaseCooldownUntil;
     function isFirebaseCooldownActive() {
-      return Number(firebaseCooldownUntilRef.current || 0) > Date.now();
+      return false;
     }
     function activateFirebaseCooldown(error, operation) {
-      if (!isFirebaseQuotaOrPermissionError(error)) return false;
-      const until = Date.now() + FIREBASE_COOLDOWN_MS;
-      firebaseCooldownUntilRef.current = until;
-      setFirebaseCooldownUntilValue(until);
-      setFirebaseCooldownUntil(until);
-      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-      setFirebaseStatus("error");
-      setFirebaseMessage(`${formatFirebaseCooldownMessage(until)} Ruta: ${operation || "Firebase"}.`);
-      return true;
+      return false;
     }
     function clearFirebaseCooldown(reason) {
       clearFirebaseCooldownValue();
