@@ -3249,7 +3249,30 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
-  const BLOCKED_LEGACY_ADMIN_EMAILS = ["jssantana077@gmail.com"];
+  const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com"];
+  const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
+  const INITIAL_ADMIN_USER = {
+    id: "admin-inicial-henry-ortiz",
+    nombre: "Administrador Principal",
+    email: INITIAL_ADMIN_EMAIL,
+    password: "193004",
+    role: "admin",
+    modulo: "ambos",
+    permisos: [],
+    activo: true,
+    createdAt: "2026-09-23T00:00:00",
+    updatedAt: "2026-09-23T00:00:00"
+  };
+  const USER_RECOVERY_SEEDS = [
+    { id: "user-1784586420790", nombre: "Sobeida", email: "sobeidawtf@gmail.com", password: "2915", role: "user", modulo: "ambos" },
+    { id: "user-1786673699591", nombre: "Ovelto Berizaire", email: "oveltowtf@gmail.com", password: "2468", role: "user", modulo: "ambos" },
+    { id: "user-1786674866753", nombre: "Luis", email: "luiswtf@gmail.com", password: "2233", role: "user", modulo: "ambos" },
+    { id: "user-1786674989792", nombre: "Victor", email: "victorwtf@gmail.com", password: "3344", role: "user", modulo: "ambos" },
+    { id: "user-recovery-limpieza-wtf", nombre: "Limpieza WTF", email: "limpiezawtf@gmail.com", password: "0001", role: "user", modulo: "sharp", permisos: ["sharp"] },
+    { id: "user-1784587909671", nombre: "Limpieza Salon", email: "salonwtf@gmail.com", password: "5646", role: "user", modulo: "sharp", permisos: ["sharp"] },
+    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" },
+    { id: "user-1788327027385", nombre: "Jhonn", email: "jhonnwtf@gmail.com", password: "0000", role: "user", modulo: "ambos" }
+  ];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
     lng: -69.87001,
@@ -4831,6 +4854,21 @@
     return name ? `name:${name}` : "";
   }
   function mergeUserRows(localRows, remoteRows) {
+    const localList = Array.isArray(localRows) ? localRows : [];
+    const remoteList = Array.isArray(remoteRows) ? remoteRows : [];
+    const localOperationalCount = localList.filter(function(row) {
+      return row && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
+    }).length;
+    const remoteOperationalCount = remoteList.filter(function(row) {
+      return row && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
+    }).length;
+    const remoteRootOnly = remoteList.length > 0 && remoteOperationalCount === 0 && remoteList.some(function(row) {
+      return isRootAdmin(row);
+    });
+    if (localOperationalCount > 0 && remoteRootOnly) {
+      console.warn("Se ignora lista remota de usuarios incompleta para proteger accesos locales.");
+      return ensureAdminUser(localList);
+    }
     const map = new Map();
     function addRows(rows, preferLocalOnTie) {
       (Array.isArray(rows) ? rows : []).forEach(function(row) {
@@ -5382,7 +5420,8 @@
     const list = Array.isArray(users) ? users.map(function(u) {
       return Object.assign({}, u);
     }).filter(function(u) {
-      return !isRootAdmin(u);
+      const email = normalizar(u && u.email || "");
+      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email);
     }) : [];
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
@@ -5406,15 +5445,48 @@
         }
       }
     }
+    const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
+    const hasInitialAdmin = list.some(function(user) {
+      return normalizar(user && user.email || "") === initialAdminKey;
+    });
+    if (!hasInitialAdmin) {
+      list.unshift(Object.assign({}, INITIAL_ADMIN_USER, { permisos: allOperationalPermissions }));
+    }
+    USER_RECOVERY_SEEDS.forEach(function(seed) {
+      const seedEmail = normalizar(seed && seed.email || "");
+      if (!seedEmail) return;
+      const existingIndex = list.findIndex(function(user) {
+        return normalizar(user && user.email || "") === seedEmail;
+      });
+      if (existingIndex === -1) {
+        list.push(Object.assign({
+          activo: true,
+          permisos: allOperationalPermissions,
+          createdAt: "2026-09-23T00:00:00",
+          updatedAt: "2026-09-23T00:00:00"
+        }, seed));
+      } else {
+        const existing = list[existingIndex] || {};
+        list[existingIndex] = Object.assign({}, seed, existing, {
+          id: existing.id || seed.id,
+          nombre: existing.nombre || seed.nombre,
+          password: existing.password || seed.password,
+          role: existing.role || seed.role,
+          modulo: existing.modulo || seed.modulo,
+          activo: existing.activo !== false,
+          permisos: Array.isArray(existing.permisos) && existing.permisos.length ? existing.permisos : (Array.isArray(seed.permisos) ? seed.permisos : allOperationalPermissions)
+        });
+      }
+    });
     return list;
   }
   function initUsuarios() {
-    return ensureAdminUser([]);
+    return ensureAdminUser([INITIAL_ADMIN_USER]);
   }
   function isRootAdmin(user) {
     if (!user) return false;
     const email = normalizar(user.email || user);
-    return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email) || BLOCKED_LEGACY_ADMIN_EMAILS.includes(email);
+    return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email);
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
