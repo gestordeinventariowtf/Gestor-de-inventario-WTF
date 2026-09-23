@@ -189,8 +189,19 @@
     lastCheckAt = now;
     fetchVersion().then(function (latestVersion) {
       if (!latestVersion) return;
+      const urlVersion = new URLSearchParams(window.location.search).get("wtf_v") || "";
+      if (urlVersion && urlVersion === latestVersion) {
+        acknowledgeVersion(latestVersion);
+        removeUpdateBanner();
+        return;
+      }
       if (latestVersion === getAcknowledgedVersion()) {
         setStoredVersion(latestVersion);
+        removeUpdateBanner();
+        return;
+      }
+      if (document.readyState === "complete" && currentVersion && latestVersion !== currentVersion && performance && performance.navigation && performance.navigation.type === 1) {
+        acknowledgeVersion(latestVersion);
         removeUpdateBanner();
         return;
       }
