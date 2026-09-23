@@ -5247,6 +5247,14 @@
     return preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
+    "inventario",
+    "cuartoFrioInventario",
+    "miseAnPlace",
+    "barInventario",
+    "barCuartoFrioInventario",
+    "barMiseAnPlace",
+    "usuarios",
+    "appSecurity",
     "regProduccion",
     "regSalidas",
     "recetasProduccion",
@@ -11999,6 +12007,8 @@
     const applyingRemoteRef = useRef(false);
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
+    const firebaseShardSignaturesRef = useRef({});
+    const firebaseExternalSignaturesRef = useRef({});
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12160,6 +12170,7 @@
         externalDocs.push({
           id: FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData,
           key: "icgFrontRestData",
+          signature: quickHashText(JSON.stringify(externalIcgFrontRestData || {})),
           doc: Object.assign({
             key: "icgFrontRestData",
             sourceDocumentId: firebaseCfg.documentId,
@@ -12183,10 +12194,13 @@
       const shards = splitState.shards.map(function(shard) {
         const shardCompressed = encodeFirebaseAppState(shard.value);
         const shardJsonBytes = JSON.stringify(shard.value || {}).length;
+        const shardSignature = quickHashText(JSON.stringify(shard.value || {}));
         return {
           key: shard.key,
+          signature: shardSignature,
           doc: Object.assign({
             key: shard.key,
+            appStateSignature: shardSignature,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             appStateFormat: shardCompressed ? "pako-base64-json-v1" : "json",
             appStateJsonBytes: shardJsonBytes,
@@ -12274,8 +12288,23 @@
           (writeDoc.externalDocs || []).forEach(function(externalDoc) {
             if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
           });
+          writeDoc.shards = (writeDoc.shards || []).filter(function(shard) {
+            const previous = firebaseShardSignaturesRef.current[shard.key] || "";
+            return !shard.signature || shard.signature !== previous;
+          });
+          writeDoc.externalDocs = (writeDoc.externalDocs || []).filter(function(externalDoc) {
+            const previous = firebaseExternalSignaturesRef.current[externalDoc.key || externalDoc.id] || "";
+            return !externalDoc.signature || externalDoc.signature !== previous;
+          });
           pendingLocalSignatureRef.current = writeDoc.signature;
           await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+          (writeDoc.shards || []).forEach(function(shard) {
+            if (shard && shard.key && shard.signature) firebaseShardSignaturesRef.current[shard.key] = shard.signature;
+          });
+          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+            const externalKey = externalDoc && (externalDoc.key || externalDoc.id);
+            if (externalKey && externalDoc.signature) firebaseExternalSignaturesRef.current[externalKey] = externalDoc.signature;
+          });
           lastRemoteSignatureRef.current = writeDoc.signature;
           lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
           hasSessionLocalChangeRef.current = false;
@@ -12962,6 +12991,24 @@
             return;
           }
           const data = snapshot.data();
+          const remoteSyncMeta = data && data.syncMeta || {};
+          const remoteMetaSignature = String(remoteSyncMeta.signature || "");
+          const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+          if (
+            firebaseBootstrappedRef.current &&
+            remoteMetaSignature &&
+            remoteMetaSignature === lastRemoteMetaSignatureRef.current &&
+            !hasPendingLocalWrite
+          ) {
+            acceptRemoteSyncRevision(remoteSyncMeta.revision);
+            setFirebaseStatus("connected");
+            setFirebaseMessage("Sincronizado en tiempo real");
+            if (data && data.updatedAt) {
+              const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
+              setLastSyncedAt(formatDatetime(date));
+            }
+            return;
+          }
           const remoteState = await decodeFirebaseAppState(data, docRef);
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
@@ -12978,8 +13025,6 @@
             }
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
-            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
-            const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
             const localRevision = Number(syncRevisionRef.current || 0);
