@@ -11997,6 +11997,8 @@
     const sessionStartedAtRef = useRef(Date.now());
     const hasSessionLocalChangeRef = useRef(false);
     const applyingRemoteRef = useRef(false);
+    const firebaseWriteInFlightRef = useRef(false);
+    const firebaseWriteQueuedRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12250,6 +12252,14 @@
       hasSessionLocalChangeRef.current = true;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
+        if (firebaseWriteInFlightRef.current) {
+          firebaseWriteQueuedRef.current = true;
+          syncTimerRef.current = window.setTimeout(function() {
+            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
+          }, 2500);
+          return;
+        }
+        firebaseWriteInFlightRef.current = true;
         try {
           const snapshotState = appState || getCurrentAppState();
           const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
@@ -12277,6 +12287,12 @@
           if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
           setFirebaseStatus("error");
           setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
+        } finally {
+          firebaseWriteInFlightRef.current = false;
+          if (firebaseWriteQueuedRef.current) {
+            firebaseWriteQueuedRef.current = false;
+            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
+          }
         }
       }, delay);
     }
@@ -13043,7 +13059,7 @@
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      scheduleFirebaseWrite(null, "", 700, "web-client");
+      scheduleFirebaseWrite(null, "", 2200, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
