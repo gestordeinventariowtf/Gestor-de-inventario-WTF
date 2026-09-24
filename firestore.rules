@@ -44,8 +44,9 @@ service cloud.firestore {
     }
 
     match /pwaPushMessages/{messageId} {
-      allow read: if isAuthorizedAdmin();
-      allow create: if request.resource.data.status == 'pending'
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.status in ['pending', 'scheduled']
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 120
@@ -53,7 +54,8 @@ service cloud.firestore {
         && request.resource.data.body.size() > 0
         && request.resource.data.body.size() <= 500
         && (!('topic' in request.resource.data) || request.resource.data.topic is string && request.resource.data.topic.size() <= 40)
-        && (!('url' in request.resource.data) || request.resource.data.url is string && request.resource.data.url.size() <= 240);
+        && (!('url' in request.resource.data) || request.resource.data.url is string && request.resource.data.url.size() <= 240)
+        && (!('scheduledFor' in request.resource.data) || request.resource.data.scheduledFor is string && request.resource.data.scheduledFor.size() <= 40);
       allow update, delete: if false;
     }
 
