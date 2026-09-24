@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924184646-2f802a2";</script>
+  <script>window.WTF_APP_VERSION = "20260924185043-e166558";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12176,7 +12176,7 @@
           }
         });
       } catch (error) {
-        console.error("Firebase Auth init error:", error);
+        console.error("Access service init error:", error);
         setFirebaseAuthLoading(false);
         setFirebaseStatus("error");
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar el servicio de acceso");
@@ -12950,7 +12950,7 @@
       if (window.firebase && window.firebase.auth) {
         try {
           window.firebase.auth().signOut().catch(function(error) {
-            console.warn("Firebase Auth signOut error:", error);
+            console.warn("Access service signOut error:", error);
           });
         } catch (error) {
           console.warn(error);
