@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260923234241-a974b27";</script>
+  <script>window.WTF_APP_VERSION = "20260924001420-5dda5b3";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5253,7 +5253,6 @@
     "recetasProduccion",
     "barRegSalidas",
     "barHistSalidaRapida",
-    "systemLogs",
     "histSalidaRapida",
     "regEntradas",
     "barRegEntradas",
@@ -5264,7 +5263,8 @@
     "financialData"
   ];
   const FIREBASE_EXTERNAL_STATE_DOCS = {
-    icgFrontRestData: "icgFrontRestData"
+    icgFrontRestData: "icgFrontRestData",
+    systemLogs: "systemLogs"
   };
   function splitFirebaseAppStateIntoShards(state) {
     const mainState = Object.assign({}, state || {});
@@ -5352,9 +5352,15 @@
         }
       }));
     }
-    const externalIcgFrontRestData = await readFirebaseExternalStateDoc(docRef, "icgFrontRestData");
-    if (typeof externalIcgFrontRestData !== "undefined" && externalIcgFrontRestData !== null) {
-      state.icgFrontRestData = externalIcgFrontRestData;
+    const externalKeys = Array.from(new Set([
+      ...Object.keys(FIREBASE_EXTERNAL_STATE_DOCS),
+      ...(Array.isArray(data.appStateExternalKeys) ? data.appStateExternalKeys : [])
+    ]));
+    if (docRef && externalKeys.length) {
+      await Promise.all(externalKeys.map(async function(key) {
+        const externalValue = await readFirebaseExternalStateDoc(docRef, key);
+        if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
+      }));
     }
     return state;
   }
@@ -12153,16 +12159,18 @@
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
       const externalDocs = [];
-      const externalIcgFrontRestData = Object.prototype.hasOwnProperty.call(firebaseState, "icgFrontRestData") ? firebaseState.icgFrontRestData : null;
-      if (Object.prototype.hasOwnProperty.call(firebaseState, "icgFrontRestData")) {
-        delete firebaseState.icgFrontRestData;
-        const externalCompressed = encodeFirebaseAppState(externalIcgFrontRestData || {});
-        const externalJsonBytes = JSON.stringify(externalIcgFrontRestData || {}).length;
+      Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
+        if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
+        const externalValue = firebaseState[key];
+        delete firebaseState[key];
+        const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
+        const externalCompressed = encodeFirebaseAppState(safeExternalValue);
+        const externalJsonBytes = JSON.stringify(safeExternalValue).length;
         externalDocs.push({
-          id: FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData,
-          key: "icgFrontRestData",
+          id: FIREBASE_EXTERNAL_STATE_DOCS[key],
+          key,
           doc: Object.assign({
-            key: "icgFrontRestData",
+            key,
             sourceDocumentId: firebaseCfg.documentId,
             syncMeta,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
@@ -12174,11 +12182,11 @@
             appStateCompressed: externalCompressed,
             appState: window.firebase.firestore.FieldValue.delete()
           } : {
-            appState: externalIcgFrontRestData || {},
+            appState: safeExternalValue,
             appStateCompressed: window.firebase.firestore.FieldValue.delete()
           })
         });
-      }
+      });
       const splitState = splitFirebaseAppStateIntoShards(firebaseState);
       const compressed = encodeFirebaseAppState(splitState.mainState);
       const shards = splitState.shards.map(function(shard) {

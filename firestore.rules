@@ -18,6 +18,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /wtfSistema/systemLogs {
+      allow read, write: if true;
+    }
+
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
       allow read: if true;
       allow write: if shardId != 'icgFrontRestData'
