@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924045401-7adca4b";</script>
+  <script>window.WTF_APP_VERSION = "20260924050052-ccb63cd";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5242,7 +5242,9 @@
     };
   }
   function prepareFirebaseAppStateForWrite(state) {
-    return preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
+    const prepared = preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
+    prepared.usuarios = ensureAdminUser(prepared.usuarios || []);
+    return prepared;
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
     "regProduccion",
