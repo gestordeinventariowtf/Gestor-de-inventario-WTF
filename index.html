@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924064017-5474567";</script>
+  <script>window.WTF_APP_VERSION = "20260924072355-f4e5c1c";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2602,19 +2602,25 @@
       || text.includes("unavailable");
   }
   function getFirebaseCooldownUntil() {
-    clearFirebaseCooldownValue();
-    return 0;
+    try {
+      return Number(localStorage.getItem(FIREBASE_COOLDOWN_STORAGE_KEY) || 0) || 0;
+    } catch (_) {
+      return 0;
+    }
   }
   function setFirebaseCooldownUntilValue(value) {
     try {
-      localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+      if (value) localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
+      else localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
     } catch (_) {}
   }
   function clearFirebaseCooldownValue() {
     setFirebaseCooldownUntilValue(0);
   }
   function formatFirebaseCooldownMessage(until) {
-    return "Firebase intento sincronizar nuevamente.";
+    if (!until || Date.now() >= until) return "Firebase listo para reintentar.";
+    const minutes = Math.max(1, Math.ceil((until - Date.now()) / 6e4));
+    return `Sincronizacion con Firebase protegida temporalmente. Reintento en ${minutes} min.`;
   }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
@@ -3273,7 +3279,7 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
-  const PERMANENTLY_REMOVED_USER_EMAILS = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com"];
+  const PERMANENTLY_REMOVED_USER_EMAILS = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com", "jhonndell077@gmail.com"];
   const LEGACY_ADMIN_EMAILS_TO_REMOVE = PERMANENTLY_REMOVED_USER_EMAILS;
   const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
   const INITIAL_ADMIN_USER = {
@@ -12041,7 +12047,7 @@
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
     const [authorizing, setAuthorizing] = useState(false);
-    const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
+    const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "cocinaplazaduarte@gmail.com"]));
     const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
     const [icgControl, setIcgControl] = useState(() => {
       const normalized = ensureIcgFrontRestData(icgFrontRestData);
@@ -12126,10 +12132,25 @@
     }, []);
     firebaseCooldownUntilRef.current = firebaseCooldownUntil;
     function isFirebaseCooldownActive() {
-      return false;
+      const until = Number(firebaseCooldownUntilRef.current || getFirebaseCooldownUntil() || 0);
+      if (!until) return false;
+      if (Date.now() >= until) {
+        clearFirebaseCooldownValue();
+        firebaseCooldownUntilRef.current = 0;
+        setFirebaseCooldownUntil(0);
+        return false;
+      }
+      return true;
     }
     function activateFirebaseCooldown(error, operation) {
-      return false;
+      if (!isFirebaseQuotaOrPermissionError(error)) return false;
+      const until = Date.now() + FIREBASE_COOLDOWN_MS;
+      setFirebaseCooldownUntilValue(until);
+      firebaseCooldownUntilRef.current = until;
+      setFirebaseCooldownUntil(until);
+      setFirebaseStatus("error");
+      setFirebaseMessage(`${operation || "Firebase"} pausado: ${formatFirebaseCooldownMessage(until)}`);
+      return true;
     }
     function clearFirebaseCooldown(reason) {
       clearFirebaseCooldownValue();
