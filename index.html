@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924173743-86f57c2";</script>
+  <script>window.WTF_APP_VERSION = "20260924175434-dc74e1a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2526,6 +2526,7 @@
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
+  const APP_BUILD_ID = String(window.WTF_APP_VERSION || "");
   function load(key, def) {
     try {
       const v = localStorage.getItem(key);
@@ -2586,6 +2587,7 @@
     });
   }
   const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
+  const FIREBASE_COOLDOWN_VERSION_STORAGE_KEY = "wtf_firebase_cooldown_app_version";
   const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
   function getFirebaseErrorText(error) {
     return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
@@ -2603,6 +2605,12 @@
   }
   function getFirebaseCooldownUntil() {
     try {
+      const storedVersion = localStorage.getItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY) || "";
+      if (storedVersion && APP_BUILD_ID && storedVersion !== APP_BUILD_ID) {
+        localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+        localStorage.removeItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY);
+        return 0;
+      }
       return Number(localStorage.getItem(FIREBASE_COOLDOWN_STORAGE_KEY) || 0) || 0;
     } catch (_) {
       return 0;
@@ -2610,8 +2618,13 @@
   }
   function setFirebaseCooldownUntilValue(value) {
     try {
-      if (value) localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
-      else localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+      if (value) {
+        localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
+        localStorage.setItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY, APP_BUILD_ID || "unknown");
+      } else {
+        localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
+        localStorage.removeItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY);
+      }
     } catch (_) {}
   }
   function clearFirebaseCooldownValue() {
@@ -5447,6 +5460,28 @@
       }));
     }
     await docRef.set(writeDoc.doc, { merge: true });
+  }
+  async function writeSecureFirebasePayload(payload) {
+    const syncConfig = getFirebaseSyncConfig();
+    const secureEndpoint = String(syncConfig && syncConfig.secureStateWriteEndpoint || "").trim();
+    if (!secureEndpoint) throw new Error("La ruta segura de Firebase no esta configurada.");
+    if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
+      throw new Error("Inicia sesion con Google para sincronizar cambios seguros.");
+    }
+    const idToken = await window.firebase.auth().currentUser.getIdToken();
+    const response = await fetch(secureEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify(payload || {})
+    });
+    const result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
+    }
+    return result;
   }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
@@ -12609,7 +12644,6 @@
       const pause = Boolean(pendingIcgControlAction.paused);
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const userLabel = getIcgControlUserLabel();
-      const serverTimestamp = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue ? window.firebase.firestore.FieldValue.serverTimestamp() : now;
       let forgottenLegacyRows = 0;
       const cleanedLegacyIcg = forgetLegacyIcgMovementsWithoutModernKeys(icgFrontRestData);
       forgottenLegacyRows = cleanedLegacyIcg.ignored;
@@ -12621,7 +12655,7 @@
         reason: "Deducciones ICG pausadas manualmente. La sincronizacion y los registros siguen activos.",
         pausedAt: now,
         pausedBy: userLabel,
-        updatedAt: serverTimestamp,
+        updatedAt: now,
         updatedBy: userLabel
       } : {
         status: "INACTIVE",
@@ -12630,13 +12664,12 @@
         reason: "",
         resumedAt: now,
         resumedBy: userLabel,
-        updatedAt: serverTimestamp,
+        updatedAt: now,
         updatedBy: userLabel
       };
       try {
-        await icgControlDocRef.current.set(nextDoc, { merge: true });
+        await writeSecureFirebasePayload({ icgControlDoc: nextDoc });
       } catch (error) {
-        if (activateFirebaseCooldown(error, "wtfSistema/icgControl escritura")) return;
         throw error;
       }
       applyIcgControlState(Object.assign({}, nextDoc, { updatedAt: now }));

@@ -163,15 +163,18 @@ function normalizeSecureFirestoreDoc(doc) {
 async function writeSecureStatePayload(payload, actor, req) {
   const db = getFirestore();
   const rootRef = db.collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID);
-  const rootDoc = normalizeSecureFirestoreDoc(payload?.doc || {});
-  rootDoc.secureWrite = {
-    by: actor.email,
-    uid: actor.uid,
-    at: FieldValue.serverTimestamp(),
-    observedIp: observedIp(req),
-    userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
-  };
-  await rootRef.set(rootDoc, { merge: true });
+  const hasRootDoc = payload?.doc && typeof payload.doc === "object" && Object.keys(payload.doc).length > 0;
+  if (hasRootDoc) {
+    const rootDoc = normalizeSecureFirestoreDoc(payload.doc || {});
+    rootDoc.secureWrite = {
+      by: actor.email,
+      uid: actor.uid,
+      at: FieldValue.serverTimestamp(),
+      observedIp: observedIp(req),
+      userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
+    };
+    await rootRef.set(rootDoc, { merge: true });
+  }
 
   const shards = Array.isArray(payload?.shards) ? payload.shards : [];
   for (const shard of shards) {
@@ -189,6 +192,22 @@ async function writeSecureStatePayload(payload, actor, req) {
     await db.collection(WTF_SYSTEM_COLLECTION).doc(id).set(externalDoc, { merge: true });
   }
 
+  let icgControlWritten = false;
+  if (payload?.icgControlDoc && typeof payload.icgControlDoc === "object") {
+    const controlDoc = cleanAdminWritableStateValue(payload.icgControlDoc);
+    controlDoc.secureWrite = {
+      by: actor.email,
+      uid: actor.uid,
+      at: FieldValue.serverTimestamp(),
+      observedIp: observedIp(req),
+      userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
+    };
+    controlDoc.updatedAt = FieldValue.serverTimestamp();
+    controlDoc.updatedBy = controlDoc.updatedBy || actor.email;
+    await db.collection(WTF_SYSTEM_COLLECTION).doc("icgControl").set(controlDoc, { merge: true });
+    icgControlWritten = true;
+  }
+
   await db.collection(TERMINAL_AUDIT_COLLECTION).add({
     type: "SECURE_STATE_WRITE",
     actor: actor.name || actor.email,
@@ -198,9 +217,10 @@ async function writeSecureStatePayload(payload, actor, req) {
     rootDoc: WTF_STATE_DOC_ID,
     shardCount: shards.length,
     externalDocCount: externalDocs.length,
+    icgControlWritten,
     createdAt: FieldValue.serverTimestamp()
   });
-  return { ok: true, shardCount: shards.length, externalDocCount: externalDocs.length };
+  return { ok: true, shardCount: shards.length, externalDocCount: externalDocs.length, icgControlWritten };
 }
 
 function sanitizeTerminalText(value, max = 160) {
