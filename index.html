@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924204534-5bc2a96";</script>
+  <script>window.WTF_APP_VERSION = "20260924212843-514b56a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5519,7 +5519,7 @@
       return Object.assign({}, u);
     }).filter(function(u) {
       const email = normalizar(u && u.email || "");
-      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && email === initialAdminKey;
+      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && !isPermanentlyRemovedUserEmail(email);
     }) : [];
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
