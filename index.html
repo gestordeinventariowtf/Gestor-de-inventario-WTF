@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924171203-256b144";</script>
+  <script>window.WTF_APP_VERSION = "20260924173743-86f57c2";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12094,6 +12094,8 @@
     const lastRemoteMetaSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
+    const confirmedSecureWriteSignatureRef = useRef("");
+    const confirmedSecureWriteAtRef = useRef(0);
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
     const syncRevisionRef = useRef(Number(load("wtf_sync_revision", 0)) || 0);
     const sessionStartedAtRef = useRef(Date.now());
@@ -12450,6 +12452,10 @@
             await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
             lastRemoteSignatureRef.current = writeDoc.signature;
             lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
+            confirmedSecureWriteSignatureRef.current = writeDoc.signature;
+            confirmedSecureWriteAtRef.current = Date.now();
+            pendingLocalSignatureRef.current = "";
+            pendingLocalAtRef.current = 0;
             hasSessionLocalChangeRef.current = false;
             setFirebaseStatus("connected");
             setFirebaseMessage("Cambios sincronizados");
@@ -12663,10 +12669,25 @@
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
         const currentSignature = getCurrentStateSignatureFast(hasPendingLocalWrite);
+        const isAwaitingSecureWriteEcho = confirmedSecureWriteSignatureRef.current
+          && currentSignature === confirmedSecureWriteSignatureRef.current
+          && Date.now() - Number(confirmedSecureWriteAtRef.current || 0) < 6e4
+          && remoteSignature !== currentSignature
+          && (!remoteMetaSignature || remoteMetaSignature !== lastRemoteMetaSignatureRef.current);
+        if (isAwaitingSecureWriteEcho) {
+          setFirebaseStatus("connected");
+          setFirebaseMessage("Confirmando cambios seguros en Firebase...");
+          return;
+        }
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           lastRemoteSignatureRef.current = remoteSignature;
           lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
+          pendingLocalSignatureRef.current = "";
+          pendingLocalAtRef.current = 0;
+          confirmedSecureWriteSignatureRef.current = "";
+          confirmedSecureWriteAtRef.current = 0;
+          hasSessionLocalChangeRef.current = false;
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
           if (data && data.updatedAt) {
@@ -13252,17 +13273,27 @@
             const remoteIsOlderByClientTime = !remoteHasRevision && localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
             const remoteIsOlderThanLocal = hasCurrentSessionLocalChange && (remoteIsOlderByRevision || remoteIsOlderByClientTime);
             const remoteIsStalePendingEcho = hasCurrentSessionLocalChange && hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
+            const isAwaitingSecureWriteEcho = confirmedSecureWriteSignatureRef.current
+              && currentSignature === confirmedSecureWriteSignatureRef.current
+              && Date.now() - Number(confirmedSecureWriteAtRef.current || 0) < 6e4
+              && remoteSignature !== currentSignature
+              && (!remoteMetaSignature || remoteMetaSignature !== lastRemoteMetaSignatureRef.current);
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
             if (data.updatedAt) {
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
               setLastSyncedAt(formatDatetime(date));
             }
-            if (remoteSignature === currentSignature) {
+            if (isAwaitingSecureWriteEcho) {
+              setFirebaseMessage("Confirmando cambios seguros en Firebase...");
+            } else if (remoteSignature === currentSignature) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
+              lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
+              confirmedSecureWriteSignatureRef.current = "";
+              confirmedSecureWriteAtRef.current = 0;
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
