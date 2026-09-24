@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924011243-dd0ab02";</script>
+  <script>window.WTF_APP_VERSION = "20260924033421-9d57e59";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3930,7 +3930,8 @@
   const SYSTEM_LOG_KEEP_FIELDS = [
     "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
     "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
-    "movimientoIcgId", "physicalIcgKey", "ticket", "serie", "numero", "storageKey"
+    "movimientoIcgId", "physicalIcgKey", "ticket", "serie", "numero", "storageKey",
+    "previousEmail", "newEmail", "passwordChanged", "deviceInfo"
   ];
   function compactSystemLogText(value) {
     const text = String(value == null ? "" : value);
@@ -5621,6 +5622,15 @@
       standalone: Boolean(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
     };
   }
+  function getClientAuditDeviceInfo() {
+    const screenSize = window.screen ? `${window.screen.width}x${window.screen.height}` : "";
+    return [
+      navigator.platform || "",
+      navigator.userAgent || "",
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      screenSize
+    ].filter(Boolean).join(" | ");
+  }
   function makeTerminalSecret() {
     const bytes = new Uint8Array(32);
     if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
@@ -5769,6 +5779,18 @@
     const input = String(password || "");
     if (!input) return false;
     return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
+  }
+  function isValidSecondaryAdminPassword(users, password, currentUser) {
+    const input = String(password || "");
+    if (!input) return false;
+    const currentId = String(currentUser && currentUser.id || "");
+    const currentEmail = normalizar(currentUser && currentUser.email || "");
+    return getVisibleAdminUsers(users).some(function(user) {
+      if (!user || user.activo === false) return false;
+      if (currentId && String(user.id || "") === currentId) return false;
+      if (currentEmail && normalizar(user.email || "") === currentEmail) return false;
+      return String(user.password || "") === input;
+    });
   }
   function findActiveUserByPassword(users, password) {
     const input = String(password || "");
@@ -12792,7 +12814,8 @@
       addSystemLog({
         modulo: "Sistema",
         accion: "Inicio de sesion",
-        detalle: loginDetail
+        detalle: loginDetail,
+        deviceInfo: isAdminUser(user) ? getClientAuditDeviceInfo() : ""
       }, user);
       const routeAfterLogin = getAppRouteFromLocation();
       if (routeAfterLogin && routeAfterLogin.modulo) {
@@ -12882,8 +12905,12 @@
       const nextEmail = String(payload.email || "").trim().toLowerCase();
       const currentPassword = String(payload.currentPassword || "");
       const nextPassword = String(payload.newPassword || "");
+      const adminPassword = String(payload.adminPassword || "");
       if (!nextEmail) throw new Error("Ingrese el nuevo correo.");
       if (String(currentUser.password || "") !== currentPassword) throw new Error("La contrase\xF1a actual no coincide.");
+      if (isAdminUser(currentUser) && !isValidSecondaryAdminPassword(usuarios, adminPassword, currentUser)) {
+        throw new Error("Ingrese la clave de otro administrador activo para autorizar este cambio.");
+      }
       const duplicate = usuarios.find(function(u) {
         return u.id !== currentUser.id && normalizar(u.email) === normalizar(nextEmail);
       });
@@ -12905,6 +12932,15 @@
           });
         }));
       });
+      addSystemLog({
+        modulo: "Seguridad",
+        accion: "Cambio de acceso",
+        detalle: `El usuario ${getUserDisplayLabel(currentUser)} actualizo sus datos de acceso. Correo anterior: ${currentUser.email || ""}. Correo nuevo: ${nextEmail}. Cambio de contrasena: ${nextPassword ? "Si" : "No"}.`,
+        previousEmail: currentUser.email || "",
+        newEmail: nextEmail,
+        passwordChanged: Boolean(nextPassword),
+        deviceInfo: getClientAuditDeviceInfo()
+      }, currentUser);
       setAuthUserEmail(nextEmail);
       setSelfAccessModal(false);
       toast("Tus datos de acceso fueron actualizados.", "ok");
@@ -21543,14 +21579,16 @@
     const [email, setEmail] = useState(currentUser && currentUser.email ? currentUser.email : "");
     const [currentPassword, setCurrentPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
+    const [adminPassword, setAdminPassword] = useState("");
     function submit() {
       onSave({
         email,
         currentPassword,
-        newPassword
+        newPassword,
+        adminPassword
       });
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card", style: { marginRight: 7 } }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nuevo correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: email, onChange: (e) => setEmail(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a actual"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: "Obligatoria para confirmar cambios" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nueva contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: "Opcional, solo si deseas cambiarla" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Si dejas la nueva contrase\xF1a vac\xEDa, se mantendr\xE1 la actual.")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: submit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar acceso"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card", style: { marginRight: 7 } }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nuevo correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: email, onChange: (e) => setEmail(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a actual"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: "Obligatoria para confirmar cambios" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nueva contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: "Opcional, solo si deseas cambiarla" })), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave de otro administrador"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: adminPassword, onChange: (e) => setAdminPassword(e.target.value), placeholder: "Obligatoria para administradores" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Si dejas la nueva contrase\xF1a vac\xEDa, se mantendr\xE1 la actual.")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: submit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar acceso"))));
   }
   function EditRegistroModal({ record, tab, currentUser, usuarios, onClose, onSave }) {
     const toast = useToast();
