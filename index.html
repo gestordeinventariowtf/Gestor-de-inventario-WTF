@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924033421-9d57e59";</script>
+  <script>window.WTF_APP_VERSION = "20260924045401-7adca4b";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3241,7 +3241,8 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
-  const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com"];
+  const PERMANENTLY_REMOVED_USER_EMAILS = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com"];
+  const LEGACY_ADMIN_EMAILS_TO_REMOVE = PERMANENTLY_REMOVED_USER_EMAILS;
   const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
   const INITIAL_ADMIN_USER = {
     id: "admin-inicial-henry-ortiz",
@@ -3262,8 +3263,7 @@
     { id: "user-1786674989792", nombre: "Victor", email: "victorwtf@gmail.com", password: "3344", role: "user", modulo: "ambos" },
     { id: "user-recovery-limpieza-wtf", nombre: "Limpieza WTF", email: "limpiezawtf@gmail.com", password: "0001", role: "user", modulo: "sharp", permisos: ["sharp"] },
     { id: "user-1784587909671", nombre: "Limpieza Salon", email: "salonwtf@gmail.com", password: "5646", role: "user", modulo: "sharp", permisos: ["sharp"] },
-    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" },
-    { id: "user-1788327027385", nombre: "Jhonn", email: "jhonnwtf@gmail.com", password: "0000", role: "user", modulo: "ambos" }
+    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" }
   ];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
@@ -5486,6 +5486,9 @@
     if (!user) return false;
     const email = normalizar(user.email || user);
     return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email);
+  }
+  function isPermanentlyRemovedUserEmail(email) {
+    return PERMANENTLY_REMOVED_USER_EMAILS.includes(normalizar(email || ""));
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
@@ -21465,6 +21468,10 @@
       }
       if (!email) {
         toast("Ingrese el correo del usuario.", "error");
+        return;
+      }
+      if (isPermanentlyRemovedUserEmail(email)) {
+        toast("Este correo fue eliminado definitivamente y no puede volver a registrarse.", "error");
         return;
       }
       if (!editingId && !password) {
