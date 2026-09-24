@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924212843-514b56a";</script>
+  <script>window.WTF_APP_VERSION = "20260924213937-776aec9";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12325,6 +12325,10 @@
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
+      markLocalSyncChange();
+      window.setTimeout(function() {
+        scheduleFirebaseWrite(null, "", 1500, "system-log");
+      }, 0);
       return entry;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
@@ -12744,7 +12748,9 @@
         }
         const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || hasPendingLocalWrite;
         if (hasCurrentSessionLocalChange && reason !== "manual-sync") {
-          setFirebaseMessage("Sincronizacion pausada: cambios locales pendientes");
+          setFirebaseStatus("connected");
+          setFirebaseMessage("Enviando cambios locales pendientes...");
+          scheduleFirebaseWrite(null, currentSignature, 250, "web-client-pending-local");
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
