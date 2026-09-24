@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924213937-776aec9";</script>
+  <script>window.WTF_APP_VERSION = "20260924215344-d7769ec";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3305,6 +3305,7 @@
     nombre: "Administrador Principal",
     email: INITIAL_ADMIN_EMAIL,
     password: "193004",
+    adminActionPassword: "193004",
     role: "admin",
     modulo: "ambos",
     permisos: [],
@@ -5538,6 +5539,10 @@
         list[i] = user;
       }
       if (!isRootAdmin(user) && user.role === "admin") {
+        if (!String(user.adminActionPassword || "").trim() && String(user.password || "").trim()) {
+          user = Object.assign({}, user, { adminActionPassword: user.password });
+          list[i] = user;
+        }
         if (!Array.isArray(user.permisos) || user.permisos.length === 0) {
           list[i] = Object.assign({}, user, { permisos: allOperationalPermissions });
         }
@@ -5555,6 +5560,7 @@
         nombre: currentInitialAdmin.nombre || INITIAL_ADMIN_USER.nombre,
         email: INITIAL_ADMIN_USER.email,
         password: INITIAL_ADMIN_USER.password,
+        adminActionPassword: currentInitialAdmin.adminActionPassword || INITIAL_ADMIN_USER.adminActionPassword,
         role: "admin",
         activo: true,
         permisos: allOperationalPermissions,
@@ -5893,10 +5899,14 @@
   function getVisibleAdminUsers(users) {
     return Array.isArray(users) ? users.filter((user) => user && user.activo !== false && user.role === "admin" && !isRootAdmin(user)) : [];
   }
+  function getAdminActionPassword(user) {
+    if (!user || user.role !== "admin") return "";
+    return String(user.adminActionPassword || user.claveAdministradora || user.adminKey || user.password || "");
+  }
   function isValidVisibleAdminPassword(users, password) {
     const input = String(password || "");
     if (!input) return false;
-    return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
+    return getVisibleAdminUsers(users).some((user) => getAdminActionPassword(user) === input);
   }
   function isValidSecondaryAdminPassword(users, password, currentUser) {
     const input = String(password || "");
@@ -5907,7 +5917,7 @@
       if (!user || user.activo === false) return false;
       if (currentId && String(user.id || "") === currentId) return false;
       if (currentEmail && normalizar(user.email || "") === currentEmail) return false;
-      return String(user.password || "") === input;
+      return getAdminActionPassword(user) === input;
     });
   }
   function findActiveUserByPassword(users, password) {
@@ -21686,7 +21696,7 @@
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
     const securityInfo = normalizeAppSecurity(appSecurity);
     const canCreateUsers = isAdminUser(currentUser) && normalizar(currentUser && currentUser.email || "") === normalizar(INITIAL_ADMIN_EMAIL);
-    const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", perfilLaboral: "", cargoVisible: "", bienvenidaActiva: true, bienvenidaDias: 7 };
+    const emptyForm = { nombre: "", email: "", password: "", adminActionPassword: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", perfilLaboral: "", cargoVisible: "", bienvenidaActiva: true, bienvenidaDias: 7 };
     const [form, setForm] = useState(emptyForm);
     const [editingId, setEditingId] = useState("");
     const [adminSessionRevokeRequest, setAdminSessionRevokeRequest] = useState(false);
@@ -21718,6 +21728,7 @@
         nombre: user.nombre || "",
         email: user.email || "",
         password: "",
+        adminActionPassword: "",
         role: user.role || "user",
         permisos: Array.from(permisos),
         activo: user.activo !== false,
@@ -21732,6 +21743,7 @@
       const email = (form.email || "").trim().toLowerCase();
       const nombre = (form.nombre || "").trim();
       const password = String(form.password || "");
+      const adminActionPassword = String(form.adminActionPassword || "");
       const permisosSet = new Set(form.permisos || []);
       const baseModulo = form.modulo === "cocina" || form.modulo === "bar" || form.modulo === "sharp" || form.modulo === "employeeCenter" ? form.modulo : "ambos";
       const permisos = Array.from(permisosSet);
@@ -21787,6 +21799,16 @@
           return;
         }
       }
+      const nextAdminActionPassword = form.role === "admin" ? adminActionPassword || (editingId ? getAdminActionPassword(usuarios.find(function(u) { return u.id === editingId; })) : password) : "";
+      if (form.role === "admin" && nextAdminActionPassword) {
+        const duplicateAdminActionPassword = ensureAdminUser(usuarios || []).find(function(u) {
+          return u && u.id !== editingId && u.activo !== false && u.role === "admin" && getAdminActionPassword(u) === nextAdminActionPassword;
+        });
+        if (duplicateAdminActionPassword) {
+          toast("Esa clave administradora ya esta asignada a otro administrador activo.", "error");
+          return;
+        }
+      }
       if (editingId) {
         setUsuarios(function(prev) {
           const now = new Date().toISOString();
@@ -21796,6 +21818,7 @@
               nombre,
               email,
               password: password ? password : u.password,
+              adminActionPassword: form.role === "admin" ? adminActionPassword ? adminActionPassword : getAdminActionPassword(u) : "",
               role: form.role,
               permisos,
               activo: form.activo !== false,
@@ -21818,6 +21841,7 @@
             nombre,
             email,
             password,
+            adminActionPassword: form.role === "admin" ? adminActionPassword || password : "",
             role: form.role,
             permisos,
             activo: form.activo !== false,
@@ -21854,7 +21878,7 @@
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-shield", style: { marginRight: 7 } }), "Editar permisos de usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, canCreateUsers ? "Puedes crear usuarios internos para correos autorizados en Firebase Auth y asignarles permisos desde aqui." : "Solo el Administrador Principal puede crear usuarios nuevos; aqui puedes ajustar permisos y perfil.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, readOnly: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })), title: editingId ? "El correo no se modifica al editar un usuario existente" : "Correo Google autorizado en Firebase Auth" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a interna"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, disabled: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })), placeholder: editingId ? "No editable al modificar permisos" : "Clave interna del usuario" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Produccion y Autorizacion de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-shield", style: { marginRight: 7 } }), "Editar permisos de usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, canCreateUsers ? "Puedes crear usuarios internos para correos autorizados en Firebase Auth y asignarles permisos desde aqui." : "Solo el Administrador Principal puede crear usuarios nuevos; aqui puedes ajustar permisos y perfil.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, readOnly: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })), title: editingId ? "El correo no se modifica al editar un usuario existente" : "Correo Google autorizado en Firebase Auth" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a interna"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, disabled: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })), placeholder: editingId ? "No editable al modificar permisos" : "Clave interna del usuario" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"], adminActionPassword: e.target.value === "admin" ? p.adminActionPassword : "" })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), form.role === "admin" && /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave administradora"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.adminActionPassword, onChange: (e) => setForm((p) => Object.assign({}, p, { adminActionPassword: e.target.value })), placeholder: editingId ? "Dejar vacia para conservar la actual" : "Si queda vacia usara la clave interna" }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Esta clave autoriza ediciones, borrados y acciones criticas. No cambia el inicio de sesion con Google.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Produccion y Autorizacion de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
