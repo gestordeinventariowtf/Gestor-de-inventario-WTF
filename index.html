@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924190149-994d05c";</script>
+  <script>window.WTF_APP_VERSION = "20260924191212-b7032ac";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2586,25 +2586,29 @@
       runWhenBrowserIsFree(resolve, timeout);
     });
   }
-  const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
-  const FIREBASE_COOLDOWN_VERSION_STORAGE_KEY = "wtf_firebase_cooldown_app_version";
-  const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
+  const FIREBASE_LEGACY_COOLDOWN_STORAGE_KEYS = ["wtf_firebase_cooldown_until", "wtf_firebase_cooldown_app_version"];
+  const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_quota_retry_until_v2";
+  const FIREBASE_COOLDOWN_VERSION_STORAGE_KEY = "wtf_firebase_quota_retry_app_version_v2";
+  const FIREBASE_COOLDOWN_MS = 60 * 1000;
   function getFirebaseErrorText(error) {
     return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
   }
   function isFirebaseQuotaOrPermissionError(error) {
     const text = getFirebaseErrorText(error);
-    return text.includes("permission-denied")
-      || text.includes("missing or insufficient")
-      || text.includes("insufficient permission")
-      || text.includes("resource-exhausted")
+    return text.includes("resource-exhausted")
       || text.includes("quota")
-      || text.includes("too many requests")
-      || text.includes("deadline-exceeded")
-      || text.includes("unavailable");
+      || text.includes("too many requests");
+  }
+  function clearLegacyFirebaseCooldownValues() {
+    try {
+      FIREBASE_LEGACY_COOLDOWN_STORAGE_KEYS.forEach(function(key) {
+        localStorage.removeItem(key);
+      });
+    } catch (_) {}
   }
   function getFirebaseCooldownUntil() {
     try {
+      clearLegacyFirebaseCooldownValues();
       const storedVersion = localStorage.getItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY) || "";
       if (storedVersion && APP_BUILD_ID && storedVersion !== APP_BUILD_ID) {
         localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
@@ -2629,11 +2633,12 @@
   }
   function clearFirebaseCooldownValue() {
     setFirebaseCooldownUntilValue(0);
+    clearLegacyFirebaseCooldownValues();
   }
   function formatFirebaseCooldownMessage(until) {
     if (!until || Date.now() >= until) return "Firebase listo para reintentar.";
     const minutes = Math.max(1, Math.ceil((until - Date.now()) / 6e4));
-    return `Sincronizacion con Firebase protegida temporalmente. Reintento en ${minutes} min.`;
+    return `Firebase pauso el reintento por limite de cuota. Reintento en ${minutes} min.`;
   }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
@@ -13296,6 +13301,7 @@
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const currentSignature = getCurrentStateSignatureFast(hasPendingLocalWrite);
             const remoteSyncMeta = data.syncMeta || {};
+            const remoteMetaSignature = String(remoteSyncMeta.signature || "");
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
             const localRevision = Number(syncRevisionRef.current || 0);
@@ -13330,7 +13336,7 @@
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
-              setFirebaseMessage("Protegiendo cambios locales...");
+              setFirebaseMessage("Sincronizando cambios locales...");
               scheduleFirebaseWrite(null, currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
