@@ -850,6 +850,40 @@ async function createAndSendPushMessage(body = {}) {
   }
 }
 
+async function createScheduledPushMessages(body = {}, actor = {}) {
+  const title = String(body.title || "WTF Sistema").trim().slice(0, 120) || "WTF Sistema";
+  const message = String(body.body || body.message || "").trim().slice(0, 500);
+  if (!message) throw new Error("Mensaje de notificacion vacio");
+  const scheduledItems = Array.isArray(body.scheduledItems) ? body.scheduledItems : [];
+  if (!scheduledItems.length) throw new Error("No hay fechas programadas para la notificacion");
+  const db = getFirestore();
+  const batch = db.batch();
+  const created = [];
+  for (const item of scheduledItems.slice(0, 31)) {
+    const scheduledFor = String(item?.scheduledFor || "").trim();
+    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+    if (!scheduledDate || !Number.isFinite(scheduledDate.getTime())) continue;
+    const docRef = db.collection(PUSH_MESSAGES_COLLECTION).doc();
+    const messageData = {
+      title,
+      body: message,
+      topic: String(body.topic || "").trim(),
+      url: String(body.url || "/").trim() || "/",
+      tag: `wtf-scheduled-${docRef.id}`,
+      status: "scheduled",
+      scheduledFor: scheduledDate.toISOString(),
+      createdBy: String(body.createdBy || actor.name || actor.email || "").trim().slice(0, 160),
+      createdByEmail: String(body.createdByEmail || actor.email || "").trim().slice(0, 160),
+      createdAt: FieldValue.serverTimestamp()
+    };
+    batch.set(docRef, messageData);
+    created.push(docRef.id);
+  }
+  if (!created.length) throw new Error("No hay fechas programadas validas");
+  await batch.commit();
+  return { ok: true, scheduled: created.length, ids: created };
+}
+
 async function processPendingPushMessages(limit = 25) {
   const db = getFirestore();
   const safeLimit = Math.max(1, Math.min(Number(limit || 25), 100));
@@ -955,6 +989,7 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
     return;
   }
   try {
+    const actor = await requireSecureStateWriter(req);
     if (req.body && req.body.action === "deleteMessage") {
       res.json(await deletePushMessage(req.body.messageId));
       return;
@@ -967,9 +1002,14 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
       res.json(await createAndSendPushMessage(req.body));
       return;
     }
+    if (req.body && req.body.action === "createScheduled") {
+      res.json(await createScheduledPushMessages(req.body, actor));
+      return;
+    }
     res.json(await processPendingPushMessages(req.body?.limit || 25));
   } catch (error) {
-    res.status(500).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
+    const status = Number(error?.status || 500);
+    res.status(status).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
   }
 });
 

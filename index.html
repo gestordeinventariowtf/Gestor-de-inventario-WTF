@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924215344-d7769ec";</script>
+  <script>window.WTF_APP_VERSION = "20260924221241-9c20dd0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5489,6 +5489,27 @@
     }
     return result;
   }
+  async function callSecurePushEndpoint(body) {
+    const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+    if (!processEndpoint) throw new Error("No hay procesador de notificaciones configurado.");
+    if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
+      throw new Error("Inicia sesion para continuar.");
+    }
+    const idToken = await window.firebase.auth().currentUser.getIdToken();
+    const response = await fetch(processEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify(body || {})
+    });
+    const result = await response.json().catch(function() { return {}; });
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.error || `Servicio de notificaciones fallo (${response.status})`);
+    }
+    return result;
+  }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
       { Authorization: `Bearer ${token}` },
@@ -10543,19 +10564,14 @@
     }
     async function queueEmployeePushNotification(title, body, topic) {
       try {
-        if (!window.firebase || !window.firebase.firestore) return;
-        const cfg = window.WTF_FIREBASE_CONFIG || {};
-        if (!cfg.enabled || !cfg.firebaseConfig) return;
-        const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
-        await app.firestore().collection("pwaPushMessages").add({
+        await callSecurePushEndpoint({
+          action: "createAndSend",
           title,
           body,
           topic: topic || "admin",
           url: "/",
-          status: "pending",
           createdBy: getUserDisplayLabel(currentUser),
-          createdByEmail: currentUser && currentUser.email || "",
-          createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+          createdByEmail: currentUser && currentUser.email || ""
         });
       } catch (error) {
         console.warn("No se pudo encolar notificacion RRHH", error);
@@ -19834,19 +19850,14 @@
       if (typeof onSystemLog === "function" && logPayload) onSystemLog(Object.assign({ modulo: "Finanzas" }, logPayload));
     }
     async function queueFinancePushNotification(title, body, topic) {
-      if (!window.firebase || !window.firebase.firestore) return;
-      const cfg = window.WTF_FIREBASE_CONFIG || {};
-      if (!cfg.enabled || !cfg.firebaseConfig) return;
-      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
-      await app.firestore().collection("pwaPushMessages").add({
+      await callSecurePushEndpoint({
+        action: "createAndSend",
         title,
         body,
         topic: topic || "admin",
         url: "/",
-        status: "pending",
         createdBy: getUserDisplayLabel(currentUser),
-        createdByEmail: currentUser && currentUser.email || "",
-        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        createdByEmail: currentUser && currentUser.email || ""
       });
     }
     async function callTerminalAdmin(action, payload) {
@@ -21383,20 +21394,9 @@
       else toast("No se pudo mostrar la notificacion local en este dispositivo.", "error", 6500);
     }
     async function diagnosePushDevices() {
-      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-      if (!processEndpoint) {
-        toast("No hay procesador de notificaciones configurado.", "error");
-        return;
-      }
       setSending(true);
       try {
-        const response = await fetch(processEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "diagnoseSubscriptions", topic: getNotificationTopic() })
-        });
-        if (!response.ok) throw new Error("No se pudo diagnosticar los dispositivos.");
-        const result = await response.json();
+        const result = await callSecurePushEndpoint({ action: "diagnoseSubscriptions", topic: getNotificationTopic() });
         toast(`Dispositivos: ${result.active || 0} activos · ${result.inactive || 0} inactivos · ${result.matching || 0} coinciden con este destino.`, result.matching ? "ok" : "error", 8000);
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo diagnosticar los dispositivos.", "error");
@@ -21421,23 +21421,15 @@
       }
       setSending(true);
       try {
-        const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-        if (!processEndpoint) throw new Error("No hay procesador de notificaciones configurado.");
-        const response = await fetch(processEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "createAndSend",
-            title,
-            body,
-            topic: getNotificationTopic(),
-            url: String(form.url || "/").trim() || "/",
-            createdBy: getUserDisplayLabel(currentUser),
-            createdByEmail: currentUser && currentUser.email || ""
-          })
+        const result = await callSecurePushEndpoint({
+          action: "createAndSend",
+          title,
+          body,
+          topic: getNotificationTopic(),
+          url: String(form.url || "/").trim() || "/",
+          createdBy: getUserDisplayLabel(currentUser),
+          createdByEmail: currentUser && currentUser.email || ""
         });
-        if (!response.ok) throw new Error("No se pudo procesar la notificacion en Firebase.");
-        const result = await response.json().catch(() => null);
         const sent = result && result.result ? Number(result.result.sent || 0) : 0;
         const failed = result && result.result ? Number(result.result.failed || 0) : 0;
         if (!sent && failed) {
@@ -21467,28 +21459,24 @@
       if (!form.scheduledDate || !form.scheduledTime) return toast("Indique fecha y hora.", "error");
       setSending(true);
       try {
-        const db = getPushDb();
         const days = Math.max(1, Math.min(Number(form.consecutiveDays || 1), 31));
-        const batch = db.batch();
         const baseDate = new Date(`${form.scheduledDate}T${form.scheduledTime}:00`);
         if (!Number.isFinite(baseDate.getTime())) throw new Error("Fecha u hora invalida.");
+        const scheduledItems = [];
         for (let index = 0; index < days; index += 1) {
           const scheduledFor = new Date(baseDate.getTime() + index * 864e5);
-          const ref = db.collection("pwaPushMessages").doc();
-          batch.set(ref, {
-            title,
-            body,
-            topic: getNotificationTopic(),
-            url: String(form.url || "/").trim() || "/",
-            tag: `wtf-scheduled-${ref.id}`,
-            status: "scheduled",
-            scheduledFor: scheduledFor.toISOString(),
-            createdBy: getUserDisplayLabel(currentUser),
-            createdByEmail: currentUser && currentUser.email || "",
-            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
-          });
+          scheduledItems.push({ scheduledFor: scheduledFor.toISOString() });
         }
-        await batch.commit();
+        await callSecurePushEndpoint({
+          action: "createScheduled",
+          title,
+          body,
+          topic: getNotificationTopic(),
+          url: String(form.url || "/").trim() || "/",
+          scheduledItems,
+          createdBy: getUserDisplayLabel(currentUser),
+          createdByEmail: currentUser && currentUser.email || ""
+        });
         setForm((prev) => Object.assign({}, prev, { body: "" }));
         toast(`Notificacion programada por ${days} dia(s).`, "ok", 6500);
       } catch (error) {
@@ -21498,20 +21486,9 @@
       }
     }
     async function processPendingNotifications() {
-      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-      if (!processEndpoint) {
-        toast("No hay procesador de notificaciones configurado.", "error");
-        return;
-      }
       setSending(true);
       try {
-        const response = await fetch(processEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 100 })
-        });
-        if (!response.ok) throw new Error("No se pudo procesar la cola de notificaciones.");
-        const result = await response.json().catch(() => null);
+        const result = await callSecurePushEndpoint({ limit: 100 });
         toast(`Cola revisada: ${result && result.processed ? result.processed.length : 0} notificacion(es).`, "ok");
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo procesar la cola.", "error");
@@ -21520,21 +21497,11 @@
       }
     }
     async function deleteNotification(row) {
-      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-      if (!processEndpoint) {
-        toast("No hay procesador de notificaciones configurado.", "error");
-        return;
-      }
       const title = row && row.title ? row.title : "esta notificacion";
       if (!window.confirm(`Eliminar ${title}?`)) return;
       setSending(true);
       try {
-        const response = await fetch(processEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "deleteMessage", messageId: row.id })
-        });
-        if (!response.ok) throw new Error("No se pudo eliminar la notificacion.");
+        await callSecurePushEndpoint({ action: "deleteMessage", messageId: row.id });
         toast("Notificacion eliminada.", "ok");
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo eliminar la notificacion.", "error");
@@ -22338,21 +22305,17 @@
       updateData({ datasets });
     }
     async function queueIcgSalePushNotification(ticket) {
-      if (!ticket || !window.firebase || !window.firebase.firestore) return;
-      const cfg = window.WTF_FIREBASE_CONFIG || {};
-      if (!cfg.enabled || !cfg.firebaseConfig) return;
-      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
+      if (!ticket) return;
       const total = formatIcgMoney(ticket.TotalNetoCalculado || ticket.TotalPagado || ticket.TotalNeto || 0);
-      await app.firestore().collection("pwaPushMessages").add({
+      await callSecurePushEndpoint({
+        action: "createAndSend",
         title: "Venta ICG cerrada",
         body: `Ticket ${ticket.ticketKey || ticket.NumFactura || ticket.Numero || "-"} · Monto total venta: ${total} · ${ticket.LineasVendidas || 0} articulo(s)`,
         topic: "admin",
         url: "/",
         tag: `icg-sale-${ticket.TicketNotificacionId || ticket.ticketKey || Date.now()}`,
-        status: "pending",
         createdBy: "ICG FrontRest",
-        createdByEmail: "icg-frontrest@wtf.local",
-        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        createdByEmail: "icg-frontrest@wtf.local"
       });
     }
     function addBridgeSuggestion(suggestion) {
