@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924221622-34d7e3f";</script>
+  <script>window.WTF_APP_VERSION = "20260924223336-245c732";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3475,10 +3475,20 @@
     },
     collection: "wtfSistema",
     documentId: "estadoGeneral",
+    secureStateWriteEndpoint: "",
     ai: {
       enabled: false,
       endpoint: "",
       model: "gpt-5.6"
+    },
+    push: {
+      enabled: false,
+      vapidPublicKey: "",
+      processEndpoint: ""
+    },
+    controlHorario: {
+      terminalEndpoint: "",
+      defaultBranchId: "wtf-av-venezuela"
     }
   };
   const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-29056";
@@ -5154,7 +5164,10 @@
       firebaseConfig: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.firebaseConfig, input.firebaseConfig || {}),
       collection: input.collection || DEFAULT_FIREBASE_SYNC_CONFIG.collection,
       documentId: input.documentId || DEFAULT_FIREBASE_SYNC_CONFIG.documentId,
-      ai: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.ai || {}, input.ai || {})
+      secureStateWriteEndpoint: input.secureStateWriteEndpoint || DEFAULT_FIREBASE_SYNC_CONFIG.secureStateWriteEndpoint,
+      ai: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.ai || {}, input.ai || {}),
+      push: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.push || {}, input.push || {}),
+      controlHorario: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.controlHorario || {}, input.controlHorario || {})
     };
     const configuredProjectId = String(config.firebaseConfig.projectId || "").trim();
     if (config.enabled && configuredProjectId && configuredProjectId !== EXPECTED_FIREBASE_PROJECT_ID) {
