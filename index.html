@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924004457-c26c61e";</script>
+  <script>window.WTF_APP_VERSION = "20260924011243-dd0ab02";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -358,7 +358,7 @@
       min-width: 0;
     }
     .content.page-enter {
-      animation: pageEnter .28s ease;
+      animation: none;
     }
     @keyframes pageEnter {
       from { opacity: 0; transform: translateY(10px); }
@@ -398,11 +398,10 @@
     }
     .stat-card.clickable {
       cursor: pointer;
-      transition: transform .18s ease, box-shadow .18s ease;
+      transition: background .12s ease, border-color .12s ease;
     }
     .stat-card.clickable:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 24px rgba(15, 23, 42, .10);
+      background: #f8fafc;
     }
     .stat-label { font-size: 11px; color: var(--gris); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
     .stat-value { font-size: clamp(20px, 4vw, 26px); font-weight: 700; }
@@ -452,7 +451,7 @@
       background: linear-gradient(135deg, #fff7ed 0%, #fee2e2 100%);
       border: 1px solid #fdba74;
       color: #9a3412;
-      animation: stockBannerPulse 1.2s ease-in-out infinite;
+      animation: none;
     }
     .stock-alert-banner strong { font-size: 13px; }
     .stock-alert-banner small { color: #b45309; white-space: nowrap; }
@@ -1924,30 +1923,27 @@
     .mise-stock-low {
       color: #f59e0b;
       font-weight: 700;
-      animation: miseLowPulse 1.05s ease-in-out infinite;
+      animation: none;
     }
     .mise-stock-zero {
       color: var(--rojo);
       font-weight: 700;
-      animation: miseZeroPulse 0.78s ease-in-out infinite;
+      animation: none;
     }
     .tr-mise-low td {
-      animation: miseRowLowPulse 1.05s ease-in-out infinite;
       background: #fff7ed;
     }
     .tr-mise-low:hover td { background: #ffedd5 !important; }
     .tr-mise-zero td {
-      animation: miseRowZeroPulse 0.78s ease-in-out infinite;
       background: #fff1f2;
     }
     .tr-mise-zero:hover td { background: #ffe4e6 !important; }
     .mise-prod-alert {
       color: #dc2626;
       font-weight: 800;
-      animation: miseProdAlertText 0.78s ease-in-out infinite;
+      animation: none;
     }
     .tr-mise-prod-alert td {
-      animation: miseProdAlertRow 0.78s ease-in-out infinite;
       background: #fff1f2;
       box-shadow: inset 4px 0 #dc2626;
     }
@@ -12153,6 +12149,12 @@
         save("wtf_sync_revision", nextRevision);
       }
     }
+    function getCurrentStateSignatureFast(hasPendingLocalWrite) {
+      if (!hasPendingLocalWrite && !hasSessionLocalChangeRef.current && lastRemoteSignatureRef.current) {
+        return lastRemoteSignatureRef.current;
+      }
+      return serializeAppState(getCurrentAppState());
+    }
     function createFirebaseWriteDoc(appState, reason) {
       const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
       const signature = serializeAppState(fullFirebaseState);
@@ -12498,7 +12500,7 @@
         const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
-        const currentSignature = serializeAppState(getCurrentAppState());
+        const currentSignature = getCurrentStateSignatureFast(hasPendingLocalWrite);
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           lastRemoteSignatureRef.current = remoteSignature;
@@ -12986,8 +12988,8 @@
               return;
             }
             const remoteSignature = serializeAppState(remoteState);
-            const currentSignature = serializeAppState(getCurrentAppState());
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+            const currentSignature = getCurrentStateSignatureFast(hasPendingLocalWrite);
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
@@ -13014,7 +13016,7 @@
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
               setFirebaseMessage("Protegiendo cambios locales...");
-              scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
+              scheduleFirebaseWrite(null, currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
@@ -20561,16 +20563,19 @@
     const recognitionRef = useRef(null);
     const busyRef = useRef(false);
     const speakingRef = useRef(false);
+    const emptyAiRowsRef = useRef([]);
+    const emptyAiSummaryRef = useRef({ entradas: 0, salidas: 0, decomisos: 0, producciones: 0, bajoStock: 0, topConsumo: [] });
     const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
     const voiceSupported = Boolean(speechRecognitionApi);
     const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
-    const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
-    const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
-    const purchaseRows = useMemo(() => buildAiPurchaseList(products), [products]);
-    const alertRows = useMemo(() => buildAiInventoryAlerts(products, allSalidas), [products, allSalidas]);
-    const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
-    const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
-    const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    const assistantActive = open || busy || listening || Boolean(pendingVoiceAction);
+    const products = useMemo(() => assistantActive ? buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }) : emptyAiRowsRef.current, [assistantActive, inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
+    const allSalidas = useMemo(() => assistantActive ? [].concat(regSalidas || [], barRegSalidas || []) : emptyAiRowsRef.current, [assistantActive, regSalidas, barRegSalidas]);
+    const purchaseRows = useMemo(() => assistantActive ? buildAiPurchaseList(products) : emptyAiRowsRef.current, [assistantActive, products]);
+    const alertRows = useMemo(() => assistantActive ? buildAiInventoryAlerts(products, allSalidas) : emptyAiRowsRef.current, [assistantActive, products, allSalidas]);
+    const mermaRows = useMemo(() => assistantActive ? [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")) : emptyAiRowsRef.current, [assistantActive, regProduccion, barRegProduccion]);
+    const icgLinks = useMemo(() => assistantActive ? buildAiIcgLinkSuggestions(icgFrontRestData, products) : emptyAiRowsRef.current, [assistantActive, icgFrontRestData, products]);
+    const summary = useMemo(() => assistantActive ? buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }) : emptyAiSummaryRef.current, [assistantActive, icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
     useEffect(function() {
       busyRef.current = busy;
     }, [busy]);
