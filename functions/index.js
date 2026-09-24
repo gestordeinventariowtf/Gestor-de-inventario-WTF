@@ -3,9 +3,11 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import webpush from "web-push";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -19,6 +21,17 @@ const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
 const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
+const WTF_SYSTEM_COLLECTION = "wtfSistema";
+const WTF_STATE_DOC_ID = "estadoGeneral";
+const SECURE_STATE_ADMIN_EMAILS = new Set([
+  "henryortiz1704@gmail.com"
+]);
+const BLOCKED_SECURITY_EMAILS = new Set([
+  "jssantana077@gmail.com",
+  "jhonnwtf@gmail.com",
+  "jhonn077@gmail.com",
+  "jhonndell077@gmail.com"
+]);
 const SHARP_PHOTO_STORAGE_PREFIX = "sharp-limpieza/";
 const SHARP_PHOTO_RETENTION_DAYS = 7;
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
@@ -36,6 +49,8 @@ const DEFAULT_BRANCHES = {
 if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
   "https://gestor-inventario-wtf.web.app",
+  "https://gestor-de-inventario-wtf-prod-2026.web.app",
+  "https://gestor-de-inventario-wtf-prod-2026.firebaseapp.com",
   "https://gestor-de-inventario-wtf-2d070.web.app",
   "https://gestor-inventario-wtf-2026.web.app",
   "http://localhost:5000",
@@ -55,6 +70,137 @@ function cors(req, res) {
 function observedIp(req) {
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return forwarded || String(req.ip || req.socket?.remoteAddress || "").trim();
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getBearerToken(req) {
+  const auth = String(req.headers.authorization || "");
+  if (!auth.toLowerCase().startsWith("bearer ")) return "";
+  return auth.slice(7).trim();
+}
+
+async function requireSecureStateAdmin(req) {
+  const token = getBearerToken(req);
+  if (!token) {
+    const error = new Error("No autorizado: falta token Firebase Auth");
+    error.status = 401;
+    throw error;
+  }
+  const decoded = await getAuth().verifyIdToken(token, true);
+  const email = normalizeEmail(decoded.email || "");
+  if (!email || BLOCKED_SECURITY_EMAILS.has(email) || !SECURE_STATE_ADMIN_EMAILS.has(email)) {
+    const error = new Error("No autorizado para escribir estado WTF");
+    error.status = 403;
+    throw error;
+  }
+  return { uid: decoded.uid || "", email, name: decoded.name || decoded.email || email };
+}
+
+function cleanAdminWritableStateValue(value) {
+  if (Array.isArray(value)) return value.map(cleanAdminWritableStateValue);
+  if (!value || typeof value !== "object") return value;
+  const output = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === "undefined") continue;
+    if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) continue;
+    output[key] = cleanAdminWritableStateValue(child);
+  }
+  return output;
+}
+
+function decodeCompressedAppState(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const json = zlib.inflateSync(Buffer.from(value, "base64")).toString("utf8");
+    return JSON.parse(json);
+  } catch (error) {
+    console.warn("No se pudo descomprimir appStateCompressed para limpieza segura:", error && error.message || error);
+    return null;
+  }
+}
+
+function encodeCompressedAppState(state) {
+  return zlib.deflateSync(Buffer.from(JSON.stringify(state || {}), "utf8"), { level: 9 }).toString("base64");
+}
+
+function stripBlockedSecurityUsersFromState(state) {
+  if (!state || typeof state !== "object") return state;
+  if (Array.isArray(state.usuarios)) {
+    state.usuarios = state.usuarios.filter((user) => !BLOCKED_SECURITY_EMAILS.has(normalizeEmail(user?.email || "")));
+  }
+  if (Array.isArray(state.correos)) {
+    state.correos = state.correos.filter((email) => !BLOCKED_SECURITY_EMAILS.has(normalizeEmail(email)));
+  }
+  return state;
+}
+
+function stripBlockedSecurityUsersFromDoc(doc) {
+  const next = cleanAdminWritableStateValue(doc && typeof doc === "object" ? doc : {});
+  const state = next.appState && typeof next.appState === "object" ? next.appState : null;
+  if (state) {
+    stripBlockedSecurityUsersFromState(state);
+  }
+  if (typeof next.appStateCompressed === "string" && next.appStateCompressed) {
+    const compressedState = decodeCompressedAppState(next.appStateCompressed);
+    if (compressedState && typeof compressedState === "object") {
+      next.appStateCompressed = encodeCompressedAppState(stripBlockedSecurityUsersFromState(compressedState));
+    }
+  }
+  return next;
+}
+
+function normalizeSecureFirestoreDoc(doc) {
+  const next = stripBlockedSecurityUsersFromDoc(doc);
+  next.updatedAt = FieldValue.serverTimestamp();
+  if (typeof next.appStateCompressed === "string" && next.appStateCompressed) next.appState = FieldValue.delete();
+  if (next.appState && typeof next.appState === "object") next.appStateCompressed = FieldValue.delete();
+  return next;
+}
+
+async function writeSecureStatePayload(payload, actor, req) {
+  const db = getFirestore();
+  const rootRef = db.collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID);
+  const rootDoc = normalizeSecureFirestoreDoc(payload?.doc || {});
+  rootDoc.secureWrite = {
+    by: actor.email,
+    uid: actor.uid,
+    at: FieldValue.serverTimestamp(),
+    observedIp: observedIp(req),
+    userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
+  };
+  await rootRef.set(rootDoc, { merge: true });
+
+  const shards = Array.isArray(payload?.shards) ? payload.shards : [];
+  for (const shard of shards) {
+    const key = sanitizeTerminalText(shard?.key || "", 120);
+    if (!key || !/^[A-Za-z0-9_-]{1,120}$/.test(key)) continue;
+    const shardDoc = normalizeSecureFirestoreDoc(shard.doc || {});
+    await rootRef.collection("stateShards").doc(key).set(shardDoc, { merge: true });
+  }
+
+  const externalDocs = Array.isArray(payload?.externalDocs) ? payload.externalDocs : [];
+  for (const external of externalDocs) {
+    const id = sanitizeTerminalText(external?.id || "", 120);
+    if (!id || !/^[A-Za-z0-9_-]{1,120}$/.test(id)) continue;
+    const externalDoc = normalizeSecureFirestoreDoc(external.doc || {});
+    await db.collection(WTF_SYSTEM_COLLECTION).doc(id).set(externalDoc, { merge: true });
+  }
+
+  await db.collection(TERMINAL_AUDIT_COLLECTION).add({
+    type: "SECURE_STATE_WRITE",
+    actor: actor.name || actor.email,
+    actorEmail: actor.email,
+    observedIp: observedIp(req),
+    userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500),
+    rootDoc: WTF_STATE_DOC_ID,
+    shardCount: shards.length,
+    externalDocCount: externalDocs.length,
+    createdAt: FieldValue.serverTimestamp()
+  });
+  return { ok: true, shardCount: shards.length, externalDocCount: externalDocs.length };
 }
 
 function sanitizeTerminalText(value, max = 160) {
@@ -413,6 +559,26 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error && error.message || "Error interno IA" });
+  }
+});
+
+export const wtfSecureStateWrite = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", invoker: "public" }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Metodo no permitido" });
+    return;
+  }
+  try {
+    const actor = await requireSecureStateAdmin(req);
+    const result = await writeSecureStatePayload(req.body || {}, actor, req);
+    res.json(result);
+  } catch (error) {
+    const status = Number(error?.status || 500);
+    res.status(status).json({ ok: false, error: error && error.message || "Error escribiendo estado seguro" });
   }
 });
 

@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924072355-f4e5c1c";</script>
+  <script>window.WTF_APP_VERSION = "20260924080242-81463ad";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3294,15 +3294,8 @@
     createdAt: "2026-09-23T00:00:00",
     updatedAt: "2026-09-23T00:00:00"
   };
-  const USER_RECOVERY_SEEDS = [
-    { id: "user-1784586420790", nombre: "Sobeida", email: "sobeidawtf@gmail.com", password: "2915", role: "user", modulo: "ambos" },
-    { id: "user-1786673699591", nombre: "Ovelto Berizaire", email: "oveltowtf@gmail.com", password: "2468", role: "user", modulo: "ambos" },
-    { id: "user-1786674866753", nombre: "Luis", email: "luiswtf@gmail.com", password: "2233", role: "user", modulo: "ambos" },
-    { id: "user-1786674989792", nombre: "Victor", email: "victorwtf@gmail.com", password: "3344", role: "user", modulo: "ambos" },
-    { id: "user-recovery-limpieza-wtf", nombre: "Limpieza WTF", email: "limpiezawtf@gmail.com", password: "0001", role: "user", modulo: "sharp", permisos: ["sharp"] },
-    { id: "user-1784587909671", nombre: "Limpieza Salon", email: "salonwtf@gmail.com", password: "5646", role: "user", modulo: "sharp", permisos: ["sharp"] },
-    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" }
-  ];
+  const AUTHORIZED_FIREBASE_LOGIN_EMAILS = [normalizar(INITIAL_ADMIN_EMAIL)];
+  const USER_RECOVERY_SEEDS = [];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
     lng: -69.87001,
@@ -5411,6 +5404,30 @@
   }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
+    const secureEndpoint = String(config && config.secureStateWriteEndpoint || "").trim();
+    if (secureEndpoint) {
+      if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
+        throw new Error("Inicia sesion con Google para sincronizar cambios seguros.");
+      }
+      const idToken = await window.firebase.auth().currentUser.getIdToken();
+      const response = await fetch(secureEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          doc: writeDoc.doc || {},
+          shards: Array.isArray(writeDoc.shards) ? writeDoc.shards : [],
+          externalDocs: Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : []
+        })
+      });
+      const result = await response.json().catch(function() { return {}; });
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
+      }
+      return;
+    }
     const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
     const externalDocs = Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : [];
     if (shards.length) {
@@ -5456,11 +5473,12 @@
     return data;
   }
   function ensureAdminUser(users) {
+    const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
     const list = Array.isArray(users) ? users.map(function(u) {
       return Object.assign({}, u);
     }).filter(function(u) {
       const email = normalizar(u && u.email || "");
-      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email);
+      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && email === initialAdminKey;
     }) : [];
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
@@ -5484,7 +5502,6 @@
         }
       }
     }
-    const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
     const initialAdminIndex = list.findIndex(function(user) {
       return normalizar(user && user.email || "") === initialAdminKey;
     });
@@ -5542,6 +5559,10 @@
   }
   function isPermanentlyRemovedUserEmail(email) {
     return PERMANENTLY_REMOVED_USER_EMAILS.includes(normalizar(email || ""));
+  }
+  function isAuthorizedFirebaseLoginEmail(email) {
+    const clean = normalizar(email || "");
+    return clean && AUTHORIZED_FIREBASE_LOGIN_EMAILS.includes(clean) && !isPermanentlyRemovedUserEmail(clean);
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
@@ -10296,16 +10317,12 @@
   function sanitizeStorageName(value) {
     return String(value || "archivo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "archivo";
   }
-  async function ensureFirebaseAnonymousAuth() {
+  async function ensureFirebaseAuthorizedAuth() {
     if (!window.firebase || !window.firebase.auth) return null;
     const auth = window.firebase.auth();
-    if (auth.currentUser) return auth.currentUser;
-    try {
-      const credential = await auth.signInAnonymously();
-      return credential && credential.user || auth.currentUser;
-    } catch (error) {
-      return null;
-    }
+    const user = auth.currentUser;
+    if (user && isAuthorizedFirebaseLoginEmail(user.email || "")) return user;
+    throw new Error("Inicia sesion con Google autorizado para subir archivos.");
   }
   async function compressImageToJpeg(file, maxMb, options) {
     if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Solo se permiten imagenes.");
@@ -10340,7 +10357,7 @@
   }
   async function uploadJpegToFirebaseStorage(path, blob) {
     if (!window.firebase || !window.firebase.storage) throw new Error("Firebase Storage no esta disponible.");
-    await ensureFirebaseAnonymousAuth();
+    await ensureFirebaseAuthorizedAuth();
     const storageRef = window.firebase.storage().ref(path);
     const snapshot = await storageRef.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
     return snapshot.ref.getDownloadURL();
@@ -12020,6 +12037,8 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
+    const [firebaseAuthUser, setFirebaseAuthUser] = useState(null);
+    const [firebaseAuthLoading, setFirebaseAuthLoading] = useState(() => Boolean(firebaseCfg.enabled));
     const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
@@ -12087,6 +12106,47 @@
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
+    function getFirebaseAppInstance() {
+      if (!firebaseCfg.enabled) return null;
+      if (!window.firebase) throw new Error("SDK Firebase no disponible");
+      const hasMissingConfig = Object.values(firebaseCfg.firebaseConfig).some((v) => !String(v || "").trim());
+      if (hasMissingConfig) throw new Error("Complete firebase-config.js");
+      return window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+    }
+    useEffect(() => {
+      if (!firebaseCfg.enabled) {
+        setFirebaseAuthLoading(false);
+        return;
+      }
+      if (!window.firebase || !window.firebase.auth) {
+        setFirebaseAuthLoading(false);
+        setFirebaseStatus("error");
+        setFirebaseMessage("Firebase Auth no disponible");
+        return;
+      }
+      let unsubscribe = null;
+      try {
+        const app = getFirebaseAppInstance();
+        unsubscribe = app.auth().onAuthStateChanged(function(user) {
+          const email = user && user.email ? normalizar(user.email) : "";
+          setFirebaseAuthUser(user && email ? user : null);
+          setFirebaseAuthLoading(false);
+          if (email && isAuthorizedFirebaseLoginEmail(email)) {
+            setAuthUserEmail(email);
+          } else if (!email) {
+            setAuthUserEmail("");
+          }
+        });
+      } catch (error) {
+        console.error("Firebase Auth init error:", error);
+        setFirebaseAuthLoading(false);
+        setFirebaseStatus("error");
+        setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase Auth");
+      }
+      return function() {
+        if (typeof unsubscribe === "function") unsubscribe();
+      };
+    }, [firebaseCfg]);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -12747,11 +12807,15 @@
       return () => window.clearInterval(timer);
     }, []);
     const currentUser = useMemo(() => {
+      if (firebaseCfg.enabled) {
+        const firebaseEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || "");
+        if (!isAuthorizedFirebaseLoginEmail(firebaseEmail) || firebaseEmail !== normalizar(authUserEmail)) return null;
+      }
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
       });
       return found || null;
-    }, [usuarios, authUserEmail]);
+    }, [usuarios, authUserEmail, firebaseAuthUser, firebaseCfg.enabled]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
@@ -12828,6 +12892,15 @@
         }
       }
       resetGoogleSession();
+      if (window.firebase && window.firebase.auth) {
+        try {
+          window.firebase.auth().signOut().catch(function(error) {
+            console.warn("Firebase Auth signOut error:", error);
+          });
+        } catch (error) {
+          console.warn(error);
+        }
+      }
       if (currentUser) {
         addSystemLog({
           modulo: "Sistema",
@@ -12906,6 +12979,59 @@
         resetToModuleSelector(true);
       }
       return user;
+    }
+    async function loginWithGoogle() {
+      if (!firebaseCfg.enabled) throw new Error("Firebase Auth no esta configurado.");
+      if (!window.firebase || !window.firebase.auth) throw new Error("Firebase Auth no esta disponible.");
+      const app = getFirebaseAppInstance();
+      const auth = app.auth();
+      const provider = new window.firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      try {
+        const credential = await auth.signInWithPopup(provider);
+        const googleUser = credential && credential.user || auth.currentUser;
+        const email = normalizar(googleUser && googleUser.email || "");
+        if (!email) throw new Error("Google no devolvio un correo valido.");
+        if (!isAuthorizedFirebaseLoginEmail(email)) {
+          await auth.signOut().catch(function() {});
+          throw new Error("Este correo no esta autorizado para entrar al sistema.");
+        }
+        const user = ensureAdminUser(usuarios).find(function(u) {
+          return u.activo !== false && normalizar(u.email) === email;
+        });
+        if (!user) {
+          await auth.signOut().catch(function() {});
+          throw new Error("El correo esta autenticado, pero no tiene perfil interno autorizado.");
+        }
+        clearStoredWelcomeCoverSeen();
+        setWelcomeCoverDismissedKey("");
+        if (isAdminUser(user)) writeAdminSessionStartedAt(user.email, new Date().toISOString());
+        setFirebaseAuthUser(googleUser);
+        setAuthUserEmail(user.email);
+        addSystemLog({
+          modulo: "Sistema",
+          accion: "Inicio de sesion Google",
+          detalle: "Acceso confirmado con Firebase Auth y cuenta Google autorizada.",
+          deviceInfo: getClientAuditDeviceInfo()
+        }, user);
+        const routeAfterLogin = getAppRouteFromLocation();
+        if (routeAfterLogin && routeAfterLogin.modulo) {
+          sessionStorage.setItem("wtf_modulo", routeAfterLogin.modulo);
+          setModulo(routeAfterLogin.modulo);
+          setPage(routeAfterLogin.page || "dashboard");
+          updateBrowserAppRoute(routeAfterLogin.page || "dashboard", routeAfterLogin.modulo, true);
+        } else {
+          resetToModuleSelector(true);
+        }
+        return user;
+      } catch (error) {
+        const code = String(error && error.code || "");
+        if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+          await auth.signInWithRedirect(provider);
+          throw new Error("Continua el inicio de sesion en la ventana de Google.");
+        }
+        throw error;
+      }
     }
     async function requestLoginTerminalAuthorization(email, password) {
       const user = usuarios.find(function(u) {
@@ -13026,6 +13152,20 @@
     }
     useEffect(() => {
       if (!firebaseCfg.enabled) return;
+      if (firebaseAuthLoading) {
+        setFirebaseStatus("connecting");
+        setFirebaseMessage("Validando sesion segura...");
+        return;
+      }
+      const authedEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || "");
+      if (!isAuthorizedFirebaseLoginEmail(authedEmail)) {
+        firebaseDocRef.current = null;
+        icgControlDocRef.current = null;
+        firebaseBootstrappedRef.current = false;
+        setFirebaseStatus("disabled");
+        setFirebaseMessage("Inicia sesion con Google para sincronizar");
+        return;
+      }
       if (firebaseCooldownUntil > Date.now()) {
         const remaining = Math.max(1e3, firebaseCooldownUntil - Date.now());
         firebaseCooldownUntilRef.current = firebaseCooldownUntil;
@@ -13046,13 +13186,7 @@
         return;
       }
       try {
-        const hasMissingConfig = Object.values(firebaseCfg.firebaseConfig).some((v) => !String(v || "").trim());
-        if (hasMissingConfig) {
-          setFirebaseStatus("error");
-          setFirebaseMessage("Complete firebase-config.js");
-          return;
-        }
-        const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+        const app = getFirebaseAppInstance();
         const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
         const icgDocRef = app.firestore().collection(firebaseCfg.collection).doc("icgControl");
         firebaseDocRef.current = docRef;
@@ -13186,7 +13320,7 @@
         setFirebaseStatus("error");
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase");
       }
-    }, [firebaseCfg, firebaseCooldownUntil]);
+    }, [firebaseCfg, firebaseCooldownUntil, firebaseAuthLoading, firebaseAuthUser]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
@@ -14404,7 +14538,7 @@
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
-      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
+      return /* @__PURE__ */ React.createElement(LoginScreen, { onGoogleLogin: loginWithGoogle, firebaseAuthLoading, toast });
     }
     if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
@@ -14613,7 +14747,7 @@
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
       return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => resetToModuleSelector(false), title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => resetToModuleSelector(false), title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -20067,16 +20201,13 @@
       )
     ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
   }
-  function LoginScreen({ onLogin, onRequestTerminal, toast }) {
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
+  function LoginScreen({ onGoogleLogin, firebaseAuthLoading, toast }) {
     const [submitting, setSubmitting] = useState(false);
-    const [requestingTerminal, setRequestingTerminal] = useState(false);
     async function iniciarSesion(e) {
       if (e && e.preventDefault) e.preventDefault();
       setSubmitting(true);
       try {
-        const user = await onLogin(email, password);
+        const user = await onGoogleLogin();
         toast(`Sesi\xF3n iniciada como ${getUserDisplayLabel(user)}.`, "ok");
       } catch (err) {
         toast(err && err.message ? err.message : "No se pudo iniciar sesi\xF3n.", "error");
@@ -20084,47 +20215,16 @@
         setSubmitting(false);
       }
     }
-    async function solicitarTerminal(e) {
-      if (e && e.preventDefault) e.preventDefault();
-      setRequestingTerminal(true);
-      try {
-        if (typeof onRequestTerminal !== "function") throw new Error("Solicitud de terminal no disponible.");
-        await onRequestTerminal(email, password);
-        toast("Solicitud enviada. Un administrador debe autorizar esta computadora en Finanzas > Control Horario.", "ok", 7500);
-      } catch (err) {
-        toast(err && err.message ? err.message : "No se pudo solicitar autorizacion de terminal.", "error", 7500);
-      } finally {
-        setRequestingTerminal(false);
-      }
-    }
-    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Al iniciar sesi\xF3n se pedir\xE1 ubicaci\xF3n precisa. Los administradores pueden entrar desde cualquier lugar."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: "form-control",
-        type: "email",
-        placeholder: "usuario@correo.com",
-        value: email,
-        onChange: (e) => setEmail(e.target.value)
-      }
-    )), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a"), /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        className: "form-control",
-        type: "password",
-        placeholder: "Ingresa tu contrase\xF1a",
-        value: password,
-        onChange: (e) => setPassword(e.target.value)
-      }
-    )), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-shield-halved" }), "WTF Sistema Seguro"), /* @__PURE__ */ React.createElement("h1", null, "Acceso protegido con Google"), /* @__PURE__ */ React.createElement("p", null, "Solo las cuentas autorizadas en Firebase Auth pueden entrar y sincronizar cambios con Firestore.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-check" }), /* @__PURE__ */ React.createElement("span", null, "El correo administrador autorizado es Henryortiz1704@gmail.com.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-lock" }), /* @__PURE__ */ React.createElement("span", null, "Las escrituras de Firestore pasan por una ruta segura con token Firebase Auth.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Entrar al sistema"), /* @__PURE__ */ React.createElement("p", null, "Usa tu cuenta Google autorizada. Las cuentas internas anteriores ya no abren sesi\xF3n.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "El m\xF3dulo Usuarios y permisos queda disponible solo para permisos y ajustes, no para crear accesos."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "btn btn-verde login-google-btn",
         type: "submit",
-        disabled: !email.trim() || !password || submitting,
-        style: { opacity: !email.trim() || !password || submitting ? 0.7 : 1 }
+        disabled: submitting || firebaseAuthLoading,
+        style: { opacity: submitting || firebaseAuthLoading ? 0.7 : 1, width: "100%", justifyContent: "center" }
       },
-      submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando acceso...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), "Entrar al sistema")
-    ), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", disabled: !email.trim() || !password || requestingTerminal, onClick: solicitarTerminal, style: { width: "100%", justifyContent: "center", marginTop: 8, opacity: !email.trim() || !password || requestingTerminal ? 0.7 : 1 } }, requestingTerminal ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Solicitando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop" }), "Solicitar autorizacion de esta PC"))), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
+      submitting || firebaseAuthLoading ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando Google...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fab fa-google" }), "Entrar con Google")
+    )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "Si tu correo no est\xE1 autorizado, Google puede autenticarte, pero el sistema bloquear\xE1 la entrada."))));
   }
   function getAiAssistantConfig() {
     const localConfig = window.WTF_AI_CONFIG || {};
@@ -21559,6 +21659,10 @@
         toast("Este correo fue eliminado definitivamente y no puede volver a registrarse.", "error");
         return;
       }
+      if (!editingId) {
+        toast("La creacion de usuarios esta deshabilitada. Agrega accesos desde Firebase Auth y luego asigna permisos aqui.", "error", 8e3);
+        return;
+      }
       if (!editingId && !password) {
         toast("Ingrese una contrase\xF1a para el nuevo usuario.", "error");
         return;
@@ -21652,12 +21756,12 @@
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "Usa esta opcion si dejaste una sesion administradora abierta en otra computadora. Los administradores deberan iniciar sesion nuevamente.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-shield", style: { marginRight: 7 } }), "Editar permisos de usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "La creacion de usuarios esta deshabilitada en la Web.App. Los accesos se autorizan desde Firebase Auth; aqui solo se ajustan permisos y perfil.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, readOnly: true, title: "El correo de acceso se administra desde Firebase Auth" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a interna"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, disabled: true, placeholder: "No se usa para inicio de sesion" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Produccion y Autorizacion de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
       return /* @__PURE__ */ React.createElement("label", { key: perm.key, style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: checked ? "#f0fdf4" : "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange: () => togglePermiso(perm.key) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, perm.label));
-    })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 6 } }, "ICG FrontRest, ICG Host, Sharp y funciones especiales se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarUsuario }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingId ? "Guardar cambios" : "Crear usuario"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetForm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users", style: { marginRight: 7 } }), "Usuarios registrados"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, usuariosVisibles.length, " usuarios")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Nombre"), /* @__PURE__ */ React.createElement("th", null, "Correo"), /* @__PURE__ */ React.createElement("th", null, "Rol"), /* @__PURE__ */ React.createElement("th", null, "Módulo"), /* @__PURE__ */ React.createElement("th", null, "Perfil laboral"), /* @__PURE__ */ React.createElement("th", null, "Permisos"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, usuariosVisibles.map(function(user) {
+    })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 6 } }, "ICG FrontRest, ICG Host, Sharp y funciones especiales se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarUsuario, disabled: !editingId, style: { opacity: editingId ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingId ? "Guardar cambios" : "Seleccione un usuario"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetForm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users", style: { marginRight: 7 } }), "Usuarios autorizados"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, usuariosVisibles.length, " usuarios")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Nombre"), /* @__PURE__ */ React.createElement("th", null, "Correo"), /* @__PURE__ */ React.createElement("th", null, "Rol"), /* @__PURE__ */ React.createElement("th", null, "Módulo"), /* @__PURE__ */ React.createElement("th", null, "Perfil laboral"), /* @__PURE__ */ React.createElement("th", null, "Permisos"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, usuariosVisibles.map(function(user) {
       const isAdmin = user.role === "admin";
       return /* @__PURE__ */ React.createElement("tr", { key: user.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, user.nombre || "Sin nombre"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, user.email), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${isAdmin ? "pill-rojo" : "pill-azul"}` }, isAdmin ? "Admin" : "Usuario")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${user.modulo === "employeeCenter" ? "pill-rojo" : user.modulo === "sharp" ? "pill-azul" : user.modulo === "bar" ? "pill-naranja" : user.modulo === "cocina" ? "pill-verde" : "pill-gris"}` }, user.modulo === "employeeCenter" ? "Centro del Colaborador" : user.modulo === "sharp" ? "Sharp de Limpieza" : user.modulo === "bar" ? "Bar" : user.modulo === "cocina" ? "Cocina" : "Todos (Cocina, Bar y Sharp)")), /* @__PURE__ */ React.createElement("td", null, user.perfilLaboral ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, user.perfilLaboral), user.cargoVisible && user.cargoVisible !== user.perfilLaboral ? /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontSize: 11 } }, user.cargoVisible) : null) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Sin perfil")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, (user.permisos || []).map(function(key) {
         const found = PERMISSION_OPTIONS.find(function(perm) {

@@ -10,6 +10,7 @@ window.WTF_FIREBASE_CONFIG = {
   },
   collection: "wtfSistema",
   documentId: "estadoGeneral",
+  secureStateWriteEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfSecureStateWrite",
   ai: {
     enabled: true,
     endpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAiAssistant",

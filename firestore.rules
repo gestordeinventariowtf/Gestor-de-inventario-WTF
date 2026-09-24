@@ -1,28 +1,36 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAuthorizedAdmin() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'Henryortiz1704@gmail.com',
+          'henryortiz1704@gmail.com'
+        ];
+    }
+
     match /wtfSistema/estadoGeneral {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow write: if false;
     }
 
     match /wtfSistema/icgControl {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow write: if false;
     }
 
     match /wtfSistema/icgFrontRestData {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow write: if false;
     }
 
     match /wtfSistema/systemLogs {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow write: if false;
     }
 
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow write: if false;
     }
 
@@ -36,7 +44,7 @@ service cloud.firestore {
     }
 
     match /pwaPushMessages/{messageId} {
-      allow read: if true;
+      allow read: if isAuthorizedAdmin();
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -62,11 +70,11 @@ service cloud.firestore {
     }
 
     match /sharpLimpieza/config/settings/branchConfig {
-      allow read, write: if true;
+      allow read, write: if isAuthorizedAdmin();
     }
 
     match /sharpLimpieza/libraries/modules/{moduleId} {
-      allow read, write: if true
+      allow read, write: if isAuthorizedAdmin()
         && isSharpModule(moduleId)
         && (!('libraryJson' in request.resource.data)
           || request.resource.data.libraryJson is string
@@ -74,16 +82,16 @@ service cloud.firestore {
     }
 
     match /sharpLimpieza/boards/items/{boardId} {
-      allow read: if true;
-      allow write: if true
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin()
         && boardId.matches('^[A-Za-z0-9_-]{1,120}$')
         && request.resource.data.stateJson is string
         && request.resource.data.stateJson.size() <= 9000000;
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey}/photos/{photoId} {
-      allow read: if isSharpModule(moduleId);
-      allow create, update: if true
+      allow read: if isAuthorizedAdmin() && isSharpModule(moduleId);
+      allow create, update: if isAuthorizedAdmin()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && request.resource.data.url is string
@@ -94,11 +102,11 @@ service cloud.firestore {
         && request.resource.data.size is number
         && request.resource.data.size > 0
         && request.resource.data.size <= 2 * 1024 * 1024;
-      allow delete: if isSharpModule(moduleId);
+      allow delete: if isAuthorizedAdmin() && isSharpModule(moduleId);
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey} {
-      allow read, write, delete: if true
+      allow read, write, delete: if isAuthorizedAdmin()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
