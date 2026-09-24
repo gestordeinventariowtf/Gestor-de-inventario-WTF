@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924060211-ced9bb5";</script>
+  <script>window.WTF_APP_VERSION = "20260924064017-5474567";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2534,14 +2534,30 @@
       return def;
     }
   }
+  const localSaveQueue = {};
+  function writeLocalStoragePayload(key, payload) {
+    localStorage.setItem(key, payload);
+  }
   function save(key, val) {
     try {
-      localStorage.setItem(key, JSON.stringify(val));
+      const payload = JSON.stringify(val);
+      if (payload && payload.length > 12e4) {
+        if (localSaveQueue[key]) clearTimeout(localSaveQueue[key].timer);
+        localSaveQueue[key] = {
+          payload,
+          timer: setTimeout(function() {
+            const queued = localSaveQueue[key];
+            delete localSaveQueue[key];
+            writeLocalStoragePayload(key, queued ? queued.payload : payload);
+          }, 350)
+        };
+        return;
+      }
+      writeLocalStoragePayload(key, payload);
     } catch (error) {
       console.error("No se pudo guardar en localStorage:", key, error);
     }
   }
-  const localSaveQueue = {};
   function saveSoon(key, val, delay = 450) {
     if (localSaveQueue[key]) clearTimeout(localSaveQueue[key].timer);
     localSaveQueue[key] = {
@@ -2552,6 +2568,22 @@
         save(key, queued ? queued.value : val);
       }, delay)
     };
+  }
+  function runWhenBrowserIsFree(callback, timeout = 1200) {
+    if (window.requestIdleCallback) {
+      return window.requestIdleCallback(callback, { timeout });
+    }
+    return window.setTimeout(callback, 80);
+  }
+  function cancelBrowserFreeTask(taskId) {
+    if (!taskId) return;
+    if (window.cancelIdleCallback) window.cancelIdleCallback(taskId);
+    else window.clearTimeout(taskId);
+  }
+  function waitForBrowserFree(timeout = 1200) {
+    return new Promise(function(resolve) {
+      runWhenBrowserIsFree(resolve, timeout);
+    });
   }
   const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
   const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
@@ -12031,6 +12063,7 @@
     const icgControlDocRef = useRef(null);
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
+    const syncIdleTaskRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
     const lastRemoteMetaSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
@@ -12302,49 +12335,56 @@
       pendingLocalSignatureRef.current = signature || `pending-${pendingLocalAtRef.current}`;
       hasSessionLocalChangeRef.current = true;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-      syncTimerRef.current = window.setTimeout(async function() {
+      if (syncIdleTaskRef.current) {
+        cancelBrowserFreeTask(syncIdleTaskRef.current);
+        syncIdleTaskRef.current = null;
+      }
+      syncTimerRef.current = window.setTimeout(function() {
         if (firebaseWriteInFlightRef.current) {
           firebaseWriteQueuedRef.current = true;
           syncTimerRef.current = window.setTimeout(function() {
-            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
-          }, 2500);
+            scheduleFirebaseWrite(null, "", 5000, `${reason || "web-client"}-queued`);
+          }, 5000);
           return;
         }
         firebaseWriteInFlightRef.current = true;
-        try {
-          const snapshotState = appState || getCurrentAppState();
-          const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
-          if (writeDoc.signature === lastRemoteSignatureRef.current) {
-            pendingLocalSignatureRef.current = "";
-            pendingLocalAtRef.current = 0;
+        syncIdleTaskRef.current = runWhenBrowserIsFree(async function() {
+          syncIdleTaskRef.current = null;
+          try {
+            const snapshotState = appState || getCurrentAppState();
+            const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
+            if (writeDoc.signature === lastRemoteSignatureRef.current) {
+              pendingLocalSignatureRef.current = "";
+              pendingLocalAtRef.current = 0;
+              hasSessionLocalChangeRef.current = false;
+              return;
+            }
+            pendingLocalAtRef.current = markLocalSyncChange();
+            writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
+            (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+              if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
+            });
+            pendingLocalSignatureRef.current = writeDoc.signature;
+            await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+            lastRemoteSignatureRef.current = writeDoc.signature;
+            lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
             hasSessionLocalChangeRef.current = false;
-            return;
+            setFirebaseStatus("connected");
+            setFirebaseMessage("Cambios sincronizados");
+            setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+          } catch (error) {
+            console.error("Firebase write error:", error);
+            if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
+            setFirebaseStatus("error");
+            setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
+          } finally {
+            firebaseWriteInFlightRef.current = false;
+            if (firebaseWriteQueuedRef.current) {
+              firebaseWriteQueuedRef.current = false;
+              scheduleFirebaseWrite(null, "", 5000, `${reason || "web-client"}-queued`);
+            }
           }
-          pendingLocalAtRef.current = markLocalSyncChange();
-          writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
-          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
-            if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
-          });
-          pendingLocalSignatureRef.current = writeDoc.signature;
-          await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
-          lastRemoteSignatureRef.current = writeDoc.signature;
-          lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
-          hasSessionLocalChangeRef.current = false;
-          setFirebaseStatus("connected");
-          setFirebaseMessage("Cambios sincronizados");
-          setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
-        } catch (error) {
-          console.error("Firebase write error:", error);
-          if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
-          setFirebaseStatus("error");
-          setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
-        } finally {
-          firebaseWriteInFlightRef.current = false;
-          if (firebaseWriteQueuedRef.current) {
-            firebaseWriteQueuedRef.current = false;
-            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
-          }
-        }
+        }, 1500);
       }, delay);
     }
     function applyRemoteState(nextState) {
@@ -13026,6 +13066,7 @@
             setFirebaseMessage("Leyendo datos reales del servidor...");
             return;
           }
+          await waitForBrowserFree(firebaseBootstrappedRef.current ? 1200 : 250);
           const data = snapshot.data();
           const remoteState = await decodeFirebaseAppState(data, docRef);
           if (remoteState) {
@@ -13112,6 +13153,10 @@
         });
         return function() {
           if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+          if (syncIdleTaskRef.current) {
+            cancelBrowserFreeTask(syncIdleTaskRef.current);
+            syncIdleTaskRef.current = null;
+          }
           unsubscribe();
           unsubscribeIcgControl();
         };
@@ -13124,10 +13169,14 @@
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 6500 : 2600;
+      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 14000 : 9000;
       scheduleFirebaseWrite(null, "", mobileSyncDelay, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+        if (syncIdleTaskRef.current) {
+          cancelBrowserFreeTask(syncIdleTaskRef.current);
+          syncIdleTaskRef.current = null;
+        }
       };
     }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
