@@ -54,7 +54,11 @@ const ALLOWED_ORIGINS = new Set([
   "https://gestor-de-inventario-wtf-2d070.web.app",
   "https://gestor-inventario-wtf-2026.web.app",
   "http://localhost:5000",
-  "http://127.0.0.1:5000"
+  "http://127.0.0.1:5000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5179",
+  "http://127.0.0.1:5179"
 ]);
 
 function cors(req, res) {

@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924224426-d2590c3";</script>
+  <script>window.WTF_APP_VERSION = "20260924232320-43f9f0f";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5473,6 +5473,24 @@
       || message.includes("missing or insufficient permissions")
       || message.includes("no tiene permisos");
   }
+  async function fetchJsonWithTimeout(url, options, timeoutMs = 30000) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? window.setTimeout(function() {
+      controller.abort();
+    }, timeoutMs) : null;
+    try {
+      const response = await fetch(url, Object.assign({}, options || {}, controller ? { signal: controller.signal } : {}));
+      const result = await response.json().catch(function() { return {}; });
+      return { response, result };
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error("Firebase tardo demasiado respondiendo. Intenta nuevamente en unos segundos.");
+      }
+      throw new Error("No se pudo conectar con Firebase. Verifica internet, sesion Google y permisos del navegador.");
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
+  }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
     const syncConfig = getFirebaseSyncConfig();
@@ -5482,7 +5500,7 @@
         throw new Error("Inicia sesion para continuar.");
       }
       const idToken = await window.firebase.auth().currentUser.getIdToken();
-      const response = await fetch(secureEndpoint, {
+      const { response, result } = await fetchJsonWithTimeout(secureEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -5494,7 +5512,6 @@
           externalDocs: Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : []
         })
       });
-      const result = await response.json().catch(function() { return {}; });
       if (!response.ok || result.ok === false) {
         throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
       }
@@ -5527,7 +5544,7 @@
       throw new Error("Inicia sesion para continuar.");
     }
     const idToken = await window.firebase.auth().currentUser.getIdToken();
-    const response = await fetch(secureEndpoint, {
+    const { response, result } = await fetchJsonWithTimeout(secureEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -5535,7 +5552,6 @@
       },
       body: JSON.stringify(payload || {})
     });
-    const result = await response.json().catch(function() { return {}; });
     if (!response.ok || result.ok === false) {
       throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
     }
@@ -12219,6 +12235,7 @@
     const sessionStartedAtRef = useRef(Date.now());
     const hasSessionLocalChangeRef = useRef(false);
     const applyingRemoteRef = useRef(false);
+    const remoteApplyGuardUntilRef = useRef(0);
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -12540,6 +12557,7 @@
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (applyingRemoteRef.current || Date.now() < Number(remoteApplyGuardUntilRef.current || 0)) return;
       if (isFirebaseCooldownActive()) {
         setFirebaseStatus("error");
         setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
@@ -12613,6 +12631,7 @@
         currentState
       );
       applyingRemoteRef.current = true;
+      remoteApplyGuardUntilRef.current = Date.now() + 4000;
       if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
         return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.inventario, deleted), deleted);
@@ -12674,7 +12693,7 @@
       if (Array.isArray(nextState.barHistSalidaRapida)) setBarHistSalidaRapida(repairIcgMiseQuickExitUsers(normalizeMovementRows(nextState.barHistSalidaRapida, nextMovementDeletedKeys.barHistSalidaRapida)));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
-      }, 0);
+      }, 1500);
     }
     function normalizeIcgControlDoc(data) {
       const source = data && typeof data === "object" ? data : {};
@@ -12822,13 +12841,6 @@
             const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
             setLastSyncedAt(formatDatetime(date));
           }
-          return;
-        }
-        const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || hasPendingLocalWrite;
-        if (hasCurrentSessionLocalChange && reason !== "manual-sync") {
-          setFirebaseStatus("connected");
-          setFirebaseMessage("Enviando cambios locales pendientes...");
-          scheduleFirebaseWrite(null, currentSignature, 250, "web-client-pending-local");
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
@@ -13428,8 +13440,13 @@
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
-              setFirebaseMessage("Sincronizando cambios locales...");
-              scheduleFirebaseWrite(null, currentSignature, 250, "web-client-repair");
+              acceptRemoteSyncRevision(remoteRevision);
+              lastRemoteSignatureRef.current = remoteSignature;
+              pendingLocalSignatureRef.current = "";
+              pendingLocalAtRef.current = 0;
+              hasSessionLocalChangeRef.current = false;
+              applyRemoteState(remoteState);
+              setFirebaseMessage("Sincronizado desde Firebase");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
