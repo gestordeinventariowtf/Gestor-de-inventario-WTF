@@ -35,7 +35,7 @@ const BLOCKED_SECURITY_EMAILS = new Set([
 const SHARP_PHOTO_STORAGE_PREFIX = "sharp-limpieza/";
 const SHARP_PHOTO_RETENTION_DAYS = 7;
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
-const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-2d070@appspot.gserviceaccount.com";
+const PUSH_SERVICE_ACCOUNT = "gestor-de-inventario-wtf-29056@appspot.gserviceaccount.com";
 const DEFAULT_BRANCHES = {
   "wtf-av-venezuela": {
     branchId: "wtf-av-venezuela",
