@@ -44,6 +44,15 @@ const PHOTO_FIREBASE_CONFIG = {
   messagingSenderId: "863301490729",
   appId: "1:863301490729:web:f5018bd6e6489f69686438"
 };
+const AUTHORIZED_FIREBASE_EMAILS = ["henryortiz1704@gmail.com"];
+
+function normalizeFirebaseEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isAuthorizedFirebaseUser(user) {
+  return !!(user && AUTHORIZED_FIREBASE_EMAILS.includes(normalizeFirebaseEmail(user.email)));
+}
 
 const LEGEND = {
   red:    { symbol: "🟥", label: "Debe ser cada 1 dia",             short: "Cada 1 dia",          css: "lg-red"    },
@@ -2119,13 +2128,27 @@ async function ensureFirebaseAuth(app) {
     throw new Error("Firebase Auth no esta disponible.");
   }
   const auth = firebase.auth(app);
-  if (auth.currentUser) {
-    firebaseAuthReady = true;
-    return auth.currentUser;
+  if (firebase.auth.Auth && firebase.auth.Auth.Persistence) {
+    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
   }
-  const credential = await auth.signInAnonymously();
-  firebaseAuthReady = true;
-  return credential.user;
+  const user = auth.currentUser || await new Promise((resolve) => {
+    let unsubscribe = null;
+    const timer = window.setTimeout(() => {
+      if (typeof unsubscribe === "function") unsubscribe();
+      resolve(null);
+    }, 1e4);
+    unsubscribe = auth.onAuthStateChanged((nextUser) => {
+      window.clearTimeout(timer);
+      if (typeof unsubscribe === "function") unsubscribe();
+      resolve(nextUser || null);
+    });
+  });
+  if (isAuthorizedFirebaseUser(user)) {
+    firebaseAuthReady = true;
+    return user;
+  }
+  firebaseAuthReady = false;
+  throw new Error("Inicia sesion con la cuenta autorizada desde la Web.App principal.");
 }
 
 async function initFirebaseConnection() {
@@ -2143,8 +2166,9 @@ async function initFirebaseConnection() {
       await ensureFirebaseAuth(app);
     } catch (authErr) {
       firebaseAuthReady = false;
-      console.warn("Firebase Auth anonimo no esta activo:", authErr && authErr.message ? authErr.message : authErr);
-      setSyncStatus("Configurar seguridad", "busy");
+      console.warn("Firebase Auth no esta listo para Sharp:", authErr && authErr.message ? authErr.message : authErr);
+      setSyncStatus("Esperando sesion", "busy");
+      throw authErr;
     }
     firebaseDB = firebase.firestore(app);
     if (typeof firebase.storage === "function") {
@@ -2163,9 +2187,12 @@ async function initFirebaseConnection() {
     }, FIREBASE_CONNECT_TIMEOUT_MS);
   } catch (err) {
     console.error("Firebase init error", err);
-    const message = err && (err.code === "auth/operation-not-allowed" || err.code === "auth/admin-restricted-operation")
-      ? "Activa Auth anonimo"
-      : "Modo local";
+    const message = err && err.message ? err.message : "Modo local";
+    if (message.includes("cuenta autorizada")) {
+      setSyncStatus("Esperando sesion segura", "busy");
+      window.setTimeout(initFirebaseConnection, 5000);
+      return;
+    }
     setSyncStatus(message, "offline");
     branches = loadBranchConfigFromLocal();
     showBranchSelector();

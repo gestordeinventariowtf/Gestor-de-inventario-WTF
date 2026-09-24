@@ -62,6 +62,7 @@
     </div>
     <div class="actions">
       <a class="btn" href="/"><span>←</span> Volver al sistema</a>
+      <span id="activeUserBadge" class="btn" style="display:none;cursor:default"></span>
       <button id="loginBtn" class="primary" type="button">Entrar con Google</button>
       <button id="refreshBtn" type="button">Actualizar</button>
     </div>
@@ -188,24 +189,50 @@
       box.className = "alert" + (isError ? " error" : "");
       document.getElementById("statusText").textContent = text;
     }
+    function updateAuthUi(user) {
+      const loginBtn = document.getElementById("loginBtn");
+      const badge = document.getElementById("activeUserBadge");
+      const email = normalizar(user && user.email);
+      if (email && email === authorizedEmail) {
+        badge.textContent = user.email || "Administrador activo";
+        badge.style.display = "inline-flex";
+        loginBtn.style.display = "none";
+        loginBtn.disabled = true;
+        return;
+      }
+      badge.style.display = "none";
+      loginBtn.style.display = "inline-flex";
+      loginBtn.disabled = false;
+    }
     async function ensureAuth() {
       if (!firebase.apps.length) firebase.initializeApp(cfg.firebaseConfig);
       const auth = firebase.auth();
+      if (firebase.auth.Auth && firebase.auth.Auth.Persistence) {
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function() {});
+      }
       const user = auth.currentUser || await new Promise((resolve) => {
-        const unsub = auth.onAuthStateChanged((u) => { unsub(); resolve(u); });
+        const timer = setTimeout(() => { unsub(); resolve(null); }, 5e3);
+        const unsub = auth.onAuthStateChanged((u) => { clearTimeout(timer); unsub(); resolve(u); });
       });
+      updateAuthUi(user);
       if (user && normalizar(user.email) === authorizedEmail) return user;
       return null;
     }
     async function login() {
       if (!firebase.apps.length) firebase.initializeApp(cfg.firebaseConfig);
+      const auth = firebase.auth();
+      if (firebase.auth.Auth && firebase.auth.Auth.Persistence) {
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function() {});
+      }
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      const result = await firebase.auth().signInWithPopup(provider);
+      const result = await auth.signInWithPopup(provider);
       if (normalizar(result.user && result.user.email) !== authorizedEmail) {
-        await firebase.auth().signOut();
+        updateAuthUi(null);
+        await auth.signOut();
         throw new Error("Este correo no esta autorizado para ver los logs.");
       }
+      updateAuthUi(result.user);
       return result.user;
     }
     async function loadLogs() {
@@ -214,6 +241,7 @@
         const user = await ensureAuth();
         if (!user) {
           setMessage("Inicia sesión con la cuenta autorizada para ver los logs.", false);
+          updateAuthUi(null);
           document.getElementById("logsBody").innerHTML = '<tr><td colspan="7" class="empty">Esperando inicio de sesión.</td></tr>';
           return;
         }
