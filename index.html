@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924223336-245c732";</script>
+  <script>window.WTF_APP_VERSION = "20260924224426-d2590c3";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3493,6 +3493,44 @@
   };
   const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-29056";
   const EXPECTED_HOSTING_HOST = "gestor-de-inventario-wtf-prod-2026.web.app";
+  const EXPECTED_FIREBASEAPP_HOST = "gestor-de-inventario-wtf-prod-2026.firebaseapp.com";
+  function getProductionFirebaseConfigFallback() {
+    return {
+      enabled: true,
+      firebaseConfig: {
+        apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
+        authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
+        projectId: "gestor-de-inventario-wtf-29056",
+        storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
+        messagingSenderId: "863301490729",
+        appId: "1:863301490729:web:f5018bd6e6489f69686438"
+      },
+      collection: "wtfSistema",
+      documentId: "estadoGeneral",
+      secureStateWriteEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfSecureStateWrite",
+      ai: {
+        enabled: true,
+        endpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAiAssistant",
+        provider: "ollama",
+        fallbackProvider: "openai",
+        model: "gpt-5.6",
+        ollamaModel: "gemma4:31b-cloud"
+      },
+      push: {
+        enabled: true,
+        vapidPublicKey: "BBykS-efnBriT-5tkedsaNxcq5UOy33lL8Mag_0FilyAAx3iOBFLFmLs5ApJkhIoMEVxzEl_0UHhU8q7zTKdigg",
+        processEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfProcessPendingPushMessages"
+      },
+      controlHorario: {
+        terminalEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAuthorizedTerminal",
+        defaultBranchId: "wtf-av-venezuela"
+      }
+    };
+  }
+  function shouldUseProductionFirebaseFallback(input) {
+    if (input && input.enabled === true) return false;
+    return window.location.hostname === EXPECTED_HOSTING_HOST || window.location.hostname === EXPECTED_FIREBASEAPP_HOST;
+  }
   function escapeHtml(text) {
     return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
@@ -5158,7 +5196,8 @@
     return config;
   }
   function getFirebaseSyncConfig() {
-    const input = window.WTF_FIREBASE_CONFIG || {};
+    const loadedInput = window.WTF_FIREBASE_CONFIG || {};
+    const input = shouldUseProductionFirebaseFallback(loadedInput) ? getProductionFirebaseConfigFallback() : loadedInput;
     const config = {
       enabled: Boolean(input.enabled),
       firebaseConfig: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.firebaseConfig, input.firebaseConfig || {}),
