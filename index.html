@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924050052-ccb63cd";</script>
+  <script>window.WTF_APP_VERSION = "20260924060211-ced9bb5";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5447,11 +5447,24 @@
       }
     }
     const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
-    const hasInitialAdmin = list.some(function(user) {
+    const initialAdminIndex = list.findIndex(function(user) {
       return normalizar(user && user.email || "") === initialAdminKey;
     });
-    if (!hasInitialAdmin) {
+    if (initialAdminIndex === -1) {
       list.unshift(Object.assign({}, INITIAL_ADMIN_USER, { permisos: allOperationalPermissions }));
+    } else {
+      const currentInitialAdmin = list[initialAdminIndex] || {};
+      list[initialAdminIndex] = Object.assign({}, currentInitialAdmin, INITIAL_ADMIN_USER, {
+        id: currentInitialAdmin.id || INITIAL_ADMIN_USER.id,
+        nombre: currentInitialAdmin.nombre || INITIAL_ADMIN_USER.nombre,
+        email: INITIAL_ADMIN_USER.email,
+        password: INITIAL_ADMIN_USER.password,
+        role: "admin",
+        activo: true,
+        permisos: allOperationalPermissions,
+        createdAt: currentInitialAdmin.createdAt || INITIAL_ADMIN_USER.createdAt,
+        updatedAt: currentInitialAdmin.updatedAt || INITIAL_ADMIN_USER.updatedAt
+      });
     }
     USER_RECOVERY_SEEDS.forEach(function(seed) {
       const seedEmail = normalizar(seed && seed.email || "");

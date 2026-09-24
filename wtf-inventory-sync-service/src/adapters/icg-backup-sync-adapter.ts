@@ -1016,7 +1016,6 @@ async function readIcgControlPause(config: ServiceConfig): Promise<{ paused: boo
 
 async function writeAppState(config: ServiceConfig, appState: AnyRecord, result: IcgBackupSyncResult): Promise<void> {
   const splitState = splitAppStateIntoShards(appState);
-  const packed = encodeCompressedAppState(splitState.mainState);
   const shardPayloads = splitState.shards.map((shard) => {
     const packedShard = encodeCompressedAppState(shard.value as AnyRecord);
     return {
@@ -1036,11 +1035,6 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
   });
   const payload = {
     fields: {
-      appStateCompressed: encodeFirestoreValue(packed.compressed),
-      appStateFormat: encodeFirestoreValue("pako-base64-json-v1"),
-      appStateJsonBytes: encodeFirestoreValue(Buffer.byteLength(JSON.stringify(appState || {}), "utf8")),
-      appStateMainJsonBytes: encodeFirestoreValue(packed.jsonBytes),
-      appStateCompressedBytes: encodeFirestoreValue(packed.compressedBytes),
       appStateShardVersion: encodeFirestoreValue(1),
       appStateShardKeys: encodeFirestoreValue(shardPayloads.map((shard) => shard.key)),
       appStateShardCompressedBytes: encodeFirestoreValue(shardPayloads.reduce((total, shard) => total + shard.packed.compressedBytes, 0)),
