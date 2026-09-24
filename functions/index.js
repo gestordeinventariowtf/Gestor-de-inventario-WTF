@@ -82,7 +82,22 @@ function getBearerToken(req) {
   return auth.slice(7).trim();
 }
 
-async function requireSecureStateAdmin(req) {
+function isActiveInternalUserInState(state, email) {
+  const clean = normalizeEmail(email);
+  if (!clean || BLOCKED_SECURITY_EMAILS.has(clean)) return false;
+  const users = Array.isArray(state?.usuarios) ? state.usuarios : [];
+  return users.some((user) => normalizeEmail(user?.email || "") === clean && user?.activo !== false);
+}
+
+async function readCurrentWtfStateForAuth() {
+  const snapshot = await getFirestore().collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID).get();
+  const data = snapshot.exists ? snapshot.data() || {} : {};
+  if (data.appStateCompressed) return decodeCompressedAppState(data.appStateCompressed) || {};
+  if (data.appState && typeof data.appState === "object") return data.appState;
+  return {};
+}
+
+async function requireSecureStateWriter(req) {
   const token = getBearerToken(req);
   if (!token) {
     const error = new Error("No autorizado: falta token Firebase Auth");
@@ -91,10 +106,18 @@ async function requireSecureStateAdmin(req) {
   }
   const decoded = await getAuth().verifyIdToken(token, true);
   const email = normalizeEmail(decoded.email || "");
-  if (!email || BLOCKED_SECURITY_EMAILS.has(email) || !SECURE_STATE_ADMIN_EMAILS.has(email)) {
+  if (!email || BLOCKED_SECURITY_EMAILS.has(email)) {
     const error = new Error("No autorizado para escribir estado WTF");
     error.status = 403;
     throw error;
+  }
+  if (!SECURE_STATE_ADMIN_EMAILS.has(email)) {
+    const currentState = await readCurrentWtfStateForAuth();
+    if (!isActiveInternalUserInState(currentState, email)) {
+      const error = new Error("No autorizado para escribir estado WTF");
+      error.status = 403;
+      throw error;
+    }
   }
   return { uid: decoded.uid || "", email, name: decoded.name || decoded.email || email };
 }
@@ -593,7 +616,7 @@ export const wtfSecureStateWrite = onRequest({ region: "us-central1", cors: fals
     return;
   }
   try {
-    const actor = await requireSecureStateAdmin(req);
+    const actor = await requireSecureStateWriter(req);
     const result = await writeSecureStatePayload(req.body || {}, actor, req);
     res.json(result);
   } catch (error) {
