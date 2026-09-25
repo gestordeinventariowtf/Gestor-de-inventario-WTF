@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925063639-dd6fe44";</script>
+  <script>window.WTF_APP_VERSION = "20260925064943-be66166";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12549,7 +12549,7 @@
               scheduleFirebaseWrite(null, "", 5000, `${reason || "web-client"}-queued`);
             }
           }
-        }, 1500);
+        }, 350);
       }, delay);
     }
     function applyRemoteState(nextState) {
@@ -12800,6 +12800,56 @@
       }
     }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
+    async function flushFirebaseStateNow(reason = "manual-sync") {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return false;
+      if (firebaseWriteInFlightRef.current) {
+        firebaseWriteQueuedRef.current = true;
+        setFirebaseStatus("connected");
+        setFirebaseMessage("Guardando cambios locales en Firebase...");
+        return false;
+      }
+      if (syncTimerRef.current) {
+        window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+      if (syncIdleTaskRef.current) {
+        cancelBrowserFreeTask(syncIdleTaskRef.current);
+        syncIdleTaskRef.current = null;
+      }
+      const writeDoc = createFirebaseWriteDoc(getCurrentAppState(), reason);
+      if (writeDoc.signature === lastRemoteSignatureRef.current) return false;
+      firebaseWriteInFlightRef.current = true;
+      try {
+        setFirebaseStatus("connected");
+        setFirebaseMessage("Guardando cambios locales en Firebase...");
+        pendingLocalAtRef.current = markLocalSyncChange();
+        writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
+        (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+          if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
+        });
+        pendingLocalSignatureRef.current = writeDoc.signature;
+        await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+        lastRemoteSignatureRef.current = writeDoc.signature;
+        lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
+        confirmedSecureWriteSignatureRef.current = writeDoc.signature;
+        confirmedSecureWriteAtRef.current = Date.now();
+        pendingLocalSignatureRef.current = "";
+        pendingLocalAtRef.current = 0;
+        hasSessionLocalChangeRef.current = false;
+        setFirebaseStatus("connected");
+        setFirebaseMessage("Cambios sincronizados");
+        setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+        return true;
+      } catch (error) {
+        console.error("Firebase manual write error:", error);
+        if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return false;
+        setFirebaseStatus("error");
+        setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
+        throw error;
+      } finally {
+        firebaseWriteInFlightRef.current = false;
+      }
+    }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
@@ -13476,7 +13526,7 @@
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 14000 : 9000;
+      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 900 : 700;
       scheduleFirebaseWrite(null, "", mobileSyncDelay, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
@@ -13491,6 +13541,11 @@
       function handlePwaSync(event) {
         const now = Date.now();
         const reason = event && event.detail && event.detail.reason || "pwa";
+        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        if (hasPendingLocalWrite || hasSessionLocalChangeRef.current || firebaseWriteInFlightRef.current) {
+          scheduleFirebaseWrite(null, "", 500, "foreground-local-write");
+          return;
+        }
         if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
@@ -13785,7 +13840,7 @@
       [inventario]
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
-    function forceFirebaseSyncNow() {
+    async function forceFirebaseSyncNow() {
       if (isFirebaseCooldownActive()) {
         clearFirebaseCooldown("Pausa Firebase liberada manualmente. Reintentando conexion...");
         toast("Pausa Firebase liberada. Reintentando sincronizacion...", "info", 6500);
@@ -13796,11 +13851,19 @@
         toast("Firebase se esta preparando para reconectar. Intenta de nuevo en unos segundos si no sincroniza automaticamente.", "info", 7500);
         return;
       }
-      setFirebaseStatus("connecting");
-      setFirebaseMessage("Forzando lectura del servidor...");
-      pullLatestFirebaseSnapshot("manual-sync");
-      if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
-        window.WTF_PWA.syncNow("manual-sync");
+      try {
+        setFirebaseStatus("connected");
+        setFirebaseMessage("Sincronizando cambios locales...");
+        await flushFirebaseStateNow("manual-sync");
+        setFirebaseStatus("connecting");
+        setFirebaseMessage("Confirmando cambios con Firebase...");
+        await pullLatestFirebaseSnapshot("manual-sync");
+        if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
+          window.WTF_PWA.syncNow("manual-sync");
+        }
+        toast("Sincronizacion completada.", "ok", 3500);
+      } catch (error) {
+        toast(error && error.message ? error.message : "No se pudo sincronizar Firebase.", "error", 8e3);
       }
     }
     const syncBadge = useMemo(() => {
