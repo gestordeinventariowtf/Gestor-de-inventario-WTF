@@ -1014,6 +1014,31 @@ async function readIcgControlPause(config: ServiceConfig): Promise<{ paused: boo
   return { paused, reason };
 }
 
+function summarizeIcgBackupSync(result: IcgBackupSyncResult): AnyRecord {
+  return {
+    ok: Boolean(result.ok),
+    backupPath: result.backupPath || "",
+    sourcePath: result.sourcePath || "",
+    sourceMode: result.sourceMode || "",
+    databaseName: result.databaseName || "",
+    fecha: result.fecha || "",
+    totalLines: Number(result.totalLines || 0),
+    matched: Number(result.matched || 0),
+    applied: Number(result.applied || 0),
+    skipped: Number(result.skipped || 0),
+    pending: Number(result.pending || 0),
+    errorCount: Array.isArray(result.errors) ? result.errors.length : 0,
+    errors: Array.isArray(result.errors) ? result.errors.slice(0, 8) : [],
+    message: result.message || "",
+    tableCounts: result.tableCounts || {},
+    movementCount: Array.isArray(result.movements) ? result.movements.length : 0,
+    preserveLocalIcgQueue: Boolean(result.preserveLocalIcgQueue),
+    previewReadOk: result.previewReadOk !== false,
+    previewReadError: result.previewReadError || "",
+    updatedAtHost: new Date().toISOString()
+  };
+}
+
 async function writeAppState(config: ServiceConfig, appState: AnyRecord, result: IcgBackupSyncResult): Promise<void> {
   const splitState = splitAppStateIntoShards(appState);
   const shardPayloads = splitState.shards.map((shard) => {
@@ -1046,7 +1071,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       }),
       updatedBy: encodeFirestoreValue("icg-backup-consumption-sync"),
       updatedAtHost: encodeFirestoreValue(new Date().toISOString()),
-      lastIcgBackupSync: encodeFirestoreValue(result)
+      lastIcgBackupSync: encodeFirestoreValue(summarizeIcgBackupSync(result))
     }
   };
   await Promise.all(shardPayloads.map(async (shard) => {
