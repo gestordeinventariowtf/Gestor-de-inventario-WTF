@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "2026-09-25-firebase-central-sync-1";
+const WTF_SW_VERSION = "2026-09-25-firebase-read-fix-1";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "/system-logs.html",
   "/app-version.js",
   "/pwa.js",
+  "/pako.min.js",
   "/firebase-config.js",
   "/manifest.webmanifest",
   "/pwa-icon.svg",
@@ -33,7 +34,7 @@ function isNavigationRequest(request) {
 }
 
 function shouldBypassCache(url) {
-  return url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/version.json" || url.pathname === "/app-version.js" || url.pathname === "/pwa.js" || url.pathname === "/firebase-config.js" || url.pathname.startsWith("/__/") || url.hostname.includes("googleapis.com") || url.hostname.includes("gstatic.com");
+  return url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/version.json" || url.pathname === "/app-version.js" || url.pathname === "/pwa.js" || url.pathname === "/pako.min.js" || url.pathname === "/firebase-config.js" || url.pathname.startsWith("/__/") || url.hostname.includes("googleapis.com") || url.hostname.includes("gstatic.com");
 }
 
 self.addEventListener("fetch", (event) => {

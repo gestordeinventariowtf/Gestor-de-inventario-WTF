@@ -15,13 +15,13 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+  <script src="./pako.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925164658-590c07c";</script>
+  <script>window.WTF_APP_VERSION = "20260925165854-557790d";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5358,6 +5358,23 @@
       return null;
     }
   }
+  function waitForFirebaseCompressionReady(timeoutMs = 2500) {
+    if (window.pako && window.TextDecoder) return Promise.resolve(true);
+    const startedAt = Date.now();
+    return new Promise(function(resolve) {
+      const timer = window.setInterval(function() {
+        if (window.pako && window.TextDecoder) {
+          window.clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - startedAt >= timeoutMs) {
+          window.clearInterval(timer);
+          resolve(false);
+        }
+      }, 80);
+    });
+  }
   async function readFirebaseExternalStateDoc(docRef, key) {
     if (!docRef || !docRef.parent || !key) return null;
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
@@ -5365,7 +5382,10 @@
       const snapshot = await docRef.parent.doc(docId).get();
       if (!snapshot.exists) return null;
       const data = snapshot.data() || {};
-      if (data.appStateCompressed) return decodeFirebaseCompressedState(data.appStateCompressed);
+      if (data.appStateCompressed) {
+        await waitForFirebaseCompressionReady();
+        return decodeFirebaseCompressedState(data.appStateCompressed);
+      }
       if (typeof data.appState !== "undefined") return data.appState;
     } catch (error) {
       console.error("No se pudo leer el documento externo Firebase:", key, error);
@@ -5376,6 +5396,7 @@
     if (!data) return null;
     let state = null;
     if (data.appStateCompressed) {
+      await waitForFirebaseCompressionReady();
       try {
         state = decodeFirebaseCompressedState(data.appStateCompressed);
       } catch (error) {
@@ -5383,6 +5404,9 @@
       }
     } else {
       state = data.appState || null;
+    }
+    if (!state && (Array.isArray(data.appStateShardKeys) && data.appStateShardKeys.length || Array.isArray(data.appStateExternalKeys) && data.appStateExternalKeys.length)) {
+      state = {};
     }
     if (!state) return null;
     const shardKeys = Array.isArray(data.appStateShardKeys) ? data.appStateShardKeys : [];
@@ -5392,6 +5416,7 @@
           const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
           if (!shardSnapshot.exists) return;
           const shardData = shardSnapshot.data() || {};
+          if (shardData.appStateCompressed) await waitForFirebaseCompressionReady();
           const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
           if (typeof shardValue !== "undefined" && shardValue !== null) state[key] = shardValue;
         } catch (error) {
