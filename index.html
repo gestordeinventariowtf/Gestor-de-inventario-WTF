@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925165854-557790d";</script>
+  <script>window.WTF_APP_VERSION = "20260925171005-4e3d782";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12778,11 +12778,12 @@
         return;
       }
       try {
+        const forceServerApply = reason === "manual-sync" || reason === "sync-button" || reason === "pwa-manual";
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
         const hasPendingLocalWrite = hasPendingFirebaseLocalWrite();
-        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite) {
+        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite && !forceServerApply) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
@@ -12795,7 +12796,9 @@
         const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
-        const currentSignature = getCurrentStateSignatureFast(hasPendingLocalWrite);
+        const currentSignature = forceServerApply && !hasPendingLocalWrite
+          ? serializeAppState(getCurrentAppState())
+          : getCurrentStateSignatureFast(hasPendingLocalWrite);
         const isAwaitingSecureWriteEcho = confirmedSecureWriteSignatureRef.current
           && currentSignature === confirmedSecureWriteSignatureRef.current
           && Date.now() - Number(confirmedSecureWriteAtRef.current || 0) < 6e4
@@ -13598,7 +13601,7 @@
           scheduleFirebaseWrite(null, "", 500, "foreground-local-write");
           return;
         }
-        if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
+        if (reason === "foreground-interval" && now - lastPullAt < 3e4) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
         if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
