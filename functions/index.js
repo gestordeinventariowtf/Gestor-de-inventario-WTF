@@ -109,7 +109,7 @@ async function requireSecureStateWriter(req) {
     error.status = 401;
     throw error;
   }
-  const decoded = await getAuth().verifyIdToken(token, true);
+  const decoded = await getAuth().verifyIdToken(token);
   const email = normalizeEmail(decoded.email || "");
   if (!email || BLOCKED_SECURITY_EMAILS.has(email)) {
     const error = new Error("No autorizado para escribir estado WTF");
@@ -220,18 +220,8 @@ async function syncAuthorizedUsersFromState(db, state) {
       source: "wtf-users"
     });
   }
-  const collection = db.collection(AUTHORIZED_USERS_COLLECTION);
-  const existingSnapshot = await collection.limit(1000).get();
   const batch = db.batch();
-  existingSnapshot.docs.forEach((doc) => {
-    if (!authorized.has(normalizeEmail(doc.id))) {
-      batch.set(doc.ref, {
-        active: false,
-        disabledAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      }, { merge: true });
-    }
-  });
+  const collection = db.collection(AUTHORIZED_USERS_COLLECTION);
   for (const [email, data] of authorized.entries()) {
     batch.set(collection.doc(email), Object.assign({}, data, {
       updatedAt: FieldValue.serverTimestamp()
