@@ -29,6 +29,14 @@
     ]);
   }
 
+  async function clearLegacyAppShellCaches() {
+    if (!("caches" in window)) return;
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key.indexOf("wtf-static-") === 0).map((key) => caches.delete(key)));
+    } catch (_) {}
+  }
+
   function urlBase64ToUint8Array(base64String) {
     const padding = "=".repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -257,6 +265,7 @@
   }
 
   function start() {
+    clearLegacyAppShellCaches().catch(() => null);
     registerServiceWorker().catch((err) => console.warn("PWA service worker error", err));
     setupResumeSync();
     window.WTF_PWA = Object.assign({}, window.WTF_PWA || {}, {

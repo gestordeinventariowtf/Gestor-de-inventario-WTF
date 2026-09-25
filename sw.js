@@ -1,19 +1,7 @@
-const WTF_SW_VERSION = "2026-09-25-official-online-only-1";
+const WTF_SW_VERSION = "2026-09-25-central-firebase-sync-1";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/system-logs.html",
-  "/app-version.js",
-  "/pwa.js",
-  "/pako.min.js",
-  "/firebase-config.js",
-  "/manifest.webmanifest",
-  "/pwa-icon.svg",
-  "/version.json",
-  "/sharp-limpieza/index.html",
-  "/sharp-limpieza/script.js",
-  "/sharp-limpieza/styles.css"
+  "/pwa-icon.svg"
 ];
 
 self.addEventListener("install", (event) => {
@@ -46,11 +34,10 @@ self.addEventListener("fetch", (event) => {
   }
   if (isNavigationRequest(event.request)) {
     event.respondWith(
-      fetch(event.request, { cache: "no-store" }).then((response) => {
-        const copy = response.clone();
-        caches.open(STATIC_CACHE).then((cache) => cache.put("/index.html", copy)).catch(() => null);
-        return response;
-      }).catch(() => caches.match("/index.html"))
+      fetch(event.request, { cache: "no-store" }).catch(() => new Response("WTF Sistema requiere conexion online para sincronizar Firebase.", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+      }))
     );
     return;
   }
