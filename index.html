@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925160019-043684d";</script>
+  <script>window.WTF_APP_VERSION = "20260925164658-590c07c";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -21501,6 +21501,7 @@
         return { ok: false };
       });
       if (result && result.ok) toast("Este dispositivo quedo suscrito a notificaciones.", "ok");
+      else if (result && result.reason === "auth-required") toast("Inicia sesion con Google antes de activar notificaciones.", "error", 6500);
       else if (result && result.reason === "ios-home-screen-required") toast("En iPhone debes abrir la app desde el icono agregado a la pantalla de inicio para activar notificaciones.", "error", 6500);
       else if (result && result.reason === "permission-denied") toast("El dispositivo tiene las notificaciones bloqueadas para esta app.", "error", 6500);
       else toast("No se pudieron activar las notificaciones en este dispositivo.", "error");
@@ -21514,6 +21515,7 @@
         return { ok: false };
       });
       if (result && result.ok) toast("Este dispositivo quedo desactivado para notificaciones.", "ok");
+      else if (result && result.reason === "auth-required") toast("Inicia sesion con Google antes de modificar notificaciones.", "error", 6500);
       else toast("No se pudieron desactivar las notificaciones en este dispositivo.", "error");
     }
     async function testThisDeviceNotification() {
