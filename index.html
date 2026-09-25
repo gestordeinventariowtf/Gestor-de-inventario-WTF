@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925171005-4e3d782";</script>
+  <script>window.WTF_APP_VERSION = "20260925172424-2dfffe8";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12423,8 +12423,11 @@
     function hasRecentUserDataInteraction(windowMs = 3e4) {
       return Date.now() - Number(userInteractionAtRef.current || 0) < windowMs;
     }
+    function hasFreshSessionLocalChange(windowMs = 45e3) {
+      return Boolean(hasSessionLocalChangeRef.current && hasRecentUserDataInteraction(windowMs));
+    }
     function shouldUploadLocalStateNow() {
-      return Boolean(hasSessionLocalChangeRef.current || hasPendingFirebaseLocalWrite());
+      return Boolean(hasPendingFirebaseLocalWrite() || hasFreshSessionLocalChange());
     }
     function acceptRemoteSyncRevision(revision) {
       const nextRevision = Number(revision || 0);
@@ -12434,7 +12437,7 @@
       }
     }
     function getCurrentStateSignatureFast(hasPendingLocalWrite) {
-      if (!hasPendingLocalWrite && !hasSessionLocalChangeRef.current && lastRemoteSignatureRef.current) {
+      if (!hasPendingLocalWrite && !hasFreshSessionLocalChange() && lastRemoteSignatureRef.current) {
         return lastRemoteSignatureRef.current;
       }
       return serializeAppState(getCurrentAppState());
@@ -13484,7 +13487,7 @@
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
             const localRevision = Number(syncRevisionRef.current || 0);
             const localChangeAt = Number(localChangeAtRef.current || 0);
-            const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || (hasPendingLocalWrite && Number(pendingLocalAtRef.current || 0) >= Number(sessionStartedAtRef.current || 0));
+            const hasCurrentSessionLocalChange = hasFreshSessionLocalChange(9e4) || (hasPendingLocalWrite && Number(pendingLocalAtRef.current || 0) >= Number(sessionStartedAtRef.current || 0));
             const remoteHasRevision = remoteRevision > 0 && localRevision > 0;
             const remoteIsOlderByRevision = remoteHasRevision && remoteRevision < localRevision;
             const remoteIsOlderByClientTime = !remoteHasRevision && localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
@@ -13597,12 +13600,12 @@
         const now = Date.now();
         const reason = event && event.detail && event.detail.reason || "pwa";
         const hasPendingLocalWrite = hasPendingFirebaseLocalWrite();
-        if (hasPendingLocalWrite || hasSessionLocalChangeRef.current || firebaseWriteInFlightRef.current) {
+        if (hasPendingLocalWrite || hasFreshSessionLocalChange() || firebaseWriteInFlightRef.current) {
           scheduleFirebaseWrite(null, "", 500, "foreground-local-write");
           return;
         }
-        if (reason === "foreground-interval" && now - lastPullAt < 3e4) return;
-        if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
+        if (reason === "foreground-interval" && now - lastPullAt < 1e4) return;
+        if (reason !== "foreground-interval" && now - lastPullAt < 1500) return;
         lastPullAt = now;
         if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
       }

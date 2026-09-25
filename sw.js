@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "2026-09-25-mobile-sync-refresh-1";
+const WTF_SW_VERSION = "2026-09-25-mobile-sync-refresh-2";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",

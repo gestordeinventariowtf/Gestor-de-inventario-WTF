@@ -2,8 +2,8 @@
   const RESUME_SYNC_EVENT = "wtf:pwa-resume";
   const FOREGROUND_SYNC_EVENT = "wtf:pwa-foreground-sync";
   const SUBSCRIPTION_COLLECTION = "pwaPushSubscriptions";
-  const FOREGROUND_SYNC_MS = 30000;
-  const RESUME_AFTER_MS = 10000;
+  const FOREGROUND_SYNC_MS = 10000;
+  const RESUME_AFTER_MS = 2000;
   let hiddenAt = 0;
   let serviceWorkerRegistration = null;
   let lastForegroundSyncAt = 0;
@@ -16,7 +16,7 @@
   function dispatchSyncEvent(name, reason) {
     const now = Date.now();
     if (name === FOREGROUND_SYNC_EVENT && now - lastForegroundSyncAt < FOREGROUND_SYNC_MS - 1000) return;
-    if (name === RESUME_SYNC_EVENT && now - lastResumeSyncAt < 15000 && reason !== "manual-sync") return;
+    if (name === RESUME_SYNC_EVENT && now - lastResumeSyncAt < 5000 && reason !== "manual-sync") return;
     if (name === FOREGROUND_SYNC_EVENT) lastForegroundSyncAt = now;
     if (name === RESUME_SYNC_EVENT) lastResumeSyncAt = now;
     window.dispatchEvent(new CustomEvent(name, { detail: { reason: reason || "pwa" } }));
