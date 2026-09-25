@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925032138-b384fdb";</script>
+  <script>window.WTF_APP_VERSION = "20260925053351-55d6397";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12789,6 +12789,11 @@
           }
           return;
         }
+        if (hasPendingLocalWrite) {
+          setFirebaseStatus("connected");
+          setFirebaseMessage("Guardando cambios locales en Firebase...");
+          return;
+        }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
         lastRemoteSignatureRef.current = remoteSignature;
         lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
@@ -12823,6 +12828,11 @@
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (applyingRemoteRef.current || Date.now() < Number(remoteApplyGuardUntilRef.current || 0)) return;
+      scheduleFirebaseWrite(Object.assign({}, getCurrentAppState(), { usuarios: ensureAdminUser(usuarios) }), "", 250, "usuarios-permisos");
+    }, [usuarios]);
     useEffect(() => save(KEYS.authUser, authUserEmail || ""), [authUserEmail]);
     useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
     useEffect(() => {
@@ -13393,6 +13403,8 @@
               confirmedSecureWriteAtRef.current = 0;
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
+            } else if (hasPendingLocalWrite) {
+              setFirebaseMessage("Guardando cambios locales en Firebase...");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
