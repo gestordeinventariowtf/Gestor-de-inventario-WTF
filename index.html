@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260924232320-43f9f0f";</script>
+  <script>window.WTF_APP_VERSION = "20260925032138-b384fdb";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4269,7 +4269,7 @@
     }
     function repairBarAguaSalidasRows(rows) {
       const seenKnownDuplicates = new Set();
-      const repairedRows = (Array.isArray(rows) ? rows : []).filter(function(row) {
+      return (Array.isArray(rows) ? rows : []).filter(function(row) {
         if (!isBarAguaManualDuplicateSalida(row)) return true;
         const parsed = new Date(row.fecha || row.Fecha || row.FechaHora || "");
         const duplicateKey = [
@@ -4289,63 +4289,9 @@
         seenKnownDuplicates.add(duplicateKey);
         return true;
       });
-      const hasT00110 = repairedRows.some(function(row) {
-        const ticket = normalizar(row.ticketIcg || row.TicketICG || row.ticket || row.Ticket || "");
-        const product = normalizar(row.producto || row.ProductoWTF || row.ProductoMise || "");
-        const physicalKey = canonicalizeIcgPhysicalKey(row.physicalIcgKey || row.PhysicalIcgKey || "");
-        const expectedPhysicalKey = canonicalizeIcgPhysicalKey("icg-physical-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua");
-        const parsed = new Date(row.fecha || row.Fecha || row.FechaHora || "");
-        const expectedMinute = !isNaN(parsed) && parsed.getFullYear() === 2026 && parsed.getMonth() === 8 && parsed.getDate() === 13 && parsed.getHours() === 15 && parsed.getMinutes() === 10;
-        return product === "agua" && (physicalKey === expectedPhysicalKey || (expectedMinute && (ticket === "1-t001-10-b" || ticket === "t001-10")));
-      });
-      if (hasT00110) return repairedRows;
-      const physicalKey = "icg-physical-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua";
-      const auditKey = "icg-consumption-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua";
-      const importKey = "fnv32-d99b8c02";
-      const movementIcgId = "fnv32-45921a13";
-      const stableId = `icg-physical-${quickHashText(`${physicalKey}|barInventario|agua`)}`;
-      return repairedRows.concat({
-        _id: stableId,
-        id: stableId,
-        storageKey: "barInventario",
-        origen: "ICG FrontRest Backup",
-        modulo: "Bar",
-        fecha: "2026-09-13T15:10:47.000-04:00",
-        fechaIcg: "2026-09-13 15:10:47",
-        ticketIcg: "1-T001-10-B",
-        ticket: "T001-10",
-        serieIcg: "T001",
-        numeroIcg: "10",
-        numLineaIcg: "1",
-        numero: "",
-        medida: "uni",
-        producto: "agua",
-        cantidad: 1,
-        usuario: "ICG FrontRest Backup",
-        updatedAt: "2026-09-13T15:10:47.000-04:00",
-        importKey,
-        IcgAuditKey: auditKey,
-        movimientoIcgId: movementIcgId,
-        physicalIcgKey: physicalKey,
-        existenciaAnterior: 10,
-        existenciaNueva: 9,
-        auditNote: "Asiento historico restaurado sin modificar existencia actual del producto."
-      });
     }
     function repairBarAguaInventoryRows(rows) {
-      return (Array.isArray(rows) ? rows : []).map(function(item) {
-        if (!item || item.tipo !== "producto" || normalizar(item.nombre) !== "agua") return item;
-        if (item.manualRepairVersion === BAR_AGUA_MANUAL_REPAIR_VERSION) return item;
-        const entrada = parseStockNumber(item.entrada, 0);
-        const decomiso = parseStockNumber(item.decomiso, 0);
-        const targetSalida = Math.max(0, roundQty4(entrada - decomiso - 2));
-        return Object.assign({}, item, {
-          salida: targetSalida,
-          manualRepairVersion: BAR_AGUA_MANUAL_REPAIR_VERSION,
-          repairAppliedAt: new Date().toISOString(),
-          repairReason: "Correccion manual Agua Bar: existencia final 2 y limpieza de salida duplicada 13/09/2026 04:08 p. m."
-        });
-      });
+      return Array.isArray(rows) ? rows : [];
     }
   function mergeMovementRows(localRows, remoteRows, deletedKeys) {
     const map = new Map();
@@ -5145,14 +5091,14 @@
       else next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key], next.movementDeletedKeys[key]);
       if (MOVEMENT_DELETED_STATE_KEYS.includes(key)) next.movementDeletedKeys[key] = pruneMovementDeletedKeys(next.movementDeletedKeys, key);
     });
-    next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, includeLocalDeletedKeys ? localState && localState.inventoryDeletedKeys : null);
+    next.inventoryDeletedKeys = normalizeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys);
     [
       "inventario",
       "cuartoFrioInventario",
       "barInventario",
       "barCuartoFrioInventario"
     ].forEach(function(key) {
-      next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
+      next[key] = normalizeInventoryRowsForDisplay(remoteState && remoteState[key] || [], next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
     next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
@@ -5175,7 +5121,7 @@
     next.barProductionHolds = mergeProductionHolds(includeLocalProductionHolds ? localState && localState.barProductionHolds : null, remoteState && remoteState.barProductionHolds, next.productionHoldDeletedKeys.barProductionHolds);
     next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
     next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
-    next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
+    next.usuarios = Array.isArray(remoteState && remoteState.usuarios) ? ensureAdminUser(remoteState.usuarios) : ensureAdminUser([]);
     next.appSecurity = mergeAppSecurity(localState && localState.appSecurity, remoteState && remoteState.appSecurity);
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
@@ -10461,7 +10407,7 @@
     if (!window.firebase || !window.firebase.auth) return null;
     const auth = window.firebase.auth();
     const user = auth.currentUser;
-    if (user && isAuthorizedFirebaseLoginEmail(user.email || "")) return user;
+    if (user && user.email && !isPermanentlyRemovedUserEmail(user.email || "")) return user;
     throw new Error("Inicia sesion con Google autorizado para subir archivos.");
   }
   async function compressImageToJpeg(file, maxMb, options) {
@@ -12634,11 +12580,11 @@
       remoteApplyGuardUntilRef.current = Date.now() + 4000;
       if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
-        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.inventario, deleted), deleted);
+        return normalizeInventoryRowsForDisplay(nextState.inventario, deleted);
       });
       if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario;
-        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.cuartoFrioInventario, deleted), deleted);
+        return normalizeInventoryRowsForDisplay(nextState.cuartoFrioInventario, deleted);
       });
       if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.miseAnPlace); })));
       const nextMovementDeletedKeys = normalizeMovementDeletedKeys(nextState.movementDeletedKeys);
@@ -12668,16 +12614,16 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (nextState.googleConfig && typeof nextState.googleConfig === "object") setGoogleConfig(normalizeGoogleConfig(nextState.googleConfig));
-      if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
+      if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
-        return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
+        return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(nextState.barInventario, deleted));
       });
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario;
-        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barCuartoFrioInventario, deleted), deleted);
+        return normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, deleted);
       });
       if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.barMiseAnPlace); })));
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(normalizeMovementRows(nextState.barRegEntradas, nextMovementDeletedKeys.barRegEntradas));
@@ -13156,13 +13102,21 @@
         const googleUser = credential && credential.user || auth.currentUser;
         const email = normalizar(googleUser && googleUser.email || "");
         if (!email) throw new Error("Google no devolvio un correo valido.");
-        if (!isAuthorizedInternalAccessEmail(email)) {
-          await auth.signOut().catch(function() {});
-          throw new Error("No tienes acceso autorizado a este sistema.");
-        }
-        const user = ensureAdminUser(usuarios).find(function(u) {
+        let user = ensureAdminUser(usuarios).find(function(u) {
           return u.activo !== false && normalizar(u.email) === email;
         });
+        if (!user) {
+          const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
+          const remoteSnapshot = await docRef.get({ source: "server" });
+          const remoteState = await decodeFirebaseAppState(remoteSnapshot.data(), docRef);
+          const remoteUsers = ensureAdminUser(remoteState && remoteState.usuarios || []);
+          user = remoteUsers.find(function(u) {
+            return u.activo !== false && normalizar(u.email) === email;
+          });
+          if (user && remoteState) {
+            applyRemoteState(remoteState);
+          }
+        }
         if (!user) {
           await auth.signOut().catch(function() {});
           throw new Error("El correo esta autenticado, pero no tiene perfil interno autorizado.");
@@ -13322,7 +13276,7 @@
         return;
       }
       const authedEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || "");
-      if (!isAuthorizedFirebaseLoginEmail(authedEmail)) {
+      if (!authedEmail || isPermanentlyRemovedUserEmail(authedEmail)) {
         firebaseDocRef.current = null;
         icgControlDocRef.current = null;
         firebaseBootstrappedRef.current = false;
