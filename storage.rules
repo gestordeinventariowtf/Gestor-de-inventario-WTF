@@ -10,14 +10,25 @@ service firebase.storage {
         ];
     }
 
+    function isAuthorizedWtfUser() {
+      return request.auth != null
+        && (
+          isAuthorizedAdmin()
+          || (
+            firestore.exists(/databases/(default)/documents/authorizedUsers/$(request.auth.token.email))
+            && firestore.get(/databases/(default)/documents/authorizedUsers/$(request.auth.token.email)).data.active == true
+          )
+        );
+    }
+
     match /sharp-limpieza/{moduleId}/{dateKey}/{fileName} {
-      allow read: if isAuthorizedAdmin() && moduleId in ['cocina', 'servicio'];
-      allow create, update: if isAuthorizedAdmin()
+      allow read: if isAuthorizedWtfUser() && moduleId in ['cocina', 'servicio'];
+      allow create, update: if isAuthorizedWtfUser()
         && moduleId in ['cocina', 'servicio']
         && request.resource != null
         && request.resource.size <= 2 * 1024 * 1024
         && request.resource.contentType == 'image/jpeg';
-      allow delete: if isAuthorizedAdmin() && moduleId in ['cocina', 'servicio'];
+      allow delete: if isAuthorizedWtfUser() && moduleId in ['cocina', 'servicio'];
     }
 
     match /activo-operativo/{category}/{fileName} {

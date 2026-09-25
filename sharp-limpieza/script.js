@@ -44,14 +44,20 @@ const PHOTO_FIREBASE_CONFIG = {
   messagingSenderId: "863301490729",
   appId: "1:863301490729:web:f5018bd6e6489f69686438"
 };
-const AUTHORIZED_FIREBASE_EMAILS = ["henryortiz1704@gmail.com"];
+const BLOCKED_FIREBASE_EMAILS = [
+  "jssantana077@gmail.com",
+  "jhonnwtf@gmail.com",
+  "jhonn077@gmail.com",
+  "jhonndell077@gmail.com"
+];
 
 function normalizeFirebaseEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
 function isAuthorizedFirebaseUser(user) {
-  return !!(user && AUTHORIZED_FIREBASE_EMAILS.includes(normalizeFirebaseEmail(user.email)));
+  const email = normalizeFirebaseEmail(user && user.email);
+  return !!(user && email && !BLOCKED_FIREBASE_EMAILS.includes(email));
 }
 
 const LEGEND = {
@@ -1717,16 +1723,32 @@ async function uploadPhotoEvidenceToFirebaseStorage(blob) {
 
 async function queueSharpPushNotification(record) {
   try {
-    if (!firebaseDB || !record) return;
-    await firebaseDB.collection("pwaPushMessages").add({
-      title: "Evidencia Sharp recibida",
-      body: `${record.collaboratorName || "Colaborador"} completo ${record.taskName || "una tarea"} en ${record.branchName || "Sharp de Limpieza"}.`,
-      topic: "admin",
-      url: "/",
-      status: "pending",
-      createdBy: record.collaboratorName || "Sharp de Limpieza",
-      createdAt: getServerTimestamp()
+    if (!record) return;
+    const endpoint = window.WTF_FIREBASE_CONFIG
+      && window.WTF_FIREBASE_CONFIG.push
+      && window.WTF_FIREBASE_CONFIG.push.processEndpoint
+      ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint)
+      : "";
+    const user = firebase.auth && firebase.auth().currentUser;
+    if (!endpoint || !user) return;
+    const idToken = await user.getIdToken();
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        action: "createAndSend",
+        title: "Evidencia Sharp recibida",
+        body: `${record.collaboratorName || "Colaborador"} completo ${record.taskName || "una tarea"} en ${record.branchName || "Sharp de Limpieza"}.`,
+        topic: "admin",
+        url: "/",
+        createdBy: record.collaboratorName || "Sharp de Limpieza"
+      })
     });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) throw new Error(result.error || `Servicio de notificaciones fallo (${response.status})`);
   } catch (err) {
     console.warn("No se pudo encolar notificacion Sharp:", err && err.message ? err.message : err);
   }

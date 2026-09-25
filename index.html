@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925053351-55d6397";</script>
+  <script>window.WTF_APP_VERSION = "20260925063639-dd6fe44";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5463,24 +5463,7 @@
       }
       return;
     }
-    const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
-    const externalDocs = Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : [];
-    if (shards.length) {
-      await Promise.all(shards.map(async function(shard) {
-        try {
-          await docRef.collection("stateShards").doc(shard.key).set(shard.doc, { merge: true });
-        } catch (error) {
-          if (shard.key !== "icgFrontRestData" || !isIcgShardGuardError(error)) throw error;
-          console.warn("Se mantiene el shard ICG sin cambios mientras ICG esta pausado:", error);
-        }
-      }));
-    }
-    if (externalDocs.length && docRef.parent) {
-      await Promise.all(externalDocs.map(async function(externalDoc) {
-        await docRef.parent.doc(externalDoc.id).set(externalDoc.doc, { merge: true });
-      }));
-    }
-    await docRef.set(writeDoc.doc, { merge: true });
+    throw new Error("La escritura directa a Firestore esta desactivada. Configura el servicio seguro wtfSecureStateWrite.");
   }
   async function writeSecureFirebasePayload(payload) {
     const syncConfig = getFirebaseSyncConfig();
@@ -12936,6 +12919,29 @@
       });
       return found || null;
     }, [usuarios, authUserEmail, firebaseAuthUser, firebaseCfg.enabled]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || firebaseStatus !== "connected" || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      const firebaseEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || authUserEmail || "");
+      if (firebaseEmail !== "henryortiz1704@gmail.com" && !isRootAdmin(currentUser)) return;
+      const seedKey = `wtf_authorized_users_seed_${window.WTF_APP_VERSION || DATA_VERSION}`;
+      if (sessionStorage.getItem(seedKey)) return;
+      sessionStorage.setItem(seedKey, "1");
+      const timer = window.setTimeout(async function() {
+        try {
+          const writeDoc = createFirebaseWriteDoc(getCurrentAppState(), "authorized-users-refresh");
+          writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, "authorized-users-refresh");
+          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+            if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
+          });
+          await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+        } catch (error) {
+          console.warn("No se pudo refrescar authorizedUsers:", error && error.message ? error.message : error);
+        }
+      }, 2500);
+      return function() {
+        window.clearTimeout(timer);
+      };
+    }, [firebaseStatus, firebaseAuthUser, authUserEmail, currentUser]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;

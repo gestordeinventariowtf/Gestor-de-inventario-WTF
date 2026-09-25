@@ -21,6 +21,7 @@ const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
 const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
+const AUTHORIZED_USERS_COLLECTION = "authorizedUsers";
 const WTF_SYSTEM_COLLECTION = "wtfSistema";
 const WTF_STATE_DOC_ID = "estadoGeneral";
 const SECURE_STATE_ADMIN_EMAILS = new Set([
@@ -187,9 +188,62 @@ function normalizeSecureFirestoreDoc(doc) {
   return next;
 }
 
+function extractAppStateFromSecurePayloadDoc(doc) {
+  if (!doc || typeof doc !== "object") return null;
+  if (doc.appState && typeof doc.appState === "object") return doc.appState;
+  if (typeof doc.appStateCompressed === "string" && doc.appStateCompressed) return decodeCompressedAppState(doc.appStateCompressed);
+  return null;
+}
+
+async function syncAuthorizedUsersFromState(db, state) {
+  if (!state || typeof state !== "object" || !Array.isArray(state.usuarios)) return;
+  const authorized = new Map();
+  for (const adminEmail of SECURE_STATE_ADMIN_EMAILS) {
+    authorized.set(normalizeEmail(adminEmail), {
+      email: normalizeEmail(adminEmail),
+      role: "admin",
+      active: true,
+      source: "secure-admin"
+    });
+  }
+  for (const user of state.usuarios) {
+    const email = normalizeEmail(user?.email || "");
+    if (!email || BLOCKED_SECURITY_EMAILS.has(email)) continue;
+    authorized.set(email, {
+      email,
+      userId: sanitizeTerminalText(user?.id || "", 160),
+      nombre: sanitizeTerminalText(user?.nombre || user?.name || "", 160),
+      role: sanitizeTerminalText(user?.role || "user", 40),
+      modulo: sanitizeTerminalText(user?.modulo || "", 80),
+      permisos: Array.isArray(user?.permisos) ? user.permisos.map((item) => sanitizeTerminalText(item, 80)).filter(Boolean).slice(0, 80) : [],
+      active: user?.activo !== false,
+      source: "wtf-users"
+    });
+  }
+  const collection = db.collection(AUTHORIZED_USERS_COLLECTION);
+  const existingSnapshot = await collection.limit(1000).get();
+  const batch = db.batch();
+  existingSnapshot.docs.forEach((doc) => {
+    if (!authorized.has(normalizeEmail(doc.id))) {
+      batch.set(doc.ref, {
+        active: false,
+        disabledAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+  });
+  for (const [email, data] of authorized.entries()) {
+    batch.set(collection.doc(email), Object.assign({}, data, {
+      updatedAt: FieldValue.serverTimestamp()
+    }), { merge: true });
+  }
+  await batch.commit();
+}
+
 async function writeSecureStatePayload(payload, actor, req) {
   const db = getFirestore();
   const rootRef = db.collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID);
+  const appStateForAuthorizedUsers = extractAppStateFromSecurePayloadDoc(payload?.doc || {});
   const hasRootDoc = payload?.doc && typeof payload.doc === "object" && Object.keys(payload.doc).length > 0;
   if (hasRootDoc) {
     const rootDoc = normalizeSecureFirestoreDoc(payload.doc || {});
@@ -233,6 +287,10 @@ async function writeSecureStatePayload(payload, actor, req) {
     controlDoc.updatedBy = controlDoc.updatedBy || actor.email;
     await db.collection(WTF_SYSTEM_COLLECTION).doc("icgControl").set(controlDoc, { merge: true });
     icgControlWritten = true;
+  }
+
+  if (appStateForAuthorizedUsers) {
+    await syncAuthorizedUsersFromState(db, stripBlockedSecurityUsersFromState(appStateForAuthorizedUsers));
   }
 
   await db.collection(TERMINAL_AUDIT_COLLECTION).add({

@@ -9,6 +9,17 @@ service cloud.firestore {
         ];
     }
 
+    function isAuthorizedWtfUser() {
+      return request.auth != null
+        && (
+          isAuthorizedAdmin()
+          || (
+            exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email))
+            && get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email)).data.active == true
+          )
+        );
+    }
+
     match /wtfSistema/estadoGeneral {
       allow read: if request.auth != null;
       allow write: if false;
@@ -57,6 +68,11 @@ service cloud.firestore {
       allow read, write, delete: if false;
     }
 
+    match /authorizedUsers/{email} {
+      allow read: if isAuthorizedAdmin() || (request.auth != null && request.auth.token.email == email);
+      allow write, delete: if false;
+    }
+
     function isSharpModule(moduleId) {
       return moduleId in ['cocina', 'servicio'];
     }
@@ -74,16 +90,16 @@ service cloud.firestore {
     }
 
     match /sharpLimpieza/boards/items/{boardId} {
-      allow read: if isAuthorizedAdmin();
-      allow write: if isAuthorizedAdmin()
+      allow read: if isAuthorizedWtfUser();
+      allow write: if isAuthorizedWtfUser()
         && boardId.matches('^[A-Za-z0-9_-]{1,120}$')
         && request.resource.data.stateJson is string
         && request.resource.data.stateJson.size() <= 9000000;
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey}/photos/{photoId} {
-      allow read: if isAuthorizedAdmin() && isSharpModule(moduleId);
-      allow create, update: if isAuthorizedAdmin()
+      allow read: if isAuthorizedWtfUser() && isSharpModule(moduleId);
+      allow create, update: if isAuthorizedWtfUser()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && request.resource.data.url is string
@@ -94,11 +110,11 @@ service cloud.firestore {
         && request.resource.data.size is number
         && request.resource.data.size > 0
         && request.resource.data.size <= 2 * 1024 * 1024;
-      allow delete: if isAuthorizedAdmin() && isSharpModule(moduleId);
+      allow delete: if isAuthorizedWtfUser() && isSharpModule(moduleId);
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey} {
-      allow read, write, delete: if isAuthorizedAdmin()
+      allow read, write, delete: if isAuthorizedWtfUser()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
