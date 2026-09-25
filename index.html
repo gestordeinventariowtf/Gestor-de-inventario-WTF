@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925190304-9760766";</script>
+  <script>window.WTF_APP_VERSION = "20260925200041-488fe18";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12797,7 +12797,17 @@
         return;
       }
       try {
-        const forceServerApply = reason === "manual-sync" || reason === "sync-button" || reason === "pwa-manual";
+        const forceServerApply = [
+          "manual-sync",
+          "sync-button",
+          "pwa-manual",
+          "visibility-resume",
+          "window-focus",
+          "pageshow",
+          "bfcache-pageshow",
+          "online",
+          "service-worker"
+        ].includes(reason);
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
