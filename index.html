@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260925172424-2dfffe8";</script>
+  <script>window.WTF_APP_VERSION = "20260925181212-9f09246";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3494,6 +3494,22 @@
   const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-29056";
   const EXPECTED_HOSTING_HOST = "gestor-de-inventario-wtf-prod-2026.web.app";
   const EXPECTED_FIREBASEAPP_HOST = "gestor-de-inventario-wtf-prod-2026.firebaseapp.com";
+  const OFFICIAL_HOSTING_ORIGIN = "https://gestor-de-inventario-wtf-prod-2026.web.app";
+  function isDevelopmentHost(hostname) {
+    return !hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
+  }
+  function isOfficialHostingHost() {
+    return window.location.hostname === EXPECTED_HOSTING_HOST;
+  }
+  function enforceOfficialHostingHost() {
+    const protocol = window.location.protocol;
+    if (protocol !== "http:" && protocol !== "https:") return true;
+    const hostname = window.location.hostname;
+    if (hostname === EXPECTED_HOSTING_HOST || isDevelopmentHost(hostname)) return true;
+    window.location.replace(`${OFFICIAL_HOSTING_ORIGIN}${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`);
+    return false;
+  }
+  enforceOfficialHostingHost();
   function getProductionFirebaseConfigFallback() {
     return {
       enabled: true,
@@ -3529,7 +3545,7 @@
   }
   function shouldUseProductionFirebaseFallback(input) {
     if (input && input.enabled === true) return false;
-    return window.location.hostname === EXPECTED_HOSTING_HOST || window.location.hostname === EXPECTED_FIREBASEAPP_HOST;
+    return isOfficialHostingHost();
   }
   function escapeHtml(text) {
     return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -13964,10 +13980,10 @@
         };
       }
       return {
-        className: "sync-badge",
-        icon: "fa-hard-drive",
-        text: "Solo local",
-        title: "Firebase desactivado; usando localStorage."
+        className: "sync-badge err",
+        icon: "fa-triangle-exclamation",
+        text: "Firebase requerido",
+        title: "Este sistema debe trabajar online con Firebase."
       };
     }, [firebaseMessage, firebaseStatus, lastSyncedAt]);
     const icgControlButton = /* @__PURE__ */ React.createElement("button", {
@@ -14816,6 +14832,9 @@
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onGoogleLogin: loginWithGoogle, firebaseAuthLoading, toast });
+    }
+    if (firebaseCfg.enabled && !firebaseBootstrappedRef.current) {
+      return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card", style: { maxWidth: 720, gridTemplateColumns: "1fr" } }, /* @__PURE__ */ React.createElement("div", { className: "login-panel", style: { textAlign: "center", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 58, height: 58, borderRadius: 18, display: "grid", placeItems: "center", background: "rgba(10,159,40,.12)", color: "#0a9f28", fontSize: 24, margin: "0 auto 12px" } }, /* @__PURE__ */ React.createElement("i", { className: firebaseStatus === "error" ? "fas fa-triangle-exclamation" : "fas fa-cloud-arrow-down fa-spin" })), /* @__PURE__ */ React.createElement("h2", null, firebaseStatus === "error" ? "Firebase requiere atencion" : "Cargando informacion central"), /* @__PURE__ */ React.createElement("p", { style: { maxWidth: 520 } }, firebaseStatus === "error" ? firebaseMessage || "No se pudo leer Firebase de forma segura." : "Este equipo esta esperando la informacion online de Firebase para evitar mostrar datos locales antiguos."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", type: "button", onClick: forceFirebaseSyncNow }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar ahora"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", onClick: cerrarSesion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir")))));
     }
     if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
