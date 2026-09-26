@@ -49,6 +49,8 @@ const DEFAULT_BRANCHES = {
 
 if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
+  "https://gestor-de-inventario-wtf-29056.web.app",
+  "https://gestor-de-inventario-wtf-29056.firebaseapp.com",
   "https://gestor-inventario-wtf.web.app",
   "https://gestor-de-inventario-wtf-prod-2026.web.app",
   "https://gestor-de-inventario-wtf-prod-2026.firebaseapp.com",
