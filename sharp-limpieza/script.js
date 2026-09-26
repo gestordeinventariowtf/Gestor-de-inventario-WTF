@@ -44,21 +44,6 @@ const PHOTO_FIREBASE_CONFIG = {
   messagingSenderId: "863301490729",
   appId: "1:863301490729:web:f5018bd6e6489f69686438"
 };
-const BLOCKED_FIREBASE_EMAILS = [
-  "jssantana077@gmail.com",
-  "jhonnwtf@gmail.com",
-  "jhonn077@gmail.com",
-  "jhonndell077@gmail.com"
-];
-
-function normalizeFirebaseEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isAuthorizedFirebaseUser(user) {
-  const email = normalizeFirebaseEmail(user && user.email);
-  return !!(user && email && !BLOCKED_FIREBASE_EMAILS.includes(email));
-}
 
 const LEGEND = {
   red:    { symbol: "🟥", label: "Debe ser cada 1 dia",             short: "Cada 1 dia",          css: "lg-red"    },
@@ -1723,32 +1708,16 @@ async function uploadPhotoEvidenceToFirebaseStorage(blob) {
 
 async function queueSharpPushNotification(record) {
   try {
-    if (!record) return;
-    const endpoint = window.WTF_FIREBASE_CONFIG
-      && window.WTF_FIREBASE_CONFIG.push
-      && window.WTF_FIREBASE_CONFIG.push.processEndpoint
-      ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint)
-      : "";
-    const user = firebase.auth && firebase.auth().currentUser;
-    if (!endpoint || !user) return;
-    const idToken = await user.getIdToken();
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
-      },
-      body: JSON.stringify({
-        action: "createAndSend",
-        title: "Evidencia Sharp recibida",
-        body: `${record.collaboratorName || "Colaborador"} completo ${record.taskName || "una tarea"} en ${record.branchName || "Sharp de Limpieza"}.`,
-        topic: "admin",
-        url: "/",
-        createdBy: record.collaboratorName || "Sharp de Limpieza"
-      })
+    if (!firebaseDB || !record) return;
+    await firebaseDB.collection("pwaPushMessages").add({
+      title: "Evidencia Sharp recibida",
+      body: `${record.collaboratorName || "Colaborador"} completo ${record.taskName || "una tarea"} en ${record.branchName || "Sharp de Limpieza"}.`,
+      topic: "admin",
+      url: "/",
+      status: "pending",
+      createdBy: record.collaboratorName || "Sharp de Limpieza",
+      createdAt: getServerTimestamp()
     });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.ok === false) throw new Error(result.error || `Servicio de notificaciones fallo (${response.status})`);
   } catch (err) {
     console.warn("No se pudo encolar notificacion Sharp:", err && err.message ? err.message : err);
   }
@@ -2150,27 +2119,13 @@ async function ensureFirebaseAuth(app) {
     throw new Error("Firebase Auth no esta disponible.");
   }
   const auth = firebase.auth(app);
-  if (firebase.auth.Auth && firebase.auth.Auth.Persistence) {
-    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
-  }
-  const user = auth.currentUser || await new Promise((resolve) => {
-    let unsubscribe = null;
-    const timer = window.setTimeout(() => {
-      if (typeof unsubscribe === "function") unsubscribe();
-      resolve(null);
-    }, 1e4);
-    unsubscribe = auth.onAuthStateChanged((nextUser) => {
-      window.clearTimeout(timer);
-      if (typeof unsubscribe === "function") unsubscribe();
-      resolve(nextUser || null);
-    });
-  });
-  if (isAuthorizedFirebaseUser(user)) {
+  if (auth.currentUser) {
     firebaseAuthReady = true;
-    return user;
+    return auth.currentUser;
   }
-  firebaseAuthReady = false;
-  throw new Error("Inicia sesion con la cuenta autorizada desde la Web.App principal.");
+  const credential = await auth.signInAnonymously();
+  firebaseAuthReady = true;
+  return credential.user;
 }
 
 async function initFirebaseConnection() {
@@ -2188,9 +2143,8 @@ async function initFirebaseConnection() {
       await ensureFirebaseAuth(app);
     } catch (authErr) {
       firebaseAuthReady = false;
-      console.warn("Firebase Auth no esta listo para Sharp:", authErr && authErr.message ? authErr.message : authErr);
-      setSyncStatus("Esperando sesion", "busy");
-      throw authErr;
+      console.warn("Firebase Auth anonimo no esta activo:", authErr && authErr.message ? authErr.message : authErr);
+      setSyncStatus("Configurar seguridad", "busy");
     }
     firebaseDB = firebase.firestore(app);
     if (typeof firebase.storage === "function") {
@@ -2209,12 +2163,9 @@ async function initFirebaseConnection() {
     }, FIREBASE_CONNECT_TIMEOUT_MS);
   } catch (err) {
     console.error("Firebase init error", err);
-    const message = err && err.message ? err.message : "Modo local";
-    if (message.includes("cuenta autorizada")) {
-      setSyncStatus("Esperando sesion segura", "busy");
-      window.setTimeout(initFirebaseConnection, 5000);
-      return;
-    }
+    const message = err && (err.code === "auth/operation-not-allowed" || err.code === "auth/admin-restricted-operation")
+      ? "Activa Auth anonimo"
+      : "Modo local";
     setSyncStatus(message, "offline");
     branches = loadBranchConfigFromLocal();
     showBranchSelector();

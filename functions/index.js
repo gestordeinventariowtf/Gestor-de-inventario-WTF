@@ -3,11 +3,9 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import crypto from "node:crypto";
-import zlib from "node:zlib";
 import webpush from "web-push";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -21,18 +19,6 @@ const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
 const TERMINAL_AUDIT_COLLECTION = "terminalAuditLogs";
-const AUTHORIZED_USERS_COLLECTION = "authorizedUsers";
-const WTF_SYSTEM_COLLECTION = "wtfSistema";
-const WTF_STATE_DOC_ID = "estadoGeneral";
-const SECURE_STATE_ADMIN_EMAILS = new Set([
-  "henryortiz1704@gmail.com"
-]);
-const BLOCKED_SECURITY_EMAILS = new Set([
-  "jssantana077@gmail.com",
-  "jhonnwtf@gmail.com",
-  "jhonn077@gmail.com",
-  "jhonndell077@gmail.com"
-]);
 const SHARP_PHOTO_STORAGE_PREFIX = "sharp-limpieza/";
 const SHARP_PHOTO_RETENTION_DAYS = 7;
 const VAPID_SUBJECT = "mailto:admin@wtfsistema.local";
@@ -51,12 +37,11 @@ if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
   "https://gestor-de-inventario-wtf-29056.web.app",
   "https://gestor-de-inventario-wtf-29056.firebaseapp.com",
+  "https://gestor-inventario-wtf.web.app",
+  "https://gestor-de-inventario-wtf-2d070.web.app",
+  "https://gestor-inventario-wtf-2026.web.app",
   "http://localhost:5000",
-  "http://127.0.0.1:5000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5179",
-  "http://127.0.0.1:5179"
+  "http://127.0.0.1:5000"
 ]);
 
 function cors(req, res) {
@@ -72,227 +57,6 @@ function cors(req, res) {
 function observedIp(req) {
   const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return forwarded || String(req.ip || req.socket?.remoteAddress || "").trim();
-}
-
-function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function getBearerToken(req) {
-  const auth = String(req.headers.authorization || "");
-  if (!auth.toLowerCase().startsWith("bearer ")) return "";
-  return auth.slice(7).trim();
-}
-
-function isActiveInternalUserInState(state, email) {
-  const clean = normalizeEmail(email);
-  if (!clean || BLOCKED_SECURITY_EMAILS.has(clean)) return false;
-  const users = Array.isArray(state?.usuarios) ? state.usuarios : [];
-  return users.some((user) => normalizeEmail(user?.email || "") === clean && user?.activo !== false);
-}
-
-async function readCurrentWtfStateForAuth() {
-  const snapshot = await getFirestore().collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID).get();
-  const data = snapshot.exists ? snapshot.data() || {} : {};
-  if (data.appStateCompressed) return decodeCompressedAppState(data.appStateCompressed) || {};
-  if (data.appState && typeof data.appState === "object") return data.appState;
-  return {};
-}
-
-async function requireSecureStateWriter(req) {
-  const token = getBearerToken(req);
-  if (!token) {
-    const error = new Error("No autorizado: falta token Firebase Auth");
-    error.status = 401;
-    throw error;
-  }
-  const decoded = await getAuth().verifyIdToken(token);
-  const email = normalizeEmail(decoded.email || "");
-  if (!email || BLOCKED_SECURITY_EMAILS.has(email)) {
-    const error = new Error("No autorizado para escribir estado WTF");
-    error.status = 403;
-    throw error;
-  }
-  if (!SECURE_STATE_ADMIN_EMAILS.has(email)) {
-    const currentState = await readCurrentWtfStateForAuth();
-    if (!isActiveInternalUserInState(currentState, email)) {
-      const error = new Error("No autorizado para escribir estado WTF");
-      error.status = 403;
-      throw error;
-    }
-  }
-  return { uid: decoded.uid || "", email, name: decoded.name || decoded.email || email };
-}
-
-function cleanAdminWritableStateValue(value) {
-  if (Array.isArray(value)) return value.map(cleanAdminWritableStateValue);
-  if (!value || typeof value !== "object") return value;
-  const output = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (typeof child === "undefined") continue;
-    if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) continue;
-    output[key] = cleanAdminWritableStateValue(child);
-  }
-  return output;
-}
-
-function decodeCompressedAppState(value) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  try {
-    const json = zlib.inflateSync(Buffer.from(value, "base64")).toString("utf8");
-    return JSON.parse(json);
-  } catch (error) {
-    console.warn("No se pudo descomprimir appStateCompressed para limpieza segura:", error && error.message || error);
-    return null;
-  }
-}
-
-function encodeCompressedAppState(state) {
-  return zlib.deflateSync(Buffer.from(JSON.stringify(state || {}), "utf8"), { level: 9 }).toString("base64");
-}
-
-function stripBlockedSecurityUsersFromState(state) {
-  if (!state || typeof state !== "object") return state;
-  if (Array.isArray(state.usuarios)) {
-    state.usuarios = state.usuarios.filter((user) => !BLOCKED_SECURITY_EMAILS.has(normalizeEmail(user?.email || "")));
-  }
-  if (Array.isArray(state.correos)) {
-    state.correos = state.correos.filter((email) => !BLOCKED_SECURITY_EMAILS.has(normalizeEmail(email)));
-  }
-  return state;
-}
-
-function stripBlockedSecurityUsersFromDoc(doc) {
-  const next = cleanAdminWritableStateValue(doc && typeof doc === "object" ? doc : {});
-  const state = next.appState && typeof next.appState === "object" ? next.appState : null;
-  if (state) {
-    stripBlockedSecurityUsersFromState(state);
-  }
-  if (typeof next.appStateCompressed === "string" && next.appStateCompressed) {
-    const compressedState = decodeCompressedAppState(next.appStateCompressed);
-    if (compressedState && typeof compressedState === "object") {
-      next.appStateCompressed = encodeCompressedAppState(stripBlockedSecurityUsersFromState(compressedState));
-    }
-  }
-  return next;
-}
-
-function normalizeSecureFirestoreDoc(doc) {
-  const next = stripBlockedSecurityUsersFromDoc(doc);
-  next.updatedAt = FieldValue.serverTimestamp();
-  if (typeof next.appStateCompressed === "string" && next.appStateCompressed) next.appState = FieldValue.delete();
-  if (next.appState && typeof next.appState === "object") next.appStateCompressed = FieldValue.delete();
-  return next;
-}
-
-function extractAppStateFromSecurePayloadDoc(doc) {
-  if (!doc || typeof doc !== "object") return null;
-  if (doc.appState && typeof doc.appState === "object") return doc.appState;
-  if (typeof doc.appStateCompressed === "string" && doc.appStateCompressed) return decodeCompressedAppState(doc.appStateCompressed);
-  return null;
-}
-
-async function syncAuthorizedUsersFromState(db, state) {
-  if (!state || typeof state !== "object" || !Array.isArray(state.usuarios)) return;
-  const authorized = new Map();
-  for (const adminEmail of SECURE_STATE_ADMIN_EMAILS) {
-    authorized.set(normalizeEmail(adminEmail), {
-      email: normalizeEmail(adminEmail),
-      role: "admin",
-      active: true,
-      source: "secure-admin"
-    });
-  }
-  for (const user of state.usuarios) {
-    const email = normalizeEmail(user?.email || "");
-    if (!email || BLOCKED_SECURITY_EMAILS.has(email)) continue;
-    authorized.set(email, {
-      email,
-      userId: sanitizeTerminalText(user?.id || "", 160),
-      nombre: sanitizeTerminalText(user?.nombre || user?.name || "", 160),
-      role: sanitizeTerminalText(user?.role || "user", 40),
-      modulo: sanitizeTerminalText(user?.modulo || "", 80),
-      permisos: Array.isArray(user?.permisos) ? user.permisos.map((item) => sanitizeTerminalText(item, 80)).filter(Boolean).slice(0, 80) : [],
-      active: user?.activo !== false,
-      source: "wtf-users"
-    });
-  }
-  const batch = db.batch();
-  const collection = db.collection(AUTHORIZED_USERS_COLLECTION);
-  for (const [email, data] of authorized.entries()) {
-    batch.set(collection.doc(email), Object.assign({}, data, {
-      updatedAt: FieldValue.serverTimestamp()
-    }), { merge: true });
-  }
-  await batch.commit();
-}
-
-async function writeSecureStatePayload(payload, actor, req) {
-  const db = getFirestore();
-  const rootRef = db.collection(WTF_SYSTEM_COLLECTION).doc(WTF_STATE_DOC_ID);
-  const appStateForAuthorizedUsers = extractAppStateFromSecurePayloadDoc(payload?.doc || {});
-  const hasRootDoc = payload?.doc && typeof payload.doc === "object" && Object.keys(payload.doc).length > 0;
-  if (hasRootDoc) {
-    const rootDoc = normalizeSecureFirestoreDoc(payload.doc || {});
-    rootDoc.secureWrite = {
-      by: actor.email,
-      uid: actor.uid,
-      at: FieldValue.serverTimestamp(),
-      observedIp: observedIp(req),
-      userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
-    };
-    await rootRef.set(rootDoc, { merge: true });
-  }
-
-  const shards = Array.isArray(payload?.shards) ? payload.shards : [];
-  for (const shard of shards) {
-    const key = sanitizeTerminalText(shard?.key || "", 120);
-    if (!key || !/^[A-Za-z0-9_-]{1,120}$/.test(key)) continue;
-    const shardDoc = normalizeSecureFirestoreDoc(shard.doc || {});
-    await rootRef.collection("stateShards").doc(key).set(shardDoc, { merge: true });
-  }
-
-  const externalDocs = Array.isArray(payload?.externalDocs) ? payload.externalDocs : [];
-  for (const external of externalDocs) {
-    const id = sanitizeTerminalText(external?.id || "", 120);
-    if (!id || !/^[A-Za-z0-9_-]{1,120}$/.test(id)) continue;
-    const externalDoc = normalizeSecureFirestoreDoc(external.doc || {});
-    await db.collection(WTF_SYSTEM_COLLECTION).doc(id).set(externalDoc, { merge: true });
-  }
-
-  let icgControlWritten = false;
-  if (payload?.icgControlDoc && typeof payload.icgControlDoc === "object") {
-    const controlDoc = cleanAdminWritableStateValue(payload.icgControlDoc);
-    controlDoc.secureWrite = {
-      by: actor.email,
-      uid: actor.uid,
-      at: FieldValue.serverTimestamp(),
-      observedIp: observedIp(req),
-      userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500)
-    };
-    controlDoc.updatedAt = FieldValue.serverTimestamp();
-    controlDoc.updatedBy = controlDoc.updatedBy || actor.email;
-    await db.collection(WTF_SYSTEM_COLLECTION).doc("icgControl").set(controlDoc, { merge: true });
-    icgControlWritten = true;
-  }
-
-  if (appStateForAuthorizedUsers) {
-    await syncAuthorizedUsersFromState(db, stripBlockedSecurityUsersFromState(appStateForAuthorizedUsers));
-  }
-
-  await db.collection(TERMINAL_AUDIT_COLLECTION).add({
-    type: "SECURE_STATE_WRITE",
-    actor: actor.name || actor.email,
-    actorEmail: actor.email,
-    observedIp: observedIp(req),
-    userAgent: sanitizeTerminalText(req.headers["user-agent"] || "", 500),
-    rootDoc: WTF_STATE_DOC_ID,
-    shardCount: shards.length,
-    externalDocCount: externalDocs.length,
-    icgControlWritten,
-    createdAt: FieldValue.serverTimestamp()
-  });
-  return { ok: true, shardCount: shards.length, externalDocCount: externalDocs.length, icgControlWritten };
 }
 
 function sanitizeTerminalText(value, max = 160) {
@@ -654,26 +418,6 @@ export const wtfAiAssistant = onRequest({ region: "us-central1", cors: false, ti
   }
 });
 
-export const wtfSecureStateWrite = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 120, memory: "512MiB", invoker: "public" }, async (req, res) => {
-  cors(req, res);
-  if (req.method === "OPTIONS") {
-    res.status(204).send("");
-    return;
-  }
-  if (req.method !== "POST") {
-    res.status(405).json({ ok: false, error: "Metodo no permitido" });
-    return;
-  }
-  try {
-    const actor = await requireSecureStateWriter(req);
-    const result = await writeSecureStatePayload(req.body || {}, actor, req);
-    res.json(result);
-  } catch (error) {
-    const status = Number(error?.status || 500);
-    res.status(status).json({ ok: false, error: error && error.message || "Error escribiendo estado seguro" });
-  }
-});
-
 function getPushAdminKey(req) {
   const auth = String(req.headers.authorization || "");
   if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
@@ -899,40 +643,6 @@ async function createAndSendPushMessage(body = {}) {
   }
 }
 
-async function createScheduledPushMessages(body = {}, actor = {}) {
-  const title = String(body.title || "WTF Sistema").trim().slice(0, 120) || "WTF Sistema";
-  const message = String(body.body || body.message || "").trim().slice(0, 500);
-  if (!message) throw new Error("Mensaje de notificacion vacio");
-  const scheduledItems = Array.isArray(body.scheduledItems) ? body.scheduledItems : [];
-  if (!scheduledItems.length) throw new Error("No hay fechas programadas para la notificacion");
-  const db = getFirestore();
-  const batch = db.batch();
-  const created = [];
-  for (const item of scheduledItems.slice(0, 31)) {
-    const scheduledFor = String(item?.scheduledFor || "").trim();
-    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
-    if (!scheduledDate || !Number.isFinite(scheduledDate.getTime())) continue;
-    const docRef = db.collection(PUSH_MESSAGES_COLLECTION).doc();
-    const messageData = {
-      title,
-      body: message,
-      topic: String(body.topic || "").trim(),
-      url: String(body.url || "/").trim() || "/",
-      tag: `wtf-scheduled-${docRef.id}`,
-      status: "scheduled",
-      scheduledFor: scheduledDate.toISOString(),
-      createdBy: String(body.createdBy || actor.name || actor.email || "").trim().slice(0, 160),
-      createdByEmail: String(body.createdByEmail || actor.email || "").trim().slice(0, 160),
-      createdAt: FieldValue.serverTimestamp()
-    };
-    batch.set(docRef, messageData);
-    created.push(docRef.id);
-  }
-  if (!created.length) throw new Error("No hay fechas programadas validas");
-  await batch.commit();
-  return { ok: true, scheduled: created.length, ids: created };
-}
-
 async function processPendingPushMessages(limit = 25) {
   const db = getFirestore();
   const safeLimit = Math.max(1, Math.min(Number(limit || 25), 100));
@@ -1038,7 +748,6 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
     return;
   }
   try {
-    const actor = await requireSecureStateWriter(req);
     if (req.body && req.body.action === "deleteMessage") {
       res.json(await deletePushMessage(req.body.messageId));
       return;
@@ -1051,14 +760,9 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
       res.json(await createAndSendPushMessage(req.body));
       return;
     }
-    if (req.body && req.body.action === "createScheduled") {
-      res.json(await createScheduledPushMessages(req.body, actor));
-      return;
-    }
     res.json(await processPendingPushMessages(req.body?.limit || 25));
   } catch (error) {
-    const status = Number(error?.status || 500);
-    res.status(status).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
+    res.status(500).json({ ok: false, error: error && error.message || "Error procesando notificaciones pendientes" });
   }
 });
 

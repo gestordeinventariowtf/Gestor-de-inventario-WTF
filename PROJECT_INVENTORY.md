@@ -32,7 +32,7 @@ Ruta base:
 - `firestore.rules`
 - `storage.rules`
 - `database.rules.json`
-- Hosting site: `gestor-de-inventario-wtf-29056`
+- Hosting site: `gestor-de-inventario-wtf-prod-2026`
 - Proyecto default: `gestor-de-inventario-wtf-29056`
 - Hosting publica desde la raiz.
 - Archivos `.md`, `functions`, `android-app`, `wtf-inventory-sync-service`, backups y herramientas estan excluidos del hosting.
@@ -51,7 +51,7 @@ Ruta base:
 
 - Carpeta: `android-app`
 - Tecnologia: Capacitor Android.
-- App actual: contenedor WebView para `https://gestor-de-inventario-wtf-29056.web.app`
+- App actual: contenedor WebView para `https://gestor-de-inventario-wtf-prod-2026.web.app`
 - App id: `com.wtf.gestion`
 - No es todavia WTF POS nativo.
 

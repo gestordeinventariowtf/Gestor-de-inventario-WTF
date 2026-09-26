@@ -2,8 +2,8 @@
   const RESUME_SYNC_EVENT = "wtf:pwa-resume";
   const FOREGROUND_SYNC_EVENT = "wtf:pwa-foreground-sync";
   const SUBSCRIPTION_COLLECTION = "pwaPushSubscriptions";
-  const FOREGROUND_SYNC_MS = 10000;
-  const RESUME_AFTER_MS = 2000;
+  const FOREGROUND_SYNC_MS = 180000;
+  const RESUME_AFTER_MS = 45000;
   let hiddenAt = 0;
   let serviceWorkerRegistration = null;
   let lastForegroundSyncAt = 0;
@@ -16,7 +16,7 @@
   function dispatchSyncEvent(name, reason) {
     const now = Date.now();
     if (name === FOREGROUND_SYNC_EVENT && now - lastForegroundSyncAt < FOREGROUND_SYNC_MS - 1000) return;
-    if (name === RESUME_SYNC_EVENT && now - lastResumeSyncAt < 5000 && reason !== "manual-sync") return;
+    if (name === RESUME_SYNC_EVENT && now - lastResumeSyncAt < 120000 && reason !== "manual-sync") return;
     if (name === FOREGROUND_SYNC_EVENT) lastForegroundSyncAt = now;
     if (name === RESUME_SYNC_EVENT) lastResumeSyncAt = now;
     window.dispatchEvent(new CustomEvent(name, { detail: { reason: reason || "pwa" } }));
@@ -27,14 +27,6 @@
       promise,
       new Promise((resolve) => window.setTimeout(() => resolve({ ok: false, reason: reason || "timeout" }), ms))
     ]);
-  }
-
-  async function clearLegacyAppShellCaches() {
-    if (!("caches" in window)) return;
-    try {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key.indexOf("wtf-static-") === 0).map((key) => caches.delete(key)));
-    } catch (_) {}
   }
 
   function urlBase64ToUint8Array(base64String) {
@@ -63,16 +55,6 @@
     if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) return null;
     const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
     return app.firestore();
-  }
-
-  function getFirebaseAuthUser() {
-    try {
-      if (!window.firebase || !window.firebase.auth) return null;
-      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(getFirebaseConfig().firebaseConfig);
-      return app.auth().currentUser || null;
-    } catch (_) {
-      return null;
-    }
   }
 
   async function savePushSubscription(subscription) {
@@ -109,9 +91,6 @@
     const vapidPublicKey = cfg.push && cfg.push.vapidPublicKey ? String(cfg.push.vapidPublicKey).trim() : "";
     if (!("Notification" in window) || !("PushManager" in window) || !serviceWorkerRegistration || !vapidPublicKey) {
       return { ok: false, reason: "push-not-configured" };
-    }
-    if (!getFirebaseAuthUser()) {
-      return { ok: false, reason: "auth-required" };
     }
     if (isIosDevice() && !isStandaloneMode()) {
       return { ok: false, reason: "ios-home-screen-required" };
@@ -151,7 +130,6 @@
 
   async function disablePushNotifications() {
     if (!serviceWorkerRegistration || !("PushManager" in window)) return { ok: false, reason: "push-not-configured" };
-    if (!getFirebaseAuthUser()) return { ok: false, reason: "auth-required" };
     const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
     const subscription = await registration.pushManager.getSubscription();
     if (!subscription) return { ok: true, reason: "no-subscription" };
@@ -173,7 +151,6 @@
 
   async function refreshExistingPushSubscription() {
     if (!serviceWorkerRegistration || !("Notification" in window) || Notification.permission !== "granted") return;
-    if (!getFirebaseAuthUser()) return;
     const registration = await navigator.serviceWorker.ready.catch(() => serviceWorkerRegistration);
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) await savePushSubscription(subscription);
@@ -183,7 +160,6 @@
     const cfg = getFirebaseConfig();
     const hasVapid = Boolean(cfg.push && String(cfg.push.vapidPublicKey || "").trim());
     if (!hasVapid || !("Notification" in window) || Notification.permission !== "default" || document.getElementById("wtf-push-enable")) return;
-    if (!getFirebaseAuthUser()) return;
     const button = document.createElement("button");
     button.id = "wtf-push-enable";
     button.type = "button";
@@ -236,14 +212,6 @@
       if (data.type === "WTF_PWA_SYNC_NOW") dispatchSyncEvent(RESUME_SYNC_EVENT, data.reason || "service-worker");
     });
     showPushButtonIfAvailable();
-    try {
-      if (window.firebase && window.firebase.auth) {
-        const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(getFirebaseConfig().firebaseConfig);
-        app.auth().onAuthStateChanged(function(user) {
-          if (user) showPushButtonIfAvailable();
-        });
-      }
-    } catch (_) {}
     refreshExistingPushSubscription().catch(() => null);
   }
 
@@ -265,7 +233,6 @@
   }
 
   function start() {
-    clearLegacyAppShellCaches().catch(() => null);
     registerServiceWorker().catch((err) => console.warn("PWA service worker error", err));
     setupResumeSync();
     window.WTF_PWA = Object.assign({}, window.WTF_PWA || {}, {

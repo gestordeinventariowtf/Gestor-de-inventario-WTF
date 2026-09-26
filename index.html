@@ -15,13 +15,13 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="./pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260926212435-ff81371";</script>
+  <script>window.WTF_APP_VERSION = "20260926213943-e642495";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -358,7 +358,7 @@
       min-width: 0;
     }
     .content.page-enter {
-      animation: none;
+      animation: pageEnter .28s ease;
     }
     @keyframes pageEnter {
       from { opacity: 0; transform: translateY(10px); }
@@ -398,10 +398,11 @@
     }
     .stat-card.clickable {
       cursor: pointer;
-      transition: background .12s ease, border-color .12s ease;
+      transition: transform .18s ease, box-shadow .18s ease;
     }
     .stat-card.clickable:hover {
-      background: #f8fafc;
+      transform: translateY(-3px);
+      box-shadow: 0 12px 24px rgba(15, 23, 42, .10);
     }
     .stat-label { font-size: 11px; color: var(--gris); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
     .stat-value { font-size: clamp(20px, 4vw, 26px); font-weight: 700; }
@@ -451,7 +452,7 @@
       background: linear-gradient(135deg, #fff7ed 0%, #fee2e2 100%);
       border: 1px solid #fdba74;
       color: #9a3412;
-      animation: none;
+      animation: stockBannerPulse 1.2s ease-in-out infinite;
     }
     .stock-alert-banner strong { font-size: 13px; }
     .stock-alert-banner small { color: #b45309; white-space: nowrap; }
@@ -1923,27 +1924,30 @@
     .mise-stock-low {
       color: #f59e0b;
       font-weight: 700;
-      animation: none;
+      animation: miseLowPulse 1.05s ease-in-out infinite;
     }
     .mise-stock-zero {
       color: var(--rojo);
       font-weight: 700;
-      animation: none;
+      animation: miseZeroPulse 0.78s ease-in-out infinite;
     }
     .tr-mise-low td {
+      animation: miseRowLowPulse 1.05s ease-in-out infinite;
       background: #fff7ed;
     }
     .tr-mise-low:hover td { background: #ffedd5 !important; }
     .tr-mise-zero td {
+      animation: miseRowZeroPulse 0.78s ease-in-out infinite;
       background: #fff1f2;
     }
     .tr-mise-zero:hover td { background: #ffe4e6 !important; }
     .mise-prod-alert {
       color: #dc2626;
       font-weight: 800;
-      animation: none;
+      animation: miseProdAlertText 0.78s ease-in-out infinite;
     }
     .tr-mise-prod-alert td {
+      animation: miseProdAlertRow 0.78s ease-in-out infinite;
       background: #fff1f2;
       box-shadow: inset 4px 0 #dc2626;
     }
@@ -2526,7 +2530,6 @@
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
-  const APP_BUILD_ID = String(window.WTF_APP_VERSION || "");
   function load(key, def) {
     try {
       const v = localStorage.getItem(key);
@@ -2535,30 +2538,14 @@
       return def;
     }
   }
-  const localSaveQueue = {};
-  function writeLocalStoragePayload(key, payload) {
-    localStorage.setItem(key, payload);
-  }
   function save(key, val) {
     try {
-      const payload = JSON.stringify(val);
-      if (payload && payload.length > 12e4) {
-        if (localSaveQueue[key]) clearTimeout(localSaveQueue[key].timer);
-        localSaveQueue[key] = {
-          payload,
-          timer: setTimeout(function() {
-            const queued = localSaveQueue[key];
-            delete localSaveQueue[key];
-            writeLocalStoragePayload(key, queued ? queued.payload : payload);
-          }, 350)
-        };
-        return;
-      }
-      writeLocalStoragePayload(key, payload);
+      localStorage.setItem(key, JSON.stringify(val));
     } catch (error) {
       console.error("No se pudo guardar en localStorage:", key, error);
     }
   }
+  const localSaveQueue = {};
   function saveSoon(key, val, delay = 450) {
     if (localSaveQueue[key]) clearTimeout(localSaveQueue[key].timer);
     localSaveQueue[key] = {
@@ -2570,75 +2557,36 @@
       }, delay)
     };
   }
-  function runWhenBrowserIsFree(callback, timeout = 1200) {
-    if (window.requestIdleCallback) {
-      return window.requestIdleCallback(callback, { timeout });
-    }
-    return window.setTimeout(callback, 80);
-  }
-  function cancelBrowserFreeTask(taskId) {
-    if (!taskId) return;
-    if (window.cancelIdleCallback) window.cancelIdleCallback(taskId);
-    else window.clearTimeout(taskId);
-  }
-  function waitForBrowserFree(timeout = 1200) {
-    return new Promise(function(resolve) {
-      runWhenBrowserIsFree(resolve, timeout);
-    });
-  }
-  const FIREBASE_LEGACY_COOLDOWN_STORAGE_KEYS = ["wtf_firebase_cooldown_until", "wtf_firebase_cooldown_app_version"];
-  const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_quota_retry_until_v2";
-  const FIREBASE_COOLDOWN_VERSION_STORAGE_KEY = "wtf_firebase_quota_retry_app_version_v2";
-  const FIREBASE_COOLDOWN_MS = 60 * 1000;
+  const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
+  const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
   function getFirebaseErrorText(error) {
     return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
   }
   function isFirebaseQuotaOrPermissionError(error) {
     const text = getFirebaseErrorText(error);
-    return text.includes("resource-exhausted")
+    return text.includes("permission-denied")
+      || text.includes("missing or insufficient")
+      || text.includes("insufficient permission")
+      || text.includes("resource-exhausted")
       || text.includes("quota")
-      || text.includes("too many requests");
-  }
-  function clearLegacyFirebaseCooldownValues() {
-    try {
-      FIREBASE_LEGACY_COOLDOWN_STORAGE_KEYS.forEach(function(key) {
-        localStorage.removeItem(key);
-      });
-    } catch (_) {}
+      || text.includes("too many requests")
+      || text.includes("deadline-exceeded")
+      || text.includes("unavailable");
   }
   function getFirebaseCooldownUntil() {
-    try {
-      clearLegacyFirebaseCooldownValues();
-      const storedVersion = localStorage.getItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY) || "";
-      if (storedVersion && APP_BUILD_ID && storedVersion !== APP_BUILD_ID) {
-        localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
-        localStorage.removeItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY);
-        return 0;
-      }
-      return Number(localStorage.getItem(FIREBASE_COOLDOWN_STORAGE_KEY) || 0) || 0;
-    } catch (_) {
-      return 0;
-    }
+    clearFirebaseCooldownValue();
+    return 0;
   }
   function setFirebaseCooldownUntilValue(value) {
     try {
-      if (value) {
-        localStorage.setItem(FIREBASE_COOLDOWN_STORAGE_KEY, String(value));
-        localStorage.setItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY, APP_BUILD_ID || "unknown");
-      } else {
-        localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
-        localStorage.removeItem(FIREBASE_COOLDOWN_VERSION_STORAGE_KEY);
-      }
+      localStorage.removeItem(FIREBASE_COOLDOWN_STORAGE_KEY);
     } catch (_) {}
   }
   function clearFirebaseCooldownValue() {
     setFirebaseCooldownUntilValue(0);
-    clearLegacyFirebaseCooldownValues();
   }
   function formatFirebaseCooldownMessage(until) {
-    if (!until || Date.now() >= until) return "Firebase listo para reintentar.";
-    const minutes = Math.max(1, Math.ceil((until - Date.now()) / 6e4));
-    return `Firebase pauso el reintento por limite de cuota. Reintento en ${minutes} min.`;
+    return "Firebase intento sincronizar nuevamente.";
   }
   function loadSeeded(key, factory, def) {
     return load(DATA_VERSION_KEY, "") === DATA_VERSION ? load(key, def) : factory();
@@ -3297,15 +3245,13 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
-  const PERMANENTLY_REMOVED_USER_EMAILS = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com", "jhonndell077@gmail.com"];
-  const LEGACY_ADMIN_EMAILS_TO_REMOVE = PERMANENTLY_REMOVED_USER_EMAILS;
+  const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com"];
   const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
   const INITIAL_ADMIN_USER = {
     id: "admin-inicial-henry-ortiz",
     nombre: "Administrador Principal",
     email: INITIAL_ADMIN_EMAIL,
     password: "193004",
-    adminActionPassword: "193004",
     role: "admin",
     modulo: "ambos",
     permisos: [],
@@ -3313,8 +3259,16 @@
     createdAt: "2026-09-23T00:00:00",
     updatedAt: "2026-09-23T00:00:00"
   };
-  const AUTHORIZED_FIREBASE_LOGIN_EMAILS = [normalizar(INITIAL_ADMIN_EMAIL)];
-  const USER_RECOVERY_SEEDS = [];
+  const USER_RECOVERY_SEEDS = [
+    { id: "user-1784586420790", nombre: "Sobeida", email: "sobeidawtf@gmail.com", password: "2915", role: "user", modulo: "ambos" },
+    { id: "user-1786673699591", nombre: "Ovelto Berizaire", email: "oveltowtf@gmail.com", password: "2468", role: "user", modulo: "ambos" },
+    { id: "user-1786674866753", nombre: "Luis", email: "luiswtf@gmail.com", password: "2233", role: "user", modulo: "ambos" },
+    { id: "user-1786674989792", nombre: "Victor", email: "victorwtf@gmail.com", password: "3344", role: "user", modulo: "ambos" },
+    { id: "user-recovery-limpieza-wtf", nombre: "Limpieza WTF", email: "limpiezawtf@gmail.com", password: "0001", role: "user", modulo: "sharp", permisos: ["sharp"] },
+    { id: "user-1784587909671", nombre: "Limpieza Salon", email: "salonwtf@gmail.com", password: "5646", role: "user", modulo: "sharp", permisos: ["sharp"] },
+    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" },
+    { id: "user-1788327027385", nombre: "Jhonn", email: "jhonnwtf@gmail.com", password: "0000", role: "user", modulo: "ambos" }
+  ];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
     lng: -69.87001,
@@ -3475,78 +3429,14 @@
     },
     collection: "wtfSistema",
     documentId: "estadoGeneral",
-    secureStateWriteEndpoint: "",
     ai: {
       enabled: false,
       endpoint: "",
       model: "gpt-5.6"
-    },
-    push: {
-      enabled: false,
-      vapidPublicKey: "",
-      processEndpoint: ""
-    },
-    controlHorario: {
-      terminalEndpoint: "",
-      defaultBranchId: "wtf-av-venezuela"
     }
   };
   const EXPECTED_FIREBASE_PROJECT_ID = "gestor-de-inventario-wtf-29056";
   const EXPECTED_HOSTING_HOST = "gestor-de-inventario-wtf-29056.web.app";
-  const EXPECTED_FIREBASEAPP_HOST = "gestor-de-inventario-wtf-29056.firebaseapp.com";
-  const OFFICIAL_HOSTING_ORIGIN = "https://gestor-de-inventario-wtf-29056.web.app";
-  function isDevelopmentHost(hostname) {
-    return !hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
-  }
-  function isOfficialHostingHost() {
-    return window.location.hostname === EXPECTED_HOSTING_HOST;
-  }
-  function enforceOfficialHostingHost() {
-    const protocol = window.location.protocol;
-    if (protocol !== "http:" && protocol !== "https:") return true;
-    const hostname = window.location.hostname;
-    if (hostname === EXPECTED_HOSTING_HOST || isDevelopmentHost(hostname)) return true;
-    window.location.replace(`${OFFICIAL_HOSTING_ORIGIN}${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`);
-    return false;
-  }
-  enforceOfficialHostingHost();
-  function getProductionFirebaseConfigFallback() {
-    return {
-      enabled: true,
-      firebaseConfig: {
-        apiKey: "AIzaSyDYnwKvcVLQ-ikk0vkQCBSC8gFtMiwuUc8",
-        authDomain: "gestor-de-inventario-wtf-29056.firebaseapp.com",
-        projectId: "gestor-de-inventario-wtf-29056",
-        storageBucket: "gestor-de-inventario-wtf-29056.firebasestorage.app",
-        messagingSenderId: "863301490729",
-        appId: "1:863301490729:web:f5018bd6e6489f69686438"
-      },
-      collection: "wtfSistema",
-      documentId: "estadoGeneral",
-      secureStateWriteEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfSecureStateWrite",
-      ai: {
-        enabled: true,
-        endpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAiAssistant",
-        provider: "ollama",
-        fallbackProvider: "openai",
-        model: "gpt-5.6",
-        ollamaModel: "gemma4:31b-cloud"
-      },
-      push: {
-        enabled: true,
-        vapidPublicKey: "BBykS-efnBriT-5tkedsaNxcq5UOy33lL8Mag_0FilyAAx3iOBFLFmLs5ApJkhIoMEVxzEl_0UHhU8q7zTKdigg",
-        processEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfProcessPendingPushMessages"
-      },
-      controlHorario: {
-        terminalEndpoint: "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfAuthorizedTerminal",
-        defaultBranchId: "wtf-av-venezuela"
-      }
-    };
-  }
-  function shouldUseProductionFirebaseFallback(input) {
-    if (input && input.enabled === true) return false;
-    return isOfficialHostingHost();
-  }
   function escapeHtml(text) {
     return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
@@ -4038,14 +3928,13 @@
   function createMovementId(prefix) {
     return `${prefix || "mov"}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
-  const SYSTEM_LOG_TEXT_LIMIT = 240;
-  const SYSTEM_LOG_ACTIVE_LIMIT = 800;
-  const SYSTEM_LOG_SORT_LIMIT = 1200;
+  const SYSTEM_LOG_TEXT_LIMIT = 420;
+  const SYSTEM_LOG_ACTIVE_LIMIT = 2500;
+  const SYSTEM_LOG_SORT_LIMIT = 5000;
   const SYSTEM_LOG_KEEP_FIELDS = [
     "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
     "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
-    "movimientoIcgId", "physicalIcgKey", "ticket", "serie", "numero", "storageKey",
-    "previousEmail", "newEmail", "passwordChanged", "deviceInfo"
+    "movimientoIcgId", "physicalIcgKey", "ticket", "serie", "numero", "storageKey"
   ];
   function compactSystemLogText(value) {
     const text = String(value == null ? "" : value);
@@ -4285,7 +4174,7 @@
     }
     function repairBarAguaSalidasRows(rows) {
       const seenKnownDuplicates = new Set();
-      return (Array.isArray(rows) ? rows : []).filter(function(row) {
+      const repairedRows = (Array.isArray(rows) ? rows : []).filter(function(row) {
         if (!isBarAguaManualDuplicateSalida(row)) return true;
         const parsed = new Date(row.fecha || row.Fecha || row.FechaHora || "");
         const duplicateKey = [
@@ -4305,9 +4194,63 @@
         seenKnownDuplicates.add(duplicateKey);
         return true;
       });
+      const hasT00110 = repairedRows.some(function(row) {
+        const ticket = normalizar(row.ticketIcg || row.TicketICG || row.ticket || row.Ticket || "");
+        const product = normalizar(row.producto || row.ProductoWTF || row.ProductoMise || "");
+        const physicalKey = canonicalizeIcgPhysicalKey(row.physicalIcgKey || row.PhysicalIcgKey || "");
+        const expectedPhysicalKey = canonicalizeIcgPhysicalKey("icg-physical-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua");
+        const parsed = new Date(row.fecha || row.Fecha || row.FechaHora || "");
+        const expectedMinute = !isNaN(parsed) && parsed.getFullYear() === 2026 && parsed.getMonth() === 8 && parsed.getDate() === 13 && parsed.getHours() === 15 && parsed.getMinutes() === 10;
+        return product === "agua" && (physicalKey === expectedPhysicalKey || (expectedMinute && (ticket === "1-t001-10-b" || ticket === "t001-10")));
+      });
+      if (hasT00110) return repairedRows;
+      const physicalKey = "icg-physical-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua";
+      const auditKey = "icg-consumption-tiquetslin-v1|1-t001-10-b|1|10001||inventarioBar|agua";
+      const importKey = "fnv32-d99b8c02";
+      const movementIcgId = "fnv32-45921a13";
+      const stableId = `icg-physical-${quickHashText(`${physicalKey}|barInventario|agua`)}`;
+      return repairedRows.concat({
+        _id: stableId,
+        id: stableId,
+        storageKey: "barInventario",
+        origen: "ICG FrontRest Backup",
+        modulo: "Bar",
+        fecha: "2026-09-13T15:10:47.000-04:00",
+        fechaIcg: "2026-09-13 15:10:47",
+        ticketIcg: "1-T001-10-B",
+        ticket: "T001-10",
+        serieIcg: "T001",
+        numeroIcg: "10",
+        numLineaIcg: "1",
+        numero: "",
+        medida: "uni",
+        producto: "agua",
+        cantidad: 1,
+        usuario: "ICG FrontRest Backup",
+        updatedAt: "2026-09-13T15:10:47.000-04:00",
+        importKey,
+        IcgAuditKey: auditKey,
+        movimientoIcgId: movementIcgId,
+        physicalIcgKey: physicalKey,
+        existenciaAnterior: 10,
+        existenciaNueva: 9,
+        auditNote: "Asiento historico restaurado sin modificar existencia actual del producto."
+      });
     }
     function repairBarAguaInventoryRows(rows) {
-      return Array.isArray(rows) ? rows : [];
+      return (Array.isArray(rows) ? rows : []).map(function(item) {
+        if (!item || item.tipo !== "producto" || normalizar(item.nombre) !== "agua") return item;
+        if (item.manualRepairVersion === BAR_AGUA_MANUAL_REPAIR_VERSION) return item;
+        const entrada = parseStockNumber(item.entrada, 0);
+        const decomiso = parseStockNumber(item.decomiso, 0);
+        const targetSalida = Math.max(0, roundQty4(entrada - decomiso - 2));
+        return Object.assign({}, item, {
+          salida: targetSalida,
+          manualRepairVersion: BAR_AGUA_MANUAL_REPAIR_VERSION,
+          repairAppliedAt: new Date().toISOString(),
+          repairReason: "Correccion manual Agua Bar: existencia final 2 y limpieza de salida duplicada 13/09/2026 04:08 p. m."
+        });
+      });
     }
   function mergeMovementRows(localRows, remoteRows, deletedKeys) {
     const map = new Map();
@@ -5107,14 +5050,14 @@
       else next[key] = mergeMovementRows(localState && localState[key], remoteState && remoteState[key], next.movementDeletedKeys[key]);
       if (MOVEMENT_DELETED_STATE_KEYS.includes(key)) next.movementDeletedKeys[key] = pruneMovementDeletedKeys(next.movementDeletedKeys, key);
     });
-    next.inventoryDeletedKeys = normalizeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys);
+    next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, includeLocalDeletedKeys ? localState && localState.inventoryDeletedKeys : null);
     [
       "inventario",
       "cuartoFrioInventario",
       "barInventario",
       "barCuartoFrioInventario"
     ].forEach(function(key) {
-      next[key] = normalizeInventoryRowsForDisplay(remoteState && remoteState[key] || [], next.inventoryDeletedKeys[key]);
+      next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
     next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
@@ -5137,7 +5080,7 @@
     next.barProductionHolds = mergeProductionHolds(includeLocalProductionHolds ? localState && localState.barProductionHolds : null, remoteState && remoteState.barProductionHolds, next.productionHoldDeletedKeys.barProductionHolds);
     next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
     next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
-    next.usuarios = Array.isArray(remoteState && remoteState.usuarios) ? ensureAdminUser(remoteState.usuarios) : ensureAdminUser([]);
+    next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
     next.appSecurity = mergeAppSecurity(localState && localState.appSecurity, remoteState && remoteState.appSecurity);
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
@@ -5158,17 +5101,13 @@
     return config;
   }
   function getFirebaseSyncConfig() {
-    const loadedInput = window.WTF_FIREBASE_CONFIG || {};
-    const input = shouldUseProductionFirebaseFallback(loadedInput) ? getProductionFirebaseConfigFallback() : loadedInput;
+    const input = window.WTF_FIREBASE_CONFIG || {};
     const config = {
       enabled: Boolean(input.enabled),
       firebaseConfig: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.firebaseConfig, input.firebaseConfig || {}),
       collection: input.collection || DEFAULT_FIREBASE_SYNC_CONFIG.collection,
       documentId: input.documentId || DEFAULT_FIREBASE_SYNC_CONFIG.documentId,
-      secureStateWriteEndpoint: input.secureStateWriteEndpoint || DEFAULT_FIREBASE_SYNC_CONFIG.secureStateWriteEndpoint,
-      ai: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.ai || {}, input.ai || {}),
-      push: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.push || {}, input.push || {}),
-      controlHorario: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.controlHorario || {}, input.controlHorario || {})
+      ai: Object.assign({}, DEFAULT_FIREBASE_SYNC_CONFIG.ai || {}, input.ai || {})
     };
     const configuredProjectId = String(config.firebaseConfig.projectId || "").trim();
     if (config.enabled && configuredProjectId && configuredProjectId !== EXPECTED_FIREBASE_PROJECT_ID) {
@@ -5306,37 +5245,19 @@
     };
   }
   function prepareFirebaseAppStateForWrite(state) {
-    const prepared = preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
-    prepared.usuarios = ensureAdminUser(prepared.usuarios || []);
-    return prepared;
+    return preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
-    "inventario",
-    "cuartoFrioInventario",
-    "miseAnPlace",
-    "barInventario",
-    "barCuartoFrioInventario",
-    "barMiseAnPlace",
-    "regEntradas",
     "regProduccion",
     "regSalidas",
-    "regDecomiso",
-    "regRecuento",
     "recetasProduccion",
-    "histEntradaRapida",
-    "histSalidaRapida",
-    "histDecomisoCocina",
-    "barRegEntradas",
     "barRegSalidas",
-    "barRegDecomiso",
-    "barRegRecuento",
-    "barRegProduccion",
-    "barRecetasProduccion",
-    "barHistEntradaRapida",
     "barHistSalidaRapida",
-    "productionHolds",
-    "barProductionHolds",
-    "neveras",
+    "histSalidaRapida",
+    "regEntradas",
+    "barRegEntradas",
+    "barHistEntradaRapida",
+    "barRecetasProduccion",
     "assetManagementData",
     "employeeCenterData",
     "financialData"
@@ -5345,48 +5266,6 @@
     icgFrontRestData: "icgFrontRestData",
     systemLogs: "systemLogs"
   };
-  const FIREBASE_MODULE_META_STORAGE = "wtf_firebase_module_meta_v2";
-  function getFirebaseModuleMetaStorageKey() {
-    return `${FIREBASE_MODULE_META_STORAGE}_${EXPECTED_FIREBASE_PROJECT_ID}_${DEFAULT_FIREBASE_SYNC_CONFIG.documentId}`;
-  }
-  function loadFirebaseModuleMetaCache() {
-    const cached = load(getFirebaseModuleMetaStorageKey(), {});
-    return cached && typeof cached === "object" && !Array.isArray(cached) ? cached : {};
-  }
-  function saveFirebaseModuleMetaCache(meta) {
-    save(getFirebaseModuleMetaStorageKey(), meta && typeof meta === "object" ? meta : {});
-  }
-  function getFirebaseModuleMetaId(type, key) {
-    return `${type}:${key}`;
-  }
-  function buildFirebaseModuleMeta(key, type, value, syncMeta, extra) {
-    const moduleSignature = serializeAppState(value == null ? null : value);
-    const jsonBytes = JSON.stringify(value == null ? null : value).length;
-    return Object.assign({
-      key,
-      type,
-      signature: quickHashText(moduleSignature),
-      revision: Number(syncMeta && syncMeta.revision || 0),
-      clientId: syncMeta && syncMeta.clientId || "",
-      clientTime: Number(syncMeta && syncMeta.clientTime || Date.now()),
-      clientIso: syncMeta && syncMeta.clientIso || new Date().toISOString(),
-      updatedBy: syncMeta && syncMeta.reason || "",
-      jsonBytes
-    }, extra || {});
-  }
-  function getRemoteFirebaseModuleMeta(data, type, key) {
-    if (!data || !key) return null;
-    const source = type === "external" ? data.appStateExternalMeta : data.appStateShardMeta;
-    const meta = source && typeof source === "object" ? source[key] : null;
-    return meta && typeof meta === "object" ? meta : null;
-  }
-  function canReuseCachedFirebaseModule(type, key, remoteMeta, baseState, cachedMeta) {
-    if (!remoteMeta || !remoteMeta.signature) return false;
-    if (!baseState || !Object.prototype.hasOwnProperty.call(baseState, key)) return false;
-    const cacheKey = getFirebaseModuleMetaId(type, key);
-    const localMeta = cachedMeta && cachedMeta[cacheKey];
-    return Boolean(localMeta && localMeta.signature && String(localMeta.signature) === String(remoteMeta.signature));
-  }
   function splitFirebaseAppStateIntoShards(state) {
     const mainState = Object.assign({}, state || {});
     const shards = [];
@@ -5432,23 +5311,6 @@
       return null;
     }
   }
-  function waitForFirebaseCompressionReady(timeoutMs = 2500) {
-    if (window.pako && window.TextDecoder) return Promise.resolve(true);
-    const startedAt = Date.now();
-    return new Promise(function(resolve) {
-      const timer = window.setInterval(function() {
-        if (window.pako && window.TextDecoder) {
-          window.clearInterval(timer);
-          resolve(true);
-          return;
-        }
-        if (Date.now() - startedAt >= timeoutMs) {
-          window.clearInterval(timer);
-          resolve(false);
-        }
-      }, 80);
-    });
-  }
   async function readFirebaseExternalStateDoc(docRef, key) {
     if (!docRef || !docRef.parent || !key) return null;
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
@@ -5456,24 +5318,17 @@
       const snapshot = await docRef.parent.doc(docId).get();
       if (!snapshot.exists) return null;
       const data = snapshot.data() || {};
-      if (data.appStateCompressed) {
-        await waitForFirebaseCompressionReady();
-        return decodeFirebaseCompressedState(data.appStateCompressed);
-      }
+      if (data.appStateCompressed) return decodeFirebaseCompressedState(data.appStateCompressed);
       if (typeof data.appState !== "undefined") return data.appState;
     } catch (error) {
       console.error("No se pudo leer el documento externo Firebase:", key, error);
     }
     return null;
   }
-  async function decodeFirebaseAppState(data, docRef, options = {}) {
+  async function decodeFirebaseAppState(data, docRef) {
     if (!data) return null;
-    const baseState = options && options.baseState && typeof options.baseState === "object" ? options.baseState : {};
-    const cachedModuleMeta = loadFirebaseModuleMetaCache();
-    const nextModuleMeta = Object.assign({}, cachedModuleMeta);
     let state = null;
     if (data.appStateCompressed) {
-      await waitForFirebaseCompressionReady();
       try {
         state = decodeFirebaseCompressedState(data.appStateCompressed);
       } catch (error) {
@@ -5482,35 +5337,16 @@
     } else {
       state = data.appState || null;
     }
-    if (!state && (Array.isArray(data.appStateShardKeys) && data.appStateShardKeys.length || Array.isArray(data.appStateExternalKeys) && data.appStateExternalKeys.length)) {
-      state = {};
-    }
     if (!state) return null;
     const shardKeys = Array.isArray(data.appStateShardKeys) ? data.appStateShardKeys : [];
     if (docRef && shardKeys.length) {
       await Promise.all(shardKeys.map(async function(key) {
         try {
-          const remoteMeta = getRemoteFirebaseModuleMeta(data, "shard", key);
-          if (canReuseCachedFirebaseModule("shard", key, remoteMeta, baseState, cachedModuleMeta)) {
-            state[key] = cloneData(baseState[key]);
-            nextModuleMeta[getFirebaseModuleMetaId("shard", key)] = remoteMeta;
-            return;
-          }
           const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
           if (!shardSnapshot.exists) return;
           const shardData = shardSnapshot.data() || {};
-          if (shardData.appStateCompressed) await waitForFirebaseCompressionReady();
           const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
           if (typeof shardValue !== "undefined" && shardValue !== null) state[key] = shardValue;
-          const shardMeta = remoteMeta || shardData.moduleMeta || (shardData.syncMeta ? {
-            key,
-            type: "shard",
-            signature: shardData.syncMeta.signature || "",
-            revision: shardData.syncMeta.revision || 0,
-            clientTime: shardData.syncMeta.clientTime || 0,
-            clientId: shardData.syncMeta.clientId || ""
-          } : null);
-          if (shardMeta && shardMeta.signature) nextModuleMeta[getFirebaseModuleMetaId("shard", key)] = shardMeta;
         } catch (error) {
           console.error("No se pudo leer el segmento Firebase:", key, error);
         }
@@ -5522,18 +5358,10 @@
     ]));
     if (docRef && externalKeys.length) {
       await Promise.all(externalKeys.map(async function(key) {
-        const remoteMeta = getRemoteFirebaseModuleMeta(data, "external", key);
-        if (canReuseCachedFirebaseModule("external", key, remoteMeta, baseState, cachedModuleMeta)) {
-          state[key] = cloneData(baseState[key]);
-          nextModuleMeta[getFirebaseModuleMetaId("external", key)] = remoteMeta;
-          return;
-        }
         const externalValue = await readFirebaseExternalStateDoc(docRef, key);
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
-        if (remoteMeta && remoteMeta.signature) nextModuleMeta[getFirebaseModuleMetaId("external", key)] = remoteMeta;
       }));
     }
-    saveFirebaseModuleMetaCache(nextModuleMeta);
     return state;
   }
   function isIcgShardGuardError(error) {
@@ -5544,93 +5372,26 @@
       || message.includes("missing or insufficient permissions")
       || message.includes("no tiene permisos");
   }
-  async function fetchJsonWithTimeout(url, options, timeoutMs = 30000) {
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = controller ? window.setTimeout(function() {
-      controller.abort();
-    }, timeoutMs) : null;
-    try {
-      const response = await fetch(url, Object.assign({}, options || {}, controller ? { signal: controller.signal } : {}));
-      const result = await response.json().catch(function() { return {}; });
-      return { response, result };
-    } catch (error) {
-      if (error && error.name === "AbortError") {
-        throw new Error("Firebase tardo demasiado respondiendo. Intenta nuevamente en unos segundos.");
-      }
-      throw new Error("No se pudo conectar con Firebase. Verifica internet, sesion Google y permisos del navegador.");
-    } finally {
-      if (timer) window.clearTimeout(timer);
-    }
-  }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
-    const syncConfig = getFirebaseSyncConfig();
-    const secureEndpoint = String(syncConfig && syncConfig.secureStateWriteEndpoint || "").trim();
-    if (secureEndpoint) {
-      if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
-        throw new Error("Inicia sesion para continuar.");
-      }
-      const idToken = await window.firebase.auth().currentUser.getIdToken();
-      const { response, result } = await fetchJsonWithTimeout(secureEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`
-        },
-        body: JSON.stringify({
-          doc: writeDoc.doc || {},
-          shards: Array.isArray(writeDoc.shards) ? writeDoc.shards : [],
-          externalDocs: Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : []
-        })
-      });
-      if (!response.ok || result.ok === false) {
-        throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
-      }
-      return;
+    const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
+    const externalDocs = Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : [];
+    if (shards.length) {
+      await Promise.all(shards.map(async function(shard) {
+        try {
+          await docRef.collection("stateShards").doc(shard.key).set(shard.doc, { merge: true });
+        } catch (error) {
+          if (shard.key !== "icgFrontRestData" || !isIcgShardGuardError(error)) throw error;
+          console.warn("Se mantiene el shard ICG sin cambios mientras ICG esta pausado:", error);
+        }
+      }));
     }
-    throw new Error("La escritura directa a Firestore esta desactivada. Configura el servicio seguro wtfSecureStateWrite.");
-  }
-  async function writeSecureFirebasePayload(payload) {
-    const syncConfig = getFirebaseSyncConfig();
-    const secureEndpoint = String(syncConfig && syncConfig.secureStateWriteEndpoint || "").trim();
-    if (!secureEndpoint) throw new Error("El servicio seguro no esta disponible.");
-    if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
-      throw new Error("Inicia sesion para continuar.");
+    if (externalDocs.length && docRef.parent) {
+      await Promise.all(externalDocs.map(async function(externalDoc) {
+        await docRef.parent.doc(externalDoc.id).set(externalDoc.doc, { merge: true });
+      }));
     }
-    const idToken = await window.firebase.auth().currentUser.getIdToken();
-    const { response, result } = await fetchJsonWithTimeout(secureEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
-      },
-      body: JSON.stringify(payload || {})
-    });
-    if (!response.ok || result.ok === false) {
-      throw new Error(result.error || `Escritura segura Firebase fallo (${response.status})`);
-    }
-    return result;
-  }
-  async function callSecurePushEndpoint(body) {
-    const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
-    if (!processEndpoint) throw new Error("No hay procesador de notificaciones configurado.");
-    if (!window.firebase || !window.firebase.auth || !window.firebase.auth().currentUser) {
-      throw new Error("Inicia sesion para continuar.");
-    }
-    const idToken = await window.firebase.auth().currentUser.getIdToken();
-    const response = await fetch(processEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`
-      },
-      body: JSON.stringify(body || {})
-    });
-    const result = await response.json().catch(function() { return {}; });
-    if (!response.ok || result.ok === false) {
-      throw new Error(result.error || `Servicio de notificaciones fallo (${response.status})`);
-    }
-    return result;
+    await docRef.set(writeDoc.doc, { merge: true });
   }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
@@ -5658,12 +5419,11 @@
     return data;
   }
   function ensureAdminUser(users) {
-    const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
     const list = Array.isArray(users) ? users.map(function(u) {
       return Object.assign({}, u);
     }).filter(function(u) {
       const email = normalizar(u && u.email || "");
-      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && !isPermanentlyRemovedUserEmail(email);
+      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email);
     }) : [];
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
@@ -5682,34 +5442,17 @@
         list[i] = user;
       }
       if (!isRootAdmin(user) && user.role === "admin") {
-        if (!String(user.adminActionPassword || "").trim() && String(user.password || "").trim()) {
-          user = Object.assign({}, user, { adminActionPassword: user.password });
-          list[i] = user;
-        }
         if (!Array.isArray(user.permisos) || user.permisos.length === 0) {
           list[i] = Object.assign({}, user, { permisos: allOperationalPermissions });
         }
       }
     }
-    const initialAdminIndex = list.findIndex(function(user) {
+    const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
+    const hasInitialAdmin = list.some(function(user) {
       return normalizar(user && user.email || "") === initialAdminKey;
     });
-    if (initialAdminIndex === -1) {
+    if (!hasInitialAdmin) {
       list.unshift(Object.assign({}, INITIAL_ADMIN_USER, { permisos: allOperationalPermissions }));
-    } else {
-      const currentInitialAdmin = list[initialAdminIndex] || {};
-      list[initialAdminIndex] = Object.assign({}, currentInitialAdmin, INITIAL_ADMIN_USER, {
-        id: currentInitialAdmin.id || INITIAL_ADMIN_USER.id,
-        nombre: currentInitialAdmin.nombre || INITIAL_ADMIN_USER.nombre,
-        email: INITIAL_ADMIN_USER.email,
-        password: INITIAL_ADMIN_USER.password,
-        adminActionPassword: currentInitialAdmin.adminActionPassword || INITIAL_ADMIN_USER.adminActionPassword,
-        role: "admin",
-        activo: true,
-        permisos: allOperationalPermissions,
-        createdAt: currentInitialAdmin.createdAt || INITIAL_ADMIN_USER.createdAt,
-        updatedAt: currentInitialAdmin.updatedAt || INITIAL_ADMIN_USER.updatedAt
-      });
     }
     USER_RECOVERY_SEEDS.forEach(function(seed) {
       const seedEmail = normalizar(seed && seed.email || "");
@@ -5746,13 +5489,6 @@
     if (!user) return false;
     const email = normalizar(user.email || user);
     return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email);
-  }
-  function isPermanentlyRemovedUserEmail(email) {
-    return PERMANENTLY_REMOVED_USER_EMAILS.includes(normalizar(email || ""));
-  }
-  function isAuthorizedFirebaseLoginEmail(email) {
-    const clean = normalizar(email || "");
-    return clean && AUTHORIZED_FIREBASE_LOGIN_EMAILS.includes(clean) && !isPermanentlyRemovedUserEmail(clean);
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
@@ -5888,15 +5624,6 @@
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
       standalone: Boolean(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
     };
-  }
-  function getClientAuditDeviceInfo() {
-    const screenSize = window.screen ? `${window.screen.width}x${window.screen.height}` : "";
-    return [
-      navigator.platform || "",
-      navigator.userAgent || "",
-      Intl.DateTimeFormat().resolvedOptions().timeZone || "",
-      screenSize
-    ].filter(Boolean).join(" | ");
   }
   function makeTerminalSecret() {
     const bytes = new Uint8Array(32);
@@ -6042,26 +5769,10 @@
   function getVisibleAdminUsers(users) {
     return Array.isArray(users) ? users.filter((user) => user && user.activo !== false && user.role === "admin" && !isRootAdmin(user)) : [];
   }
-  function getAdminActionPassword(user) {
-    if (!user || user.role !== "admin") return "";
-    return String(user.adminActionPassword || user.claveAdministradora || user.adminKey || user.password || "");
-  }
   function isValidVisibleAdminPassword(users, password) {
     const input = String(password || "");
     if (!input) return false;
-    return getVisibleAdminUsers(users).some((user) => getAdminActionPassword(user) === input);
-  }
-  function isValidSecondaryAdminPassword(users, password, currentUser) {
-    const input = String(password || "");
-    if (!input) return false;
-    const currentId = String(currentUser && currentUser.id || "");
-    const currentEmail = normalizar(currentUser && currentUser.email || "");
-    return getVisibleAdminUsers(users).some(function(user) {
-      if (!user || user.activo === false) return false;
-      if (currentId && String(user.id || "") === currentId) return false;
-      if (currentEmail && normalizar(user.email || "") === currentEmail) return false;
-      return getAdminActionPassword(user) === input;
-    });
+    return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
   }
   function findActiveUserByPassword(users, password) {
     const input = String(password || "");
@@ -10511,12 +10222,16 @@
   function sanitizeStorageName(value) {
     return String(value || "archivo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "archivo";
   }
-  async function ensureFirebaseAuthorizedAuth() {
+  async function ensureFirebaseAnonymousAuth() {
     if (!window.firebase || !window.firebase.auth) return null;
     const auth = window.firebase.auth();
-    const user = auth.currentUser;
-    if (user && user.email && !isPermanentlyRemovedUserEmail(user.email || "")) return user;
-    throw new Error("Inicia sesion con Google autorizado para subir archivos.");
+    if (auth.currentUser) return auth.currentUser;
+    try {
+      const credential = await auth.signInAnonymously();
+      return credential && credential.user || auth.currentUser;
+    } catch (error) {
+      return null;
+    }
   }
   async function compressImageToJpeg(file, maxMb, options) {
     if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Solo se permiten imagenes.");
@@ -10551,7 +10266,7 @@
   }
   async function uploadJpegToFirebaseStorage(path, blob) {
     if (!window.firebase || !window.firebase.storage) throw new Error("Firebase Storage no esta disponible.");
-    await ensureFirebaseAuthorizedAuth();
+    await ensureFirebaseAnonymousAuth();
     const storageRef = window.firebase.storage().ref(path);
     const snapshot = await storageRef.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
     return snapshot.ref.getDownloadURL();
@@ -10686,14 +10401,19 @@
     }
     async function queueEmployeePushNotification(title, body, topic) {
       try {
-        await callSecurePushEndpoint({
-          action: "createAndSend",
+        if (!window.firebase || !window.firebase.firestore) return;
+        const cfg = window.WTF_FIREBASE_CONFIG || {};
+        if (!cfg.enabled || !cfg.firebaseConfig) return;
+        const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
+        await app.firestore().collection("pwaPushMessages").add({
           title,
           body,
           topic: topic || "admin",
           url: "/",
+          status: "pending",
           createdBy: getUserDisplayLabel(currentUser),
-          createdByEmail: currentUser && currentUser.email || ""
+          createdByEmail: currentUser && currentUser.email || "",
+          createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
       } catch (error) {
         console.warn("No se pudo encolar notificacion RRHH", error);
@@ -12226,8 +11946,6 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
-    const [firebaseAuthUser, setFirebaseAuthUser] = useState(null);
-    const [firebaseAuthLoading, setFirebaseAuthLoading] = useState(() => Boolean(firebaseCfg.enabled));
     const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
@@ -12255,7 +11973,7 @@
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
     const [authorizing, setAuthorizing] = useState(false);
-    const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "cocinaplazaduarte@gmail.com"]));
+    const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
     const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
     const [icgControl, setIcgControl] = useState(() => {
       const normalized = ensureIcgFrontRestData(icgFrontRestData);
@@ -12277,77 +11995,23 @@
     const icgControlDocRef = useRef(null);
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
-    const syncIdleTaskRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
     const lastRemoteMetaSignatureRef = useRef("");
     const pendingLocalSignatureRef = useRef("");
     const pendingLocalAtRef = useRef(0);
-    const confirmedSecureWriteSignatureRef = useRef("");
-    const confirmedSecureWriteAtRef = useRef(0);
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
     const syncRevisionRef = useRef(Number(load("wtf_sync_revision", 0)) || 0);
     const sessionStartedAtRef = useRef(Date.now());
     const hasSessionLocalChangeRef = useRef(false);
     const applyingRemoteRef = useRef(false);
-    const remoteApplyGuardUntilRef = useRef(0);
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
-    const userInteractionAtRef = useRef(0);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
-    function isAuthorizedInternalAccessEmail(email) {
-      const clean = normalizar(email || "");
-      if (!clean) return false;
-      if (isAuthorizedFirebaseLoginEmail(clean)) return true;
-      return ensureAdminUser(usuarios || []).some(function(user) {
-        return user && user.activo !== false && normalizar(user.email) === clean && !isPermanentlyRemovedUserEmail(clean);
-      });
-    }
-    function getFirebaseAppInstance() {
-      if (!firebaseCfg.enabled) return null;
-      if (!window.firebase) throw new Error("SDK Firebase no disponible");
-      const hasMissingConfig = Object.values(firebaseCfg.firebaseConfig).some((v) => !String(v || "").trim());
-      if (hasMissingConfig) throw new Error("Complete firebase-config.js");
-      return window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
-    }
-    useEffect(() => {
-      if (!firebaseCfg.enabled) {
-        setFirebaseAuthLoading(false);
-        return;
-      }
-      if (!window.firebase || !window.firebase.auth) {
-        setFirebaseAuthLoading(false);
-        setFirebaseStatus("error");
-        setFirebaseMessage("Servicio de acceso no disponible");
-        return;
-      }
-      let unsubscribe = null;
-      try {
-        const app = getFirebaseAppInstance();
-        unsubscribe = app.auth().onAuthStateChanged(function(user) {
-          const email = user && user.email ? normalizar(user.email) : "";
-          setFirebaseAuthUser(user && email ? user : null);
-          setFirebaseAuthLoading(false);
-          if (email && isAuthorizedInternalAccessEmail(email)) {
-            setAuthUserEmail(email);
-          } else if (!email) {
-            setAuthUserEmail("");
-          }
-        });
-      } catch (error) {
-        console.error("Access service init error:", error);
-        setFirebaseAuthLoading(false);
-        setFirebaseStatus("error");
-        setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar el servicio de acceso");
-      }
-      return function() {
-        if (typeof unsubscribe === "function") unsubscribe();
-      };
-    }, [firebaseCfg, usuarios]);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -12391,42 +12055,12 @@
         document.removeEventListener("focusin", onFocusIn, true);
       };
     }, []);
-    useEffect(() => {
-      function rememberUserInteraction(event) {
-        const target = event && event.target;
-        if (target && target.closest && target.closest(".sync-badge, .version-update-banner, .toast")) return;
-        userInteractionAtRef.current = Date.now();
-      }
-      ["pointerdown", "keydown", "input", "change", "submit"].forEach(function(eventName) {
-        window.addEventListener(eventName, rememberUserInteraction, true);
-      });
-      return function() {
-        ["pointerdown", "keydown", "input", "change", "submit"].forEach(function(eventName) {
-          window.removeEventListener(eventName, rememberUserInteraction, true);
-        });
-      };
-    }, []);
     firebaseCooldownUntilRef.current = firebaseCooldownUntil;
     function isFirebaseCooldownActive() {
-      const until = Number(firebaseCooldownUntilRef.current || getFirebaseCooldownUntil() || 0);
-      if (!until) return false;
-      if (Date.now() >= until) {
-        clearFirebaseCooldownValue();
-        firebaseCooldownUntilRef.current = 0;
-        setFirebaseCooldownUntil(0);
-        return false;
-      }
-      return true;
+      return false;
     }
     function activateFirebaseCooldown(error, operation) {
-      if (!isFirebaseQuotaOrPermissionError(error)) return false;
-      const until = Date.now() + FIREBASE_COOLDOWN_MS;
-      setFirebaseCooldownUntilValue(until);
-      firebaseCooldownUntilRef.current = until;
-      setFirebaseCooldownUntil(until);
-      setFirebaseStatus("error");
-      setFirebaseMessage(`${operation || "Firebase"} pausado: ${formatFirebaseCooldownMessage(until)}`);
-      return true;
+      return false;
     }
     function clearFirebaseCooldown(reason) {
       clearFirebaseCooldownValue();
@@ -12490,10 +12124,6 @@
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
-      markLocalSyncChange();
-      window.setTimeout(function() {
-        scheduleFirebaseWrite(null, "", 1500, "system-log");
-      }, 0);
       return entry;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
@@ -12510,24 +12140,11 @@
     function markLocalSyncChange() {
       const now = Date.now();
       hasSessionLocalChangeRef.current = true;
-      userInteractionAtRef.current = now;
       localChangeAtRef.current = now;
       syncRevisionRef.current = Math.max(Number(syncRevisionRef.current || 0), Number(load("wtf_sync_revision", 0)) || 0) + 1;
       save("wtf_sync_local_change_at", now);
       save("wtf_sync_revision", syncRevisionRef.current);
       return now;
-    }
-    function hasPendingFirebaseLocalWrite() {
-      return Boolean(pendingLocalSignatureRef.current && Date.now() - Number(pendingLocalAtRef.current || 0) < 12e4);
-    }
-    function hasRecentUserDataInteraction(windowMs = 3e4) {
-      return Date.now() - Number(userInteractionAtRef.current || 0) < windowMs;
-    }
-    function hasFreshSessionLocalChange(windowMs = 45e3) {
-      return Boolean(hasSessionLocalChangeRef.current && hasRecentUserDataInteraction(windowMs));
-    }
-    function shouldUploadLocalStateNow() {
-      return Boolean(hasPendingFirebaseLocalWrite() || hasFreshSessionLocalChange());
     }
     function acceptRemoteSyncRevision(revision) {
       const nextRevision = Number(revision || 0);
@@ -12536,45 +12153,26 @@
         save("wtf_sync_revision", nextRevision);
       }
     }
-    function getCurrentStateSignatureFast(hasPendingLocalWrite) {
-      if (!hasPendingLocalWrite && !hasFreshSessionLocalChange() && lastRemoteSignatureRef.current) {
-        return lastRemoteSignatureRef.current;
-      }
-      return serializeAppState(getCurrentAppState());
-    }
     function createFirebaseWriteDoc(appState, reason) {
       const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
       const signature = serializeAppState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
-      const cachedModuleMeta = loadFirebaseModuleMetaCache();
       const externalDocs = [];
-      const externalMeta = {};
-      const externalKeys = [];
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
         const externalValue = firebaseState[key];
         delete firebaseState[key];
-        externalKeys.push(key);
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
         const externalCompressed = encodeFirebaseAppState(safeExternalValue);
         const externalJsonBytes = JSON.stringify(safeExternalValue).length;
-        const moduleMeta = buildFirebaseModuleMeta(key, "external", safeExternalValue, syncMeta, {
-          docId: FIREBASE_EXTERNAL_STATE_DOCS[key],
-          compressedBytes: externalCompressed ? externalCompressed.length : 0
-        });
-        externalMeta[key] = moduleMeta;
-        const cacheKey = getFirebaseModuleMetaId("external", key);
-        const cachedMeta = cachedModuleMeta[cacheKey];
-        if (cachedMeta && cachedMeta.signature && String(cachedMeta.signature) === String(moduleMeta.signature)) return;
         externalDocs.push({
           id: FIREBASE_EXTERNAL_STATE_DOCS[key],
           key,
           doc: Object.assign({
             key,
             sourceDocumentId: firebaseCfg.documentId,
-            syncMeta: Object.assign({}, syncMeta, { moduleKey: key, moduleType: "external", signature: moduleMeta.signature }),
-            moduleMeta,
+            syncMeta,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: reason,
             appStateFormat: externalCompressed ? "pako-base64-json-v1" : "json",
@@ -12591,23 +12189,13 @@
       });
       const splitState = splitFirebaseAppStateIntoShards(firebaseState);
       const compressed = encodeFirebaseAppState(splitState.mainState);
-      const shardMeta = {};
       const shards = splitState.shards.map(function(shard) {
         const shardCompressed = encodeFirebaseAppState(shard.value);
         const shardJsonBytes = JSON.stringify(shard.value || {}).length;
-        const moduleMeta = buildFirebaseModuleMeta(shard.key, "shard", shard.value, syncMeta, {
-          compressedBytes: shardCompressed ? shardCompressed.length : 0
-        });
-        shardMeta[shard.key] = moduleMeta;
-        const cacheKey = getFirebaseModuleMetaId("shard", shard.key);
-        const cachedMeta = cachedModuleMeta[cacheKey];
-        if (cachedMeta && cachedMeta.signature && String(cachedMeta.signature) === String(moduleMeta.signature)) return null;
         return {
           key: shard.key,
           doc: Object.assign({
             key: shard.key,
-            syncMeta: Object.assign({}, syncMeta, { moduleKey: shard.key, moduleType: "shard", signature: moduleMeta.signature }),
-            moduleMeta,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             appStateFormat: shardCompressed ? "pako-base64-json-v1" : "json",
             appStateJsonBytes: shardJsonBytes,
@@ -12620,17 +12208,15 @@
             appStateCompressed: window.firebase.firestore.FieldValue.delete()
           })
         };
-      }).filter(Boolean);
+      });
       const baseDoc = {
         syncMeta,
         updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: reason,
         appStateShardVersion: 1,
-        appStateShardKeys: splitState.shards.map(function(shard) { return shard.key; }),
-        appStateShardMeta: shardMeta,
+        appStateShardKeys: shards.map(function(shard) { return shard.key; }),
         appStateExternalVersion: 1,
-        appStateExternalKeys: externalKeys,
-        appStateExternalMeta: externalMeta,
+        appStateExternalKeys: externalDocs.map(function(externalDoc) { return externalDoc.key; }),
         appStateFormat: compressed ? "pako-base64-json-v1" : "json",
         appStateJsonBytes: JSON.stringify(fullFirebaseState).length,
         appStateMainJsonBytes: JSON.stringify(splitState.mainState).length,
@@ -12642,17 +12228,9 @@
           return total + Number(externalDoc.doc.appStateCompressedBytes || 0);
         }, 0)
       };
-      const moduleMetaCache = Object.assign({}, cachedModuleMeta);
-      Object.keys(shardMeta).forEach(function(key) {
-        moduleMetaCache[getFirebaseModuleMetaId("shard", key)] = shardMeta[key];
-      });
-      Object.keys(externalMeta).forEach(function(key) {
-        moduleMetaCache[getFirebaseModuleMetaId("external", key)] = externalMeta[key];
-      });
       if (compressed) {
         return {
           signature,
-          moduleMetaCache,
           shards,
           externalDocs,
           doc: Object.assign({}, baseDoc, {
@@ -12663,7 +12241,6 @@
       }
       return {
         signature,
-        moduleMetaCache,
         shards,
         externalDocs,
         doc: Object.assign({}, baseDoc, {
@@ -12674,7 +12251,6 @@
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      if (applyingRemoteRef.current || Date.now() < Number(remoteApplyGuardUntilRef.current || 0)) return;
       if (isFirebaseCooldownActive()) {
         setFirebaseStatus("error");
         setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
@@ -12684,79 +12260,66 @@
       pendingLocalSignatureRef.current = signature || `pending-${pendingLocalAtRef.current}`;
       hasSessionLocalChangeRef.current = true;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-      if (syncIdleTaskRef.current) {
-        cancelBrowserFreeTask(syncIdleTaskRef.current);
-        syncIdleTaskRef.current = null;
-      }
-      syncTimerRef.current = window.setTimeout(function() {
+      syncTimerRef.current = window.setTimeout(async function() {
         if (firebaseWriteInFlightRef.current) {
           firebaseWriteQueuedRef.current = true;
           syncTimerRef.current = window.setTimeout(function() {
-            scheduleFirebaseWrite(null, "", 5000, `${reason || "web-client"}-queued`);
-          }, 5000);
+            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
+          }, 2500);
           return;
         }
         firebaseWriteInFlightRef.current = true;
-        syncIdleTaskRef.current = runWhenBrowserIsFree(async function() {
-          syncIdleTaskRef.current = null;
-          try {
-            const snapshotState = appState || getCurrentAppState();
-            const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
-            if (writeDoc.signature === lastRemoteSignatureRef.current) {
-              pendingLocalSignatureRef.current = "";
-              pendingLocalAtRef.current = 0;
-              hasSessionLocalChangeRef.current = false;
-              return;
-            }
-            pendingLocalAtRef.current = markLocalSyncChange();
-            writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
-            (writeDoc.externalDocs || []).forEach(function(externalDoc) {
-              if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
-            });
-            pendingLocalSignatureRef.current = writeDoc.signature;
-            await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
-            saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
-            lastRemoteSignatureRef.current = writeDoc.signature;
-            lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
-            confirmedSecureWriteSignatureRef.current = writeDoc.signature;
-            confirmedSecureWriteAtRef.current = Date.now();
+        try {
+          const snapshotState = appState || getCurrentAppState();
+          const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
+          if (writeDoc.signature === lastRemoteSignatureRef.current) {
             pendingLocalSignatureRef.current = "";
             pendingLocalAtRef.current = 0;
             hasSessionLocalChangeRef.current = false;
-            setFirebaseStatus("connected");
-            setFirebaseMessage("Cambios sincronizados");
-            setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
-          } catch (error) {
-            console.error("Firebase write error:", error);
-            if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
-            setFirebaseStatus("error");
-            setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
-          } finally {
-            firebaseWriteInFlightRef.current = false;
-            if (firebaseWriteQueuedRef.current) {
-              firebaseWriteQueuedRef.current = false;
-              scheduleFirebaseWrite(null, "", 5000, `${reason || "web-client"}-queued`);
-            }
+            return;
           }
-        }, 350);
+          pendingLocalAtRef.current = markLocalSyncChange();
+          writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
+          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
+            if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
+          });
+          pendingLocalSignatureRef.current = writeDoc.signature;
+          await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+          lastRemoteSignatureRef.current = writeDoc.signature;
+          lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
+          hasSessionLocalChangeRef.current = false;
+          setFirebaseStatus("connected");
+          setFirebaseMessage("Cambios sincronizados");
+          setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+        } catch (error) {
+          console.error("Firebase write error:", error);
+          if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
+          setFirebaseStatus("error");
+          setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
+        } finally {
+          firebaseWriteInFlightRef.current = false;
+          if (firebaseWriteQueuedRef.current) {
+            firebaseWriteQueuedRef.current = false;
+            scheduleFirebaseWrite(null, "", 2500, `${reason || "web-client"}-queued`);
+          }
+        }
       }, delay);
     }
-    function applyRemoteState(nextState, options = {}) {
+    function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
       const currentState = getCurrentAppState();
-      nextState = preserveIcgDecisionLocksInAppState(nextState, currentState);
-      if (options && options.mergeLocal === true) {
-        nextState = mergeRemoteAppStateWithLocal(nextState, currentState);
-      }
+      nextState = mergeRemoteAppStateWithLocal(
+        preserveIcgDecisionLocksInAppState(nextState, currentState),
+        currentState
+      );
       applyingRemoteRef.current = true;
-      remoteApplyGuardUntilRef.current = Date.now() + 4000;
       if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
-        return normalizeInventoryRowsForDisplay(nextState.inventario, deleted);
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.inventario, deleted), deleted);
       });
       if (Array.isArray(nextState.cuartoFrioInventario)) setCuartoFrioInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.cuartoFrioInventario;
-        return normalizeInventoryRowsForDisplay(nextState.cuartoFrioInventario, deleted);
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.cuartoFrioInventario, deleted), deleted);
       });
       if (Array.isArray(nextState.miseAnPlace)) setMise(normalizeMiseItems(nextState.miseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.miseAnPlace); })));
       const nextMovementDeletedKeys = normalizeMovementDeletedKeys(nextState.movementDeletedKeys);
@@ -12786,16 +12349,16 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (nextState.googleConfig && typeof nextState.googleConfig === "object") setGoogleConfig(normalizeGoogleConfig(nextState.googleConfig));
-      if (Array.isArray(nextState.usuarios)) setUsuarios(ensureAdminUser(nextState.usuarios));
+      if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
-        return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(nextState.barInventario, deleted));
+        return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
       });
       if (Array.isArray(nextState.barCuartoFrioInventario)) setBarCuartoFrioInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barCuartoFrioInventario;
-        return normalizeInventoryRowsForDisplay(nextState.barCuartoFrioInventario, deleted);
+        return normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barCuartoFrioInventario, deleted), deleted);
       });
       if (Array.isArray(nextState.barMiseAnPlace)) setBarMise(normalizeMiseItems(nextState.barMiseAnPlace.filter(function(row) { return !isMiseRowDeleted(row, nextState.miseDeletedKeys && nextState.miseDeletedKeys.barMiseAnPlace); })));
       if (Array.isArray(nextState.barRegEntradas)) setBarRegEntradas(normalizeMovementRows(nextState.barRegEntradas, nextMovementDeletedKeys.barRegEntradas));
@@ -12811,7 +12374,7 @@
       if (Array.isArray(nextState.barHistSalidaRapida)) setBarHistSalidaRapida(repairIcgMiseQuickExitUsers(normalizeMovementRows(nextState.barHistSalidaRapida, nextMovementDeletedKeys.barHistSalidaRapida)));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
-      }, 1500);
+      }, 0);
     }
     function normalizeIcgControlDoc(data) {
       const source = data && typeof data === "object" ? data : {};
@@ -12876,6 +12439,7 @@
       const pause = Boolean(pendingIcgControlAction.paused);
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const userLabel = getIcgControlUserLabel();
+      const serverTimestamp = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue ? window.firebase.firestore.FieldValue.serverTimestamp() : now;
       let forgottenLegacyRows = 0;
       const cleanedLegacyIcg = forgetLegacyIcgMovementsWithoutModernKeys(icgFrontRestData);
       forgottenLegacyRows = cleanedLegacyIcg.ignored;
@@ -12887,7 +12451,7 @@
         reason: "Deducciones ICG pausadas manualmente. La sincronizacion y los registros siguen activos.",
         pausedAt: now,
         pausedBy: userLabel,
-        updatedAt: now,
+        updatedAt: serverTimestamp,
         updatedBy: userLabel
       } : {
         status: "INACTIVE",
@@ -12896,12 +12460,13 @@
         reason: "",
         resumedAt: now,
         resumedBy: userLabel,
-        updatedAt: now,
+        updatedAt: serverTimestamp,
         updatedBy: userLabel
       };
       try {
-        await writeSecureFirebasePayload({ icgControlDoc: nextDoc });
+        await icgControlDocRef.current.set(nextDoc, { merge: true });
       } catch (error) {
+        if (activateFirebaseCooldown(error, "wtfSistema/icgControl escritura")) return;
         throw error;
       }
       applyIcgControlState(Object.assign({}, nextDoc, { updatedAt: now }));
@@ -12916,22 +12481,11 @@
         return;
       }
       try {
-        const forceServerApply = [
-          "manual-sync",
-          "sync-button",
-          "pwa-manual",
-          "visibility-resume",
-          "window-focus",
-          "pageshow",
-          "bfcache-pageshow",
-          "online",
-          "service-worker"
-        ].includes(reason);
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
-        const hasPendingLocalWrite = hasPendingFirebaseLocalWrite();
-        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite && !forceServerApply) {
+        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
@@ -12941,31 +12495,14 @@
           }
           return;
         }
-        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current, { baseState: getCurrentAppState() });
+        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
-        const currentSignature = forceServerApply && !hasPendingLocalWrite
-          ? serializeAppState(getCurrentAppState())
-          : getCurrentStateSignatureFast(hasPendingLocalWrite);
-        const isAwaitingSecureWriteEcho = confirmedSecureWriteSignatureRef.current
-          && currentSignature === confirmedSecureWriteSignatureRef.current
-          && Date.now() - Number(confirmedSecureWriteAtRef.current || 0) < 6e4
-          && remoteSignature !== currentSignature
-          && (!remoteMetaSignature || remoteMetaSignature !== lastRemoteMetaSignatureRef.current);
-        if (isAwaitingSecureWriteEcho) {
-          setFirebaseStatus("connected");
-          setFirebaseMessage("Confirmando cambios seguros en Firebase...");
-          return;
-        }
+        const currentSignature = serializeAppState(getCurrentAppState());
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           lastRemoteSignatureRef.current = remoteSignature;
           lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
-          pendingLocalSignatureRef.current = "";
-          pendingLocalAtRef.current = 0;
-          confirmedSecureWriteSignatureRef.current = "";
-          confirmedSecureWriteAtRef.current = 0;
-          hasSessionLocalChangeRef.current = false;
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
           if (data && data.updatedAt) {
@@ -12974,9 +12511,9 @@
           }
           return;
         }
-        if (hasPendingLocalWrite) {
-          setFirebaseStatus("connected");
-          setFirebaseMessage("Guardando cambios locales en Firebase...");
+        const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || hasPendingLocalWrite;
+        if (hasCurrentSessionLocalChange && reason !== "manual-sync") {
+          setFirebaseMessage("Sincronizacion pausada: cambios locales pendientes");
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
@@ -13002,57 +12539,6 @@
       }
     }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
-    async function flushFirebaseStateNow(reason = "manual-sync") {
-      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return false;
-      if (firebaseWriteInFlightRef.current) {
-        firebaseWriteQueuedRef.current = true;
-        setFirebaseStatus("connected");
-        setFirebaseMessage("Guardando cambios locales en Firebase...");
-        return false;
-      }
-      if (syncTimerRef.current) {
-        window.clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
-      if (syncIdleTaskRef.current) {
-        cancelBrowserFreeTask(syncIdleTaskRef.current);
-        syncIdleTaskRef.current = null;
-      }
-      const writeDoc = createFirebaseWriteDoc(getCurrentAppState(), reason);
-      if (writeDoc.signature === lastRemoteSignatureRef.current) return false;
-      firebaseWriteInFlightRef.current = true;
-      try {
-        setFirebaseStatus("connected");
-        setFirebaseMessage("Guardando cambios locales en Firebase...");
-        pendingLocalAtRef.current = markLocalSyncChange();
-        writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
-        (writeDoc.externalDocs || []).forEach(function(externalDoc) {
-          if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
-        });
-        pendingLocalSignatureRef.current = writeDoc.signature;
-        await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
-        saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
-        lastRemoteSignatureRef.current = writeDoc.signature;
-        lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
-        confirmedSecureWriteSignatureRef.current = writeDoc.signature;
-        confirmedSecureWriteAtRef.current = Date.now();
-        pendingLocalSignatureRef.current = "";
-        pendingLocalAtRef.current = 0;
-        hasSessionLocalChangeRef.current = false;
-        setFirebaseStatus("connected");
-        setFirebaseMessage("Cambios sincronizados");
-        setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
-        return true;
-      } catch (error) {
-        console.error("Firebase manual write error:", error);
-        if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return false;
-        setFirebaseStatus("error");
-        setFirebaseMessage(error && error.message ? error.message : "No se pudo guardar en Firebase");
-        throw error;
-      } finally {
-        firebaseWriteInFlightRef.current = false;
-      }
-    }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
@@ -13064,11 +12550,6 @@
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
     useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
-    useEffect(() => {
-      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      if (applyingRemoteRef.current || Date.now() < Number(remoteApplyGuardUntilRef.current || 0)) return;
-      scheduleFirebaseWrite(Object.assign({}, getCurrentAppState(), { usuarios: ensureAdminUser(usuarios) }), "", 250, "usuarios-permisos");
-    }, [usuarios]);
     useEffect(() => save(KEYS.authUser, authUserEmail || ""), [authUserEmail]);
     useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
     useEffect(() => {
@@ -13163,39 +12644,11 @@
       return () => window.clearInterval(timer);
     }, []);
     const currentUser = useMemo(() => {
-      if (firebaseCfg.enabled) {
-        const firebaseEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || "");
-        if (!isAuthorizedInternalAccessEmail(firebaseEmail) || firebaseEmail !== normalizar(authUserEmail)) return null;
-      }
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
       });
       return found || null;
-    }, [usuarios, authUserEmail, firebaseAuthUser, firebaseCfg.enabled]);
-    useEffect(() => {
-      if (!firebaseCfg.enabled || firebaseStatus !== "connected" || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      const firebaseEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || authUserEmail || "");
-      if (firebaseEmail !== "henryortiz1704@gmail.com" && !isRootAdmin(currentUser)) return;
-      const seedKey = `wtf_authorized_users_seed_${window.WTF_APP_VERSION || DATA_VERSION}`;
-      if (sessionStorage.getItem(seedKey)) return;
-      sessionStorage.setItem(seedKey, "1");
-      const timer = window.setTimeout(async function() {
-        try {
-          const writeDoc = createFirebaseWriteDoc(getCurrentAppState(), "authorized-users-refresh");
-          writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, "authorized-users-refresh");
-          (writeDoc.externalDocs || []).forEach(function(externalDoc) {
-            if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
-          });
-          await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
-          saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
-        } catch (error) {
-          console.warn("No se pudo refrescar authorizedUsers:", error && error.message ? error.message : error);
-        }
-      }, 2500);
-      return function() {
-        window.clearTimeout(timer);
-      };
-    }, [firebaseStatus, firebaseAuthUser, authUserEmail, currentUser]);
+    }, [usuarios, authUserEmail]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
@@ -13272,15 +12725,6 @@
         }
       }
       resetGoogleSession();
-      if (window.firebase && window.firebase.auth) {
-        try {
-          window.firebase.auth().signOut().catch(function(error) {
-            console.warn("Access service signOut error:", error);
-          });
-        } catch (error) {
-          console.warn(error);
-        }
-      }
       if (currentUser) {
         addSystemLog({
           modulo: "Sistema",
@@ -13346,8 +12790,7 @@
       addSystemLog({
         modulo: "Sistema",
         accion: "Inicio de sesion",
-        detalle: loginDetail,
-        deviceInfo: isAdminUser(user) ? getClientAuditDeviceInfo() : ""
+        detalle: loginDetail
       }, user);
       const routeAfterLogin = getAppRouteFromLocation();
       if (routeAfterLogin && routeAfterLogin.modulo) {
@@ -13359,67 +12802,6 @@
         resetToModuleSelector(true);
       }
       return user;
-    }
-    async function loginWithGoogle() {
-      if (!firebaseCfg.enabled) throw new Error("El acceso seguro no esta configurado.");
-      if (!window.firebase || !window.firebase.auth) throw new Error("El servicio de acceso no esta disponible.");
-      const app = getFirebaseAppInstance();
-      const auth = app.auth();
-      const provider = new window.firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      try {
-        const credential = await auth.signInWithPopup(provider);
-        const googleUser = credential && credential.user || auth.currentUser;
-        const email = normalizar(googleUser && googleUser.email || "");
-        if (!email) throw new Error("Google no devolvio un correo valido.");
-        let user = ensureAdminUser(usuarios).find(function(u) {
-          return u.activo !== false && normalizar(u.email) === email;
-        });
-        if (!user) {
-          const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
-          const remoteSnapshot = await docRef.get({ source: "server" });
-          const remoteState = await decodeFirebaseAppState(remoteSnapshot.data(), docRef, { baseState: getCurrentAppState() });
-          const remoteUsers = ensureAdminUser(remoteState && remoteState.usuarios || []);
-          user = remoteUsers.find(function(u) {
-            return u.activo !== false && normalizar(u.email) === email;
-          });
-          if (user && remoteState) {
-            applyRemoteState(remoteState);
-          }
-        }
-        if (!user) {
-          await auth.signOut().catch(function() {});
-          throw new Error("El correo esta autenticado, pero no tiene perfil interno autorizado.");
-        }
-        clearStoredWelcomeCoverSeen();
-        setWelcomeCoverDismissedKey("");
-        if (isAdminUser(user)) writeAdminSessionStartedAt(user.email, new Date().toISOString());
-        setFirebaseAuthUser(googleUser);
-        setAuthUserEmail(user.email);
-        addSystemLog({
-          modulo: "Sistema",
-          accion: "Inicio de sesion Google",
-          detalle: "Acceso confirmado.",
-          deviceInfo: getClientAuditDeviceInfo()
-        }, user);
-        const routeAfterLogin = getAppRouteFromLocation();
-        if (routeAfterLogin && routeAfterLogin.modulo) {
-          sessionStorage.setItem("wtf_modulo", routeAfterLogin.modulo);
-          setModulo(routeAfterLogin.modulo);
-          setPage(routeAfterLogin.page || "dashboard");
-          updateBrowserAppRoute(routeAfterLogin.page || "dashboard", routeAfterLogin.modulo, true);
-        } else {
-          resetToModuleSelector(true);
-        }
-        return user;
-      } catch (error) {
-        const code = String(error && error.code || "");
-        if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
-          await auth.signInWithRedirect(provider);
-          throw new Error("Continua el inicio de sesion en la ventana de Google.");
-        }
-        throw error;
-      }
     }
     async function requestLoginTerminalAuthorization(email, password) {
       const user = usuarios.find(function(u) {
@@ -13498,12 +12880,8 @@
       const nextEmail = String(payload.email || "").trim().toLowerCase();
       const currentPassword = String(payload.currentPassword || "");
       const nextPassword = String(payload.newPassword || "");
-      const adminPassword = String(payload.adminPassword || "");
       if (!nextEmail) throw new Error("Ingrese el nuevo correo.");
       if (String(currentUser.password || "") !== currentPassword) throw new Error("La contrase\xF1a actual no coincide.");
-      if (isAdminUser(currentUser) && !isValidSecondaryAdminPassword(usuarios, adminPassword, currentUser)) {
-        throw new Error("Ingrese la clave de otro administrador activo para autorizar este cambio.");
-      }
       const duplicate = usuarios.find(function(u) {
         return u.id !== currentUser.id && normalizar(u.email) === normalizar(nextEmail);
       });
@@ -13525,35 +12903,12 @@
           });
         }));
       });
-      addSystemLog({
-        modulo: "Seguridad",
-        accion: "Cambio de acceso",
-        detalle: `El usuario ${getUserDisplayLabel(currentUser)} actualizo sus datos de acceso. Correo anterior: ${currentUser.email || ""}. Correo nuevo: ${nextEmail}. Cambio de contrasena: ${nextPassword ? "Si" : "No"}.`,
-        previousEmail: currentUser.email || "",
-        newEmail: nextEmail,
-        passwordChanged: Boolean(nextPassword),
-        deviceInfo: getClientAuditDeviceInfo()
-      }, currentUser);
       setAuthUserEmail(nextEmail);
       setSelfAccessModal(false);
       toast("Tus datos de acceso fueron actualizados.", "ok");
     }
     useEffect(() => {
       if (!firebaseCfg.enabled) return;
-      if (firebaseAuthLoading) {
-        setFirebaseStatus("connecting");
-        setFirebaseMessage("Validando sesion segura...");
-        return;
-      }
-      const authedEmail = normalizar(firebaseAuthUser && firebaseAuthUser.email || "");
-      if (!authedEmail || isPermanentlyRemovedUserEmail(authedEmail)) {
-        firebaseDocRef.current = null;
-        icgControlDocRef.current = null;
-        firebaseBootstrappedRef.current = false;
-        setFirebaseStatus("disabled");
-        setFirebaseMessage("Inicia sesion con Google para sincronizar");
-        return;
-      }
       if (firebaseCooldownUntil > Date.now()) {
         const remaining = Math.max(1e3, firebaseCooldownUntil - Date.now());
         firebaseCooldownUntilRef.current = firebaseCooldownUntil;
@@ -13574,7 +12929,13 @@
         return;
       }
       try {
-        const app = getFirebaseAppInstance();
+        const hasMissingConfig = Object.values(firebaseCfg.firebaseConfig).some((v) => !String(v || "").trim());
+        if (hasMissingConfig) {
+          setFirebaseStatus("error");
+          setFirebaseMessage("Complete firebase-config.js");
+          return;
+        }
+        const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
         const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
         const icgDocRef = app.firestore().collection(firebaseCfg.collection).doc("icgControl");
         firebaseDocRef.current = docRef;
@@ -13609,9 +12970,8 @@
             setFirebaseMessage("Leyendo datos reales del servidor...");
             return;
           }
-          await waitForBrowserFree(firebaseBootstrappedRef.current ? 1200 : 250);
           const data = snapshot.data();
-          const remoteState = await decodeFirebaseAppState(data, docRef, { baseState: getCurrentAppState() });
+          const remoteState = await decodeFirebaseAppState(data, docRef);
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
@@ -13620,55 +12980,41 @@
               lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
               await writeFirebaseAppStateDoc(docRef, migrationDoc);
-              saveFirebaseModuleMetaCache(migrationDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
               setFirebaseStatus("connected");
               setFirebaseMessage("Firebase actualizado con migracion segura");
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
               return;
             }
             const remoteSignature = serializeAppState(remoteState);
-            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const currentSignature = serializeAppState(getCurrentAppState());
+            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const remoteSyncMeta = data.syncMeta || {};
-            const remoteMetaSignature = String(remoteSyncMeta.signature || "");
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
             const localRevision = Number(syncRevisionRef.current || 0);
             const localChangeAt = Number(localChangeAtRef.current || 0);
-            const hasCurrentSessionLocalChange = hasFreshSessionLocalChange(9e4) || (hasPendingLocalWrite && Number(pendingLocalAtRef.current || 0) >= Number(sessionStartedAtRef.current || 0));
+            const hasCurrentSessionLocalChange = Boolean(hasSessionLocalChangeRef.current) || (hasPendingLocalWrite && Number(pendingLocalAtRef.current || 0) >= Number(sessionStartedAtRef.current || 0));
             const remoteHasRevision = remoteRevision > 0 && localRevision > 0;
             const remoteIsOlderByRevision = remoteHasRevision && remoteRevision < localRevision;
             const remoteIsOlderByClientTime = !remoteHasRevision && localChangeAt > 0 && remoteClientTime > 0 && remoteClientTime < localChangeAt;
             const remoteIsOlderThanLocal = hasCurrentSessionLocalChange && (remoteIsOlderByRevision || remoteIsOlderByClientTime);
             const remoteIsStalePendingEcho = hasCurrentSessionLocalChange && hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
-            const isAwaitingSecureWriteEcho = confirmedSecureWriteSignatureRef.current
-              && currentSignature === confirmedSecureWriteSignatureRef.current
-              && Date.now() - Number(confirmedSecureWriteAtRef.current || 0) < 6e4
-              && remoteSignature !== currentSignature
-              && (!remoteMetaSignature || remoteMetaSignature !== lastRemoteMetaSignatureRef.current);
             firebaseBootstrappedRef.current = true;
             setFirebaseStatus("connected");
             if (data.updatedAt) {
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
               setLastSyncedAt(formatDatetime(date));
             }
-            if (isAwaitingSecureWriteEcho) {
-              setFirebaseMessage("Confirmando cambios seguros en Firebase...");
-            } else if (remoteSignature === currentSignature) {
+            if (remoteSignature === currentSignature) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
-              lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
               pendingLocalSignatureRef.current = "";
               pendingLocalAtRef.current = 0;
-              confirmedSecureWriteSignatureRef.current = "";
-              confirmedSecureWriteAtRef.current = 0;
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
-            } else if (hasPendingLocalWrite) {
-              setFirebaseMessage("Guardando cambios locales en Firebase...");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
-              setFirebaseMessage("Protegiendo cambios locales recientes...");
-              scheduleFirebaseWrite(null, "", 600, "protect-local-newer");
+              setFirebaseMessage("Protegiendo cambios locales...");
+              scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
@@ -13688,17 +13034,11 @@
             }
             return;
           }
-          if (snapshot.exists) {
-            setFirebaseStatus("error");
-            setFirebaseMessage("Firebase existe, pero no se pudo leer de forma segura. No se escribio local encima.");
-            return;
-          }
           firebaseBootstrappedRef.current = true;
           const initialState = getCurrentAppState();
           const bootstrapDoc = createFirebaseWriteDoc(initialState, "web-bootstrap");
           lastRemoteSignatureRef.current = bootstrapDoc.signature;
           await writeFirebaseAppStateDoc(docRef, bootstrapDoc);
-          saveFirebaseModuleMetaCache(bootstrapDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
           setFirebaseStatus("connected");
           setFirebaseMessage("Firebase inicializado");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -13716,10 +13056,6 @@
         });
         return function() {
           if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-          if (syncIdleTaskRef.current) {
-            cancelBrowserFreeTask(syncIdleTaskRef.current);
-            syncIdleTaskRef.current = null;
-          }
           unsubscribe();
           unsubscribeIcgControl();
         };
@@ -13728,19 +13064,14 @@
         setFirebaseStatus("error");
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase");
       }
-    }, [firebaseCfg, firebaseCooldownUntil, firebaseAuthLoading, firebaseAuthUser]);
+    }, [firebaseCfg, firebaseCooldownUntil]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
-      if (!shouldUploadLocalStateNow() && !hasRecentUserDataInteraction()) return;
-      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 900 : 700;
+      const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 6500 : 2600;
       scheduleFirebaseWrite(null, "", mobileSyncDelay, "web-client");
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-        if (syncIdleTaskRef.current) {
-          cancelBrowserFreeTask(syncIdleTaskRef.current);
-          syncIdleTaskRef.current = null;
-        }
       };
     }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
@@ -13748,13 +13079,8 @@
       function handlePwaSync(event) {
         const now = Date.now();
         const reason = event && event.detail && event.detail.reason || "pwa";
-        const hasPendingLocalWrite = hasPendingFirebaseLocalWrite();
-        if (hasPendingLocalWrite || hasFreshSessionLocalChange() || firebaseWriteInFlightRef.current) {
-          scheduleFirebaseWrite(null, "", 500, "foreground-local-write");
-          return;
-        }
-        if (reason === "foreground-interval" && now - lastPullAt < 1e4) return;
-        if (reason !== "foreground-interval" && now - lastPullAt < 1500) return;
+        if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
+        if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
         if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
       }
@@ -14047,7 +13373,7 @@
       [inventario]
     );
     const [confirmNevera, setConfirmNevera] = useState(null);
-    async function forceFirebaseSyncNow() {
+    function forceFirebaseSyncNow() {
       if (isFirebaseCooldownActive()) {
         clearFirebaseCooldown("Pausa Firebase liberada manualmente. Reintentando conexion...");
         toast("Pausa Firebase liberada. Reintentando sincronizacion...", "info", 6500);
@@ -14058,23 +13384,11 @@
         toast("Firebase se esta preparando para reconectar. Intenta de nuevo en unos segundos si no sincroniza automaticamente.", "info", 7500);
         return;
       }
-      try {
-        setFirebaseStatus("connected");
-        if (shouldUploadLocalStateNow()) {
-          setFirebaseMessage("Sincronizando cambios locales...");
-          await flushFirebaseStateNow("manual-sync");
-        } else {
-          setFirebaseMessage("Leyendo informacion central de Firebase...");
-        }
-        setFirebaseStatus("connecting");
-        setFirebaseMessage("Confirmando cambios con Firebase...");
-        await pullLatestFirebaseSnapshot("manual-sync");
-        if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
-          window.WTF_PWA.syncNow("manual-sync");
-        }
-        toast("Sincronizacion completada.", "ok", 3500);
-      } catch (error) {
-        toast(error && error.message ? error.message : "No se pudo sincronizar Firebase.", "error", 8e3);
+      setFirebaseStatus("connecting");
+      setFirebaseMessage("Forzando lectura del servidor...");
+      pullLatestFirebaseSnapshot("manual-sync");
+      if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
+        window.WTF_PWA.syncNow("manual-sync");
       }
     }
     const syncBadge = useMemo(() => {
@@ -14113,10 +13427,10 @@
         };
       }
       return {
-        className: "sync-badge err",
-        icon: "fa-triangle-exclamation",
-        text: "Firebase requerido",
-        title: "Este sistema debe trabajar online con Firebase."
+        className: "sync-badge",
+        icon: "fa-hard-drive",
+        text: "Solo local",
+        title: "Firebase desactivado; usando localStorage."
       };
     }, [firebaseMessage, firebaseStatus, lastSyncedAt]);
     const icgControlButton = /* @__PURE__ */ React.createElement("button", {
@@ -14958,16 +14272,13 @@
       activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); resetToModuleSelector(false); } }),
       usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
-      aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs: [], currentUser }),
+      aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
-      return /* @__PURE__ */ React.createElement(LoginScreen, { onGoogleLogin: loginWithGoogle, firebaseAuthLoading, toast });
-    }
-    if (firebaseCfg.enabled && !firebaseBootstrappedRef.current) {
-      return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card", style: { maxWidth: 720, gridTemplateColumns: "1fr" } }, /* @__PURE__ */ React.createElement("div", { className: "login-panel", style: { textAlign: "center", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 58, height: 58, borderRadius: 18, display: "grid", placeItems: "center", background: "rgba(10,159,40,.12)", color: "#0a9f28", fontSize: 24, margin: "0 auto 12px" } }, /* @__PURE__ */ React.createElement("i", { className: firebaseStatus === "error" ? "fas fa-triangle-exclamation" : "fas fa-cloud-arrow-down fa-spin" })), /* @__PURE__ */ React.createElement("h2", null, firebaseStatus === "error" ? "Firebase requiere atencion" : "Cargando informacion central"), /* @__PURE__ */ React.createElement("p", { style: { maxWidth: 520 } }, firebaseStatus === "error" ? firebaseMessage || "No se pudo leer Firebase de forma segura." : "Este equipo esta esperando la informacion online de Firebase para evitar mostrar datos locales antiguos."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", type: "button", onClick: forceFirebaseSyncNow }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar ahora"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", onClick: cerrarSesion }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir")))));
+      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
     }
     if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
@@ -15175,14 +14486,8 @@
     ), /* @__PURE__ */ React.createElement("aside", { className: `sidebar ${sidebarOpen ? "" : "collapsed"}` }, /* @__PURE__ */ React.createElement("div", { className: "sidebar-logo" }, /* @__PURE__ */ React.createElement("i", { className: moduleIconClass }), /* @__PURE__ */ React.createElement("div", { className: "logo-text" }, /* @__PURE__ */ React.createElement("span", null, "WTF Sistema"), /* @__PURE__ */ React.createElement("small", null, moduleSmallLabel)), /* @__PURE__ */ React.createElement("button", { className: "sidebar-close-btn", onClick: () => setSidebarOpen(false), title: "Cerrar menú" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("nav", { className: "sidebar-nav" }, visibleNavItems.map((item) => {
       const showSection = item.section && item.section !== lastSection;
       if (item.section) lastSection = item.section;
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => {
-        if (item.key === "systemLogs") {
-          window.location.href = "/system-logs.html";
-          return;
-        }
-        navigate(item.key);
-      } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
-    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => resetToModuleSelector(false), title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs: [], currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.key }, showSection && /* @__PURE__ */ React.createElement("div", { className: "nav-section" }, item.section), /* @__PURE__ */ React.createElement("div", { className: `nav-item ${activePage === item.key ? "active" : ""}`, onClick: () => navigate(item.key) }, /* @__PURE__ */ React.createElement("i", { className: `fas ${item.icon}` }), item.label));
+    })), /* @__PURE__ */ React.createElement("div", { className: "sidebar-footer" }, "WTF Sistema Cocina v1.0")), /* @__PURE__ */ React.createElement("div", { className: `main ${sidebarOpen && window.innerWidth > 768 ? "" : "full"}` }, /* @__PURE__ */ React.createElement("div", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "topbar-left" }, /* @__PURE__ */ React.createElement("button", { className: "hamburger", onClick: () => setSidebarOpen((o) => !o), title: "Men\xFA" }, /* @__PURE__ */ React.createElement("i", { className: `fas ${sidebarOpen ? "fa-times" : "fa-bars"}` })), /* @__PURE__ */ React.createElement("h1", null, titles[activePage])), /* @__PURE__ */ React.createElement("div", { className: "topbar-right" }, /* @__PURE__ */ React.createElement("span", { className: "account-badge", title: getUserDisplayLabel(currentUser) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), /* @__PURE__ */ React.createElement("span", null, getUserDisplayLabel(currentUser))), icgControlButton, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => setSelfAccessModal(true), title: "Cambiar correo o contrase\xF1a" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card" }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: () => resetToModuleSelector(false), title: "Cambiar módulo", style: moduleButtonTheme }, /* @__PURE__ */ React.createElement("i", { className: moduleButtonIcon }), moduleButtonLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: cerrarSesion, title: "Cerrar sesión" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-from-bracket" }), "Salir"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", onClick: forceFirebaseSyncNow, title: "Leer ahora desde Firebase servidor" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrows-rotate" }), "Sincronizar"), /* @__PURE__ */ React.createElement("span", { className: syncBadge.className, title: syncBadge.title }, /* @__PURE__ */ React.createElement("i", { className: `fas ${syncBadge.icon}${firebaseStatus === "connecting" ? " fa-spin" : ""}` }), syncBadge.text), /* @__PURE__ */ React.createElement("span", { className: "date-badge" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-calendar-day", style: { marginRight: 4 } }), (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "short" })))), /* @__PURE__ */ React.createElement("div", { key: activePage, className: "content page-enter" }, (pageRenderers[activePage] || pageRenderers.dashboard)()), showFloatingAiChat && /* @__PURE__ */ React.createElement(FloatingAiChat, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser, onAiAction: handleAiAction })), pendingIcgControlAction && /* @__PURE__ */ React.createElement(AdminKeyModal, { title: pendingIcgControlAction.title, usuarios, onClose: () => setPendingIcgControlAction(null), onConfirm: confirmIcgControlToggle }), confirmNevera && /* @__PURE__ */ React.createElement(
       ConfirmNeveraModal,
       {
         items: confirmNevera.items,
@@ -20168,14 +19473,19 @@
       if (typeof onSystemLog === "function" && logPayload) onSystemLog(Object.assign({ modulo: "Finanzas" }, logPayload));
     }
     async function queueFinancePushNotification(title, body, topic) {
-      await callSecurePushEndpoint({
-        action: "createAndSend",
+      if (!window.firebase || !window.firebase.firestore) return;
+      const cfg = window.WTF_FIREBASE_CONFIG || {};
+      if (!cfg.enabled || !cfg.firebaseConfig) return;
+      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
+      await app.firestore().collection("pwaPushMessages").add({
         title,
         body,
         topic: topic || "admin",
         url: "/",
+        status: "pending",
         createdBy: getUserDisplayLabel(currentUser),
-        createdByEmail: currentUser && currentUser.email || ""
+        createdByEmail: currentUser && currentUser.email || "",
+        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
       });
     }
     async function callTerminalAdmin(action, payload) {
@@ -20631,13 +19941,16 @@
       )
     ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
   }
-  function LoginScreen({ onGoogleLogin, firebaseAuthLoading, toast }) {
+  function LoginScreen({ onLogin, onRequestTerminal, toast }) {
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [requestingTerminal, setRequestingTerminal] = useState(false);
     async function iniciarSesion(e) {
       if (e && e.preventDefault) e.preventDefault();
       setSubmitting(true);
       try {
-        const user = await onGoogleLogin();
+        const user = await onLogin(email, password);
         toast(`Sesi\xF3n iniciada como ${getUserDisplayLabel(user)}.`, "ok");
       } catch (err) {
         toast(err && err.message ? err.message : "No se pudo iniciar sesi\xF3n.", "error");
@@ -20645,16 +19958,47 @@
         setSubmitting(false);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-shield-halved" }), "WTF Sistema Seguro"), /* @__PURE__ */ React.createElement("h1", null, "Acceso protegido"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu cuenta autorizada para continuar.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-check" }), /* @__PURE__ */ React.createElement("span", null, "El acceso administrador esta protegido y no se publica en pantalla.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-lock" }), /* @__PURE__ */ React.createElement("span", null, "Tus cambios se guardan mediante un canal protegido.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Entrar al sistema"), /* @__PURE__ */ React.createElement("p", null, "Usa tu cuenta autorizada para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Acceso centralizado y protegido para el equipo WTF."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement(
+    async function solicitarTerminal(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      setRequestingTerminal(true);
+      try {
+        if (typeof onRequestTerminal !== "function") throw new Error("Solicitud de terminal no disponible.");
+        await onRequestTerminal(email, password);
+        toast("Solicitud enviada. Un administrador debe autorizar esta computadora en Finanzas > Control Horario.", "ok", 7500);
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo solicitar autorizacion de terminal.", "error", 7500);
+      } finally {
+        setRequestingTerminal(false);
+      }
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Al iniciar sesi\xF3n se pedir\xE1 ubicaci\xF3n precisa. Los administradores pueden entrar desde cualquier lugar."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "form-control",
+        type: "email",
+        placeholder: "usuario@correo.com",
+        value: email,
+        onChange: (e) => setEmail(e.target.value)
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "form-control",
+        type: "password",
+        placeholder: "Ingresa tu contrase\xF1a",
+        value: password,
+        onChange: (e) => setPassword(e.target.value)
+      }
+    )), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "btn btn-verde login-google-btn",
         type: "submit",
-        disabled: submitting || firebaseAuthLoading,
-        style: { opacity: submitting || firebaseAuthLoading ? 0.7 : 1, width: "100%", justifyContent: "center" }
+        disabled: !email.trim() || !password || submitting,
+        style: { opacity: !email.trim() || !password || submitting ? 0.7 : 1 }
       },
-      submitting || firebaseAuthLoading ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando Google...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fab fa-google" }), "Entrar con Google")
-    )), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "Si no tienes acceso autorizado, la entrada sera rechazada."))));
+      submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando acceso...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), "Entrar al sistema")
+    ), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", disabled: !email.trim() || !password || requestingTerminal, onClick: solicitarTerminal, style: { width: "100%", justifyContent: "center", marginTop: 8, opacity: !email.trim() || !password || requestingTerminal ? 0.7 : 1 } }, requestingTerminal ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Solicitando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop" }), "Solicitar autorizacion de esta PC"))), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
   }
   function getAiAssistantConfig() {
     const localConfig = window.WTF_AI_CONFIG || {};
@@ -21217,19 +20561,16 @@
     const recognitionRef = useRef(null);
     const busyRef = useRef(false);
     const speakingRef = useRef(false);
-    const emptyAiRowsRef = useRef([]);
-    const emptyAiSummaryRef = useRef({ entradas: 0, salidas: 0, decomisos: 0, producciones: 0, bajoStock: 0, topConsumo: [] });
     const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
     const voiceSupported = Boolean(speechRecognitionApi);
     const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
-    const assistantActive = open || busy || listening || Boolean(pendingVoiceAction);
-    const products = useMemo(() => assistantActive ? buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }) : emptyAiRowsRef.current, [assistantActive, inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
-    const allSalidas = useMemo(() => assistantActive ? [].concat(regSalidas || [], barRegSalidas || []) : emptyAiRowsRef.current, [assistantActive, regSalidas, barRegSalidas]);
-    const purchaseRows = useMemo(() => assistantActive ? buildAiPurchaseList(products) : emptyAiRowsRef.current, [assistantActive, products]);
-    const alertRows = useMemo(() => assistantActive ? buildAiInventoryAlerts(products, allSalidas) : emptyAiRowsRef.current, [assistantActive, products, allSalidas]);
-    const mermaRows = useMemo(() => assistantActive ? [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")) : emptyAiRowsRef.current, [assistantActive, regProduccion, barRegProduccion]);
-    const icgLinks = useMemo(() => assistantActive ? buildAiIcgLinkSuggestions(icgFrontRestData, products) : emptyAiRowsRef.current, [assistantActive, icgFrontRestData, products]);
-    const summary = useMemo(() => assistantActive ? buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }) : emptyAiSummaryRef.current, [assistantActive, icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
+    const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
+    const purchaseRows = useMemo(() => buildAiPurchaseList(products), [products]);
+    const alertRows = useMemo(() => buildAiInventoryAlerts(products, allSalidas), [products, allSalidas]);
+    const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
+    const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
+    const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
     useEffect(function() {
       busyRef.current = busy;
     }, [busy]);
@@ -21684,7 +21025,6 @@
         return { ok: false };
       });
       if (result && result.ok) toast("Este dispositivo quedo suscrito a notificaciones.", "ok");
-      else if (result && result.reason === "auth-required") toast("Inicia sesion con Google antes de activar notificaciones.", "error", 6500);
       else if (result && result.reason === "ios-home-screen-required") toast("En iPhone debes abrir la app desde el icono agregado a la pantalla de inicio para activar notificaciones.", "error", 6500);
       else if (result && result.reason === "permission-denied") toast("El dispositivo tiene las notificaciones bloqueadas para esta app.", "error", 6500);
       else toast("No se pudieron activar las notificaciones en este dispositivo.", "error");
@@ -21698,7 +21038,6 @@
         return { ok: false };
       });
       if (result && result.ok) toast("Este dispositivo quedo desactivado para notificaciones.", "ok");
-      else if (result && result.reason === "auth-required") toast("Inicia sesion con Google antes de modificar notificaciones.", "error", 6500);
       else toast("No se pudieron desactivar las notificaciones en este dispositivo.", "error");
     }
     async function testThisDeviceNotification() {
@@ -21714,9 +21053,20 @@
       else toast("No se pudo mostrar la notificacion local en este dispositivo.", "error", 6500);
     }
     async function diagnosePushDevices() {
+      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+      if (!processEndpoint) {
+        toast("No hay procesador de notificaciones configurado.", "error");
+        return;
+      }
       setSending(true);
       try {
-        const result = await callSecurePushEndpoint({ action: "diagnoseSubscriptions", topic: getNotificationTopic() });
+        const response = await fetch(processEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "diagnoseSubscriptions", topic: getNotificationTopic() })
+        });
+        if (!response.ok) throw new Error("No se pudo diagnosticar los dispositivos.");
+        const result = await response.json();
         toast(`Dispositivos: ${result.active || 0} activos · ${result.inactive || 0} inactivos · ${result.matching || 0} coinciden con este destino.`, result.matching ? "ok" : "error", 8000);
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo diagnosticar los dispositivos.", "error");
@@ -21741,15 +21091,23 @@
       }
       setSending(true);
       try {
-        const result = await callSecurePushEndpoint({
-          action: "createAndSend",
-          title,
-          body,
-          topic: getNotificationTopic(),
-          url: String(form.url || "/").trim() || "/",
-          createdBy: getUserDisplayLabel(currentUser),
-          createdByEmail: currentUser && currentUser.email || ""
+        const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+        if (!processEndpoint) throw new Error("No hay procesador de notificaciones configurado.");
+        const response = await fetch(processEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "createAndSend",
+            title,
+            body,
+            topic: getNotificationTopic(),
+            url: String(form.url || "/").trim() || "/",
+            createdBy: getUserDisplayLabel(currentUser),
+            createdByEmail: currentUser && currentUser.email || ""
+          })
         });
+        if (!response.ok) throw new Error("No se pudo procesar la notificacion en Firebase.");
+        const result = await response.json().catch(() => null);
         const sent = result && result.result ? Number(result.result.sent || 0) : 0;
         const failed = result && result.result ? Number(result.result.failed || 0) : 0;
         if (!sent && failed) {
@@ -21779,24 +21137,28 @@
       if (!form.scheduledDate || !form.scheduledTime) return toast("Indique fecha y hora.", "error");
       setSending(true);
       try {
+        const db = getPushDb();
         const days = Math.max(1, Math.min(Number(form.consecutiveDays || 1), 31));
+        const batch = db.batch();
         const baseDate = new Date(`${form.scheduledDate}T${form.scheduledTime}:00`);
         if (!Number.isFinite(baseDate.getTime())) throw new Error("Fecha u hora invalida.");
-        const scheduledItems = [];
         for (let index = 0; index < days; index += 1) {
           const scheduledFor = new Date(baseDate.getTime() + index * 864e5);
-          scheduledItems.push({ scheduledFor: scheduledFor.toISOString() });
+          const ref = db.collection("pwaPushMessages").doc();
+          batch.set(ref, {
+            title,
+            body,
+            topic: getNotificationTopic(),
+            url: String(form.url || "/").trim() || "/",
+            tag: `wtf-scheduled-${ref.id}`,
+            status: "scheduled",
+            scheduledFor: scheduledFor.toISOString(),
+            createdBy: getUserDisplayLabel(currentUser),
+            createdByEmail: currentUser && currentUser.email || "",
+            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+          });
         }
-        await callSecurePushEndpoint({
-          action: "createScheduled",
-          title,
-          body,
-          topic: getNotificationTopic(),
-          url: String(form.url || "/").trim() || "/",
-          scheduledItems,
-          createdBy: getUserDisplayLabel(currentUser),
-          createdByEmail: currentUser && currentUser.email || ""
-        });
+        await batch.commit();
         setForm((prev) => Object.assign({}, prev, { body: "" }));
         toast(`Notificacion programada por ${days} dia(s).`, "ok", 6500);
       } catch (error) {
@@ -21806,9 +21168,20 @@
       }
     }
     async function processPendingNotifications() {
+      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+      if (!processEndpoint) {
+        toast("No hay procesador de notificaciones configurado.", "error");
+        return;
+      }
       setSending(true);
       try {
-        const result = await callSecurePushEndpoint({ limit: 100 });
+        const response = await fetch(processEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 100 })
+        });
+        if (!response.ok) throw new Error("No se pudo procesar la cola de notificaciones.");
+        const result = await response.json().catch(() => null);
         toast(`Cola revisada: ${result && result.processed ? result.processed.length : 0} notificacion(es).`, "ok");
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo procesar la cola.", "error");
@@ -21817,11 +21190,21 @@
       }
     }
     async function deleteNotification(row) {
+      const processEndpoint = window.WTF_FIREBASE_CONFIG && window.WTF_FIREBASE_CONFIG.push && window.WTF_FIREBASE_CONFIG.push.processEndpoint ? String(window.WTF_FIREBASE_CONFIG.push.processEndpoint) : "";
+      if (!processEndpoint) {
+        toast("No hay procesador de notificaciones configurado.", "error");
+        return;
+      }
       const title = row && row.title ? row.title : "esta notificacion";
       if (!window.confirm(`Eliminar ${title}?`)) return;
       setSending(true);
       try {
-        await callSecurePushEndpoint({ action: "deleteMessage", messageId: row.id });
+        const response = await fetch(processEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "deleteMessage", messageId: row.id })
+        });
+        if (!response.ok) throw new Error("No se pudo eliminar la notificacion.");
         toast("Notificacion eliminada.", "ok");
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo eliminar la notificacion.", "error");
@@ -21982,8 +21365,7 @@
     const toast = useToast();
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
     const securityInfo = normalizeAppSecurity(appSecurity);
-    const canCreateUsers = isAdminUser(currentUser) && normalizar(currentUser && currentUser.email || "") === normalizar(INITIAL_ADMIN_EMAIL);
-    const emptyForm = { nombre: "", email: "", password: "", adminActionPassword: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", perfilLaboral: "", cargoVisible: "", bienvenidaActiva: true, bienvenidaDias: 7 };
+    const emptyForm = { nombre: "", email: "", password: "", role: "user", permisos: ["dashboard"], activo: true, modulo: "ambos", perfilLaboral: "", cargoVisible: "", bienvenidaActiva: true, bienvenidaDias: 7 };
     const [form, setForm] = useState(emptyForm);
     const [editingId, setEditingId] = useState("");
     const [adminSessionRevokeRequest, setAdminSessionRevokeRequest] = useState(false);
@@ -22015,7 +21397,6 @@
         nombre: user.nombre || "",
         email: user.email || "",
         password: "",
-        adminActionPassword: "",
         role: user.role || "user",
         permisos: Array.from(permisos),
         activo: user.activo !== false,
@@ -22023,23 +21404,20 @@
         perfilLaboral: user.perfilLaboral || "",
         cargoVisible: user.cargoVisible || "",
         bienvenidaActiva: user.bienvenidaActiva === true,
-        bienvenidaDias: user.bienvenidaDias === "" || user.bienvenidaDias == null ? "" : String(Math.max(1, Math.min(365, Number(user.bienvenidaDias || 7) || 7)))
+        bienvenidaDias: Math.max(1, Math.min(365, Number(user.bienvenidaDias || 7) || 7))
       });
     }
     function guardarUsuario() {
       const email = (form.email || "").trim().toLowerCase();
       const nombre = (form.nombre || "").trim();
       const password = String(form.password || "");
-      const adminActionPassword = String(form.adminActionPassword || "");
       const permisosSet = new Set(form.permisos || []);
       const baseModulo = form.modulo === "cocina" || form.modulo === "bar" || form.modulo === "sharp" || form.modulo === "employeeCenter" ? form.modulo : "ambos";
       const permisos = Array.from(permisosSet);
       const perfilLaboral = String(form.perfilLaboral || "").trim();
       const cargoVisible = String(form.cargoVisible || "").trim();
+      const bienvenidaDias = Math.max(1, Math.min(365, Number(form.bienvenidaDias || 7) || 7));
       const bienvenidaActiva = form.bienvenidaActiva === true;
-      const bienvenidaDiasRaw = String(form.bienvenidaDias == null ? "" : form.bienvenidaDias).trim();
-      const bienvenidaDiasNumber = Number(bienvenidaDiasRaw);
-      const bienvenidaDias = bienvenidaActiva ? Math.max(1, Math.min(365, bienvenidaDiasNumber || 0)) : bienvenidaDiasRaw ? Math.max(1, Math.min(365, bienvenidaDiasNumber || 0)) : "";
       if (!nombre) {
         toast("Ingrese el nombre del usuario.", "error");
         return;
@@ -22048,24 +21426,12 @@
         toast("Ingrese el correo del usuario.", "error");
         return;
       }
-      if (isPermanentlyRemovedUserEmail(email)) {
-        toast("Este correo fue eliminado definitivamente y no puede volver a registrarse.", "error");
-        return;
-      }
-      if (!editingId && !canCreateUsers) {
-        toast("Solo el Administrador Principal puede crear usuarios nuevos.", "error", 8e3);
-        return;
-      }
       if (!editingId && !password) {
-        toast("Ingrese una contrasena interna para el nuevo usuario.", "error");
+        toast("Ingrese una contrase\xF1a para el nuevo usuario.", "error");
         return;
       }
       if (permisos.length === 0) {
         toast("Seleccione al menos un permiso para el usuario.", "error");
-        return;
-      }
-      if (bienvenidaActiva && (!bienvenidaDiasRaw || !Number.isFinite(bienvenidaDiasNumber) || bienvenidaDiasNumber < 1 || bienvenidaDiasNumber > 365)) {
-        toast("Ingrese una cantidad de dias valida para la portada de bienvenida.", "error");
         return;
       }
       const duplicate = usuarios.find(function(u) {
@@ -22086,16 +21452,6 @@
           return;
         }
       }
-      const nextAdminActionPassword = form.role === "admin" ? adminActionPassword || (editingId ? getAdminActionPassword(usuarios.find(function(u) { return u.id === editingId; })) : password) : "";
-      if (form.role === "admin" && nextAdminActionPassword) {
-        const duplicateAdminActionPassword = ensureAdminUser(usuarios || []).find(function(u) {
-          return u && u.id !== editingId && u.activo !== false && u.role === "admin" && getAdminActionPassword(u) === nextAdminActionPassword;
-        });
-        if (duplicateAdminActionPassword) {
-          toast("Esa clave administradora ya esta asignada a otro administrador activo.", "error");
-          return;
-        }
-      }
       if (editingId) {
         setUsuarios(function(prev) {
           const now = new Date().toISOString();
@@ -22105,7 +21461,6 @@
               nombre,
               email,
               password: password ? password : u.password,
-              adminActionPassword: form.role === "admin" ? adminActionPassword ? adminActionPassword : getAdminActionPassword(u) : "",
               role: form.role,
               permisos,
               activo: form.activo !== false,
@@ -22128,7 +21483,6 @@
             nombre,
             email,
             password,
-            adminActionPassword: form.role === "admin" ? adminActionPassword || password : "",
             role: form.role,
             permisos,
             activo: form.activo !== false,
@@ -22165,12 +21519,12 @@
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
     }
-    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-shield", style: { marginRight: 7 } }), "Editar permisos de usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, canCreateUsers ? "Puedes crear usuarios internos para correos autorizados en Firebase Auth y asignarles permisos desde aqui." : "Solo el Administrador Principal puede crear usuarios nuevos; aqui puedes ajustar permisos y perfil.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, readOnly: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })), title: editingId ? "El correo no se modifica al editar un usuario existente" : "Correo Google autorizado en Firebase Auth" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a interna"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, disabled: Boolean(editingId), onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })), placeholder: editingId ? "No editable al modificar permisos" : "Clave interna del usuario" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"], adminActionPassword: e.target.value === "admin" ? p.adminActionPassword : "" })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), form.role === "admin" && /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave administradora"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.adminActionPassword, onChange: (e) => setForm((p) => Object.assign({}, p, { adminActionPassword: e.target.value })), placeholder: editingId ? "Dejar vacia para conservar la actual" : "Si queda vacia usara la clave interna" }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Esta clave autoriza ediciones, borrados y acciones criticas. No cambia el inicio de sesion con Google.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Produccion y Autorizacion de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "Usa esta opcion si dejaste una sesion administradora abierta en otra computadora. Los administradores deberan iniciar sesion nuevamente.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "1", value: form.bienvenidaDias || 7, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
       return perm.key !== "usuarios";
     }).map(function(perm) {
       const checked = (form.permisos || []).includes(perm.key);
       return /* @__PURE__ */ React.createElement("label", { key: perm.key, style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: checked ? "#f0fdf4" : "#fff", cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange: () => togglePermiso(perm.key) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, perm.label));
-    })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 6 } }, "ICG FrontRest, ICG Host, Sharp y funciones especiales se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarUsuario, disabled: !editingId && !canCreateUsers, style: { opacity: editingId || canCreateUsers ? 1 : 0.55 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingId ? "Guardar cambios" : "Crear usuario"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetForm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users", style: { marginRight: 7 } }), "Usuarios autorizados"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, usuariosVisibles.length, " usuarios")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Nombre"), /* @__PURE__ */ React.createElement("th", null, "Correo"), /* @__PURE__ */ React.createElement("th", null, "Rol"), /* @__PURE__ */ React.createElement("th", null, "Módulo"), /* @__PURE__ */ React.createElement("th", null, "Perfil laboral"), /* @__PURE__ */ React.createElement("th", null, "Permisos"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, usuariosVisibles.map(function(user) {
+    })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 6 } }, "ICG FrontRest, ICG Host, Sharp y funciones especiales se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardarUsuario }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), editingId ? "Guardar cambios" : "Crear usuario"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: resetForm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eraser" }), "Limpiar")))), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users", style: { marginRight: 7 } }), "Usuarios registrados"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, usuariosVisibles.length, " usuarios")), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Nombre"), /* @__PURE__ */ React.createElement("th", null, "Correo"), /* @__PURE__ */ React.createElement("th", null, "Rol"), /* @__PURE__ */ React.createElement("th", null, "Módulo"), /* @__PURE__ */ React.createElement("th", null, "Perfil laboral"), /* @__PURE__ */ React.createElement("th", null, "Permisos"), /* @__PURE__ */ React.createElement("th", null, "Estado"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, usuariosVisibles.map(function(user) {
       const isAdmin = user.role === "admin";
       return /* @__PURE__ */ React.createElement("tr", { key: user.id }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 600 } }, user.nombre || "Sin nombre"), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, user.email), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${isAdmin ? "pill-rojo" : "pill-azul"}` }, isAdmin ? "Admin" : "Usuario")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${user.modulo === "employeeCenter" ? "pill-rojo" : user.modulo === "sharp" ? "pill-azul" : user.modulo === "bar" ? "pill-naranja" : user.modulo === "cocina" ? "pill-verde" : "pill-gris"}` }, user.modulo === "employeeCenter" ? "Centro del Colaborador" : user.modulo === "sharp" ? "Sharp de Limpieza" : user.modulo === "bar" ? "Bar" : user.modulo === "cocina" ? "Cocina" : "Todos (Cocina, Bar y Sharp)")), /* @__PURE__ */ React.createElement("td", null, user.perfilLaboral ? /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 3 } }, /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, user.perfilLaboral), user.cargoVisible && user.cargoVisible !== user.perfilLaboral ? /* @__PURE__ */ React.createElement("small", { style: { color: "var(--gris)", fontSize: 11 } }, user.cargoVisible) : null) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, "Sin perfil")), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, (user.permisos || []).map(function(key) {
         const found = PERMISSION_OPTIONS.find(function(perm) {
@@ -22184,16 +21538,14 @@
     const [email, setEmail] = useState(currentUser && currentUser.email ? currentUser.email : "");
     const [currentPassword, setCurrentPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
-    const [adminPassword, setAdminPassword] = useState("");
     function submit() {
       onSave({
         email,
         currentPassword,
-        newPassword,
-        adminPassword
+        newPassword
       });
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card", style: { marginRight: 7 } }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nuevo correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: email, onChange: (e) => setEmail(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a actual"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: "Obligatoria para confirmar cambios" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nueva contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: "Opcional, solo si deseas cambiarla" })), isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Clave de otro administrador"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: adminPassword, onChange: (e) => setAdminPassword(e.target.value), placeholder: "Obligatoria para administradores" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Si dejas la nueva contrase\xF1a vac\xEDa, se mantendr\xE1 la actual.")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: submit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar acceso"))));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-id-card", style: { marginRight: 7 } }), "Mi acceso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nuevo correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: email, onChange: (e) => setEmail(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Contrase\xF1a actual"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: "Obligatoria para confirmar cambios" })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nueva contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: "Opcional, solo si deseas cambiarla" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)" } }, "Si dejas la nueva contrase\xF1a vac\xEDa, se mantendr\xE1 la actual.")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: submit }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar acceso"))));
   }
   function EditRegistroModal({ record, tab, currentUser, usuarios, onClose, onSave }) {
     const toast = useToast();
@@ -22625,17 +21977,21 @@
       updateData({ datasets });
     }
     async function queueIcgSalePushNotification(ticket) {
-      if (!ticket) return;
+      if (!ticket || !window.firebase || !window.firebase.firestore) return;
+      const cfg = window.WTF_FIREBASE_CONFIG || {};
+      if (!cfg.enabled || !cfg.firebaseConfig) return;
+      const app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg.firebaseConfig);
       const total = formatIcgMoney(ticket.TotalNetoCalculado || ticket.TotalPagado || ticket.TotalNeto || 0);
-      await callSecurePushEndpoint({
-        action: "createAndSend",
+      await app.firestore().collection("pwaPushMessages").add({
         title: "Venta ICG cerrada",
         body: `Ticket ${ticket.ticketKey || ticket.NumFactura || ticket.Numero || "-"} · Monto total venta: ${total} · ${ticket.LineasVendidas || 0} articulo(s)`,
         topic: "admin",
         url: "/",
         tag: `icg-sale-${ticket.TicketNotificacionId || ticket.ticketKey || Date.now()}`,
+        status: "pending",
         createdBy: "ICG FrontRest",
-        createdByEmail: "icg-frontrest@wtf.local"
+        createdByEmail: "icg-frontrest@wtf.local",
+        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
       });
     }
     function addBridgeSuggestion(suggestion) {

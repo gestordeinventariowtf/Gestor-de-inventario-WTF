@@ -292,7 +292,7 @@ Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName "FRS_WTF
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
-WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-29056.web.app
+WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
 WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
