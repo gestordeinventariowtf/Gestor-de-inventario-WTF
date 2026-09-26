@@ -51,11 +51,6 @@ if (!getApps().length) initializeApp();
 const ALLOWED_ORIGINS = new Set([
   "https://gestor-de-inventario-wtf-29056.web.app",
   "https://gestor-de-inventario-wtf-29056.firebaseapp.com",
-  "https://gestor-inventario-wtf.web.app",
-  "https://gestor-de-inventario-wtf-prod-2026.web.app",
-  "https://gestor-de-inventario-wtf-prod-2026.firebaseapp.com",
-  "https://gestor-de-inventario-wtf-2d070.web.app",
-  "https://gestor-inventario-wtf-2026.web.app",
   "http://localhost:5000",
   "http://127.0.0.1:5000",
   "http://localhost:5173",

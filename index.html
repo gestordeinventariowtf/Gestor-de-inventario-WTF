@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260926155616-38f0917";</script>
+  <script>window.WTF_APP_VERSION = "20260926201321-4e9ae7e";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5311,16 +5311,32 @@
     return prepared;
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
+    "inventario",
+    "cuartoFrioInventario",
+    "miseAnPlace",
+    "barInventario",
+    "barCuartoFrioInventario",
+    "barMiseAnPlace",
+    "regEntradas",
     "regProduccion",
     "regSalidas",
+    "regDecomiso",
+    "regRecuento",
     "recetasProduccion",
-    "barRegSalidas",
-    "barHistSalidaRapida",
+    "histEntradaRapida",
     "histSalidaRapida",
-    "regEntradas",
+    "histDecomisoCocina",
     "barRegEntradas",
-    "barHistEntradaRapida",
+    "barRegSalidas",
+    "barRegDecomiso",
+    "barRegRecuento",
+    "barRegProduccion",
     "barRecetasProduccion",
+    "barHistEntradaRapida",
+    "barHistSalidaRapida",
+    "productionHolds",
+    "barProductionHolds",
+    "neveras",
     "assetManagementData",
     "employeeCenterData",
     "financialData"
@@ -5329,6 +5345,48 @@
     icgFrontRestData: "icgFrontRestData",
     systemLogs: "systemLogs"
   };
+  const FIREBASE_MODULE_META_STORAGE = "wtf_firebase_module_meta_v2";
+  function getFirebaseModuleMetaStorageKey() {
+    return `${FIREBASE_MODULE_META_STORAGE}_${EXPECTED_FIREBASE_PROJECT_ID}_${DEFAULT_FIREBASE_SYNC_CONFIG.documentId}`;
+  }
+  function loadFirebaseModuleMetaCache() {
+    const cached = load(getFirebaseModuleMetaStorageKey(), {});
+    return cached && typeof cached === "object" && !Array.isArray(cached) ? cached : {};
+  }
+  function saveFirebaseModuleMetaCache(meta) {
+    save(getFirebaseModuleMetaStorageKey(), meta && typeof meta === "object" ? meta : {});
+  }
+  function getFirebaseModuleMetaId(type, key) {
+    return `${type}:${key}`;
+  }
+  function buildFirebaseModuleMeta(key, type, value, syncMeta, extra) {
+    const moduleSignature = serializeAppState(value == null ? null : value);
+    const jsonBytes = JSON.stringify(value == null ? null : value).length;
+    return Object.assign({
+      key,
+      type,
+      signature: quickHashText(moduleSignature),
+      revision: Number(syncMeta && syncMeta.revision || 0),
+      clientId: syncMeta && syncMeta.clientId || "",
+      clientTime: Number(syncMeta && syncMeta.clientTime || Date.now()),
+      clientIso: syncMeta && syncMeta.clientIso || new Date().toISOString(),
+      updatedBy: syncMeta && syncMeta.reason || "",
+      jsonBytes
+    }, extra || {});
+  }
+  function getRemoteFirebaseModuleMeta(data, type, key) {
+    if (!data || !key) return null;
+    const source = type === "external" ? data.appStateExternalMeta : data.appStateShardMeta;
+    const meta = source && typeof source === "object" ? source[key] : null;
+    return meta && typeof meta === "object" ? meta : null;
+  }
+  function canReuseCachedFirebaseModule(type, key, remoteMeta, baseState, cachedMeta) {
+    if (!remoteMeta || !remoteMeta.signature) return false;
+    if (!baseState || !Object.prototype.hasOwnProperty.call(baseState, key)) return false;
+    const cacheKey = getFirebaseModuleMetaId(type, key);
+    const localMeta = cachedMeta && cachedMeta[cacheKey];
+    return Boolean(localMeta && localMeta.signature && String(localMeta.signature) === String(remoteMeta.signature));
+  }
   function splitFirebaseAppStateIntoShards(state) {
     const mainState = Object.assign({}, state || {});
     const shards = [];
@@ -5408,8 +5466,11 @@
     }
     return null;
   }
-  async function decodeFirebaseAppState(data, docRef) {
+  async function decodeFirebaseAppState(data, docRef, options = {}) {
     if (!data) return null;
+    const baseState = options && options.baseState && typeof options.baseState === "object" ? options.baseState : {};
+    const cachedModuleMeta = loadFirebaseModuleMetaCache();
+    const nextModuleMeta = Object.assign({}, cachedModuleMeta);
     let state = null;
     if (data.appStateCompressed) {
       await waitForFirebaseCompressionReady();
@@ -5429,12 +5490,27 @@
     if (docRef && shardKeys.length) {
       await Promise.all(shardKeys.map(async function(key) {
         try {
+          const remoteMeta = getRemoteFirebaseModuleMeta(data, "shard", key);
+          if (canReuseCachedFirebaseModule("shard", key, remoteMeta, baseState, cachedModuleMeta)) {
+            state[key] = cloneData(baseState[key]);
+            nextModuleMeta[getFirebaseModuleMetaId("shard", key)] = remoteMeta;
+            return;
+          }
           const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
           if (!shardSnapshot.exists) return;
           const shardData = shardSnapshot.data() || {};
           if (shardData.appStateCompressed) await waitForFirebaseCompressionReady();
           const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
           if (typeof shardValue !== "undefined" && shardValue !== null) state[key] = shardValue;
+          const shardMeta = remoteMeta || shardData.moduleMeta || (shardData.syncMeta ? {
+            key,
+            type: "shard",
+            signature: shardData.syncMeta.signature || "",
+            revision: shardData.syncMeta.revision || 0,
+            clientTime: shardData.syncMeta.clientTime || 0,
+            clientId: shardData.syncMeta.clientId || ""
+          } : null);
+          if (shardMeta && shardMeta.signature) nextModuleMeta[getFirebaseModuleMetaId("shard", key)] = shardMeta;
         } catch (error) {
           console.error("No se pudo leer el segmento Firebase:", key, error);
         }
@@ -5446,10 +5522,18 @@
     ]));
     if (docRef && externalKeys.length) {
       await Promise.all(externalKeys.map(async function(key) {
+        const remoteMeta = getRemoteFirebaseModuleMeta(data, "external", key);
+        if (canReuseCachedFirebaseModule("external", key, remoteMeta, baseState, cachedModuleMeta)) {
+          state[key] = cloneData(baseState[key]);
+          nextModuleMeta[getFirebaseModuleMetaId("external", key)] = remoteMeta;
+          return;
+        }
         const externalValue = await readFirebaseExternalStateDoc(docRef, key);
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
+        if (remoteMeta && remoteMeta.signature) nextModuleMeta[getFirebaseModuleMetaId("external", key)] = remoteMeta;
       }));
     }
+    saveFirebaseModuleMetaCache(nextModuleMeta);
     return state;
   }
   function isIcgShardGuardError(error) {
@@ -12463,21 +12547,34 @@
       const signature = serializeAppState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
+      const cachedModuleMeta = loadFirebaseModuleMetaCache();
       const externalDocs = [];
+      const externalMeta = {};
+      const externalKeys = [];
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
         const externalValue = firebaseState[key];
         delete firebaseState[key];
+        externalKeys.push(key);
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
         const externalCompressed = encodeFirebaseAppState(safeExternalValue);
         const externalJsonBytes = JSON.stringify(safeExternalValue).length;
+        const moduleMeta = buildFirebaseModuleMeta(key, "external", safeExternalValue, syncMeta, {
+          docId: FIREBASE_EXTERNAL_STATE_DOCS[key],
+          compressedBytes: externalCompressed ? externalCompressed.length : 0
+        });
+        externalMeta[key] = moduleMeta;
+        const cacheKey = getFirebaseModuleMetaId("external", key);
+        const cachedMeta = cachedModuleMeta[cacheKey];
+        if (cachedMeta && cachedMeta.signature && String(cachedMeta.signature) === String(moduleMeta.signature)) return;
         externalDocs.push({
           id: FIREBASE_EXTERNAL_STATE_DOCS[key],
           key,
           doc: Object.assign({
             key,
             sourceDocumentId: firebaseCfg.documentId,
-            syncMeta,
+            syncMeta: Object.assign({}, syncMeta, { moduleKey: key, moduleType: "external", signature: moduleMeta.signature }),
+            moduleMeta,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: reason,
             appStateFormat: externalCompressed ? "pako-base64-json-v1" : "json",
@@ -12494,13 +12591,23 @@
       });
       const splitState = splitFirebaseAppStateIntoShards(firebaseState);
       const compressed = encodeFirebaseAppState(splitState.mainState);
+      const shardMeta = {};
       const shards = splitState.shards.map(function(shard) {
         const shardCompressed = encodeFirebaseAppState(shard.value);
         const shardJsonBytes = JSON.stringify(shard.value || {}).length;
+        const moduleMeta = buildFirebaseModuleMeta(shard.key, "shard", shard.value, syncMeta, {
+          compressedBytes: shardCompressed ? shardCompressed.length : 0
+        });
+        shardMeta[shard.key] = moduleMeta;
+        const cacheKey = getFirebaseModuleMetaId("shard", shard.key);
+        const cachedMeta = cachedModuleMeta[cacheKey];
+        if (cachedMeta && cachedMeta.signature && String(cachedMeta.signature) === String(moduleMeta.signature)) return null;
         return {
           key: shard.key,
           doc: Object.assign({
             key: shard.key,
+            syncMeta: Object.assign({}, syncMeta, { moduleKey: shard.key, moduleType: "shard", signature: moduleMeta.signature }),
+            moduleMeta,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             appStateFormat: shardCompressed ? "pako-base64-json-v1" : "json",
             appStateJsonBytes: shardJsonBytes,
@@ -12513,15 +12620,17 @@
             appStateCompressed: window.firebase.firestore.FieldValue.delete()
           })
         };
-      });
+      }).filter(Boolean);
       const baseDoc = {
         syncMeta,
         updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: reason,
         appStateShardVersion: 1,
-        appStateShardKeys: shards.map(function(shard) { return shard.key; }),
+        appStateShardKeys: splitState.shards.map(function(shard) { return shard.key; }),
+        appStateShardMeta: shardMeta,
         appStateExternalVersion: 1,
-        appStateExternalKeys: externalDocs.map(function(externalDoc) { return externalDoc.key; }),
+        appStateExternalKeys: externalKeys,
+        appStateExternalMeta: externalMeta,
         appStateFormat: compressed ? "pako-base64-json-v1" : "json",
         appStateJsonBytes: JSON.stringify(fullFirebaseState).length,
         appStateMainJsonBytes: JSON.stringify(splitState.mainState).length,
@@ -12533,9 +12642,17 @@
           return total + Number(externalDoc.doc.appStateCompressedBytes || 0);
         }, 0)
       };
+      const moduleMetaCache = Object.assign({}, cachedModuleMeta);
+      Object.keys(shardMeta).forEach(function(key) {
+        moduleMetaCache[getFirebaseModuleMetaId("shard", key)] = shardMeta[key];
+      });
+      Object.keys(externalMeta).forEach(function(key) {
+        moduleMetaCache[getFirebaseModuleMetaId("external", key)] = externalMeta[key];
+      });
       if (compressed) {
         return {
           signature,
+          moduleMetaCache,
           shards,
           externalDocs,
           doc: Object.assign({}, baseDoc, {
@@ -12546,6 +12663,7 @@
       }
       return {
         signature,
+        moduleMetaCache,
         shards,
         externalDocs,
         doc: Object.assign({}, baseDoc, {
@@ -12597,6 +12715,7 @@
             });
             pendingLocalSignatureRef.current = writeDoc.signature;
             await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+            saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
             lastRemoteSignatureRef.current = writeDoc.signature;
             lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
             confirmedSecureWriteSignatureRef.current = writeDoc.signature;
@@ -12822,7 +12941,7 @@
           }
           return;
         }
-        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
+        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current, { baseState: getCurrentAppState() });
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
         const currentSignature = forceServerApply && !hasPendingLocalWrite
@@ -12912,6 +13031,7 @@
         });
         pendingLocalSignatureRef.current = writeDoc.signature;
         await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+        saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
         lastRemoteSignatureRef.current = writeDoc.signature;
         lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
         confirmedSecureWriteSignatureRef.current = writeDoc.signature;
@@ -13067,6 +13187,7 @@
             if (externalDoc && externalDoc.doc) externalDoc.doc.syncMeta = writeDoc.doc.syncMeta;
           });
           await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+          saveFirebaseModuleMetaCache(writeDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
         } catch (error) {
           console.warn("No se pudo refrescar authorizedUsers:", error && error.message ? error.message : error);
         }
@@ -13257,7 +13378,7 @@
         if (!user) {
           const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
           const remoteSnapshot = await docRef.get({ source: "server" });
-          const remoteState = await decodeFirebaseAppState(remoteSnapshot.data(), docRef);
+          const remoteState = await decodeFirebaseAppState(remoteSnapshot.data(), docRef, { baseState: getCurrentAppState() });
           const remoteUsers = ensureAdminUser(remoteState && remoteState.usuarios || []);
           user = remoteUsers.find(function(u) {
             return u.activo !== false && normalizar(u.email) === email;
@@ -13490,7 +13611,7 @@
           }
           await waitForBrowserFree(firebaseBootstrappedRef.current ? 1200 : 250);
           const data = snapshot.data();
-          const remoteState = await decodeFirebaseAppState(data, docRef);
+          const remoteState = await decodeFirebaseAppState(data, docRef, { baseState: getCurrentAppState() });
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
@@ -13499,6 +13620,7 @@
               lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
               await writeFirebaseAppStateDoc(docRef, migrationDoc);
+              saveFirebaseModuleMetaCache(migrationDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
               setFirebaseStatus("connected");
               setFirebaseMessage("Firebase actualizado con migracion segura");
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -13576,6 +13698,7 @@
           const bootstrapDoc = createFirebaseWriteDoc(initialState, "web-bootstrap");
           lastRemoteSignatureRef.current = bootstrapDoc.signature;
           await writeFirebaseAppStateDoc(docRef, bootstrapDoc);
+          saveFirebaseModuleMetaCache(bootstrapDoc.moduleMetaCache || loadFirebaseModuleMetaCache());
           setFirebaseStatus("connected");
           setFirebaseMessage("Firebase inicializado");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
