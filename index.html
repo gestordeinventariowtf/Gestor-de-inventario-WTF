@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260927022527-99a39eb";</script>
+  <script>window.WTF_APP_VERSION = "20260927023340-9011473";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13161,6 +13161,34 @@
       });
       return found || null;
     }, [usuarios, authUserEmail]);
+    const currentSessionUser = useMemo(() => {
+      if (!authUserEmail) return null;
+      return usuarios.find(function(u) {
+        return normalizar(u.email) === normalizar(authUserEmail);
+      }) || null;
+    }, [usuarios, authUserEmail]);
+    useEffect(() => {
+      if (!authUserEmail) return;
+      if (currentUser) return;
+      const wasDisabled = currentSessionUser && currentSessionUser.activo === false;
+      const wasRemoved = !currentSessionUser;
+      if (!wasDisabled && !wasRemoved) return;
+      addSystemLog({
+        modulo: "Seguridad",
+        accion: wasDisabled ? "Sesion cerrada por usuario desactivado" : "Sesion cerrada por usuario eliminado",
+        detalle: wasDisabled ? "El usuario fue desactivado en Usuarios y Permisos y se cerro su sesion activa." : "El usuario ya no existe en Usuarios y Permisos y se cerro su sesion activa.",
+        email: String(authUserEmail || "").trim().toLowerCase()
+      }, currentSessionUser || { nombre: "Usuario retirado", email: authUserEmail });
+      resetGoogleSession();
+      signOutFirebaseAuth();
+      setAuthUserEmail("");
+      clearStoredWelcomeCoverSeen();
+      setWelcomeCoverDismissedKey("");
+      sessionStorage.removeItem("wtf_modulo");
+      setModulo(null);
+      setPage("dashboard");
+      toast(wasDisabled ? "Tu usuario fue desactivado. La sesion se cerro automaticamente." : "Tu usuario fue eliminado. La sesion se cerro automaticamente.", "error", 9e3);
+    }, [authUserEmail, currentUser, currentSessionUser]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
