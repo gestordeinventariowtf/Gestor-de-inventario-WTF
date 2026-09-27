@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "2026-09-02-firebase-audit-13";
+const WTF_SW_VERSION = "20260926203224-smart-fragmentation";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",
@@ -109,3 +109,4 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
+

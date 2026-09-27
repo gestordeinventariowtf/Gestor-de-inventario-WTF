@@ -22,6 +22,34 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /wtfSistema/syncIndex {
+      allow read, write: if true;
+    }
+
+    function isExternalStateDocument(docId) {
+      return docId in [
+        'regEntradas',
+        'regSalidas',
+        'regDecomiso',
+        'regRecuento',
+        'regProduccion',
+        'histEntradaRapida',
+        'histSalidaRapida',
+        'histDecomisoCocina',
+        'barRegEntradas',
+        'barRegSalidas',
+        'barRegDecomiso',
+        'barRegRecuento',
+        'barRegProduccion',
+        'barHistEntradaRapida',
+        'barHistSalidaRapida'
+      ];
+    }
+
+    match /wtfSistema/{externalStateDoc} {
+      allow read, write: if isExternalStateDocument(externalStateDoc);
+    }
+
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
       allow read: if true;
       allow write: if shardId != 'icgFrontRestData'

@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260926213943-e642495";</script>
+  <script>window.WTF_APP_VERSION = "20260927004601-37a644b";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2512,6 +2512,8 @@
   const PRODUCTION_HOLD_DELETED_KEYS_STORAGE = "wtf_production_hold_deleted_keys";
   const PRODUCTION_HISTORY_DELETED_KEYS_STORAGE = "wtf_production_history_deleted_keys";
   const MOVEMENT_DELETED_KEYS_STORAGE = "wtf_movement_deleted_keys";
+  const USER_DELETED_KEYS_STORAGE = "wtf_user_deleted_keys";
+  const OPERATIONAL_DATA_RESTORED_AT_STORAGE = "wtf_operational_data_restored_at";
   const ICG_DELETED_TABLE_ROW_KEYS_STORAGE = "wtf_icg_deleted_table_row_keys";
   const MOVEMENT_DELETED_STATE_KEYS = ["regEntradas", "regSalidas", "regDecomiso", "regRecuento", "histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento", "barHistEntradaRapida", "barHistSalidaRapida"];
   const BAR_KEYS = {
@@ -2544,6 +2546,11 @@
     } catch (error) {
       console.error("No se pudo guardar en localStorage:", key, error);
     }
+  }
+  function removeLocalKey(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (_) {}
   }
   const localSaveQueue = {};
   function saveSoon(key, val, delay = 450) {
@@ -3245,13 +3252,13 @@
     createdAt: "2026-06-13T00:00:00"
   };
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
-  const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com"];
+  const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com", "jhonndell077@gmail.com"];
   const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
   const INITIAL_ADMIN_USER = {
     id: "admin-inicial-henry-ortiz",
     nombre: "Administrador Principal",
     email: INITIAL_ADMIN_EMAIL,
-    password: "193004",
+    passwordHash: "wtf-pw-v1:fnv32-25465a65",
     role: "admin",
     modulo: "ambos",
     permisos: [],
@@ -3259,16 +3266,10 @@
     createdAt: "2026-09-23T00:00:00",
     updatedAt: "2026-09-23T00:00:00"
   };
-  const USER_RECOVERY_SEEDS = [
-    { id: "user-1784586420790", nombre: "Sobeida", email: "sobeidawtf@gmail.com", password: "2915", role: "user", modulo: "ambos" },
-    { id: "user-1786673699591", nombre: "Ovelto Berizaire", email: "oveltowtf@gmail.com", password: "2468", role: "user", modulo: "ambos" },
-    { id: "user-1786674866753", nombre: "Luis", email: "luiswtf@gmail.com", password: "2233", role: "user", modulo: "ambos" },
-    { id: "user-1786674989792", nombre: "Victor", email: "victorwtf@gmail.com", password: "3344", role: "user", modulo: "ambos" },
-    { id: "user-recovery-limpieza-wtf", nombre: "Limpieza WTF", email: "limpiezawtf@gmail.com", password: "0001", role: "user", modulo: "sharp", permisos: ["sharp"] },
-    { id: "user-1784587909671", nombre: "Limpieza Salon", email: "salonwtf@gmail.com", password: "5646", role: "user", modulo: "sharp", permisos: ["sharp"] },
-    { id: "user-1786948475512", nombre: "Sabina", email: "sabinawtf@gmail.com", password: "5566", role: "user", modulo: "ambos" },
-    { id: "user-1788327027385", nombre: "Jhonn", email: "jhonnwtf@gmail.com", password: "0000", role: "user", modulo: "ambos" }
-  ];
+  function isProtectedInitialAdmin(user) {
+    return normalizar(user && (user.email || user)) === normalizar(INITIAL_ADMIN_EMAIL);
+  }
+  const USER_RECOVERY_SEEDS = [];
   const WTF_BUSINESS_LOCATION = {
     lat: 18.488178,
     lng: -69.87001,
@@ -3931,6 +3932,7 @@
   const SYSTEM_LOG_TEXT_LIMIT = 420;
   const SYSTEM_LOG_ACTIVE_LIMIT = 2500;
   const SYSTEM_LOG_SORT_LIMIT = 5000;
+  const SYSTEM_LOG_RETENTION_DAYS = 15;
   const SYSTEM_LOG_KEEP_FIELDS = [
     "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
     "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
@@ -3977,6 +3979,33 @@
       row.physicalIcgKey || ""
     ].join("|");
   }
+  function getSystemLogTimestamp(row) {
+    if (!row || typeof row !== "object") return 0;
+    const value = row.fecha || row.createdAt || row.updatedAt || row.timestamp || "";
+    if (!value) return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (value && typeof value.toDate === "function") {
+      const date = value.toDate();
+      return date instanceof Date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  function isCriticalSystemLog(row) {
+    if (!row || typeof row !== "object") return false;
+    if (row.critical === true || row.importante === true || row.pinned === true) return true;
+    const text = normalizar([row.tipo, row.estado, row.accion, row.detalle].filter(Boolean).join(" "));
+    return text.includes("critico") || text.includes("critical") || text.includes("seguridad") || text.includes("permission_denied");
+  }
+  function pruneSystemLogsByRetention(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const cutoff = Date.now() - SYSTEM_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    return list.filter(function(row) {
+      if (isCriticalSystemLog(row)) return true;
+      const timestamp = getSystemLogTimestamp(row);
+      return !timestamp || timestamp >= cutoff;
+    });
+  }
   function normalizeSystemLogs(logs) {
     const rows = Array.isArray(logs) ? logs.filter(Boolean) : [];
     const seen = new Set();
@@ -3999,7 +4028,7 @@
         return String(b.fecha || "").localeCompare(String(a.fecha || ""));
       });
     }
-    return ordered.slice(0, SYSTEM_LOG_ACTIVE_LIMIT);
+    return pruneSystemLogsByRetention(ordered).slice(0, SYSTEM_LOG_ACTIVE_LIMIT);
   }
   function buildSystemLogEntry(user, payload) {
     const safePayload = payload && typeof payload === "object" ? payload : {};
@@ -4849,25 +4878,79 @@
     const name = normalizar(row.nombre || "");
     return name ? `name:${name}` : "";
   }
-  function mergeUserRows(localRows, remoteRows) {
+  function normalizeUserDeletedKeys(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      const cleanKey = String(key || "").trim();
+      const deletedAt = Number(source[key] || 0);
+      if (cleanKey && deletedAt > 0) result[cleanKey] = deletedAt;
+    });
+    return result;
+  }
+  function mergeUserDeletedKeys(remoteKeys, localKeys) {
+    const result = normalizeUserDeletedKeys(remoteKeys);
+    const local = normalizeUserDeletedKeys(localKeys);
+    Object.keys(local).forEach(function(key) {
+      result[key] = Math.max(Number(result[key] || 0), Number(local[key] || 0));
+    });
+    return result;
+  }
+  function getUserDeletedKeysForRow(row) {
+    const keys = [];
+    if (!row || typeof row !== "object") return keys;
+    if (row.id) keys.push(`id:${row.id}`);
+    const email = normalizar(row.email || row.correo || "");
+    if (email) keys.push(`email:${email}`);
+    return Array.from(new Set(keys.filter(Boolean)));
+  }
+  function isUserRowDeleted(row, deletedKeys) {
+    if (isRootAdmin(row)) return false;
+    const source = normalizeUserDeletedKeys(deletedKeys);
+    const createdAt = getRowUpdateTime(row);
+    return getUserDeletedKeysForRow(row).some(function(key) {
+      const deletedAt = Number(source[key] || 0);
+      return deletedAt > 0 && (!createdAt || createdAt <= deletedAt);
+    });
+  }
+  function markUserDeletedKeysFromRow(deletedKeys, row, deletedAt) {
+    const result = normalizeUserDeletedKeys(deletedKeys);
+    const ts = Number(deletedAt || Date.now());
+    getUserDeletedKeysForRow(row).forEach(function(key) {
+      result[key] = Math.max(Number(result[key] || 0), ts);
+    });
+    return result;
+  }
+  function pruneUserDeletedKeys(deletedKeys) {
+    const source = normalizeUserDeletedKeys(deletedKeys);
+    const result = {};
+    const minTs = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    Object.keys(source).forEach(function(key) {
+      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+    });
+    return result;
+  }
+  function mergeUserRows(localRows, remoteRows, deletedKeys) {
+    const normalizedDeletedKeys = normalizeUserDeletedKeys(deletedKeys);
     const localList = Array.isArray(localRows) ? localRows : [];
     const remoteList = Array.isArray(remoteRows) ? remoteRows : [];
     const localOperationalCount = localList.filter(function(row) {
-      return row && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
+      return row && !isUserRowDeleted(row, normalizedDeletedKeys) && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
     }).length;
     const remoteOperationalCount = remoteList.filter(function(row) {
-      return row && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
+      return row && !isUserRowDeleted(row, normalizedDeletedKeys) && !isRootAdmin(row) && row.activo !== false && (row.email || row.nombre || row.id);
     }).length;
     const remoteRootOnly = remoteList.length > 0 && remoteOperationalCount === 0 && remoteList.some(function(row) {
       return isRootAdmin(row);
     });
     if (localOperationalCount > 0 && remoteRootOnly) {
       console.warn("Se ignora lista remota de usuarios incompleta para proteger accesos locales.");
-      return ensureAdminUser(localList);
+      return ensureAdminUser(localList, normalizedDeletedKeys);
     }
     const map = new Map();
     function addRows(rows, preferLocalOnTie) {
       (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        if (isUserRowDeleted(row, normalizedDeletedKeys)) return;
         const key = getUserMergeKey(row);
         if (!key) return;
         const existing = map.get(key);
@@ -4883,7 +4966,7 @@
     }
     addRows(remoteRows, false);
     addRows(localRows, true);
-    return ensureAdminUser(Array.from(map.values()));
+    return ensureAdminUser(Array.from(map.values()), normalizedDeletedKeys);
   }
   function mergeSearchProductRows(existing, row) {
     const merged = Object.assign({}, existing, row);
@@ -5023,11 +5106,49 @@
     if (localValue !== void 0 && localValue !== null && localValue !== "") return localValue;
     return remoteValue;
   }
+  function getRestoreMarkerTime(value) {
+    const ts = new Date(value || "").getTime();
+    return Number.isFinite(ts) && ts > 0 ? ts : 0;
+  }
+  function shouldPreferRemoteOperationalData(remoteState) {
+    const remoteTs = getRestoreMarkerTime(remoteState && remoteState.operationalDataRestoredAt);
+    const localTs = getRestoreMarkerTime(load(OPERATIONAL_DATA_RESTORED_AT_STORAGE, ""));
+    return remoteTs > localTs;
+  }
+  function applyRemoteOperationalDataWithoutLocalMerge(next, remoteState) {
+    [
+      "inventario",
+      "cuartoFrioInventario",
+      "miseAnPlace",
+      "barInventario",
+      "barCuartoFrioInventario",
+      "barMiseAnPlace",
+      "regRecuento",
+      "barRegRecuento",
+      "regProduccion",
+      "barRegProduccion",
+      "recetasProduccion",
+      "barRecetasProduccion",
+      "productionHolds",
+      "barProductionHolds",
+      "inventoryDeletedKeys",
+      "miseDeletedKeys",
+      "movementDeletedKeys",
+      "productionHistoryDeletedKeys",
+      "recipeDeletedKeys",
+      "productionHoldDeletedKeys",
+      "recetasProduccionBaseVersion"
+    ].forEach(function(key) {
+      if (remoteState && Object.prototype.hasOwnProperty.call(remoteState, key)) next[key] = remoteState[key];
+    });
+    return next;
+  }
   // Todo modulo persistido debe pasar por esta fusion antes de aplicar datos remotos.
   function mergeRemoteAppStateWithLocal(remoteState, localState, options) {
     const mergeOptions = options && typeof options === "object" ? options : {};
     const includeLocalDeletedKeys = mergeOptions.includeLocalDeletedKeys !== false;
     const includeLocalProductionHolds = mergeOptions.includeLocalProductionHolds !== false;
+    const preferRemoteOperationalData = mergeOptions.preferRemoteOperationalData === true;
     const next = Object.assign({}, remoteState || {});
     next.movementDeletedKeys = mergeMovementDeletedKeys(remoteState && remoteState.movementDeletedKeys, includeLocalDeletedKeys ? localState && localState.movementDeletedKeys : null);
     [
@@ -5080,7 +5201,9 @@
     next.barProductionHolds = mergeProductionHolds(includeLocalProductionHolds ? localState && localState.barProductionHolds : null, remoteState && remoteState.barProductionHolds, next.productionHoldDeletedKeys.barProductionHolds);
     next.productionHoldDeletedKeys.productionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "productionHolds");
     next.productionHoldDeletedKeys.barProductionHolds = pruneProductionHoldDeletedKeys(next.productionHoldDeletedKeys, "barProductionHolds");
-    next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios);
+    next.userDeletedKeys = mergeUserDeletedKeys(remoteState && remoteState.userDeletedKeys, includeLocalDeletedKeys ? localState && localState.userDeletedKeys : null);
+    next.usuarios = mergeUserRows(localState && localState.usuarios, remoteState && remoteState.usuarios, next.userDeletedKeys);
+    next.userDeletedKeys = pruneUserDeletedKeys(next.userDeletedKeys);
     next.appSecurity = mergeAppSecurity(localState && localState.appSecurity, remoteState && remoteState.appSecurity);
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
@@ -5089,6 +5212,7 @@
     next.neveras = mergeGenericPersistedRows(localState && localState.neveras, remoteState && remoteState.neveras);
     next.correos = mergeGenericPersistedRows(localState && localState.correos, remoteState && remoteState.correos);
     next.googleConfig = normalizeGoogleConfig(mergeGenericPersistedData(localState && localState.googleConfig, remoteState && remoteState.googleConfig));
+    if (preferRemoteOperationalData) applyRemoteOperationalDataWithoutLocalMerge(next, remoteState);
     return next;
   }
   function normalizeGoogleConfig(input) {
@@ -5138,6 +5262,8 @@
     const movementDeletedKeys = normalizeMovementDeletedKeys(state.movementDeletedKeys);
     return JSON.stringify({
       dataVersion: state.dataVersion || DATA_VERSION,
+      operationalDataRestoredAt: state.operationalDataRestoredAt || load(OPERATIONAL_DATA_RESTORED_AT_STORAGE, ""),
+      operationalDataRestoredFrom: state.operationalDataRestoredFrom || {},
       inventario: normalizeInventoryRowsForDisplay(state.inventario || [], deletedKeys.inventario),
       cuartoFrioInventario: normalizeInventoryRowsForDisplay(state.cuartoFrioInventario || [], deletedKeys.cuartoFrioInventario),
       miseAnPlace: normalizeMiseItems((state.miseAnPlace || []).filter(function(row) { return !isMiseRowDeleted(row, miseDeletedKeys.miseAnPlace); })),
@@ -5165,7 +5291,8 @@
       neveras: state.neveras || [],
       correos: state.correos || [],
       googleConfig: normalizeGoogleConfig(state.googleConfig),
-      usuarios: ensureAdminUser(state.usuarios || []),
+      usuarios: ensureAdminUser(state.usuarios || [], state.userDeletedKeys),
+      userDeletedKeys: normalizeUserDeletedKeys(state.userDeletedKeys),
       appSecurity: normalizeAppSecurity(state.appSecurity),
       systemLogs: normalizeSystemLogs(state.systemLogs || []),
       barInventario: repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(state.barInventario || [], deletedKeys.barInventario)),
@@ -5248,15 +5375,7 @@
     return preserveIcgDecisionLocksInAppState(JSON.parse(serializeAppState(state || {})), state || {});
   }
   const FIREBASE_APP_STATE_SHARD_KEYS = [
-    "regProduccion",
-    "regSalidas",
     "recetasProduccion",
-    "barRegSalidas",
-    "barHistSalidaRapida",
-    "histSalidaRapida",
-    "regEntradas",
-    "barRegEntradas",
-    "barHistEntradaRapida",
     "barRecetasProduccion",
     "assetManagementData",
     "employeeCenterData",
@@ -5264,8 +5383,96 @@
   ];
   const FIREBASE_EXTERNAL_STATE_DOCS = {
     icgFrontRestData: "icgFrontRestData",
-    systemLogs: "systemLogs"
+    systemLogs: "systemLogs",
+    regEntradas: "regEntradas",
+    regSalidas: "regSalidas",
+    regDecomiso: "regDecomiso",
+    regRecuento: "regRecuento",
+    regProduccion: "regProduccion",
+    histEntradaRapida: "histEntradaRapida",
+    histSalidaRapida: "histSalidaRapida",
+    histDecomisoCocina: "histDecomisoCocina",
+    barRegEntradas: "barRegEntradas",
+    barRegSalidas: "barRegSalidas",
+    barRegDecomiso: "barRegDecomiso",
+    barRegRecuento: "barRegRecuento",
+    barRegProduccion: "barRegProduccion",
+    barHistEntradaRapida: "barHistEntradaRapida",
+    barHistSalidaRapida: "barHistSalidaRapida"
   };
+  const FIREBASE_SYNC_INDEX_DOC_ID = "syncIndex";
+  const FIREBASE_EXTERNAL_SIGNATURES_STORAGE = "wtf_firebase_external_doc_signatures_v1";
+  const FIREBASE_LAZY_MODULE_KEYS = new Set([
+    "icgFrontRestData",
+    "systemLogs",
+    "regEntradas",
+    "regSalidas",
+    "regDecomiso",
+    "regRecuento",
+    "regProduccion",
+    "histEntradaRapida",
+    "histSalidaRapida",
+    "histDecomisoCocina",
+    "barRegEntradas",
+    "barRegSalidas",
+    "barRegDecomiso",
+    "barRegRecuento",
+    "barRegProduccion",
+    "barHistEntradaRapida",
+    "barHistSalidaRapida"
+  ]);
+  function shouldLazyLoadFirebaseModule(key) {
+    return FIREBASE_LAZY_MODULE_KEYS.has(String(key || ""));
+  }
+  function getFirebaseExternalKeysForPage(page) {
+    const currentPage = String(page || "");
+    if (currentPage === "icg") return new Set(["icgFrontRestData"]);
+    if (currentPage === "icgHost") return new Set(["icgFrontRestData"]);
+    if (currentPage === "systemLogs") return new Set(["systemLogs"]);
+    if (currentPage === "registros") {
+      return new Set([
+        "regEntradas",
+        "regSalidas",
+        "regDecomiso",
+        "regRecuento",
+        "regProduccion",
+        "histEntradaRapida",
+        "histSalidaRapida",
+        "histDecomisoCocina",
+        "barRegEntradas",
+        "barRegSalidas",
+        "barRegDecomiso",
+        "barRegRecuento",
+        "barRegProduccion",
+        "barHistEntradaRapida",
+        "barHistSalidaRapida"
+      ]);
+    }
+    if (currentPage === "produccion") return new Set(["regProduccion", "histEntradaRapida", "histSalidaRapida", "barRegProduccion", "barHistEntradaRapida", "barHistSalidaRapida"]);
+    if (currentPage === "recuento") return new Set(["regRecuento", "barRegRecuento"]);
+    return new Set();
+  }
+  function shouldDeferFirebaseExternalKey(key, activePage, fallbackState) {
+    if (!shouldLazyLoadFirebaseModule(key)) return false;
+    if (!Object.prototype.hasOwnProperty.call(fallbackState || {}, key)) return false;
+    const allowedKeys = getFirebaseExternalKeysForPage(activePage);
+    return !allowedKeys.has(key);
+  }
+  function loadFirebaseExternalDocSignatures() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FIREBASE_EXTERNAL_SIGNATURES_STORAGE) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  function saveFirebaseExternalDocSignatures(signatures) {
+    try {
+      localStorage.setItem(FIREBASE_EXTERNAL_SIGNATURES_STORAGE, JSON.stringify(signatures || {}));
+    } catch (_) {}
+  }
+  const firebaseExternalStateCache = {};
+  const firebaseExternalDocSignaturesCache = loadFirebaseExternalDocSignatures();
   function splitFirebaseAppStateIntoShards(state) {
     const mainState = Object.assign({}, state || {});
     const shards = [];
@@ -5311,22 +5518,37 @@
       return null;
     }
   }
-  async function readFirebaseExternalStateDoc(docRef, key) {
+  async function readFirebaseExternalStateDoc(docRef, key, expectedSignature) {
     if (!docRef || !docRef.parent || !key) return null;
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
     try {
       const snapshot = await docRef.parent.doc(docId).get();
       if (!snapshot.exists) return null;
       const data = snapshot.data() || {};
-      if (data.appStateCompressed) return decodeFirebaseCompressedState(data.appStateCompressed);
-      if (typeof data.appState !== "undefined") return data.appState;
+      const metaSignature = String(expectedSignature || (data.syncMeta ? data.syncMeta.signature || "" : ""));
+      const cacheKey = `${docRef.parent && docRef.parent.path ? docRef.parent.path : "wtfSistema"}/${docId}`;
+      const cached = firebaseExternalStateCache[cacheKey];
+      if (cached && cached.metaSignature && metaSignature && cached.metaSignature === metaSignature) {
+        return cached.value;
+      }
+      let value = null;
+      if (data.appStateCompressed) value = decodeFirebaseCompressedState(data.appStateCompressed);
+      else if (typeof data.appState !== "undefined") value = data.appState;
+      if (typeof value !== "undefined" && value !== null) {
+        firebaseExternalStateCache[cacheKey] = { metaSignature, value };
+        return value;
+      }
     } catch (error) {
       console.error("No se pudo leer el documento externo Firebase:", key, error);
     }
     return null;
   }
-  async function decodeFirebaseAppState(data, docRef) {
+  async function decodeFirebaseAppState(data, docRef, options) {
     if (!data) return null;
+    const decodeOptions = options && typeof options === "object" ? options : {};
+    const fallbackState = decodeOptions.fallbackState && typeof decodeOptions.fallbackState === "object" ? decodeOptions.fallbackState : {};
+    const localExternalSignatures = Object.assign({}, firebaseExternalDocSignaturesCache, decodeOptions.localExternalSignatures || {});
+    const activePage = decodeOptions.activePage || "";
     let state = null;
     if (data.appStateCompressed) {
       try {
@@ -5356,9 +5578,23 @@
       ...Object.keys(FIREBASE_EXTERNAL_STATE_DOCS),
       ...(Array.isArray(data.appStateExternalKeys) ? data.appStateExternalKeys : [])
     ]));
+    const externalSignatures = data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
     if (docRef && externalKeys.length) {
       await Promise.all(externalKeys.map(async function(key) {
-        const externalValue = await readFirebaseExternalStateDoc(docRef, key);
+        const expectedSignature = String(externalSignatures[key] || "");
+        if (
+          expectedSignature &&
+          localExternalSignatures[key] === expectedSignature &&
+          Object.prototype.hasOwnProperty.call(fallbackState, key)
+        ) {
+          state[key] = fallbackState[key];
+          return;
+        }
+        if (expectedSignature && shouldDeferFirebaseExternalKey(key, activePage, fallbackState)) {
+          state[key] = fallbackState[key];
+          return;
+        }
+        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature);
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
       }));
     }
@@ -5391,6 +5627,13 @@
         await docRef.parent.doc(externalDoc.id).set(externalDoc.doc, { merge: true });
       }));
     }
+    if (writeDoc.syncIndexDoc && docRef.parent) {
+      try {
+        await docRef.parent.doc(FIREBASE_SYNC_INDEX_DOC_ID).set(writeDoc.syncIndexDoc, { merge: true });
+      } catch (error) {
+        console.warn("No se pudo actualizar el indice liviano de sincronizacion:", error);
+      }
+    }
     await docRef.set(writeDoc.doc, { merge: true });
   }
   async function googleFetchJson(url, token, options = {}) {
@@ -5418,12 +5661,13 @@
     }
     return data;
   }
-  function ensureAdminUser(users) {
+  function ensureAdminUser(users, deletedKeys) {
+    const normalizedDeletedKeys = normalizeUserDeletedKeys(deletedKeys);
     const list = Array.isArray(users) ? users.map(function(u) {
-      return Object.assign({}, u);
+      return migrateUserPasswordSecret(u);
     }).filter(function(u) {
       const email = normalizar(u && u.email || "");
-      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email);
+      return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && !isUserRowDeleted(u, normalizedDeletedKeys);
     }) : [];
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
@@ -5448,11 +5692,25 @@
       }
     }
     const initialAdminKey = normalizar(INITIAL_ADMIN_EMAIL);
-    const hasInitialAdmin = list.some(function(user) {
+    const initialAdminIndex = list.findIndex(function(user) {
       return normalizar(user && user.email || "") === initialAdminKey;
     });
-    if (!hasInitialAdmin) {
+    if (initialAdminIndex === -1) {
       list.unshift(Object.assign({}, INITIAL_ADMIN_USER, { permisos: allOperationalPermissions }));
+    } else {
+      const existing = list[initialAdminIndex] || {};
+      list[initialAdminIndex] = Object.assign({}, existing, {
+        id: existing.id || INITIAL_ADMIN_USER.id,
+        nombre: existing.nombre || INITIAL_ADMIN_USER.nombre,
+        email: INITIAL_ADMIN_EMAIL,
+        passwordHash: INITIAL_ADMIN_USER.passwordHash,
+        role: "admin",
+        modulo: existing.modulo || INITIAL_ADMIN_USER.modulo,
+        permisos: Array.isArray(existing.permisos) && existing.permisos.length ? existing.permisos : allOperationalPermissions,
+        activo: true,
+        createdAt: existing.createdAt || INITIAL_ADMIN_USER.createdAt,
+        updatedAt: existing.updatedAt || INITIAL_ADMIN_USER.updatedAt
+      });
     }
     USER_RECOVERY_SEEDS.forEach(function(seed) {
       const seedEmail = normalizar(seed && seed.email || "");
@@ -5460,6 +5718,9 @@
       const existingIndex = list.findIndex(function(user) {
         return normalizar(user && user.email || "") === seedEmail;
       });
+      if (isUserRowDeleted(seed, normalizedDeletedKeys)) {
+        return;
+      }
       if (existingIndex === -1) {
         list.push(Object.assign({
           activo: true,
@@ -5469,15 +5730,15 @@
         }, seed));
       } else {
         const existing = list[existingIndex] || {};
-        list[existingIndex] = Object.assign({}, seed, existing, {
+        list[existingIndex] = migrateUserPasswordSecret(Object.assign({}, seed, existing, {
           id: existing.id || seed.id,
           nombre: existing.nombre || seed.nombre,
-          password: existing.password || seed.password,
+          passwordHash: existing.passwordHash || seed.passwordHash || getUserPasswordHashFromInput(existing.password || seed.password || ""),
           role: existing.role || seed.role,
           modulo: existing.modulo || seed.modulo,
           activo: existing.activo !== false,
           permisos: Array.isArray(existing.permisos) && existing.permisos.length ? existing.permisos : (Array.isArray(seed.permisos) ? seed.permisos : allOperationalPermissions)
-        });
+        }));
       }
     });
     return list;
@@ -5772,13 +6033,13 @@
   function isValidVisibleAdminPassword(users, password) {
     const input = String(password || "");
     if (!input) return false;
-    return getVisibleAdminUsers(users).some((user) => String(user.password || "") === input);
+    return getVisibleAdminUsers(users).some((user) => validateUserPassword(user, input));
   }
   function findActiveUserByPassword(users, password) {
     const input = String(password || "");
     if (!input) return { user: null, duplicate: false };
     const candidates = ensureAdminUser(users || []).filter(function(user) {
-      return user && user.activo !== false && String(user.password || "") === input;
+      return validateUserPassword(user, input);
     });
     return {
       user: candidates.length === 1 ? candidates[0] : null,
@@ -8228,6 +8489,26 @@
       hash = Math.imul(hash, 16777619);
     }
     return "fnv32-" + (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  const PASSWORD_HASH_PREFIX = "wtf-pw-v1:";
+  function hashUserPassword(password) {
+    return PASSWORD_HASH_PREFIX + quickHashText(["wtf-user-password-v1", String(password || "")].join("|"));
+  }
+  function migrateUserPasswordSecret(user) {
+    const row = Object.assign({}, user || {});
+    if (row.password && !row.passwordHash) row.passwordHash = hashUserPassword(row.password);
+    delete row.password;
+    return row;
+  }
+  function validateUserPassword(user, password) {
+    if (!user || user.activo === false) return false;
+    const input = String(password || "");
+    if (user.passwordHash) return String(user.passwordHash || "") === hashUserPassword(input);
+    return String(user.password || "") === input;
+  }
+  function getUserPasswordHashFromInput(password) {
+    const input = String(password || "");
+    return input ? hashUserPassword(input) : "";
   }
   const ToastCtx = React.createContext(null);
   function ToastProvider({ children }) {
@@ -11920,6 +12201,7 @@
     const initialProductionHoldDeletedKeys = useMemo(() => normalizeProductionHoldDeletedKeys(load(PRODUCTION_HOLD_DELETED_KEYS_STORAGE, {})), []);
     const initialProductionHistoryDeletedKeys = useMemo(() => normalizeProductionHistoryDeletedKeys(load(PRODUCTION_HISTORY_DELETED_KEYS_STORAGE, {})), []);
     const initialMovementDeletedKeys = useMemo(() => normalizeMovementDeletedKeys(load(MOVEMENT_DELETED_KEYS_STORAGE, {})), []);
+    const initialUserDeletedKeys = useMemo(() => normalizeUserDeletedKeys(load(USER_DELETED_KEYS_STORAGE, {})), []);
     const [inventario, setInventario] = useState(() => normalizeInventoryRowsForDisplay(loadSeeded(KEYS.inventario, initInventario, null) || initInventario(), initialInventoryDeletedKeys.inventario));
     const [cuartoFrioInventario, setCuartoFrioInventario] = useState(() => normalizeInventoryRowsForDisplay(load(KEYS.cuartoFrioInventario, []), initialInventoryDeletedKeys.cuartoFrioInventario));
     const [miseAnPlace, setMise] = useState(() => normalizeMiseItems((loadSeeded(KEYS.miseAnPlace, initMise, null) || initMise()).filter(function(row) { return !isMiseRowDeleted(row, initialMiseDeletedKeys.miseAnPlace); })));
@@ -11943,9 +12225,9 @@
       { nombre: "NEVERA 2", items: [] },
       { nombre: "NEVERA 3", items: [] }
     ]));
-    const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios())));
+    const [usuarios, setUsuarios] = useState(() => ensureAdminUser(initUsuarios(), initialUserDeletedKeys));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
-    const [authUserEmail, setAuthUserEmail] = useState(() => load(KEYS.authUser, ""));
+    const [authUserEmail, setAuthUserEmail] = useState(() => String(load(KEYS.authUser, "") || ""));
     const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
@@ -11969,6 +12251,7 @@
     const [productionHistoryDeletedKeys, setProductionHistoryDeletedKeys] = useState(() => initialProductionHistoryDeletedKeys);
     const [productionHoldDeletedKeys, setProductionHoldDeletedKeys] = useState(() => initialProductionHoldDeletedKeys);
     const [movementDeletedKeys, setMovementDeletedKeys] = useState(() => initialMovementDeletedKeys);
+    const [userDeletedKeys, setUserDeletedKeys] = useState(() => initialUserDeletedKeys);
     const [googleConfig, setGoogleConfig] = useState(() => normalizeGoogleConfig(load(KEYS.googleConfig, GOOGLE_DEFAULT_CONFIG)));
     const [googleReady, setGoogleReady] = useState(false);
     const [googleAuthed, setGoogleAuthed] = useState(false);
@@ -12006,6 +12289,7 @@
     const applyingRemoteRef = useRef(false);
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
+    const firebaseExternalDocSignaturesRef = useRef({});
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12071,6 +12355,8 @@
     }
     stateSnapshotRef.current = {
       dataVersion: DATA_VERSION,
+      operationalDataRestoredAt: load(OPERATIONAL_DATA_RESTORED_AT_STORAGE, ""),
+      operationalDataRestoredFrom: {},
       inventario,
       cuartoFrioInventario,
       miseAnPlace,
@@ -12088,6 +12374,7 @@
       productionHistoryDeletedKeys,
       productionHoldDeletedKeys,
       movementDeletedKeys,
+      userDeletedKeys,
       histDecomisoCocina,
       histEntradaRapida,
       histSalidaRapida,
@@ -12159,13 +12446,26 @@
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
       const externalDocs = [];
+      const externalDocKeys = [];
+      const externalDocSignatures = Object.assign({}, firebaseExternalDocSignaturesRef.current || {});
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
+        const externalJson = JSON.stringify(safeExternalValue);
+        const externalSignature = quickHashText(externalJson);
+        externalDocKeys.push(key);
+        if (
+          externalDocSignatures[key] === externalSignature &&
+          !String(reason || "").includes("bootstrap") &&
+          !String(reason || "").includes("migration")
+        ) {
+          return;
+        }
+        externalDocSignatures[key] = externalSignature;
         const externalCompressed = encodeFirebaseAppState(safeExternalValue);
-        const externalJsonBytes = JSON.stringify(safeExternalValue).length;
+        const externalJsonBytes = externalJson.length;
         externalDocs.push({
           id: FIREBASE_EXTERNAL_STATE_DOCS[key],
           key,
@@ -12216,7 +12516,8 @@
         appStateShardVersion: 1,
         appStateShardKeys: shards.map(function(shard) { return shard.key; }),
         appStateExternalVersion: 1,
-        appStateExternalKeys: externalDocs.map(function(externalDoc) { return externalDoc.key; }),
+        appStateExternalKeys: externalDocKeys,
+        appStateExternalSignatures: externalDocSignatures,
         appStateFormat: compressed ? "pako-base64-json-v1" : "json",
         appStateJsonBytes: JSON.stringify(fullFirebaseState).length,
         appStateMainJsonBytes: JSON.stringify(splitState.mainState).length,
@@ -12228,11 +12529,51 @@
           return total + Number(externalDoc.doc.appStateCompressedBytes || 0);
         }, 0)
       };
+      const syncIndexModules = {};
+      shards.forEach(function(shard) {
+        syncIndexModules[shard.key] = {
+          docId: `estadoGeneral/stateShards/${shard.key}`,
+          moduleKey: shard.key,
+          revision: syncMeta.revision,
+          updatedAt: syncMeta.clientIso,
+          updatedBy: reason,
+          deviceId: syncMeta.clientId,
+          signature: shard.doc.syncMeta ? shard.doc.syncMeta.signature : quickHashText(JSON.stringify(shard.value || {})),
+          sizeHint: Number(shard.doc.appStateCompressedBytes || shard.doc.appStateJsonBytes || 0),
+          critical: false,
+          lazyLoad: shouldLazyLoadFirebaseModule(shard.key)
+        };
+      });
+      externalDocs.forEach(function(externalDoc) {
+        syncIndexModules[externalDoc.key] = {
+          docId: externalDoc.id,
+          moduleKey: externalDoc.key,
+          revision: syncMeta.revision,
+          updatedAt: syncMeta.clientIso,
+          updatedBy: reason,
+          deviceId: syncMeta.clientId,
+          signature: externalDocSignatures[externalDoc.key] || "",
+          sizeHint: Number(externalDoc.doc.appStateCompressedBytes || externalDoc.doc.appStateJsonBytes || 0),
+          critical: false,
+          lazyLoad: shouldLazyLoadFirebaseModule(externalDoc.key)
+        };
+      });
+      const syncIndexDoc = {
+        updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: reason,
+        revision: syncMeta.revision,
+        deviceId: syncMeta.clientId,
+        clientIso: syncMeta.clientIso,
+        mainSignature: syncMeta.signature,
+        modules: syncIndexModules
+      };
       if (compressed) {
         return {
           signature,
           shards,
           externalDocs,
+          externalDocSignatures,
+          syncIndexDoc,
           doc: Object.assign({}, baseDoc, {
             appStateCompressed: compressed,
             appState: window.firebase.firestore.FieldValue.delete()
@@ -12243,6 +12584,8 @@
         signature,
         shards,
         externalDocs,
+        externalDocSignatures,
+        syncIndexDoc,
         doc: Object.assign({}, baseDoc, {
           appState: splitState.mainState,
           appStateCompressed: window.firebase.firestore.FieldValue.delete()
@@ -12285,6 +12628,9 @@
           });
           pendingLocalSignatureRef.current = writeDoc.signature;
           await writeFirebaseAppStateDoc(firebaseDocRef.current, writeDoc);
+          firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, writeDoc.externalDocSignatures || {});
+          Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
           lastRemoteSignatureRef.current = writeDoc.signature;
           lastRemoteMetaSignatureRef.current = writeDoc.doc && writeDoc.doc.syncMeta ? String(writeDoc.doc.syncMeta.signature || "") : "";
           hasSessionLocalChangeRef.current = false;
@@ -12308,10 +12654,15 @@
     function applyRemoteState(nextState) {
       if (!nextState || typeof nextState !== "object") return;
       const currentState = getCurrentAppState();
+      const preferRemoteOperationalData = shouldPreferRemoteOperationalData(nextState);
       nextState = mergeRemoteAppStateWithLocal(
         preserveIcgDecisionLocksInAppState(nextState, currentState),
-        currentState
+        currentState,
+        { preferRemoteOperationalData }
       );
+      if (nextState.operationalDataRestoredAt) {
+        save(OPERATIONAL_DATA_RESTORED_AT_STORAGE, nextState.operationalDataRestoredAt);
+      }
       applyingRemoteRef.current = true;
       if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
@@ -12349,7 +12700,8 @@
       if (Array.isArray(nextState.neveras)) setNeveras(nextState.neveras);
       if (Array.isArray(nextState.correos)) setCorreos(nextState.correos);
       if (nextState.googleConfig && typeof nextState.googleConfig === "object") setGoogleConfig(normalizeGoogleConfig(nextState.googleConfig));
-      if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios));
+      if (nextState.userDeletedKeys && typeof nextState.userDeletedKeys === "object") setUserDeletedKeys(normalizeUserDeletedKeys(nextState.userDeletedKeys));
+      if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios, nextState.userDeletedKeys));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
       if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
@@ -12374,7 +12726,7 @@
       if (Array.isArray(nextState.barHistSalidaRapida)) setBarHistSalidaRapida(repairIcgMiseQuickExitUsers(normalizeMovementRows(nextState.barHistSalidaRapida, nextMovementDeletedKeys.barHistSalidaRapida)));
       window.setTimeout(function() {
         applyingRemoteRef.current = false;
-      }, 0);
+      }, 800);
     }
     function normalizeIcgControlDoc(data) {
       const source = data && typeof data === "object" ? data : {};
@@ -12495,12 +12847,22 @@
           }
           return;
         }
-        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current);
+        const remoteExternalSignatures = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
+        const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current, {
+          fallbackState: getCurrentAppState(),
+          localExternalSignatures: firebaseExternalDocSignaturesRef.current,
+          activePage: page
+        });
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
         const currentSignature = serializeAppState(getCurrentAppState());
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+          if (Object.keys(remoteExternalSignatures).length) {
+            firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, remoteExternalSignatures);
+            Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+            saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+          }
           lastRemoteSignatureRef.current = remoteSignature;
           lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
           setFirebaseStatus("connected");
@@ -12517,6 +12879,11 @@
           return;
         }
         if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
+        if (Object.keys(remoteExternalSignatures).length) {
+          firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, remoteExternalSignatures);
+          Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+        }
         lastRemoteSignatureRef.current = remoteSignature;
         lastRemoteMetaSignatureRef.current = remoteMetaSignature || quickHashText(remoteSignature);
         pendingLocalSignatureRef.current = "";
@@ -12547,10 +12914,15 @@
     useEffect(() => save(PRODUCTION_HISTORY_DELETED_KEYS_STORAGE, normalizeProductionHistoryDeletedKeys(productionHistoryDeletedKeys)), [productionHistoryDeletedKeys]);
     useEffect(() => save(PRODUCTION_HOLD_DELETED_KEYS_STORAGE, normalizeProductionHoldDeletedKeys(productionHoldDeletedKeys)), [productionHoldDeletedKeys]);
     useEffect(() => save(MOVEMENT_DELETED_KEYS_STORAGE, normalizeMovementDeletedKeys(movementDeletedKeys)), [movementDeletedKeys]);
+    useEffect(() => save(USER_DELETED_KEYS_STORAGE, normalizeUserDeletedKeys(userDeletedKeys)), [userDeletedKeys]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
-    useEffect(() => save(KEYS.usuarios, usuarios), [usuarios]);
-    useEffect(() => save(KEYS.authUser, authUserEmail || ""), [authUserEmail]);
+    useEffect(() => removeLocalKey(KEYS.usuarios), [usuarios]);
+    useEffect(() => {
+      const email = String(authUserEmail || "").trim();
+      if (email) save(KEYS.authUser, email);
+      else removeLocalKey(KEYS.authUser);
+    }, [authUserEmail]);
     useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
     useEffect(() => {
       const normalized = normalizeGoogleConfig(googleConfig);
@@ -12775,7 +13147,7 @@
         throw new Error("Esta cuenta administradora fue deshabilitada por seguridad. Debe entrar con su usuario autorizado.");
       }
       const user = usuarios.find(function(u) {
-        return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
+        return u.activo !== false && normalizar(u.email) === normalizar(email) && validateUserPassword(u, password);
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
       const locationCheck = await requestPreciseLoginLocation(user);
@@ -12805,7 +13177,7 @@
     }
     async function requestLoginTerminalAuthorization(email, password) {
       const user = usuarios.find(function(u) {
-        return u.activo !== false && normalizar(u.email) === normalizar(email) && String(u.password || "") === String(password || "");
+        return u.activo !== false && normalizar(u.email) === normalizar(email) && validateUserPassword(u, password);
       });
       if (!user) throw new Error("Correo o contrasena incorrectos.");
       const name = prompt("Nombre para identificar esta computadora", "PC Principal WTF");
@@ -12881,14 +13253,14 @@
       const currentPassword = String(payload.currentPassword || "");
       const nextPassword = String(payload.newPassword || "");
       if (!nextEmail) throw new Error("Ingrese el nuevo correo.");
-      if (String(currentUser.password || "") !== currentPassword) throw new Error("La contrase\xF1a actual no coincide.");
+      if (!validateUserPassword(currentUser, currentPassword)) throw new Error("La contrase\xF1a actual no coincide.");
       const duplicate = usuarios.find(function(u) {
         return u.id !== currentUser.id && normalizar(u.email) === normalizar(nextEmail);
       });
       if (duplicate) throw new Error("Ese correo ya est\xE1 en uso por otro usuario.");
       if (nextPassword) {
         const duplicatePassword = ensureAdminUser(usuarios || []).find(function(u) {
-          return u && u.id !== currentUser.id && u.activo !== false && String(u.password || "") === String(nextPassword);
+          return u && u.id !== currentUser.id && u.activo !== false && validateUserPassword(u, nextPassword);
         });
         if (duplicatePassword) throw new Error("Esa contrase\xF1a ya est\xE1 asignada a otro usuario.");
       }
@@ -12896,11 +13268,11 @@
         const now = new Date().toISOString();
         return ensureAdminUser(prev.map(function(u) {
           if (u.id !== currentUser.id) return u;
-          return Object.assign({}, u, {
+          return migrateUserPasswordSecret(Object.assign({}, u, {
             email: nextEmail,
-            password: nextPassword || u.password,
+            passwordHash: nextPassword ? getUserPasswordHashFromInput(nextPassword) : u.passwordHash || getUserPasswordHashFromInput(u.password || ""),
             updatedAt: now
-          });
+          }));
         }));
       });
       setAuthUserEmail(nextEmail);
@@ -12971,7 +13343,30 @@
             return;
           }
           const data = snapshot.data();
-          const remoteState = await decodeFirebaseAppState(data, docRef);
+          const remoteMetaSignatureQuick = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
+          const hasPendingLocalWriteQuick = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+          if (
+            firebaseBootstrappedRef.current &&
+            remoteMetaSignatureQuick &&
+            remoteMetaSignatureQuick === lastRemoteMetaSignatureRef.current &&
+            !hasPendingLocalWriteQuick
+          ) {
+            const quickMeta = data.syncMeta || {};
+            acceptRemoteSyncRevision(quickMeta.revision);
+            setFirebaseStatus("connected");
+            setFirebaseMessage("Sincronizado en tiempo real");
+            if (data.updatedAt) {
+              const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
+              setLastSyncedAt(formatDatetime(date));
+            }
+            return;
+          }
+          const remoteExternalSignatures = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
+          const remoteState = await decodeFirebaseAppState(data, docRef, {
+            fallbackState: getCurrentAppState(),
+            localExternalSignatures: firebaseExternalDocSignaturesRef.current,
+            activePage: page
+          });
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
@@ -12980,6 +13375,9 @@
               lastRemoteSignatureRef.current = migrationDoc.signature;
               firebaseBootstrappedRef.current = true;
               await writeFirebaseAppStateDoc(docRef, migrationDoc);
+              firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, migrationDoc.externalDocSignatures || {});
+              Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+              saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
               setFirebaseStatus("connected");
               setFirebaseMessage("Firebase actualizado con migracion segura");
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -13000,6 +13398,11 @@
             const remoteIsOlderThanLocal = hasCurrentSessionLocalChange && (remoteIsOlderByRevision || remoteIsOlderByClientTime);
             const remoteIsStalePendingEcho = hasCurrentSessionLocalChange && hasPendingLocalWrite && (remoteIsOlderByRevision || (!remoteHasRevision && remoteClientTime > 0 && remoteClientTime < pendingLocalAtRef.current));
             firebaseBootstrappedRef.current = true;
+            if (Object.keys(remoteExternalSignatures).length) {
+              firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, remoteExternalSignatures);
+              Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+              saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+            }
             setFirebaseStatus("connected");
             if (data.updatedAt) {
               const date = typeof data.updatedAt.toDate === "function" ? data.updatedAt.toDate() : data.updatedAt;
@@ -13039,6 +13442,9 @@
           const bootstrapDoc = createFirebaseWriteDoc(initialState, "web-bootstrap");
           lastRemoteSignatureRef.current = bootstrapDoc.signature;
           await writeFirebaseAppStateDoc(docRef, bootstrapDoc);
+          firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, bootstrapDoc.externalDocSignatures || {});
+          Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
           setFirebaseStatus("connected");
           setFirebaseMessage("Firebase inicializado");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
@@ -13365,6 +13771,15 @@
         window.WTF_PWA.refreshPushSubscription().catch(function() {});
       }
     }, [modulo]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      const timer = window.setTimeout(function() {
+        pullLatestFirebaseSnapshot("module-open");
+      }, 160);
+      return function() {
+        window.clearTimeout(timer);
+      };
+    }, [page, modulo, firebaseCfg.enabled]);
     const productos = useMemo(
       () => inventario.filter((r) => r.tipo === "producto").map((p) => ({
         ...p,
@@ -20564,13 +20979,13 @@
     const speechRecognitionApi = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
     const voiceSupported = Boolean(speechRecognitionApi);
     const [messages, setMessages] = useState([{ role: "assistant", text: "Hola. Puedo ayudarte con inventario, ICG, mermas, compras, recetas y movimientos." }]);
-    const products = useMemo(() => buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }), [inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
-    const allSalidas = useMemo(() => [].concat(regSalidas || [], barRegSalidas || []), [regSalidas, barRegSalidas]);
-    const purchaseRows = useMemo(() => buildAiPurchaseList(products), [products]);
-    const alertRows = useMemo(() => buildAiInventoryAlerts(products, allSalidas), [products, allSalidas]);
-    const mermaRows = useMemo(() => [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")), [regProduccion, barRegProduccion]);
-    const icgLinks = useMemo(() => buildAiIcgLinkSuggestions(icgFrontRestData, products), [icgFrontRestData, products]);
-    const summary = useMemo(() => buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }), [icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
+    const products = useMemo(() => open ? buildAiInventoryCatalog({ inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace }) : [], [open, inventario, cuartoFrioInventario, miseAnPlace, barInventario, barCuartoFrioInventario, barMiseAnPlace]);
+    const allSalidas = useMemo(() => open ? [].concat(regSalidas || [], barRegSalidas || []) : [], [open, regSalidas, barRegSalidas]);
+    const purchaseRows = useMemo(() => open ? buildAiPurchaseList(products) : [], [open, products]);
+    const alertRows = useMemo(() => open ? buildAiInventoryAlerts(products, allSalidas) : [], [open, products, allSalidas]);
+    const mermaRows = useMemo(() => open ? [].concat(buildAiMermaAudit(regProduccion, "Cocina"), buildAiMermaAudit(barRegProduccion, "Bar")) : [], [open, regProduccion, barRegProduccion]);
+    const icgLinks = useMemo(() => open ? buildAiIcgLinkSuggestions(icgFrontRestData, products) : [], [open, icgFrontRestData, products]);
+    const summary = useMemo(() => open ? buildAiDailySummary({ icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products }) : { fecha: "", entradas: 0, salidas: 0, decomisos: 0, producciones: 0, ventasIcg: 0, logs: 0 }, [open, icgFrontRestData, regEntradas, regSalidas, regDecomiso, regProduccion, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, systemLogs, products]);
     useEffect(function() {
       busyRef.current = busy;
     }, [busy]);
@@ -21387,7 +21802,10 @@
       setEditingId("");
     }
     function startEdit(user) {
-      if (isRootAdmin(user)) return;
+      if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
+        toast("El Administrador Principal protegido no puede editarse desde este modulo.", "warn");
+        return;
+      }
       setEditingId(user.id);
       const legacyModulo = user.modulo || "ambos";
       const permisos = new Set(Array.isArray(user.permisos) ? user.permisos : ["dashboard"]);
@@ -21408,6 +21826,13 @@
       });
     }
     function guardarUsuario() {
+      if (editingId) {
+        const editingUser = usuarios.find(function(u) { return u.id === editingId; });
+        if (isProtectedInitialAdmin(editingUser)) {
+          toast("El Administrador Principal protegido no puede modificarse.", "error");
+          return;
+        }
+      }
       const email = (form.email || "").trim().toLowerCase();
       const nombre = (form.nombre || "").trim();
       const password = String(form.password || "");
@@ -21441,11 +21866,11 @@
         toast("Ese correo ya existe en el sistema.", "error");
         return;
       }
-      const nextPassword = password || (editingId ? (usuarios.find(function(u) { return u.id === editingId; }) || {}).password : "");
+      const nextPassword = password;
       const shouldValidatePassword = !editingId || Boolean(password);
       if (shouldValidatePassword && nextPassword) {
         const duplicatePassword = ensureAdminUser(usuarios || []).find(function(u) {
-          return u && u.id !== editingId && u.activo !== false && String(u.password || "") === String(nextPassword);
+          return u && u.id !== editingId && u.activo !== false && validateUserPassword(u, nextPassword);
         });
         if (duplicatePassword) {
           toast("Esa contrase\xF1a ya est\xE1 asignada a otro usuario. Cada colaborador debe tener una contrase\xF1a \xFAnica.", "error");
@@ -21457,10 +21882,10 @@
           const now = new Date().toISOString();
           return ensureAdminUser(prev.map(function(u) {
             if (u.id !== editingId) return u;
-            return Object.assign({}, u, {
+            return migrateUserPasswordSecret(Object.assign({}, u, {
               nombre,
               email,
-              password: password ? password : u.password,
+              passwordHash: password ? getUserPasswordHashFromInput(password) : u.passwordHash || getUserPasswordHashFromInput(u.password || ""),
               role: form.role,
               permisos,
               activo: form.activo !== false,
@@ -21471,18 +21896,18 @@
               bienvenidaDias,
               bienvenidaDesde: bienvenidaActiva && (u.bienvenidaActiva !== true || Number(u.bienvenidaDias || 7) !== bienvenidaDias) ? now : u.bienvenidaDesde || now,
               updatedAt: now
-            });
+            }));
           }));
         });
         toast("Usuario actualizado.", "ok");
       } else {
         setUsuarios(function(prev) {
           const now = new Date().toISOString();
-          return ensureAdminUser([].concat(prev, [{
+          return ensureAdminUser([].concat(prev, [migrateUserPasswordSecret({
             id: `user-${Date.now()}`,
             nombre,
             email,
-            password,
+            passwordHash: getUserPasswordHashFromInput(password),
             role: form.role,
             permisos,
             activo: form.activo !== false,
@@ -21494,14 +21919,17 @@
             bienvenidaDesde: bienvenidaActiva ? now : "",
             createdAt: now,
             updatedAt: now
-          }]));
+          })]));
         });
         toast("Usuario creado.", "ok");
       }
       resetForm();
     }
     function toggleActivo(user) {
-      if (isRootAdmin(user)) return;
+      if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
+        toast("El Administrador Principal protegido no puede desactivarse.", "warn");
+        return;
+      }
       setUsuarios(function(prev) {
         const now = new Date().toISOString();
         return ensureAdminUser(prev.map(function(u) {
@@ -21510,11 +21938,19 @@
       });
     }
     function deleteUser(user) {
-      if (isRootAdmin(user)) return;
+      if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
+        toast("El Administrador Principal protegido no puede eliminarse.", "warn");
+        return;
+      }
+      const deletedAt = Date.now();
+      setUserDeletedKeys(function(prev) {
+        return markUserDeletedKeysFromRow(prev, user, deletedAt);
+      });
       setUsuarios(function(prev) {
+        const nextDeletedKeys = markUserDeletedKeysFromRow(userDeletedKeys, user, deletedAt);
         return ensureAdminUser(prev.filter(function(u) {
           return u.id !== user.id;
-        }));
+        }), nextDeletedKeys);
       });
       if (editingId === user.id) resetForm();
       toast("Usuario eliminado.", "ok");
@@ -21558,7 +21994,7 @@
         toast("Ingrese una cantidad v\xE1lida mayor que cero.", "error");
         return;
       }
-      if (String(currentUser && currentUser.password || "") !== String(userPassword || "")) {
+      if (!validateUserPassword(currentUser, userPassword)) {
         toast("La contrase\xF1a del usuario actual no coincide.", "error");
         return;
       }
@@ -26579,4 +27015,5 @@ Cantidad solicitada: ${newCantidad}`);
 </script>
 </body>
 </html>
+
 
