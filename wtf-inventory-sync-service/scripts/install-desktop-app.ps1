@@ -288,6 +288,8 @@ $TrayExecutable = Resolve-TrayExecutable $InstallDir
 $EnvPath = Join-Path $InstallDir ".env"
 $PackagedEnvPath = Join-Path $SourceRoot ".env"
 $PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY"
+$PackagedFirebaseAuthEmail = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_EMAIL"
+$PackagedFirebaseAuthPassword = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD"
 Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName "FRS_WTFOODVZL" -AuditDatabaseName "WTF_AUDIT_FRS_WTFOODVZL" -SqlDataDir "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 if (!(Test-Path $EnvPath)) {
   @"
@@ -298,6 +300,8 @@ WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
 WTF_AUTO_APPLY_ICG_BACKUP=false
 WTF_API_KEY=$PackagedApiKey
+WTF_FIREBASE_AUTH_EMAIL=$PackagedFirebaseAuthEmail
+WTF_FIREBASE_AUTH_PASSWORD=$PackagedFirebaseAuthPassword
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
@@ -323,6 +327,12 @@ ICG_SQL_CONNECTION_STRING=Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connec
 Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_BACKUP" -Value "false"
 if ($PackagedApiKey) {
   Set-EnvValue -Path $EnvPath -Name "WTF_API_KEY" -Value $PackagedApiKey
+}
+if ($PackagedFirebaseAuthEmail) {
+  Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_EMAIL" -Value $PackagedFirebaseAuthEmail
+}
+if ($PackagedFirebaseAuthPassword) {
+  Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD" -Value $PackagedFirebaseAuthPassword
 }
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"

@@ -7,6 +7,9 @@ import { decodeFirestoreAppState, decodeFirestoreValue, encodeCompressedAppState
 
 type AnyRecord = Record<string, any>;
 
+let firebaseIdToken = "";
+let firebaseIdTokenExpiresAt = 0;
+
 const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
@@ -930,6 +933,39 @@ function icgControlDocumentUrl(config: ServiceConfig): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/icgControl`;
 }
 
+async function firebaseAuthHeaders(config: ServiceConfig, headers: HeadersInit = {}): Promise<Headers> {
+  if (!config.firebaseAuthEmail || !config.firebaseAuthPassword) {
+    throw new Error("El Host necesita WTF_FIREBASE_AUTH_EMAIL y WTF_FIREBASE_AUTH_PASSWORD para leer Firestore con una cuenta autorizada.");
+  }
+  if (!firebaseIdToken || Date.now() >= firebaseIdTokenExpiresAt) {
+    const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.apiKey)}`;
+    const authRes = await fetch(authUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: config.firebaseAuthEmail, password: config.firebaseAuthPassword, returnSecureToken: true })
+    });
+    const authText = await authRes.text();
+    if (!authRes.ok) {
+      throw new Error(`Firebase Auth del Host rechazo la cuenta (${authRes.status}). ${authText.slice(0, 260)}`);
+    }
+    const authData = JSON.parse(authText) as AnyRecord;
+    firebaseIdToken = String(authData.idToken || "");
+    firebaseIdTokenExpiresAt = Date.now() + Math.max(Number(authData.expiresIn || 3600) - 60, 60) * 1000;
+    if (!firebaseIdToken) throw new Error("Firebase Auth no devolvio un token para el Host.");
+  }
+  const result = new Headers(headers);
+  result.set("Authorization", `Bearer ${firebaseIdToken}`);
+  return result;
+}
+
+async function firestoreFetch(config: ServiceConfig, url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = await firebaseAuthHeaders(config, init.headers || { "Content-Type": "application/json" });
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const target = new URL(url);
+  if (config.apiKey && !target.searchParams.has("key")) target.searchParams.set("key", config.apiKey);
+  return fetch(target.toString(), Object.assign({}, init, { headers }));
+}
+
 function icgLedgerDocumentUrl(config: ServiceConfig, physicalKey: string, createOnly = false): string {
   const docId = `phys-${quickHashText(["icg-ledger-v1", physicalKey].join("|"))}`;
   const query = new URLSearchParams({ key: config.apiKey });
@@ -950,7 +986,7 @@ function firestoreFieldsFromRecord(record: AnyRecord): AnyRecord {
 }
 
 async function createIcgLedgerClaim(config: ServiceConfig, payload: AnyRecord): Promise<boolean> {
-  const res = await fetch(icgLedgerDocumentUrl(config, String(payload.physicalIcgKey || ""), true), {
+  const res = await firestoreFetch(config, icgLedgerDocumentUrl(config, String(payload.physicalIcgKey || ""), true), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: firestoreFieldsFromRecord(payload) })
@@ -962,7 +998,7 @@ async function createIcgLedgerClaim(config: ServiceConfig, payload: AnyRecord): 
 }
 
 async function updateIcgLedgerStatus(config: ServiceConfig, physicalKey: string, payload: AnyRecord): Promise<void> {
-  const res = await fetch(icgLedgerDocumentUrl(config, physicalKey), {
+  const res = await firestoreFetch(config, icgLedgerDocumentUrl(config, physicalKey), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: firestoreFieldsFromRecord(payload) })
@@ -985,7 +1021,7 @@ function splitAppStateIntoShards(appState: AnyRecord): { mainState: AnyRecord; s
 }
 
 async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
-  const res = await fetch(documentUrl(config));
+  const res = await firestoreFetch(config, documentUrl(config));
   if (!res.ok) throw new Error(`Firestore no permitio leer estado WTF (${res.status}).`);
   const doc = await res.json() as AnyRecord;
   const appState = decodeFirestoreAppState(doc.fields);
@@ -994,7 +1030,7 @@ async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
   await Promise.all(shardKeys.map(async (key) => {
     const shardKey = String(key || "").trim();
     if (!shardKey) return;
-    const shardRes = await fetch(shardDocumentUrl(config, shardKey));
+    const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shardKey));
     if (!shardRes.ok) return;
     const shardDoc = await shardRes.json() as AnyRecord;
     const shardValue = decodeFirestoreAppState(shardDoc.fields);
@@ -1004,7 +1040,7 @@ async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
 }
 
 async function readIcgControlPause(config: ServiceConfig): Promise<{ paused: boolean; reason: string }> {
-  const res = await fetch(icgControlDocumentUrl(config));
+  const res = await firestoreFetch(config, icgControlDocumentUrl(config));
   if (res.status === 404) return { paused: false, reason: "" };
   if (!res.ok) return { paused: false, reason: "" };
   const doc = await res.json() as AnyRecord;
@@ -1056,7 +1092,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
     }
   };
   await Promise.all(shardPayloads.map(async (shard) => {
-    const shardRes = await fetch(shardDocumentUrl(config, shard.key), {
+    const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shard.key), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(shard.payload)
@@ -1066,7 +1102,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       throw new Error(`Firestore no permitio guardar shard ${shard.key} (${shardRes.status}). ${text.slice(0, 300)}`);
     }
   }));
-  const res = await fetch(documentUrl(config), {
+  const res = await firestoreFetch(config, documentUrl(config), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

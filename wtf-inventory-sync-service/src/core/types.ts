@@ -55,6 +55,8 @@ export interface ServiceConfig {
   firebaseDocumentId: string;
   autoApplyIcgBackup: boolean;
   apiKey: string;
+  firebaseAuthEmail: string;
+  firebaseAuthPassword: string;
   branch: string;
   defaultWarehouse: string;
   mode: "manual" | "automatico";

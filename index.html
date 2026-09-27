@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260927025736-7d432c4";</script>
+  <script>window.WTF_APP_VERSION = "20260927202306-8c1bb00";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13191,6 +13191,7 @@
     }, [usuarios, authUserEmail]);
     useEffect(() => {
       if (!authUserEmail) return;
+      if (firebaseCfg.enabled && (!firebaseBootstrappedRef.current || firebaseStatus === "connecting")) return;
       if (currentUser) return;
       const wasDisabled = currentSessionUser && currentSessionUser.activo === false;
       const wasRemoved = !currentSessionUser;
@@ -13210,7 +13211,7 @@
       setModulo(null);
       setPage("dashboard");
       toast(wasDisabled ? "Tu usuario fue desactivado. La sesion se cerro automaticamente." : "Tu usuario fue eliminado. La sesion se cerro automaticamente.", "error", 9e3);
-    }, [authUserEmail, currentUser, currentSessionUser]);
+    }, [authUserEmail, currentUser, currentSessionUser, firebaseCfg.enabled, firebaseStatus]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
@@ -15439,18 +15440,18 @@
     }
     function updateRecipeProcedure(index, value) {
       setRecipeProcedures(function(prev) {
-        const rows = normalizeRecipeProcedures(prev, null);
-        const oldName = rows[index] || `Procedimiento ${index + 1}`;
-        rows[index] = value;
-        const clean = normalizeRecipeProcedures(rows, null);
-        const nextName = clean[index] || rows[index] || oldName;
+        const rows = Array.isArray(prev) && prev.length ? prev.slice() : ["Procedimiento 1"];
+        const oldName = String(rows[index] ?? "");
+        rows[index] = String(value ?? "");
+        const nextName = rows[index];
         setInsumos(function(current) {
+          if (!oldName.trim() || !nextName.trim()) return current;
           return current.map(function(item) {
             if (normalizar(item.procedimiento) !== normalizar(oldName)) return item;
             return Object.assign({}, item, { procedimiento: nextName });
           });
         });
-        return clean;
+        return rows;
       });
     }
     function deleteRecipeProcedure(index) {
@@ -18751,7 +18752,7 @@
                     /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
                       /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Procedimientos de la receta"),
                       /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6 } },
-                        normalizeRecipeProcedures(recipeProcedures, null).map(function(name, index) {
+                        (Array.isArray(recipeProcedures) && recipeProcedures.length ? recipeProcedures : ["Procedimiento 1"]).map(function(name, index) {
                           return /* @__PURE__ */ React.createElement("div", { key: `recipe-procedure-${index}`, style: { display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 6, alignItems: "center" } },
                             /* @__PURE__ */ React.createElement("input", { className: "form-control", value: name, onChange: function(e) { updateRecipeProcedure(index, e.target.value); }, placeholder: `Procedimiento ${index + 1}` }),
                             /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline btn-icon", onClick: function() { moveRecipeProcedure(index, -1); }, disabled: index === 0, title: "Subir procedimiento completo" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" })),
