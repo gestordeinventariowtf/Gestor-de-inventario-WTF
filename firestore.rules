@@ -1,29 +1,45 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /wtfSistema/estadoGeneral {
-      allow read, write: if true;
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.size() > 3;
+    }
+
+    function isProtectedAdminEmail() {
+      return signedIn()
+        && request.auth.token.email in [
+          'Henryortiz1704@gmail.com',
+          'henryortiz1704@gmail.com',
+          'wtfoodrdav.venezuela@gmail.com'
+        ];
+    }
+
+    function authUserDoc() {
+      return /databases/$(database)/documents/authorizedUsers/$(request.auth.token.email);
+    }
+
+    function hasAuthorizedUserDoc() {
+      return signedIn() && exists(authUserDoc());
+    }
+
+    function isAuthorizedUser() {
+      return isProtectedAdminEmail()
+        || (hasAuthorizedUserDoc()
+          && get(authUserDoc()).data.active == true);
+    }
+
+    function isAuthorizedAdmin() {
+      return isProtectedAdminEmail()
+        || (hasAuthorizedUserDoc()
+          && get(authUserDoc()).data.active == true
+          && get(authUserDoc()).data.role == 'admin');
     }
 
     function icgEmergencyPauseActive() {
       return exists(/databases/$(database)/documents/wtfSistema/icgControl)
         && get(/databases/$(database)/documents/wtfSistema/icgControl).data.inventoryImpactPaused == true;
-    }
-
-    match /wtfSistema/icgControl {
-      allow read, write: if true;
-    }
-
-    match /wtfSistema/icgFrontRestData {
-      allow read, write: if true;
-    }
-
-    match /wtfSistema/systemLogs {
-      allow read, write: if true;
-    }
-
-    match /wtfSistema/syncIndex {
-      allow read, write: if true;
     }
 
     function isExternalStateDocument(docId) {
@@ -46,20 +62,51 @@ service cloud.firestore {
       ];
     }
 
+    match /authorizedUsers/{email} {
+      allow get: if signedIn() && request.auth.token.email == email;
+      allow list: if isAuthorizedAdmin();
+      allow create, update: if isAuthorizedAdmin()
+        || (isProtectedAdminEmail() && email == request.auth.token.email);
+      allow delete: if isAuthorizedAdmin()
+        && !(email in ['Henryortiz1704@gmail.com', 'henryortiz1704@gmail.com']);
+    }
+
+    match /wtfSistema/estadoGeneral {
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /wtfSistema/icgControl {
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /wtfSistema/icgFrontRestData {
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /wtfSistema/systemLogs {
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /wtfSistema/syncIndex {
+      allow read, write: if isAuthorizedUser();
+    }
+
     match /wtfSistema/{externalStateDoc} {
-      allow read, write: if isExternalStateDocument(externalStateDoc);
+      allow read, write: if isAuthorizedUser() && isExternalStateDocument(externalStateDoc);
     }
 
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
-      allow read: if true;
-      allow write: if shardId != 'icgFrontRestData'
-        || !icgEmergencyPauseActive()
-        || !exists(/databases/$(database)/documents/wtfSistema/estadoGeneral/stateShards/$(shardId))
-        || request.resource.data.appStateCompressed == resource.data.appStateCompressed;
+      allow read: if isAuthorizedUser();
+      allow write: if isAuthorizedUser()
+        && (shardId != 'icgFrontRestData'
+          || !icgEmergencyPauseActive()
+          || !exists(/databases/$(database)/documents/wtfSistema/estadoGeneral/stateShards/$(shardId))
+          || request.resource.data.appStateCompressed == resource.data.appStateCompressed);
     }
 
     match /pwaPushSubscriptions/{subscriptionId} {
-      allow create, update: if subscriptionId.matches('^[A-Za-z0-9_-]{1,140}$')
+      allow create, update: if isAuthorizedUser()
+        && subscriptionId.matches('^[A-Za-z0-9_-]{1,140}$')
         && request.resource.data.endpoint is string
         && request.resource.data.endpoint.size() > 20
         && request.resource.data.endpoint.size() <= 1200
@@ -68,8 +115,9 @@ service cloud.firestore {
     }
 
     match /pwaPushMessages/{messageId} {
-      allow read: if true;
-      allow create: if request.resource.data.status == 'pending'
+      allow read: if isAuthorizedUser();
+      allow create: if isAuthorizedUser()
+        && request.resource.data.status == 'pending'
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 120
@@ -93,12 +141,22 @@ service cloud.firestore {
       return moduleId in ['cocina', 'servicio'];
     }
 
+    function canUseSharp() {
+      return isAuthorizedAdmin()
+        || (hasAuthorizedUserDoc()
+          && get(authUserDoc()).data.active == true
+          && (
+            get(authUserDoc()).data.modulo in ['sharp', 'ambos', 'cocina_bar']
+            || ('permisos' in get(authUserDoc()).data && 'sharp' in get(authUserDoc()).data.permisos)
+          ));
+    }
+
     match /sharpLimpieza/config/settings/branchConfig {
-      allow read, write: if true;
+      allow read, write: if canUseSharp();
     }
 
     match /sharpLimpieza/libraries/modules/{moduleId} {
-      allow read, write: if true
+      allow read, write: if canUseSharp()
         && isSharpModule(moduleId)
         && (!('libraryJson' in request.resource.data)
           || request.resource.data.libraryJson is string
@@ -106,16 +164,16 @@ service cloud.firestore {
     }
 
     match /sharpLimpieza/boards/items/{boardId} {
-      allow read: if true;
-      allow write: if true
+      allow read: if canUseSharp();
+      allow write: if canUseSharp()
         && boardId.matches('^[A-Za-z0-9_-]{1,120}$')
         && request.resource.data.stateJson is string
         && request.resource.data.stateJson.size() <= 9000000;
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey}/photos/{photoId} {
-      allow read: if isSharpModule(moduleId);
-      allow create, update: if true
+      allow read: if canUseSharp() && isSharpModule(moduleId);
+      allow create, update: if canUseSharp()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && request.resource.data.url is string
@@ -126,11 +184,11 @@ service cloud.firestore {
         && request.resource.data.size is number
         && request.resource.data.size > 0
         && request.resource.data.size <= 2 * 1024 * 1024;
-      allow delete: if isSharpModule(moduleId);
+      allow delete: if canUseSharp() && isSharpModule(moduleId);
     }
 
     match /sharpLimpieza/photoIndex/{moduleId}/{dateKey} {
-      allow read, write, delete: if true
+      allow read, write, delete: if canUseSharp()
         && isSharpModule(moduleId)
         && dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }

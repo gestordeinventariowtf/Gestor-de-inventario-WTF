@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260927004601-37a644b";</script>
+  <script>window.WTF_APP_VERSION = "20260927013911-40837ac";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3254,6 +3254,8 @@
   const ROOT_ADMIN_ID = ADMIN_DEFAULT.id;
   const LEGACY_ADMIN_EMAILS_TO_REMOVE = ["jssantana077@gmail.com", "jhonnwtf@gmail.com", "jhonn077@gmail.com", "jhonndell077@gmail.com"];
   const INITIAL_ADMIN_EMAIL = "Henryortiz1704@gmail.com";
+  const SECONDARY_ADMIN_EMAIL = "wtfoodrdav.venezuela@gmail.com";
+  const PROTECTED_ADMIN_EMAILS = [INITIAL_ADMIN_EMAIL, SECONDARY_ADMIN_EMAIL];
   const INITIAL_ADMIN_USER = {
     id: "admin-inicial-henry-ortiz",
     nombre: "Administrador Principal",
@@ -3268,6 +3270,12 @@
   };
   function isProtectedInitialAdmin(user) {
     return normalizar(user && (user.email || user)) === normalizar(INITIAL_ADMIN_EMAIL);
+  }
+  function isProtectedAdminEmail(email) {
+    const clean = normalizar(email);
+    return PROTECTED_ADMIN_EMAILS.some(function(item) {
+      return normalizar(item) === clean;
+    });
   }
   const USER_RECOVERY_SEEDS = [];
   const WTF_BUSINESS_LOCATION = {
@@ -4930,6 +4938,56 @@
     });
     return result;
   }
+  function getAuthorizedUserDocId(email) {
+    return String(email || "").trim().toLowerCase();
+  }
+  function buildAuthorizedUserDocs(users) {
+    const source = ensureAdminUser(Array.isArray(users) ? users : []);
+    const docs = [];
+    const seen = new Set();
+    source.forEach(function(user) {
+      const email = getAuthorizedUserDocId(user && user.email);
+      if (!email || seen.has(email)) return;
+      if (LEGACY_ADMIN_EMAILS_TO_REMOVE.some(function(blocked) { return normalizar(blocked) === normalizar(email); })) return;
+      const protectedAdmin = isProtectedAdminEmail(email);
+      const active = protectedAdmin || user.activo !== false;
+      if (!active) return;
+      const role = protectedAdmin || String(user.role || "").toLowerCase() === "admin" ? "admin" : "user";
+      docs.push({
+        id: email,
+        data: {
+          email,
+          nombre: protectedAdmin && normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) ? "Administrador Principal" : user.nombre || "",
+          role,
+          active: true,
+          modulo: user.modulo || "ambos",
+          permisos: Array.isArray(user.permisos) ? user.permisos.slice(0, 80) : [],
+          protectedAdmin,
+          updatedAt: new Date().toISOString()
+        }
+      });
+      seen.add(email);
+    });
+    PROTECTED_ADMIN_EMAILS.forEach(function(emailValue) {
+      const email = getAuthorizedUserDocId(emailValue);
+      if (!email || seen.has(email)) return;
+      docs.push({
+        id: email,
+        data: {
+          email,
+          nombre: normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) ? "Administrador Principal" : "Henry",
+          role: "admin",
+          active: true,
+          modulo: "ambos",
+          permisos: [],
+          protectedAdmin: true,
+          updatedAt: new Date().toISOString()
+        }
+      });
+      seen.add(email);
+    });
+    return docs;
+  }
   function mergeUserRows(localRows, remoteRows, deletedKeys) {
     const normalizedDeletedKeys = normalizeUserDeletedKeys(deletedKeys);
     const localList = Array.isArray(localRows) ? localRows : [];
@@ -5612,6 +5670,7 @@
     if (!docRef || !writeDoc) return;
     const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
     const externalDocs = Array.isArray(writeDoc.externalDocs) ? writeDoc.externalDocs : [];
+    const authorizedUserDocs = Array.isArray(writeDoc.authorizedUserDocs) ? writeDoc.authorizedUserDocs : [];
     if (shards.length) {
       await Promise.all(shards.map(async function(shard) {
         try {
@@ -5634,7 +5693,24 @@
         console.warn("No se pudo actualizar el indice liviano de sincronizacion:", error);
       }
     }
+    if (authorizedUserDocs.length && docRef.firestore) {
+      try {
+        await Promise.all(authorizedUserDocs.map(function(item) {
+          return docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
+        }));
+      } catch (error) {
+        console.warn("No se pudo actualizar usuarios autorizados para reglas Firebase:", error);
+      }
+    }
     await docRef.set(writeDoc.doc, { merge: true });
+  }
+  async function writeFirebaseAuthorizedUsersIndex(docRef, users) {
+    if (!docRef || !docRef.firestore) return;
+    const docs = buildAuthorizedUserDocs(users);
+    if (!docs.length) return;
+    await Promise.all(docs.map(function(item) {
+      return docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
+    }));
   }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
@@ -10503,16 +10579,11 @@
   function sanitizeStorageName(value) {
     return String(value || "archivo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "archivo";
   }
-  async function ensureFirebaseAnonymousAuth() {
+  async function ensureFirebaseAuthenticatedUser() {
     if (!window.firebase || !window.firebase.auth) return null;
     const auth = window.firebase.auth();
     if (auth.currentUser) return auth.currentUser;
-    try {
-      const credential = await auth.signInAnonymously();
-      return credential && credential.user || auth.currentUser;
-    } catch (error) {
-      return null;
-    }
+    throw new Error("Inicia sesion con Google para subir archivos.");
   }
   async function compressImageToJpeg(file, maxMb, options) {
     if (!file || !String(file.type || "").startsWith("image/")) throw new Error("Solo se permiten imagenes.");
@@ -10547,7 +10618,7 @@
   }
   async function uploadJpegToFirebaseStorage(path, blob) {
     if (!window.firebase || !window.firebase.storage) throw new Error("Firebase Storage no esta disponible.");
-    await ensureFirebaseAnonymousAuth();
+    await ensureFirebaseAuthenticatedUser();
     const storageRef = window.firebase.storage().ref(path);
     const snapshot = await storageRef.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
     return snapshot.ref.getDownloadURL();
@@ -12228,6 +12299,8 @@
     const [usuarios, setUsuarios] = useState(() => ensureAdminUser(initUsuarios(), initialUserDeletedKeys));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => String(load(KEYS.authUser, "") || ""));
+    const [firebaseAuthReady, setFirebaseAuthReady] = useState(false);
+    const [firebaseAuthUser, setFirebaseAuthUser] = useState(null);
     const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
@@ -12567,6 +12640,7 @@
         mainSignature: syncMeta.signature,
         modules: syncIndexModules
       };
+      const authorizedUserDocs = buildAuthorizedUserDocs(fullFirebaseState.usuarios || []);
       if (compressed) {
         return {
           signature,
@@ -12574,6 +12648,7 @@
           externalDocs,
           externalDocSignatures,
           syncIndexDoc,
+          authorizedUserDocs,
           doc: Object.assign({}, baseDoc, {
             appStateCompressed: compressed,
             appState: window.firebase.firestore.FieldValue.delete()
@@ -12586,6 +12661,7 @@
         externalDocs,
         externalDocSignatures,
         syncIndexDoc,
+        authorizedUserDocs,
         doc: Object.assign({}, baseDoc, {
           appState: splitState.mainState,
           appStateCompressed: window.firebase.firestore.FieldValue.delete()
@@ -12594,6 +12670,11 @@
     }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (!firebaseAuthEmail) {
+        setFirebaseStatus("error");
+        setFirebaseMessage("Inicia sesion con Google para guardar en Firebase.");
+        return;
+      }
       if (isFirebaseCooldownActive()) {
         setFirebaseStatus("error");
         setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
@@ -13015,6 +13096,43 @@
       }, 400);
       return () => window.clearInterval(timer);
     }, []);
+    useEffect(() => {
+      if (!firebaseCfg.enabled) {
+        setFirebaseAuthReady(true);
+        return;
+      }
+      if (!window.firebase || !window.firebase.auth) {
+        setFirebaseAuthReady(true);
+        return;
+      }
+      try {
+        const hasMissingConfig = Object.values(firebaseCfg.firebaseConfig).some((v) => !String(v || "").trim());
+        if (hasMissingConfig) {
+          setFirebaseAuthReady(true);
+          return;
+        }
+        const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+        const unsubscribeAuth = app.auth().onAuthStateChanged(function(user) {
+          setFirebaseAuthUser(user || null);
+          setFirebaseAuthReady(true);
+          if (!user) {
+            setAuthUserEmail("");
+          }
+        }, function(error) {
+          console.error("Firebase Auth error:", error);
+          setFirebaseAuthUser(null);
+          setFirebaseAuthReady(true);
+        });
+        return function() {
+          unsubscribeAuth();
+        };
+      } catch (error) {
+        console.error("Firebase Auth init error:", error);
+        setFirebaseAuthUser(null);
+        setFirebaseAuthReady(true);
+      }
+    }, [firebaseCfg]);
+    const firebaseAuthEmail = firebaseAuthUser && firebaseAuthUser.email ? String(firebaseAuthUser.email).trim().toLowerCase() : "";
     const currentUser = useMemo(() => {
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
@@ -13036,6 +13154,14 @@
       resetToModuleSelector(true);
       toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
     }, [currentUser, appSecurity]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (!firebaseAuthEmail) return;
+      if (!currentUser || !isAdminUser(currentUser)) return;
+      writeFirebaseAuthorizedUsersIndex(firebaseDocRef.current, usuarios).catch(function(error) {
+        console.warn("No se pudo sincronizar el indice de usuarios autorizados:", error);
+      });
+    }, [firebaseCfg.enabled, firebaseAuthEmail, currentUser, usuarios]);
     function resetGoogleSession() {
       accessTokenRef.current = "";
       accessTokenExpiryRef.current = 0;
@@ -13086,6 +13212,27 @@
       }
       return solicitarPermisosGoogle(Boolean(forcePrompt));
     }
+    async function signInWithFirebaseGoogle() {
+      if (!window.firebase || !window.firebase.auth) throw new Error("Firebase Auth no esta disponible.");
+      const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+      const provider = new window.firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const result = await app.auth().signInWithPopup(provider);
+      const user = result && result.user || app.auth().currentUser;
+      if (!user || !user.email) throw new Error("Google no devolvio un correo valido.");
+      setFirebaseAuthUser(user);
+      return user;
+    }
+    async function signOutFirebaseAuth() {
+      if (!window.firebase || !window.firebase.auth) return;
+      try {
+        const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+        await app.auth().signOut();
+      } catch (error) {
+        console.warn("No se pudo cerrar Firebase Auth:", error);
+      }
+      setFirebaseAuthUser(null);
+    }
     function cerrarSesion() {
       const token = accessTokenRef.current;
       if (token && window.google && window.google.accounts && window.google.accounts.oauth2 && typeof window.google.accounts.oauth2.revoke === "function") {
@@ -13097,6 +13244,7 @@
         }
       }
       resetGoogleSession();
+      signOutFirebaseAuth();
       if (currentUser) {
         addSystemLog({
           modulo: "Sistema",
@@ -13137,6 +13285,12 @@
       setPage("dashboard");
     }
     async function loginWithCredentials(email, password) {
+      const cleanEmail = String(email || "").trim().toLowerCase();
+      if (firebaseCfg.enabled) {
+        if (!firebaseAuthReady) throw new Error("Firebase Auth aun esta preparando la sesion. Intenta nuevamente en unos segundos.");
+        if (!firebaseAuthEmail) throw new Error("Primero entra con Google usando el mismo correo autorizado.");
+        if (normalizar(firebaseAuthEmail) !== normalizar(cleanEmail)) throw new Error("El correo de Google no coincide con el correo del sistema.");
+      }
       if (isRootAdmin({ email })) {
         addSystemLog({
           modulo: "Seguridad",
@@ -13150,6 +13304,7 @@
         return u.activo !== false && normalizar(u.email) === normalizar(email) && validateUserPassword(u, password);
       });
       if (!user) throw new Error("Correo o contrase\xF1a incorrectos.");
+      if (user.activo === false) throw new Error("Esta cuenta esta desactivada.");
       const locationCheck = await requestPreciseLoginLocation(user);
       try {
         sessionStorage.setItem("wtf_last_access_validation", JSON.stringify(locationCheck || {}));
@@ -13176,6 +13331,10 @@
       return user;
     }
     async function requestLoginTerminalAuthorization(email, password) {
+      if (firebaseCfg.enabled) {
+        if (!firebaseAuthEmail) throw new Error("Primero entra con Google usando el mismo correo autorizado.");
+        if (normalizar(firebaseAuthEmail) !== normalizar(email)) throw new Error("El correo de Google no coincide con el correo del sistema.");
+      }
       const user = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(email) && validateUserPassword(u, password);
       });
@@ -13298,6 +13457,16 @@
       if (!window.firebase || !window.firebase.firestore) {
         setFirebaseStatus("error");
         setFirebaseMessage("SDK Firebase no disponible");
+        return;
+      }
+      if (!firebaseAuthReady) {
+        setFirebaseStatus("connecting");
+        setFirebaseMessage("Preparando verificacion segura...");
+        return;
+      }
+      if (!firebaseAuthEmail) {
+        setFirebaseStatus("error");
+        setFirebaseMessage("Inicia sesion con Google para sincronizar.");
         return;
       }
       try {
@@ -13470,7 +13639,7 @@
         setFirebaseStatus("error");
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase");
       }
-    }, [firebaseCfg, firebaseCooldownUntil]);
+    }, [firebaseCfg, firebaseCooldownUntil, firebaseAuthReady, firebaseAuthEmail]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
@@ -13479,7 +13648,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -14693,7 +14862,7 @@
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
-      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast });
+      return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast, firebaseAuthReady, firebaseAuthEmail, onFirebaseGoogleLogin: signInWithFirebaseGoogle, onFirebaseGoogleLogout: signOutFirebaseAuth });
     }
     if (shouldShowUserWelcomeCover(currentUser, welcomeCoverDismissedKey)) {
       return /* @__PURE__ */ React.createElement(WelcomeCoverScreen, { user: currentUser, onStart: () => {
@@ -20356,11 +20525,32 @@
       )
     ) : /* @__PURE__ */ React.createElement("div", { className: "empty" }, "Sin registros para mostrar.");
   }
-  function LoginScreen({ onLogin, onRequestTerminal, toast }) {
+  function LoginScreen({ onLogin, onRequestTerminal, toast, firebaseAuthReady = true, firebaseAuthEmail = "", onFirebaseGoogleLogin = null, onFirebaseGoogleLogout = null }) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [googleSubmitting, setGoogleSubmitting] = useState(false);
     const [requestingTerminal, setRequestingTerminal] = useState(false);
+    useEffect(() => {
+      if (firebaseAuthEmail && !email) setEmail(firebaseAuthEmail);
+    }, [firebaseAuthEmail]);
+    const googleEmailMismatch = Boolean(firebaseAuthEmail && email.trim() && normalizar(firebaseAuthEmail) !== normalizar(email));
+    const canSubmitLogin = Boolean(firebaseAuthEmail && email.trim() && password && !googleEmailMismatch && !submitting);
+    async function entrarConGoogle() {
+      if (typeof onFirebaseGoogleLogin !== "function") return;
+      setGoogleSubmitting(true);
+      try {
+        const user = await onFirebaseGoogleLogin();
+        if (user && user.email) {
+          setEmail(String(user.email || "").trim().toLowerCase());
+          toast("Cuenta Google verificada. Completa tu contraseña interna.", "ok", 5500);
+        }
+      } catch (err) {
+        toast(err && err.message ? err.message : "No se pudo validar Google.", "error", 7500);
+      } finally {
+        setGoogleSubmitting(false);
+      }
+    }
     async function iniciarSesion(e) {
       if (e && e.preventDefault) e.preventDefault();
       setSubmitting(true);
@@ -20386,7 +20576,7 @@
         setRequestingTerminal(false);
       }
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso ahora funciona con usuarios internos del sistema. El administrador principal puede crear usuarios y decidir qu\xE9 m\xF3dulos puede abrir cada uno.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear nuevas cuentas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Ingresa con tu correo y contrase\xF1a para entrar al sistema.")), /* @__PURE__ */ React.createElement("div", { className: "login-status" }, "Al iniciar sesi\xF3n se pedir\xE1 ubicaci\xF3n precisa. Los administradores pueden entrar desde cualquier lugar."), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "login-screen" }, /* @__PURE__ */ React.createElement("div", { className: "login-card" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(255,255,255,.12)", fontSize: 12, fontWeight: 600, marginBottom: 18 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-utensils" }), "WTF Sistema Cocina"), /* @__PURE__ */ React.createElement("h1", null, "Inicia sesi\xF3n para administrar tu almac\xE9n"), /* @__PURE__ */ React.createElement("p", null, "El acceso combina verificaci\xF3n Google y permisos internos del sistema para proteger la sincronizaci\xF3n.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-points" }, /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-users-gear" }), /* @__PURE__ */ React.createElement("span", null, "Desde el panel de usuarios puedes crear cuentas autorizadas y marcar permisos por m\xF3dulo.")), /* @__PURE__ */ React.createElement("div", { className: "login-hero-point" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), /* @__PURE__ */ React.createElement("span", null, "Los colaboradores deben estar dentro del rango autorizado de WTF para entrar.")))), /* @__PURE__ */ React.createElement("div", { className: "login-panel" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", null, "Acceso al sistema"), /* @__PURE__ */ React.createElement("p", null, "Primero valida tu cuenta Google y luego ingresa tu contrase\xF1a interna.")), /* @__PURE__ */ React.createElement("div", { className: googleEmailMismatch ? "login-status warn" : "login-status" }, firebaseAuthEmail ? googleEmailMismatch ? "El correo escrito debe coincidir con la cuenta Google verificada." : "Cuenta Google verificada. Completa tu contraseña interna." : firebaseAuthReady ? "Valida tu cuenta Google autorizada para continuar." : "Preparando verificacion Google..."), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", onClick: firebaseAuthEmail && typeof onFirebaseGoogleLogout === "function" ? onFirebaseGoogleLogout : entrarConGoogle, disabled: !firebaseAuthReady || googleSubmitting, style: { width: "100%", justifyContent: "center", marginBottom: 10, opacity: !firebaseAuthReady || googleSubmitting ? 0.7 : 1 } }, googleSubmitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando Google...") : firebaseAuthEmail ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-check" }), firebaseAuthEmail) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fab fa-google" }), "Entrar con Google")), /* @__PURE__ */ React.createElement("form", { className: "login-config-box", onSubmit: iniciarSesion }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement(
       "input",
       {
         className: "form-control",
@@ -20409,8 +20599,8 @@
       {
         className: "btn btn-verde login-google-btn",
         type: "submit",
-        disabled: !email.trim() || !password || submitting,
-        style: { opacity: !email.trim() || !password || submitting ? 0.7 : 1 }
+        disabled: !canSubmitLogin,
+        style: { opacity: !canSubmitLogin ? 0.7 : 1 }
       },
       submitting ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Validando acceso...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-location-dot" }), "Entrar al sistema")
     ), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", type: "button", disabled: !email.trim() || !password || requestingTerminal, onClick: solicitarTerminal, style: { width: "100%", justifyContent: "center", marginTop: 8, opacity: !email.trim() || !password || requestingTerminal ? 0.7 : 1 } }, requestingTerminal ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-spinner fa-spin" }), "Solicitando...") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-desktop" }), "Solicitar autorizacion de esta PC"))), /* @__PURE__ */ React.createElement("div", { className: "login-help" }, "El env\xEDo a Google y Gmail sigue configur\xE1ndose dentro de ", /* @__PURE__ */ React.createElement("strong", null, "Listado de Compra"), ". El inicio de sesi\xF3n del sistema ahora es independiente de esa autorizaci\xF3n."))));
