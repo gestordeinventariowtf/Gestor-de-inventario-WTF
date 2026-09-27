@@ -50,6 +50,17 @@
     return btoa(String(endpoint || "")).replace(/[^a-zA-Z0-9]/g, "").slice(-120) || String(Date.now());
   }
 
+  function readStoredText(key) {
+    const raw = String(localStorage.getItem(key) || "").trim();
+    if (!raw) return "";
+    try {
+      const parsed = JSON.parse(raw);
+      return String(parsed || "").trim();
+    } catch (_) {
+      return raw;
+    }
+  }
+
   async function getDb() {
     const cfg = getFirebaseConfig();
     if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) return null;
@@ -65,7 +76,7 @@
     if (!endpoint) return false;
     const activeModule = String(sessionStorage.getItem("wtf_modulo") || "").trim();
     const topic = activeModule || "general";
-    const activeUserEmail = String(localStorage.getItem("wtf_auth_user") || "").trim().toLowerCase();
+    const activeUserEmail = readStoredText("wtf_auth_user").toLowerCase();
     const userTopic = activeUserEmail ? `user:${activeUserEmail}` : "";
     const id = getSubscriptionDocId(endpoint);
     await db.collection(SUBSCRIPTION_COLLECTION).doc(id).set({
@@ -155,6 +166,10 @@
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) await savePushSubscription(subscription);
   }
+
+  window.addEventListener("wtf:auth-user-changed", () => {
+    refreshExistingPushSubscription().catch(() => null);
+  });
 
   function showPushButtonIfAvailable() {
     const cfg = getFirebaseConfig();

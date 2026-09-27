@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260927015548-62e0559";</script>
+  <script>window.WTF_APP_VERSION = "20260927022527-99a39eb";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4950,8 +4950,7 @@
       if (!email || seen.has(email)) return;
       if (LEGACY_ADMIN_EMAILS_TO_REMOVE.some(function(blocked) { return normalizar(blocked) === normalizar(email); })) return;
       const protectedAdmin = isProtectedAdminEmail(email);
-      const active = protectedAdmin || user.activo !== false;
-      if (!active) return;
+      const active = user.activo !== false;
       const role = protectedAdmin || String(user.role || "").toLowerCase() === "admin" ? "admin" : "user";
       docs.push({
         id: email,
@@ -4959,7 +4958,7 @@
           email,
           nombre: protectedAdmin && normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) ? "Administrador Principal" : user.nombre || "",
           role,
-          active: true,
+          active,
           modulo: user.modulo || "ambos",
           permisos: Array.isArray(user.permisos) ? user.permisos.slice(0, 80) : [],
           protectedAdmin,
@@ -4968,25 +4967,21 @@
       });
       seen.add(email);
     });
-    PROTECTED_ADMIN_EMAILS.forEach(function(emailValue) {
-      const email = getAuthorizedUserDocId(emailValue);
-      if (!email || seen.has(email)) return;
-      docs.push({
-        id: email,
-        data: {
-          email,
-          nombre: normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) ? "Administrador Principal" : "Henry",
-          role: "admin",
-          active: true,
-          modulo: "ambos",
-          permisos: [],
-          protectedAdmin: true,
-          updatedAt: new Date().toISOString()
-        }
-      });
-      seen.add(email);
-    });
     return docs;
+  }
+  function buildRevokedAuthorizedUserDoc(user, reason) {
+    const email = getAuthorizedUserDocId(user && user.email || user);
+    if (!email) return null;
+    return {
+      id: email,
+      data: {
+        email,
+        active: false,
+        revoked: true,
+        revokedReason: reason || "Usuario retirado de Usuarios y Permisos",
+        updatedAt: new Date().toISOString()
+      }
+    };
   }
   function mergeUserRows(localRows, remoteRows, deletedKeys) {
     const normalizedDeletedKeys = normalizeUserDeletedKeys(deletedKeys);
@@ -5711,6 +5706,29 @@
     await Promise.all(docs.map(function(item) {
       return docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
     }));
+    const desiredIds = new Set(docs.map(function(item) { return item.id; }));
+    try {
+      const snapshot = await docRef.firestore.collection("authorizedUsers").get();
+      const staleUpdates = [];
+      snapshot.forEach(function(doc) {
+        const id = getAuthorizedUserDocId(doc.id);
+        if (!id || desiredIds.has(id)) return;
+        staleUpdates.push(doc.ref.set({
+          email: id,
+          active: false,
+          revoked: true,
+          revokedReason: "Correo no registrado en Usuarios y Permisos",
+          updatedAt: new Date().toISOString()
+        }, { merge: true }));
+      });
+      if (staleUpdates.length) await Promise.all(staleUpdates);
+    } catch (error) {
+      console.warn("No se pudo depurar usuarios autorizados obsoletos:", error);
+    }
+  }
+  async function writeFirebaseAuthorizedUserDoc(docRef, item) {
+    if (!docRef || !docRef.firestore || !item || !item.id) return;
+    await docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
   }
   async function googleFetchJson(url, token, options = {}) {
     const headers = Object.assign(
@@ -13003,6 +13021,10 @@
       const email = String(authUserEmail || "").trim();
       if (email) save(KEYS.authUser, email);
       else removeLocalKey(KEYS.authUser);
+      window.dispatchEvent(new CustomEvent("wtf:auth-user-changed", { detail: { email } }));
+      if (window.WTF_PWA && typeof window.WTF_PWA.refreshPushSubscription === "function") {
+        window.WTF_PWA.refreshPushSubscription().catch(function() {});
+      }
     }, [authUserEmail]);
     useEffect(() => save(KEYS.googleConfig, normalizeGoogleConfig(googleConfig)), [googleConfig]);
     useEffect(() => {
@@ -13162,6 +13184,13 @@
         console.warn("No se pudo sincronizar el indice de usuarios autorizados:", error);
       });
     }, [firebaseCfg.enabled, firebaseAuthEmail, currentUser, usuarios]);
+    function syncAuthorizedUserAccess(item) {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (!firebaseAuthEmail || !currentUser || !isAdminUser(currentUser)) return;
+      writeFirebaseAuthorizedUserDoc(firebaseDocRef.current, item).catch(function(error) {
+        console.warn("No se pudo actualizar el acceso autorizado del usuario:", error);
+      });
+    }
     function resetGoogleSession() {
       accessTokenRef.current = "";
       accessTokenExpiryRef.current = 0;
@@ -13221,6 +13250,15 @@
       const user = result && result.user || app.auth().currentUser;
       if (!user || !user.email) throw new Error("Google no devolvio un correo valido.");
       setFirebaseAuthUser(user);
+      addSystemLog({
+        modulo: "Seguridad",
+        accion: "Validacion Google",
+        detalle: "Cuenta Google validada para intentar iniciar sesion en el sistema.",
+        email: String(user.email || "").trim().toLowerCase()
+      }, {
+        nombre: user.displayName || user.email || "Usuario Google",
+        email: String(user.email || "").trim().toLowerCase()
+      });
       return user;
     }
     async function signOutFirebaseAuth() {
@@ -14855,7 +14893,7 @@
       finanzas: () => /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); resetToModuleSelector(false); } }),
-      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere }),
+      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
@@ -21576,7 +21614,7 @@
   }
   function NotificacionesPage({ currentUser, usuarios = [] }) {
     const toast = useToast();
-    const [form, setForm] = useState({ title: "WTF Sistema", body: "", topic: "", userTopic: "", url: "/", scheduledDate: new Date().toISOString().slice(0, 10), scheduledTime: "09:00", consecutiveDays: 1 });
+    const [form, setForm] = useState({ title: "WTF Sistema", body: "", topic: "", userTopic: "", targetTopics: [], url: "/", scheduledDate: new Date().toISOString().slice(0, 10), scheduledTime: "09:00", consecutiveDays: 1 });
     const [sending, setSending] = useState(false);
     const [history, setHistory] = useState([]);
     const [historyError, setHistoryError] = useState("");
@@ -21585,6 +21623,44 @@
     const canUsePush = Boolean(window.WTF_PWA && typeof window.WTF_PWA.enablePushNotifications === "function");
     const cooldownRemainingMs = Math.max(0, Number(cooldownUntil || 0) - Number(cooldownNow || Date.now()));
     const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1e3);
+    const activeUsersForNotifications = (usuarios || []).filter((u) => u && u.activo !== false && (u.email || u.id));
+    function normalizeNotificationTopics(topics) {
+      return Array.from(new Set((Array.isArray(topics) ? topics : []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)));
+    }
+    function getSelectedUserTopics() {
+      return normalizeNotificationTopics(form.targetTopics && form.targetTopics.length ? form.targetTopics : form.userTopic ? [form.userTopic] : []);
+    }
+    function getNotificationTopic() {
+      const selected = getSelectedUserTopics();
+      return String(selected.length === 1 ? selected[0] : form.topic || "").trim();
+    }
+    function getNotificationTargetTopics() {
+      return getSelectedUserTopics();
+    }
+    function getTopicLabel(topic) {
+      const value = String(topic || "").trim().toLowerCase();
+      if (!value) return "Todos";
+      if (value.startsWith("user:")) {
+        const email = value.slice(5);
+        const user = activeUsersForNotifications.find((u) => normalizar(u.email || u.id) === normalizar(email));
+        return user ? getUserDisplayLabel(user) : email;
+      }
+      const labels = { cocina: "Cocina", bar: "Bar", sharp: "Sharp de Limpieza", admin: "Administracion" };
+      return labels[value] || value;
+    }
+    function getNotificationDestinationLabel(row = form) {
+      const targets = normalizeNotificationTopics(row.targetTopics);
+      if (targets.length > 1) return `${targets.length} usuarios: ${targets.map(getTopicLabel).slice(0, 3).join(", ")}${targets.length > 3 ? "..." : ""}`;
+      if (targets.length === 1) return getTopicLabel(targets[0]);
+      return getTopicLabel(row.topic || row.userTopic || "");
+    }
+    function updateSelectedNotificationUsers(values) {
+      const targetTopics = normalizeNotificationTopics(values);
+      setForm((p) => Object.assign({}, p, { targetTopics, userTopic: targetTopics.length === 1 ? targetTopics[0] : "" }));
+    }
+    function removeSelectedNotificationUser(topic) {
+      updateSelectedNotificationUsers(getSelectedUserTopics().filter((item) => item !== topic));
+    }
     function getPushDb() {
       const cfg = window.WTF_FIREBASE_CONFIG || {};
       if (!cfg.enabled || !cfg.firebaseConfig || !window.firebase || !window.firebase.firestore) throw new Error("Firebase no esta disponible en este navegador.");
@@ -21668,11 +21744,11 @@
         const response = await fetch(processEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "diagnoseSubscriptions", topic: getNotificationTopic() })
+          body: JSON.stringify({ action: "diagnoseSubscriptions", topic: getNotificationTopic(), targetTopics: getNotificationTargetTopics() })
         });
         if (!response.ok) throw new Error("No se pudo diagnosticar los dispositivos.");
         const result = await response.json();
-        toast(`Dispositivos: ${result.active || 0} activos · ${result.inactive || 0} inactivos · ${result.matching || 0} coinciden con este destino.`, result.matching ? "ok" : "error", 8000);
+        toast(`Dispositivos para ${getNotificationDestinationLabel()}: ${result.active || 0} activos · ${result.inactive || 0} inactivos · ${result.matching || 0} coinciden.`, result.matching ? "ok" : "error", 8000);
       } catch (error) {
         toast(error && error.message ? error.message : "No se pudo diagnosticar los dispositivos.", "error");
       } finally {
@@ -21706,6 +21782,7 @@
             title,
             body,
             topic: getNotificationTopic(),
+            targetTopics: getNotificationTargetTopics(),
             url: String(form.url || "/").trim() || "/",
             createdBy: getUserDisplayLabel(currentUser),
             createdByEmail: currentUser && currentUser.email || ""
@@ -21731,9 +21808,6 @@
         setSending(false);
       }
     }
-    function getNotificationTopic() {
-      return String(form.userTopic || form.topic || "").trim();
-    }
     async function scheduleNotification() {
       const title = String(form.title || "").trim();
       const body = String(form.body || "").trim();
@@ -21754,6 +21828,7 @@
             title,
             body,
             topic: getNotificationTopic(),
+            targetTopics: getNotificationTargetTopics(),
             url: String(form.url || "/").trim() || "/",
             tag: `wtf-scheduled-${ref.id}`,
             status: "scheduled",
@@ -21857,10 +21932,11 @@
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Usuario especifico"),
-              /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.userTopic, onChange: (e) => setForm((p) => Object.assign({}, p, { userTopic: e.target.value })) },
-                /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin usuario especifico"),
-                usuarios.filter((u) => u && u.activo !== false && (u.email || u.id)).map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: `user:${String(u.email || u.id).toLowerCase()}` }, getUserDisplayLabel(u)))
-              )
+              /* @__PURE__ */ React.createElement("select", { className: "form-control", multiple: true, size: Math.min(6, Math.max(3, activeUsersForNotifications.length || 3)), value: getSelectedUserTopics(), onChange: (e) => updateSelectedNotificationUsers(Array.from(e.target.selectedOptions || []).map((option) => option.value)) },
+                activeUsersForNotifications.map((u) => /* @__PURE__ */ React.createElement("option", { key: u.id || u.email, value: `user:${String(u.email || u.id).toLowerCase()}` }, getUserDisplayLabel(u)))
+              ),
+              /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, getSelectedUserTopics().length ? `${getSelectedUserTopics().length} usuario(s) seleccionado(s).` : "Sin usuario especifico: se usara el destino seleccionado."),
+              getSelectedUserTopics().length ? /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 } }, getSelectedUserTopics().map((topic) => /* @__PURE__ */ React.createElement("button", { key: topic, type: "button", className: "pill pill-azul", style: { border: 0, cursor: "pointer" }, onClick: () => removeSelectedNotificationUser(topic), title: "Quitar usuario" }, getTopicLabel(topic), " ×")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => updateSelectedNotificationUsers([]) }, "Sin usuario especifico")) : null
             ),
             /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } },
               /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Abrir al tocar"),
@@ -21897,7 +21973,7 @@
                 return /* @__PURE__ */ React.createElement("tr", { key: row.id },
                   /* @__PURE__ */ React.createElement("td", { style: { fontSize: 11, color: "var(--gris)", whiteSpace: "nowrap" } }, getDateValue(row) ? formatDatetime(getDateValue(row)) : "-"),
                   /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 800 } }, row.title || "WTF Sistema"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "var(--gris)", whiteSpace: "normal" } }, row.body || "")),
-                  /* @__PURE__ */ React.createElement("td", null, row.topic ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris" }, row.topic) : /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, "Todos")),
+                  /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: normalizeNotificationTopics(row.targetTopics).length ? "pill pill-azul" : row.topic ? "pill pill-gris" : "pill pill-azul" }, getNotificationDestinationLabel(row))),
                   /* @__PURE__ */ React.createElement("td", null, statusPill(row.status)),
                   /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, result.totalSubscriptions != null ? `${result.sent || 0} enviadas · ${result.failed || 0} errores · ${result.deleted || 0} limpias` : "-"),
                   /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-rojo btn-icon", title: "Eliminar notificacion", disabled: sending, onClick: () => deleteNotification(row) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))
@@ -21966,7 +22042,7 @@
       )
     );
   }
-  function UsuariosPage({ usuarios, setUsuarios, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null }) {
+  function UsuariosPage({ usuarios, setUsuarios, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null, onAuthorizedUserAccessChange = null }) {
     const toast = useToast();
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
     const securityInfo = normalizeAppSecurity(appSecurity);
@@ -21990,6 +22066,13 @@
     function resetForm() {
       setForm(emptyForm);
       setEditingId("");
+    }
+    function notifyAuthorizedAccess(user, reason) {
+      if (typeof onAuthorizedUserAccessChange !== "function" || !user || !user.email) return;
+      const item = reason ? buildRevokedAuthorizedUserDoc(user, reason) : buildAuthorizedUserDocs([user]).find(function(doc) {
+        return doc.id === getAuthorizedUserDocId(user.email);
+      });
+      if (item) onAuthorizedUserAccessChange(item);
     }
     function startEdit(user) {
       if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
@@ -22074,49 +22157,57 @@
         }
       }
       if (editingId) {
+        const now = new Date().toISOString();
+        const previousUser = usuarios.find(function(u) { return u.id === editingId; }) || {};
+        const savedUser = migrateUserPasswordSecret(Object.assign({}, previousUser, {
+          nombre,
+          email,
+          passwordHash: password ? getUserPasswordHashFromInput(password) : previousUser.passwordHash || getUserPasswordHashFromInput(previousUser.password || ""),
+          role: form.role,
+          permisos,
+          activo: form.activo !== false,
+          modulo: baseModulo,
+          perfilLaboral,
+          cargoVisible,
+          bienvenidaActiva,
+          bienvenidaDias,
+          bienvenidaDesde: bienvenidaActiva && (previousUser.bienvenidaActiva !== true || Number(previousUser.bienvenidaDias || 7) !== bienvenidaDias) ? now : previousUser.bienvenidaDesde || now,
+          updatedAt: now
+        }));
         setUsuarios(function(prev) {
-          const now = new Date().toISOString();
           return ensureAdminUser(prev.map(function(u) {
             if (u.id !== editingId) return u;
-            return migrateUserPasswordSecret(Object.assign({}, u, {
-              nombre,
-              email,
-              passwordHash: password ? getUserPasswordHashFromInput(password) : u.passwordHash || getUserPasswordHashFromInput(u.password || ""),
-              role: form.role,
-              permisos,
-              activo: form.activo !== false,
-              modulo: baseModulo,
-              perfilLaboral,
-              cargoVisible,
-              bienvenidaActiva,
-              bienvenidaDias,
-              bienvenidaDesde: bienvenidaActiva && (u.bienvenidaActiva !== true || Number(u.bienvenidaDias || 7) !== bienvenidaDias) ? now : u.bienvenidaDesde || now,
-              updatedAt: now
-            }));
+            return savedUser;
           }));
         });
+        if (normalizar(previousUser.email) && normalizar(previousUser.email) !== normalizar(email)) {
+          notifyAuthorizedAccess(previousUser, "Correo reemplazado en Usuarios y Permisos");
+        }
+        notifyAuthorizedAccess(savedUser, savedUser.activo === false ? "Usuario desactivado en Usuarios y Permisos" : "");
         toast("Usuario actualizado.", "ok");
       } else {
-        setUsuarios(function(prev) {
-          const now = new Date().toISOString();
-          return ensureAdminUser([].concat(prev, [migrateUserPasswordSecret({
-            id: `user-${Date.now()}`,
-            nombre,
-            email,
-            passwordHash: getUserPasswordHashFromInput(password),
-            role: form.role,
-            permisos,
-            activo: form.activo !== false,
-            modulo: baseModulo,
-            perfilLaboral,
-            cargoVisible,
-            bienvenidaActiva,
-            bienvenidaDias,
-            bienvenidaDesde: bienvenidaActiva ? now : "",
-            createdAt: now,
-            updatedAt: now
-          })]));
+        const now = new Date().toISOString();
+        const savedUser = migrateUserPasswordSecret({
+          id: `user-${Date.now()}`,
+          nombre,
+          email,
+          passwordHash: getUserPasswordHashFromInput(password),
+          role: form.role,
+          permisos,
+          activo: form.activo !== false,
+          modulo: baseModulo,
+          perfilLaboral,
+          cargoVisible,
+          bienvenidaActiva,
+          bienvenidaDias,
+          bienvenidaDesde: bienvenidaActiva ? now : "",
+          createdAt: now,
+          updatedAt: now
         });
+        setUsuarios(function(prev) {
+          return ensureAdminUser([].concat(prev, [savedUser]));
+        });
+        notifyAuthorizedAccess(savedUser, savedUser.activo === false ? "Usuario creado inactivo en Usuarios y Permisos" : "");
         toast("Usuario creado.", "ok");
       }
       resetForm();
@@ -22132,6 +22223,7 @@
           return u.id === user.id ? Object.assign({}, u, { activo: u.activo === false ? true : false, updatedAt: now }) : u;
         }));
       });
+      notifyAuthorizedAccess(Object.assign({}, user, { activo: user.activo === false ? true : false }), user.activo === false ? "" : "Usuario desactivado en Usuarios y Permisos");
     }
     function deleteUser(user) {
       if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
@@ -22149,6 +22241,7 @@
         }), nextDeletedKeys);
       });
       if (editingId === user.id) resetForm();
+      notifyAuthorizedAccess(user, "Usuario eliminado de Usuarios y Permisos");
       toast("Usuario eliminado.", "ok");
     }
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "Usa esta opcion si dejaste una sesion administradora abierta en otra computadora. Los administradores deberan iniciar sesion nuevamente.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "0.0001", value: form.bienvenidaDias ?? "", inputMode: "decimal", onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {

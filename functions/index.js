@@ -454,6 +454,17 @@ function matchesPushTopic(data, topic) {
   return topics.includes(requestedTopic) || moduleName === requestedTopic;
 }
 
+function normalizePushTargetTopics(value) {
+  const raw = Array.isArray(value) ? value : [];
+  return Array.from(new Set(raw.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))).slice(0, 100);
+}
+
+function matchesPushTargets(data, topic, targetTopics = []) {
+  const targets = normalizePushTargetTopics(targetTopics);
+  if (!targets.length) return matchesPushTopic(data, topic);
+  return targets.some((target) => matchesPushTopic(data, target));
+}
+
 function getSharpPhotoCutoffDate() {
   return new Date(Date.now() - SHARP_PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
@@ -501,6 +512,7 @@ async function cleanupSharpStoragePhotos() {
 
 async function dispatchPushMessage(messageData) {
   const topic = String(messageData?.topic || "").trim();
+  const targetTopics = normalizePushTargetTopics(messageData?.targetTopics);
   const dryRun = Boolean(messageData?.dryRun);
   const payload = buildPushPayload(messageData || {});
   const db = getFirestore();
@@ -519,7 +531,7 @@ async function dispatchPushMessage(messageData) {
       skipped += 1;
       return;
     }
-    if (!matchesPushTopic(data, topic)) {
+    if (!matchesPushTargets(data, topic, targetTopics)) {
       skipped += 1;
       return;
     }
@@ -556,6 +568,7 @@ async function dispatchPushMessage(messageData) {
     ok: failures.length === 0,
     totalSubscriptions: snapshot.size,
     topic: topic || "todos",
+    targetTopics,
     dryRun,
     sent,
     skipped,
@@ -616,6 +629,7 @@ async function createAndSendPushMessage(body = {}) {
     title,
     body: message,
     topic: String(body.topic || "").trim(),
+    targetTopics: normalizePushTargetTopics(body.targetTopics),
     url: String(body.url || "/").trim() || "/",
     tag: `wtf-notification-${docRef.id}`,
     createdBy: String(body.createdBy || "").trim().slice(0, 160),
@@ -675,8 +689,9 @@ async function deletePushMessage(messageId) {
   return { ok: true, deleted: cleanId };
 }
 
-async function diagnosePushSubscriptions(topic = "") {
+async function diagnosePushSubscriptions(topic = "", targetTopics = []) {
   const requestedTopic = String(topic || "").trim();
+  const requestedTargets = normalizePushTargetTopics(targetTopics);
   const db = getFirestore();
   const snapshot = await db.collection(PUSH_SUBSCRIPTIONS_COLLECTION).get();
   let active = 0;
@@ -692,13 +707,14 @@ async function diagnosePushSubscriptions(topic = "") {
     else active += 1;
     if (normalizePushSubscription(doc)) valid += 1;
     else invalid += 1;
-    if (matchesPushTopic(data, requestedTopic) && data.active !== false && normalizePushSubscription(doc)) matching += 1;
+    if (matchesPushTargets(data, requestedTopic, requestedTargets) && data.active !== false && normalizePushSubscription(doc)) matching += 1;
     if (data.ios === true) ios += 1;
     if (data.standalone === true) standalone += 1;
   });
   return {
     ok: true,
     topic: requestedTopic || "todos",
+    targetTopics: requestedTargets,
     totalSubscriptions: snapshot.size,
     active,
     inactive,
@@ -753,7 +769,7 @@ export const wtfProcessPendingPushMessages = onRequest({ region: "us-central1", 
       return;
     }
     if (req.body && req.body.action === "diagnoseSubscriptions") {
-      res.json(await diagnosePushSubscriptions(req.body.topic || ""));
+      res.json(await diagnosePushSubscriptions(req.body.topic || "", req.body.targetTopics || []));
       return;
     }
     if (req.body && req.body.action === "createAndSend") {

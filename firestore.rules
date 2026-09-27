@@ -25,16 +25,14 @@ service cloud.firestore {
     }
 
     function isAuthorizedUser() {
-      return isProtectedAdminEmail()
-        || (hasAuthorizedUserDoc()
-          && get(authUserDoc()).data.active == true);
+      return hasAuthorizedUserDoc()
+        && get(authUserDoc()).data.active == true;
     }
 
     function isAuthorizedAdmin() {
-      return isProtectedAdminEmail()
-        || (hasAuthorizedUserDoc()
-          && get(authUserDoc()).data.active == true
-          && get(authUserDoc()).data.role == 'admin');
+      return hasAuthorizedUserDoc()
+        && get(authUserDoc()).data.active == true
+        && get(authUserDoc()).data.role == 'admin';
     }
 
     function icgEmergencyPauseActive() {
