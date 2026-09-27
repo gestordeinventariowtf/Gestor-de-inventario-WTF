@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260927023340-9011473";</script>
+  <script>window.WTF_APP_VERSION = "20260927025736-7d432c4";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4007,11 +4007,33 @@
   }
   function pruneSystemLogsByRetention(rows) {
     const list = Array.isArray(rows) ? rows : [];
-    const cutoff = Date.now() - SYSTEM_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    if (list.length <= SYSTEM_LOG_ACTIVE_LIMIT) return list;
+    const critical = [];
+    const regular = [];
+    list.forEach(function(row) {
+      if (isCriticalSystemLog(row)) critical.push(row);
+      else regular.push(row);
+    });
+    const regularByOldestDay = regular.reduce(function(map, row) {
+      const timestamp = getSystemLogTimestamp(row);
+      const key = timestamp ? new Date(timestamp).toISOString().slice(0, 10) : "sin-fecha";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(row);
+      return map;
+    }, new Map());
+    const orderedDays = Array.from(regularByOldestDay.keys()).sort();
+    const removedDays = new Set();
+    let remaining = critical.length + regular.length;
+    for (let index = 0; index < orderedDays.length && remaining > SYSTEM_LOG_ACTIVE_LIMIT; index += 1) {
+      const day = orderedDays[index];
+      removedDays.add(day);
+      remaining -= (regularByOldestDay.get(day) || []).length;
+    }
     return list.filter(function(row) {
       if (isCriticalSystemLog(row)) return true;
       const timestamp = getSystemLogTimestamp(row);
-      return !timestamp || timestamp >= cutoff;
+      const key = timestamp ? new Date(timestamp).toISOString().slice(0, 10) : "sin-fecha";
+      return !removedDays.has(key);
     });
   }
   function normalizeSystemLogs(logs) {
@@ -4250,7 +4272,7 @@
         _id: stableId,
         id: stableId,
         storageKey: "barInventario",
-        origen: "ICG FrontRest Backup",
+        origen: "ICG FrontRest",
         modulo: "Bar",
         fecha: "2026-09-13T15:10:47.000-04:00",
         fechaIcg: "2026-09-13 15:10:47",
@@ -4263,7 +4285,7 @@
         medida: "uni",
         producto: "agua",
         cantidad: 1,
-        usuario: "ICG FrontRest Backup",
+        usuario: "ICG FrontRest",
         updatedAt: "2026-09-13T15:10:47.000-04:00",
         importKey,
         IcgAuditKey: auditKey,
