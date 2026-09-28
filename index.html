@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260928022903-3bd67ea";</script>
+  <script>window.WTF_APP_VERSION = "20260928053459-ad3657a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5327,6 +5327,22 @@
       build: window.WTF_APP_VERSION || ""
     });
     return config;
+  }
+  function getFirebaseAuthEnvironmentIssue() {
+    const protocol = String(window.location && window.location.protocol || "").toLowerCase();
+    if (!["http:", "https:", "chrome-extension:"].includes(protocol)) {
+      return "Firebase Auth necesita abrir el sistema desde http://localhost o HTTPS. No funciona desde archivos file://.";
+    }
+    try {
+      const key = "__wtf_firebase_auth_storage_probe__";
+      window.localStorage.setItem(key, "1");
+      window.localStorage.removeItem(key);
+      window.sessionStorage.setItem(key, "1");
+      window.sessionStorage.removeItem(key);
+    } catch (_) {
+      return "El almacenamiento web esta bloqueado. Habilita cookies y almacenamiento para este sitio e intenta nuevamente.";
+    }
+    return "";
   }
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
@@ -13155,8 +13171,21 @@
           setFirebaseAuthReady(true);
           return;
         }
+        const environmentIssue = getFirebaseAuthEnvironmentIssue();
+        if (environmentIssue) {
+          setFirebaseAuthReady(true);
+          setFirebaseAuthUser(null);
+          setFirebaseMessage(environmentIssue);
+          return;
+        }
         const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
-        const unsubscribeAuth = app.auth().onAuthStateChanged(function(user) {
+        const auth = app.auth();
+        if (window.firebase.auth.Auth && window.firebase.auth.Auth.Persistence && window.firebase.auth.Auth.Persistence.LOCAL) {
+          auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function(error) {
+            console.warn("No se pudo configurar la persistencia local de Firebase Auth:", error);
+          });
+        }
+        const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
           setFirebaseAuthUser(user || null);
           setFirebaseAuthReady(true);
           if (!user) {
@@ -13164,8 +13193,8 @@
           }
         }, function(error) {
           console.error("Firebase Auth error:", error);
-          setFirebaseAuthUser(null);
           setFirebaseAuthReady(true);
+          setFirebaseMessage("Firebase Auth no pudo restaurar la sesion temporalmente. Intenta nuevamente sin cerrar el navegador.");
         });
         return function() {
           unsubscribeAuth();
@@ -13191,6 +13220,7 @@
     }, [usuarios, authUserEmail]);
     useEffect(() => {
       if (!authUserEmail) return;
+      if (firebaseCfg.enabled && !firebaseAuthEmail) return;
       if (firebaseCfg.enabled && (!firebaseBootstrappedRef.current || firebaseStatus === "connecting")) return;
       if (currentUser) return;
       const wasDisabled = currentSessionUser && currentSessionUser.activo === false;
@@ -13214,8 +13244,12 @@
     }, [authUserEmail, currentUser, currentSessionUser, firebaseCfg.enabled, firebaseStatus]);
     useEffect(() => {
       if (!currentUser || !isAdminUser(currentUser)) return;
+      if (firebaseCfg.enabled && !firebaseAuthEmail) return;
       const revocation = normalizeAppSecurity(appSecurity).adminSessionsRevokedAt;
-      if (!readAdminSessionStartedAt(currentUser.email) && !revocation) {
+      const startedAtText = readAdminSessionStartedAt(currentUser.email);
+      const startedAt = startedAtText ? new Date(startedAtText).getTime() : 0;
+      const revokedAt = revocation ? new Date(revocation).getTime() : 0;
+      if (!Number.isFinite(startedAt) || startedAt <= 0 || (Number.isFinite(revokedAt) && revokedAt > 0 && startedAt <= revokedAt)) {
         writeAdminSessionStartedAt(currentUser.email, new Date().toISOString());
       }
       if (!isAdminSessionRevoked(currentUser, appSecurity)) return;
@@ -13226,7 +13260,7 @@
       setWelcomeCoverDismissedKey("");
       resetToModuleSelector(true);
       toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
-    }, [currentUser, appSecurity]);
+    }, [currentUser, appSecurity, firebaseCfg.enabled, firebaseAuthEmail]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail) return;
@@ -13294,10 +13328,26 @@
     }
     async function signInWithFirebaseGoogle() {
       if (!window.firebase || !window.firebase.auth) throw new Error("Firebase Auth no esta disponible.");
+      const environmentIssue = getFirebaseAuthEnvironmentIssue();
+      if (environmentIssue) throw new Error(environmentIssue);
       const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
+      const auth = app.auth();
+      if (window.firebase.auth.Auth && window.firebase.auth.Auth.Persistence && window.firebase.auth.Auth.Persistence.LOCAL) {
+        await auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL);
+      }
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      const result = await app.auth().signInWithPopup(provider);
+      let result;
+      try {
+        result = await auth.signInWithPopup(provider);
+      } catch (error) {
+        const code = String(error && error.code || "").toLowerCase();
+        if (code === "auth/popup-blocked") {
+          await auth.signInWithRedirect(provider);
+          return null;
+        }
+        throw error;
+      }
       const user = result && result.user || app.auth().currentUser;
       if (!user || !user.email) throw new Error("Google no devolvio un correo valido.");
       setFirebaseAuthUser(user);
