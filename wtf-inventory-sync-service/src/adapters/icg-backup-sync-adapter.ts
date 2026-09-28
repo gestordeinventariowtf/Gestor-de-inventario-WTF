@@ -938,7 +938,7 @@ async function firebaseAuthHeaders(config: ServiceConfig, headers: HeadersInit =
     throw new Error("El Host necesita WTF_FIREBASE_AUTH_EMAIL y WTF_FIREBASE_AUTH_PASSWORD para leer Firestore con una cuenta autorizada.");
   }
   if (!firebaseIdToken || Date.now() >= firebaseIdTokenExpiresAt) {
-    const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.apiKey)}`;
+    const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.firebaseApiKey)}`;
     const authRes = await fetch(authUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -962,13 +962,13 @@ async function firestoreFetch(config: ServiceConfig, url: string, init: RequestI
   const headers = await firebaseAuthHeaders(config, init.headers || { "Content-Type": "application/json" });
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const target = new URL(url);
-  if (config.apiKey && !target.searchParams.has("key")) target.searchParams.set("key", config.apiKey);
+  if (config.firebaseApiKey && !target.searchParams.has("key")) target.searchParams.set("key", config.firebaseApiKey);
   return fetch(target.toString(), Object.assign({}, init, { headers }));
 }
 
 function icgLedgerDocumentUrl(config: ServiceConfig, physicalKey: string, createOnly = false): string {
   const docId = `phys-${quickHashText(["icg-ledger-v1", physicalKey].join("|"))}`;
-  const query = new URLSearchParams({ key: config.apiKey });
+  const query = new URLSearchParams({ key: config.firebaseApiKey });
   if (createOnly) query.set("currentDocument.exists", "false");
   return `${documentUrl(config)}/icgAppliedMovements/${encodeURIComponent(docId)}?${query.toString()}`;
 }

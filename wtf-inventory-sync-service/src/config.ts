@@ -23,6 +23,7 @@ export function getConfig(): ServiceConfig {
     firebaseDocumentId: process.env.WTF_FIREBASE_DOCUMENT_ID || "estadoGeneral",
     autoApplyIcgBackup: false,
     apiKey: process.env.WTF_API_KEY || "",
+    firebaseApiKey: process.env.WTF_FIREBASE_API_KEY || process.env.WTF_API_KEY || "",
     firebaseAuthEmail: process.env.WTF_FIREBASE_AUTH_EMAIL || "wtfoodrdav.venezuela@gmail.com",
     firebaseAuthPassword: process.env.WTF_FIREBASE_AUTH_PASSWORD || "",
     branch: process.env.WTF_BRANCH || "principal",
