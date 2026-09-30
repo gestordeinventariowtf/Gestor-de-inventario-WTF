@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260930045750-d9b4411";</script>
+  <script>window.WTF_APP_VERSION = "20260930051708-8ca2874";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5350,6 +5350,7 @@
     const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(String(window.navigator && window.navigator.userAgent || ""));
     return Boolean(standalone || iosStandalone || mobile);
   }
+  const FIREBASE_GOOGLE_REDIRECT_PENDING_KEY = "wtf_firebase_google_redirect_pending_v1";
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
     const miseDeletedKeys = normalizeMiseDeletedKeys(state.miseDeletedKeys);
@@ -12432,6 +12433,7 @@
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
     const firebaseRedirectHandledRef = useRef(false);
+    const firebaseRedirectPendingRef = useRef(false);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -13193,6 +13195,11 @@
             console.warn("No se pudo configurar la persistencia local de Firebase Auth:", error);
           });
         }
+        try {
+          firebaseRedirectPendingRef.current = window.sessionStorage.getItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY) === "1";
+        } catch (_) {
+          firebaseRedirectPendingRef.current = false;
+        }
         if (!firebaseRedirectHandledRef.current && typeof auth.getRedirectResult === "function") {
           firebaseRedirectHandledRef.current = true;
           persistenceReady.then(function() {
@@ -13213,9 +13220,16 @@
           }).catch(function(error) {
             console.warn("No se pudo procesar el retorno de Google:", error);
             setFirebaseMessage("No se pudo completar el retorno de Google. Intenta nuevamente.");
+          }).finally(function() {
+            firebaseRedirectPendingRef.current = false;
+            try { window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY); } catch (_) {}
           });
         }
         const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
+          if (!user && firebaseRedirectPendingRef.current) {
+            setFirebaseAuthReady(true);
+            return;
+          }
           setFirebaseAuthUser(user || null);
           setFirebaseAuthReady(true);
           if (!user) {
@@ -13368,7 +13382,13 @@
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       if (isMobileOrStandaloneAuthEnvironment()) {
-        await auth.signInWithRedirect(provider);
+        try { window.sessionStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1"); } catch (_) {}
+        try {
+          await auth.signInWithRedirect(provider);
+        } catch (error) {
+          try { window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY); } catch (_) {}
+          throw error;
+        }
         return null;
       }
       let result;
