@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260930024433-41ea863";</script>
+  <script>window.WTF_APP_VERSION = "20260930045750-d9b4411";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13187,14 +13187,17 @@
         }
         const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
         const auth = app.auth();
+        let persistenceReady = Promise.resolve();
         if (window.firebase.auth.Auth && window.firebase.auth.Auth.Persistence && window.firebase.auth.Auth.Persistence.LOCAL) {
-          auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function(error) {
+          persistenceReady = auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function(error) {
             console.warn("No se pudo configurar la persistencia local de Firebase Auth:", error);
           });
         }
         if (!firebaseRedirectHandledRef.current && typeof auth.getRedirectResult === "function") {
           firebaseRedirectHandledRef.current = true;
-          auth.getRedirectResult().then(function(result) {
+          persistenceReady.then(function() {
+            return auth.getRedirectResult();
+          }).then(function(result) {
             const redirectedUser = result && result.user;
             if (!redirectedUser || !redirectedUser.email) return;
             setFirebaseAuthUser(redirectedUser);
