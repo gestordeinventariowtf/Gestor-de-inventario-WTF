@@ -297,7 +297,8 @@ $items = @(
   ".env.example",
   "README.md",
   "API_LOCAL.md",
-  "OPERACION_SIMPLE.md"
+  "OPERACION_SIMPLE.md",
+  "TECHNICAL_HOST.md"
 )
 
 foreach ($item in $items) {

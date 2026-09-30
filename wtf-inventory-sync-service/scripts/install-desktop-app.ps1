@@ -291,6 +291,14 @@ $PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY
 $PackagedFirebaseApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_API_KEY"
 $PackagedFirebaseAuthEmail = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_EMAIL"
 $PackagedFirebaseAuthPassword = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD"
+$PackagedHostIdentityMode = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_HOST_IDENTITY_MODE"
+$PackagedHostSyncEndpoint = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_HOST_SYNC_ENDPOINT"
+$PackagedTerminalId = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_ID"
+$PackagedTerminalSecretProtected = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED"
+$PackagedTerminalSecret = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_SECRET"
+if ($PackagedTerminalSecret -and !$PackagedTerminalSecretProtected) {
+  $PackagedTerminalSecretProtected = ConvertFrom-SecureString (ConvertTo-SecureString $PackagedTerminalSecret -AsPlainText -Force)
+}
 Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName "FRS_WTFOODVZL" -AuditDatabaseName "WTF_AUDIT_FRS_WTFOODVZL" -SqlDataDir "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 if (!(Test-Path $EnvPath)) {
   @"
@@ -304,6 +312,10 @@ WTF_API_KEY=$PackagedApiKey
 WTF_FIREBASE_API_KEY=$PackagedFirebaseApiKey
 WTF_FIREBASE_AUTH_EMAIL=$PackagedFirebaseAuthEmail
 WTF_FIREBASE_AUTH_PASSWORD=$PackagedFirebaseAuthPassword
+WTF_HOST_IDENTITY_MODE=$PackagedHostIdentityMode
+WTF_HOST_SYNC_ENDPOINT=$PackagedHostSyncEndpoint
+WTF_TERMINAL_ID=$PackagedTerminalId
+WTF_TERMINAL_SECRET_PROTECTED=$PackagedTerminalSecretProtected
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
@@ -338,6 +350,16 @@ if ($PackagedFirebaseAuthEmail) {
 }
 if ($PackagedFirebaseAuthPassword) {
   Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD" -Value $PackagedFirebaseAuthPassword
+}
+if ($PackagedHostIdentityMode) { Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value $PackagedHostIdentityMode }
+if ($PackagedHostSyncEndpoint) { Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value $PackagedHostSyncEndpoint }
+if ($PackagedTerminalId) { Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value $PackagedTerminalId }
+if ($PackagedTerminalSecretProtected) { Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value $PackagedTerminalSecretProtected }
+Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET" -Value ""
+$InstalledTerminalId = Get-PackagedEnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID"
+if (!$InstalledTerminalId) {
+  $InstalledTerminalId = "term_" + ([Guid]::NewGuid().ToString("N"))
+  Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value $InstalledTerminalId
 }
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"

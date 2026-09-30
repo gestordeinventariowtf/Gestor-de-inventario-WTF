@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { IcgBackupConsumptionRow, IcgBackupSyncResult, ServiceConfig, SyncMovement } from "../core/types.js";
 import { decodeFirestoreAppState, decodeFirestoreValue, encodeCompressedAppState, encodeFirestoreValue } from "../core/firestore-state.js";
+import { technicalFirestoreFetch } from "../security/technical-host-client.js";
 
 type AnyRecord = Record<string, any>;
 
@@ -959,6 +960,19 @@ async function firebaseAuthHeaders(config: ServiceConfig, headers: HeadersInit =
 }
 
 async function firestoreFetch(config: ServiceConfig, url: string, init: RequestInit = {}): Promise<Response> {
+  if (config.hostIdentityMode === "technical") {
+    const target = new URL(url);
+    const marker = "/documents/";
+    const index = target.pathname.indexOf(marker);
+    if (index < 0) throw new Error("La ruta Firestore del Host no es valida para el gateway tecnico.");
+    const resource = decodeURIComponent(target.pathname.slice(index + marker.length));
+    let fields: Record<string, unknown> | undefined;
+    if (typeof init.body === "string" && init.body.trim()) {
+      const payload = JSON.parse(init.body) as AnyRecord;
+      fields = payload.fields || {};
+    }
+    return technicalFirestoreFetch(config, resource, String(init.method || "GET"), fields, target.searchParams.get("currentDocument.exists") === "false");
+  }
   const headers = await firebaseAuthHeaders(config, init.headers || { "Content-Type": "application/json" });
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const target = new URL(url);

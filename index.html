@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260928053459-ad3657a";</script>
+  <script>window.WTF_APP_VERSION = "20260930024433-41ea863";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5343,6 +5343,12 @@
       return "El almacenamiento web esta bloqueado. Habilita cookies y almacenamiento para este sitio e intenta nuevamente.";
     }
     return "";
+  }
+  function isMobileOrStandaloneAuthEnvironment() {
+    const standalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+    const iosStandalone = window.navigator && window.navigator.standalone === true;
+    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(String(window.navigator && window.navigator.userAgent || ""));
+    return Boolean(standalone || iosStandalone || mobile);
   }
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
@@ -12425,6 +12431,7 @@
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
+    const firebaseRedirectHandledRef = useRef(false);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -13185,6 +13192,26 @@
             console.warn("No se pudo configurar la persistencia local de Firebase Auth:", error);
           });
         }
+        if (!firebaseRedirectHandledRef.current && typeof auth.getRedirectResult === "function") {
+          firebaseRedirectHandledRef.current = true;
+          auth.getRedirectResult().then(function(result) {
+            const redirectedUser = result && result.user;
+            if (!redirectedUser || !redirectedUser.email) return;
+            setFirebaseAuthUser(redirectedUser);
+            addSystemLog({
+              modulo: "Seguridad",
+              accion: "Validacion Google",
+              detalle: "Cuenta Google validada mediante retorno de la PWA.",
+              email: String(redirectedUser.email || "").trim().toLowerCase()
+            }, {
+              nombre: redirectedUser.displayName || redirectedUser.email || "Usuario Google",
+              email: String(redirectedUser.email || "").trim().toLowerCase()
+            });
+          }).catch(function(error) {
+            console.warn("No se pudo procesar el retorno de Google:", error);
+            setFirebaseMessage("No se pudo completar el retorno de Google. Intenta nuevamente.");
+          });
+        }
         const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
           setFirebaseAuthUser(user || null);
           setFirebaseAuthReady(true);
@@ -13337,6 +13364,10 @@
       }
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
+      if (isMobileOrStandaloneAuthEnvironment()) {
+        await auth.signInWithRedirect(provider);
+        return null;
+      }
       let result;
       try {
         result = await auth.signInWithPopup(provider);

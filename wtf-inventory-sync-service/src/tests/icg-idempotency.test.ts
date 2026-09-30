@@ -8,6 +8,7 @@ import {
   movementIcgIdFromLine
 } from "../adapters/icg-backup-sync-adapter.js";
 import type { IcgBackupConsumptionRow } from "../core/types.js";
+import { buildTechnicalSignature } from "../security/technical-host-client.js";
 
 const adapterSourcePath = fs.existsSync("src/adapters/icg-backup-sync-adapter.ts")
   ? "src/adapters/icg-backup-sync-adapter.ts"
@@ -64,6 +65,19 @@ assert.equal(
   movementIcgIdFromLine(baseLine, "2026-09-08"),
   movementIcgIdFromLine(samePhysicalLineDifferentClock, "2026-09-08"),
   "La misma linea fisica de ICG debe conservar el mismo MovimientoICGId aunque cambie la hora o cantidad agregada."
+);
+
+const technicalBody = JSON.stringify({ resource: "wtfSistema/icgControl", method: "GET", fields: {} });
+const technicalSignature = buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody);
+assert.equal(
+  technicalSignature,
+  buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody),
+  "Una solicitud tecnica identica debe producir una firma identica."
+);
+assert.notEqual(
+  technicalSignature,
+  buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody + " "),
+  "Cambiar el cuerpo debe invalidar la firma tecnica."
 );
 
 assert.equal(
