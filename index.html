@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260930051708-8ca2874";</script>
+  <script>window.WTF_APP_VERSION = "20260930053710-412bf35";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13200,14 +13200,46 @@
         } catch (_) {
           firebaseRedirectPendingRef.current = false;
         }
+        const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
+          if (!user && firebaseRedirectPendingRef.current) {
+            setFirebaseAuthReady(true);
+            return;
+          }
+          if (user && user.email) {
+            setFirebaseAuthUser(user);
+            setFirebaseAuthReady(true);
+            return;
+          }
+          // iOS puede emitir un estado nulo transitorio mientras termina de
+          // restaurar el resultado OAuth. Confirmamos currentUser antes de
+          // limpiar la cuenta validada para no vaciar el formulario.
+          window.setTimeout(function() {
+            const restoredUser = auth.currentUser;
+            if (restoredUser && restoredUser.email) {
+              setFirebaseAuthUser(restoredUser);
+              setFirebaseAuthReady(true);
+              return;
+            }
+            if (!firebaseRedirectPendingRef.current) {
+              setFirebaseAuthUser(null);
+              setAuthUserEmail("");
+            }
+            setFirebaseAuthReady(true);
+          }, 650);
+        }, function(error) {
+          console.error("Firebase Auth error:", error);
+          setFirebaseAuthReady(true);
+          setFirebaseMessage("Firebase Auth no pudo restaurar la sesion temporalmente. Intenta nuevamente sin cerrar el navegador.");
+        });
         if (!firebaseRedirectHandledRef.current && typeof auth.getRedirectResult === "function") {
           firebaseRedirectHandledRef.current = true;
           persistenceReady.then(function() {
             return auth.getRedirectResult();
           }).then(function(result) {
-            const redirectedUser = result && result.user;
+            const redirectedUser = result && result.user || auth.currentUser;
             if (!redirectedUser || !redirectedUser.email) return;
             setFirebaseAuthUser(redirectedUser);
+            setFirebaseAuthReady(true);
             addSystemLog({
               modulo: "Seguridad",
               accion: "Validacion Google",
@@ -13225,21 +13257,6 @@
             try { window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY); } catch (_) {}
           });
         }
-        const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
-          if (!user && firebaseRedirectPendingRef.current) {
-            setFirebaseAuthReady(true);
-            return;
-          }
-          setFirebaseAuthUser(user || null);
-          setFirebaseAuthReady(true);
-          if (!user) {
-            setAuthUserEmail("");
-          }
-        }, function(error) {
-          console.error("Firebase Auth error:", error);
-          setFirebaseAuthReady(true);
-          setFirebaseMessage("Firebase Auth no pudo restaurar la sesion temporalmente. Intenta nuevamente sin cerrar el navegador.");
-        });
         return function() {
           unsubscribeAuth();
         };
@@ -20725,7 +20742,9 @@
     const [googleSubmitting, setGoogleSubmitting] = useState(false);
     const [requestingTerminal, setRequestingTerminal] = useState(false);
     useEffect(() => {
-      if (firebaseAuthEmail && !email) setEmail(firebaseAuthEmail);
+      if (firebaseAuthEmail && normalizar(email) !== normalizar(firebaseAuthEmail)) {
+        setEmail(firebaseAuthEmail);
+      }
     }, [firebaseAuthEmail]);
     const googleEmailMismatch = Boolean(firebaseAuthEmail && email.trim() && normalizar(firebaseAuthEmail) !== normalizar(email));
     const canSubmitLogin = Boolean(firebaseAuthEmail && email.trim() && password && !googleEmailMismatch && !submitting);
