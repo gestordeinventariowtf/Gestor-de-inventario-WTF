@@ -2,7 +2,7 @@
 
 Aplicación Android basada en Capacitor/WebView para abrir:
 
-https://gestor-de-inventario-wtf-29056.web.app
+https://gestor-inventario-wtf.web.app
 
 ## Requisitos locales
 

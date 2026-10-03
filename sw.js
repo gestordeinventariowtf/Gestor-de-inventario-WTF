@@ -1,4 +1,4 @@
-const WTF_SW_VERSION = "20261003004100-firebase-auth-pwa-return-v2";
+const WTF_SW_VERSION = "20260926211332-firebase-auth-security";
 const STATIC_CACHE = `wtf-static-${WTF_SW_VERSION}`;
 const APP_SHELL = [
   "/",

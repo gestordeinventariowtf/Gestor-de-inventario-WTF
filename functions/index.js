@@ -7,7 +7,6 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import crypto from "node:crypto";
 import webpush from "web-push";
-import { enrollHostTerminal, handleHostFirestoreGateway } from "./host-gateway.js";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OLLAMA_CHAT_URL = "https://ollama.com/api/chat";
@@ -16,7 +15,6 @@ const OLLAMA_API_KEY = defineSecret("OLLAMA_API_KEY");
 const VAPID_PUBLIC_KEY = defineSecret("VAPID_PUBLIC_KEY");
 const VAPID_PRIVATE_KEY = defineSecret("VAPID_PRIVATE_KEY");
 const PUSH_ADMIN_KEY = defineSecret("PUSH_ADMIN_KEY");
-const WTF_HOST_SYNC_SECRET = defineSecret("WTF_HOST_SYNC_SECRET");
 const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
@@ -53,7 +51,7 @@ function cors(req, res) {
   }
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key, X-WTF-Terminal-Id, X-WTF-Timestamp, X-WTF-Nonce, X-WTF-Signature");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key");
 }
 
 function observedIp(req) {
@@ -825,23 +823,6 @@ export const wtfAuthorizedTerminal = onRequest({ region: "us-central1", cors: fa
   } catch (error) {
     res.status(500).json({ ok: false, error: error && error.message || "Error procesando terminal autorizada" });
   }
-});
-
-// Gateway exclusivo del Host: el Host no recibe permisos Firestore ni usa una cuenta humana.
-// Las reglas publicas siguen cerradas; la funcion valida terminal, firma, ventana temporal y nonce.
-export const wtfHostFirestoreGateway = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [WTF_HOST_SYNC_SECRET], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
-  cors(req, res);
-  if (req.method === "OPTIONS") return res.status(204).send("");
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Metodo no permitido" });
-  return handleHostFirestoreGateway(req, res, WTF_HOST_SYNC_SECRET);
-});
-
-// Enrolamiento/rotacion manual: exige un ID token Firebase Auth de uno de los administradores raiz.
-export const wtfEnrollHostTerminal = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [WTF_HOST_SYNC_SECRET], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
-  cors(req, res);
-  if (req.method === "OPTIONS") return res.status(204).send("");
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Metodo no permitido" });
-  return enrollHostTerminal(req, res, WTF_HOST_SYNC_SECRET, Boolean(req.body?.rotate));
 });
 
 export const wtfDispatchPushMessage = onDocumentCreated({ document: `${PUSH_MESSAGES_COLLECTION}/{messageId}`, region: "us-central1", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY] }, async (event) => {

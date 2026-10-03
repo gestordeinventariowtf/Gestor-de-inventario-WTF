@@ -58,10 +58,6 @@ export interface ServiceConfig {
   firebaseApiKey: string;
   firebaseAuthEmail: string;
   firebaseAuthPassword: string;
-  hostIdentityMode: "legacy" | "technical";
-  hostSyncEndpoint: string;
-  terminalId: string;
-  terminalSecretProtected: string;
   branch: string;
   defaultWarehouse: string;
   mode: "manual" | "automatico";

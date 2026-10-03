@@ -8,7 +8,6 @@ import {
   movementIcgIdFromLine
 } from "../adapters/icg-backup-sync-adapter.js";
 import type { IcgBackupConsumptionRow } from "../core/types.js";
-import { buildTechnicalSignature } from "../security/technical-host-client.js";
 
 const adapterSourcePath = fs.existsSync("src/adapters/icg-backup-sync-adapter.ts")
   ? "src/adapters/icg-backup-sync-adapter.ts"
@@ -65,19 +64,6 @@ assert.equal(
   movementIcgIdFromLine(baseLine, "2026-09-08"),
   movementIcgIdFromLine(samePhysicalLineDifferentClock, "2026-09-08"),
   "La misma linea fisica de ICG debe conservar el mismo MovimientoICGId aunque cambie la hora o cantidad agregada."
-);
-
-const technicalBody = JSON.stringify({ resource: "wtfSistema/icgControl", method: "GET", fields: {} });
-const technicalSignature = buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody);
-assert.equal(
-  technicalSignature,
-  buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody),
-  "Una solicitud tecnica identica debe producir una firma identica."
-);
-assert.notEqual(
-  technicalSignature,
-  buildTechnicalSignature("test-credential", "POST", "/wtfHostFirestoreGateway", "1770000000000", "nonce-1", technicalBody + " "),
-  "Cambiar el cuerpo debe invalidar la firma tecnica."
 );
 
 assert.equal(
@@ -167,7 +153,7 @@ const createMovementBody = adapterSource.slice(
   adapterSource.indexOf("export function icgPhysicalConsumptionSourceKey")
 );
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
-assert.ok(catalogSyncBody.includes("La Web.App aplicara las salidas automaticas"), "La cola del Host debe indicar que la Web.App aplica las salidas.");
+assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
 assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos disponibles"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");

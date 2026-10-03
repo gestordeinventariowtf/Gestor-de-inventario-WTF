@@ -129,9 +129,6 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     firebaseProjectId: config.firebaseProjectId,
     firebaseCollection: config.firebaseCollection,
     firebaseDocumentId: config.firebaseDocumentId,
-    hostIdentityMode: config.hostIdentityMode,
-    hostSyncEndpointConfigured: Boolean(config.hostSyncEndpoint),
-    terminalConfigured: Boolean(config.terminalId && config.terminalSecretProtected),
     sqlEnabled: config.sqlEnabled,
     apiKeyConfigured: Boolean(config.apiKey)
   };

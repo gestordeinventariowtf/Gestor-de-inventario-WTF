@@ -212,7 +212,6 @@
   async function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
     serviceWorkerRegistration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    await serviceWorkerRegistration.update().catch(() => null);
     if (serviceWorkerRegistration.waiting) serviceWorkerRegistration.waiting.postMessage({ type: "SKIP_WAITING" });
     serviceWorkerRegistration.addEventListener("updatefound", () => {
       const worker = serviceWorkerRegistration.installing;
@@ -237,15 +236,11 @@
         hiddenAt = Date.now();
         return;
       }
-      if (serviceWorkerRegistration) serviceWorkerRegistration.update().catch(() => null);
       if (!hiddenAt || Date.now() - hiddenAt >= RESUME_AFTER_MS) dispatchSyncEvent(RESUME_SYNC_EVENT, "visibility-resume");
       hiddenAt = 0;
     });
     window.addEventListener("focus", () => dispatchSyncEvent(RESUME_SYNC_EVENT, "window-focus"));
-    window.addEventListener("pageshow", (event) => {
-      if (serviceWorkerRegistration) serviceWorkerRegistration.update().catch(() => null);
-      dispatchSyncEvent(RESUME_SYNC_EVENT, event.persisted ? "bfcache-pageshow" : "pageshow");
-    });
+    window.addEventListener("pageshow", (event) => dispatchSyncEvent(RESUME_SYNC_EVENT, event.persisted ? "bfcache-pageshow" : "pageshow"));
     window.setInterval(() => {
       if (!document.hidden && navigator.onLine !== false) dispatchSyncEvent(FOREGROUND_SYNC_EVENT, "foreground-interval");
     }, FOREGROUND_SYNC_MS);

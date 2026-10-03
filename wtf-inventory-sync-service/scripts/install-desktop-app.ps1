@@ -291,24 +291,7 @@ $PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY
 $PackagedFirebaseApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_API_KEY"
 $PackagedFirebaseAuthEmail = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_EMAIL"
 $PackagedFirebaseAuthPassword = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD"
-$PackagedHostIdentityMode = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_HOST_IDENTITY_MODE"
-$PackagedHostSyncEndpoint = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_HOST_SYNC_ENDPOINT"
-$PackagedTerminalId = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_ID"
-$PackagedTerminalSecretProtected = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED"
-$PackagedTerminalSecret = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_TERMINAL_SECRET"
-if ($PackagedTerminalSecret -and !$PackagedTerminalSecretProtected) {
-  $PackagedTerminalSecretProtected = ConvertFrom-SecureString (ConvertTo-SecureString $PackagedTerminalSecret -AsPlainText -Force)
-}
-$PackagedLiveDatabaseName = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "ICG_LIVE_DATABASE_NAME"
-if (!$PackagedLiveDatabaseName) { $PackagedLiveDatabaseName = "FRS_WTFOODVZL" }
-$PackagedSqlDataPath = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "ICG_SQL_DATA_PATH"
-if (!$PackagedSqlDataPath) { $PackagedSqlDataPath = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA" }
-$PackagedSqlConnectionString = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "ICG_SQL_CONNECTION_STRING"
-if (!$PackagedSqlConnectionString) { $PackagedSqlConnectionString = "Server=localhost;Database=$PackagedLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True" }
-$PackagedBackupPath = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "ICG_BACKUP_PATH"
-if (!$PackagedBackupPath) { $PackagedBackupPath = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1" }
-$PackagedAuditDatabaseName = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "ICG_AUDIT_DB_NAME"
-Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName $PackagedLiveDatabaseName -AuditDatabaseName $PackagedAuditDatabaseName -SqlDataDir $PackagedSqlDataPath
+Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName "FRS_WTFOODVZL" -AuditDatabaseName "WTF_AUDIT_FRS_WTFOODVZL" -SqlDataDir "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
@@ -321,10 +304,6 @@ WTF_API_KEY=$PackagedApiKey
 WTF_FIREBASE_API_KEY=$PackagedFirebaseApiKey
 WTF_FIREBASE_AUTH_EMAIL=$PackagedFirebaseAuthEmail
 WTF_FIREBASE_AUTH_PASSWORD=$PackagedFirebaseAuthPassword
-WTF_HOST_IDENTITY_MODE=$PackagedHostIdentityMode
-WTF_HOST_SYNC_ENDPOINT=$PackagedHostSyncEndpoint
-WTF_TERMINAL_ID=$PackagedTerminalId
-WTF_TERMINAL_SECRET_PROTECTED=$PackagedTerminalSecretProtected
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
@@ -334,16 +313,16 @@ ICG_EXPORT_DIR=$DataDir\data\inbox
 ICG_IMPORT_DIR=$DataDir\data\outbox
 WTF_PROCESSED_DIR=$DataDir\data\processed
 WTF_QUARANTINE_DIR=$DataDir\data\quarantine
-ICG_BACKUP_PATH=$PackagedBackupPath
+ICG_BACKUP_PATH=C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1
 ICG_SQL_SERVER=localhost
-ICG_LIVE_DATABASE_NAME=$PackagedLiveDatabaseName
-ICG_SQL_DATA_PATH=$PackagedSqlDataPath
+ICG_LIVE_DATABASE_NAME=FRS_WTFOODVZL
+ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA
 ICG_AUDIT_DB_NAME=
 ICG_SQL_DATA_DIR=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA
 ICG_BACKUP_POLL_SECONDS=30
 ICG_CONSUMPTION_LOOKBACK_DAYS=30
 ICG_SQL_ENABLED=true
-ICG_SQL_CONNECTION_STRING=$PackagedSqlConnectionString
+ICG_SQL_CONNECTION_STRING=Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
 }
 
@@ -360,43 +339,33 @@ if ($PackagedFirebaseAuthEmail) {
 if ($PackagedFirebaseAuthPassword) {
   Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD" -Value $PackagedFirebaseAuthPassword
 }
-if ($PackagedHostIdentityMode) { Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value $PackagedHostIdentityMode }
-if ($PackagedHostSyncEndpoint) { Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value $PackagedHostSyncEndpoint }
-if ($PackagedTerminalId) { Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value $PackagedTerminalId }
-if ($PackagedTerminalSecretProtected) { Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value $PackagedTerminalSecretProtected }
-Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET" -Value ""
-$InstalledTerminalId = Get-PackagedEnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID"
-if (!$InstalledTerminalId) {
-  $InstalledTerminalId = "term_" + ([Guid]::NewGuid().ToString("N"))
-  Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value $InstalledTerminalId
-}
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
-Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value $PackagedBackupPath
+Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
-Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value $PackagedLiveDatabaseName
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value $PackagedSqlDataPath
+Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value ""
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_CONSUMPTION_LOOKBACK_DAYS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value $PackagedSqlConnectionString
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
 @"
 `$ErrorActionPreference = "Stop"
 Set-Location "$InstallDir"
 `$env:WTF_DATA_DIR = "$DataDir\data"
-`$env:ICG_BACKUP_PATH = "$PackagedBackupPath"
+`$env:ICG_BACKUP_PATH = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 `$env:ICG_SQL_SERVER = "localhost"
-`$env:ICG_LIVE_DATABASE_NAME = "$PackagedLiveDatabaseName"
-`$env:ICG_SQL_DATA_PATH = "$PackagedSqlDataPath"
+`$env:ICG_LIVE_DATABASE_NAME = "FRS_WTFOODVZL"
+`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 `$env:ICG_AUDIT_DB_NAME = ""
 `$env:ICG_SQL_DATA_DIR = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
 `$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:ICG_CONSUMPTION_LOOKBACK_DAYS = "30"
-`$env:ICG_SQL_CONNECTION_STRING = "$PackagedSqlConnectionString"
+`$env:ICG_SQL_CONNECTION_STRING = "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "false"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"
