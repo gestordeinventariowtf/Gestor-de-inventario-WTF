@@ -27,7 +27,10 @@ export async function technicalFirestoreFetch(config: ServiceConfig, resource: s
   const timestamp = String(Date.now());
   const nonce = crypto.randomBytes(18).toString("base64url");
   const secret = await credential(config);
-  const headers = new Headers({ "Content-Type": "application/json", "X-WTF-Terminal-Id": terminalId, "X-WTF-Timestamp": timestamp, "X-WTF-Nonce": nonce, "X-WTF-Signature": buildTechnicalSignature(secret, "POST", url.pathname, timestamp, nonce, body) });
+  // Cloud Functions normalizes the public function URL to `/` before validating
+  // the canonical request path. Signing the external function name causes a
+  // valid terminal credential to be rejected with 401/Firma tecnica invalida.
+  const headers = new Headers({ "Content-Type": "application/json", "X-WTF-Terminal-Id": terminalId, "X-WTF-Timestamp": timestamp, "X-WTF-Nonce": nonce, "X-WTF-Signature": buildTechnicalSignature(secret, "POST", "/", timestamp, nonce, body) });
   const init: RequestInit = { method: "POST", headers, body, signal: AbortSignal.timeout(30000) };
   return fetch(url, init);
 }

@@ -930,6 +930,12 @@ function shardDocumentUrl(config: ServiceConfig, key: string): string {
   return `${documentUrl(config)}/stateShards/${encodeURIComponent(key)}`;
 }
 
+function externalStateDocumentUrl(config: ServiceConfig, key: string): string {
+  // ICG lives in its own root document. Appending to estadoGeneral would
+  // create an invalid nested path rejected by the technical gateway.
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/${encodeURIComponent(key)}`;
+}
+
 function icgControlDocumentUrl(config: ServiceConfig): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/icgControl`;
 }
@@ -1035,21 +1041,24 @@ function splitAppStateIntoShards(appState: AnyRecord): { mainState: AnyRecord; s
 }
 
 async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
-  const res = await firestoreFetch(config, documentUrl(config));
-  if (!res.ok) throw new Error(`Firestore no permitio leer estado WTF (${res.status}).`);
-  const doc = await res.json() as AnyRecord;
-  const appState = decodeFirestoreAppState(doc.fields);
-  const shardKeys = decodeFirestoreValue(doc.fields?.appStateShardKeys);
-  if (!Array.isArray(shardKeys) || !shardKeys.length) return appState;
-  await Promise.all(shardKeys.map(async (key) => {
-    const shardKey = String(key || "").trim();
-    if (!shardKey) return;
-    const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shardKey));
-    if (!shardRes.ok) return;
-    const shardDoc = await shardRes.json() as AnyRecord;
-    const shardValue = decodeFirestoreAppState(shardDoc.fields);
-    if (shardValue !== undefined && shardValue !== null) appState[shardKey] = shardValue;
-  }));
+  // The Host only needs the ICG module. Do not download estadoGeneral: it is
+  // a large aggregate document and can reset the connection before ICG loads.
+  const appState: AnyRecord = {};
+  const externalIcgRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"));
+  if (externalIcgRes.ok) {
+    const externalDoc = await externalIcgRes.json() as AnyRecord;
+    const externalValue = decodeFirestoreAppState(externalDoc.fields);
+    if (externalValue && typeof externalValue === "object") appState.icgFrontRestData = externalValue;
+  }
+  if (appState.icgFrontRestData) return appState;
+  // Compatibility fallback for older deployments that only have the legacy
+  // state shard, without ever fetching the large general document.
+  const legacyIcgRes = await firestoreFetch(config, shardDocumentUrl(config, "icgFrontRestData"));
+  if (legacyIcgRes.ok) {
+    const legacyDoc = await legacyIcgRes.json() as AnyRecord;
+    const legacyValue = decodeFirestoreAppState(legacyDoc.fields);
+    if (legacyValue && typeof legacyValue === "object") appState.icgFrontRestData = legacyValue;
+  }
   return appState;
 }
 
@@ -1116,15 +1125,20 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       throw new Error(`Firestore no permitio guardar shard ${shard.key} (${shardRes.status}). ${text.slice(0, 300)}`);
     }
   }));
-  const res = await firestoreFetch(config, documentUrl(config), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Firestore no permitio guardar estado WTF (${res.status}). ${text.slice(0, 300)}`);
+  const icgPayload = shardPayloads.find((shard) => shard.key === "icgFrontRestData");
+  if (icgPayload) {
+    const externalRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(icgPayload.payload)
+    });
+    if (!externalRes.ok) {
+      const text = await externalRes.text().catch(() => "");
+      throw new Error(`Firestore no permitio guardar icgFrontRestData externo (${externalRes.status}). ${text.slice(0, 300)}`);
+    }
   }
+  // Deliberately do not write estadoGeneral. The external ICG document and
+  // its shard are the Host's authoritative write targets.
 }
 
 async function runSql(config: ServiceConfig, database: string, sql: string): Promise<string> {
@@ -2145,7 +2159,7 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     skipped: data.rows.length,
     pending: 0,
     errors: data.previewReadOk === false && data.previewReadError ? [data.previewReadError] : [],
-    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. ${previewMessage} No se aplicaron salidas ni descuentos automaticos.`,
+    message: `Catalogos y ventas ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. ${previewMessage} El Host no descuenta inventario; La Web.App aplicara las salidas automaticas al recibir las lineas pendientes, con control anti-duplicidad.`,
     tableCounts: data.tableCounts,
     preserveLocalIcgQueue: data.previewReadOk === false,
     previewReadOk: data.previewReadOk,
@@ -2153,7 +2167,7 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
       const movementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || data.fecha || now.slice(0, 10);
       const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, movementDate), line.codAlmacen || ""].join("|"));
-      return createBackupMovement(line, movementDate, importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
+      return createBackupMovement(line, movementDate, importKey, "pendiente", "Movimiento recibido desde Host. La Web.App aplicara el descuento automatico de forma idempotente.");
     })
   };
   await writeAppState(config, appState, result);

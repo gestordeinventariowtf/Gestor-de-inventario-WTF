@@ -7,6 +7,7 @@ const MAX_BODY_BYTES = 900000;
 const ALLOWED_DOCUMENTS = [
   /^wtfSistema\/estadoGeneral$/,
   /^wtfSistema\/estadoGeneral\/stateShards\/[A-Za-z0-9_-]{1,120}$/,
+  /^wtfSistema\/icgFrontRestData$/,
   /^wtfSistema\/icgControl$/,
   /^wtfSistema\/icgAppliedMovements\/[A-Za-z0-9_-]{1,180}$/
 ];

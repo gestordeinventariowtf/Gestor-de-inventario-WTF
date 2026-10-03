@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20260930053710-412bf35";</script>
+  <script>window.WTF_APP_VERSION = "20261003044322-92b66b7";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5351,6 +5351,8 @@
     return Boolean(standalone || iosStandalone || mobile);
   }
   const FIREBASE_GOOGLE_REDIRECT_PENDING_KEY = "wtf_firebase_google_redirect_pending_v1";
+  const FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY = "wtf_firebase_google_redirect_started_at_v1";
+  const FIREBASE_GOOGLE_LAST_EMAIL_KEY = "wtf_firebase_google_last_email_v1";
   function serializeAppState(state) {
     const deletedKeys = normalizeInventoryDeletedKeys(state.inventoryDeletedKeys);
     const miseDeletedKeys = normalizeMiseDeletedKeys(state.miseDeletedKeys);
@@ -13196,17 +13198,41 @@
           });
         }
         try {
-          firebaseRedirectPendingRef.current = window.sessionStorage.getItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY) === "1";
+          const pendingSession = window.sessionStorage.getItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY) === "1";
+          const pendingLocal = window.localStorage.getItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY) === "1";
+          const startedAt = Number(window.localStorage.getItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY) || 0);
+          const pendingIsFresh = startedAt > 0 && Date.now() - startedAt < 10 * 60 * 1000;
+          firebaseRedirectPendingRef.current = (pendingSession || pendingLocal) && pendingIsFresh;
+          if (!pendingIsFresh) {
+            window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY);
+          }
         } catch (_) {
           firebaseRedirectPendingRef.current = false;
         }
+        function rememberFirebaseGoogleUser(user) {
+          const email = String(user && user.email || "").trim().toLowerCase();
+          if (!email) return;
+          try { window.localStorage.setItem(FIREBASE_GOOGLE_LAST_EMAIL_KEY, email); } catch (_) {}
+          window.dispatchEvent(new CustomEvent("wtf:firebase-google-authenticated", { detail: { email } }));
+        }
+        function clearFirebaseGoogleReturnMarker() {
+          firebaseRedirectPendingRef.current = false;
+          try {
+            window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY);
+          } catch (_) {}
+        }
         const unsubscribeAuth = auth.onAuthStateChanged(function(user) {
           if (!user && firebaseRedirectPendingRef.current) {
-            setFirebaseAuthReady(true);
+            setFirebaseAuthReady(false);
             return;
           }
           if (user && user.email) {
             setFirebaseAuthUser(user);
+            rememberFirebaseGoogleUser(user);
             setFirebaseAuthReady(true);
             return;
           }
@@ -13217,6 +13243,7 @@
             const restoredUser = auth.currentUser;
             if (restoredUser && restoredUser.email) {
               setFirebaseAuthUser(restoredUser);
+              rememberFirebaseGoogleUser(restoredUser);
               setFirebaseAuthReady(true);
               return;
             }
@@ -13225,7 +13252,7 @@
               setAuthUserEmail("");
             }
             setFirebaseAuthReady(true);
-          }, 650);
+          }, 1800);
         }, function(error) {
           console.error("Firebase Auth error:", error);
           setFirebaseAuthReady(true);
@@ -13239,6 +13266,7 @@
             const redirectedUser = result && result.user || auth.currentUser;
             if (!redirectedUser || !redirectedUser.email) return;
             setFirebaseAuthUser(redirectedUser);
+            rememberFirebaseGoogleUser(redirectedUser);
             setFirebaseAuthReady(true);
             addSystemLog({
               modulo: "Seguridad",
@@ -13253,8 +13281,7 @@
             console.warn("No se pudo procesar el retorno de Google:", error);
             setFirebaseMessage("No se pudo completar el retorno de Google. Intenta nuevamente.");
           }).finally(function() {
-            firebaseRedirectPendingRef.current = false;
-            try { window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY); } catch (_) {}
+            clearFirebaseGoogleReturnMarker();
           });
         }
         return function() {
@@ -13399,11 +13426,19 @@
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       if (isMobileOrStandaloneAuthEnvironment()) {
-        try { window.sessionStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1"); } catch (_) {}
+        try {
+          window.sessionStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
+          window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
+          window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY, String(Date.now()));
+        } catch (_) {}
         try {
           await auth.signInWithRedirect(provider);
         } catch (error) {
-          try { window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY); } catch (_) {}
+          try {
+            window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
+            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY);
+          } catch (_) {}
           throw error;
         }
         return null;
@@ -13422,6 +13457,7 @@
       const user = result && result.user || app.auth().currentUser;
       if (!user || !user.email) throw new Error("Google no devolvio un correo valido.");
       setFirebaseAuthUser(user);
+      try { window.localStorage.setItem(FIREBASE_GOOGLE_LAST_EMAIL_KEY, String(user.email || "").trim().toLowerCase()); } catch (_) {}
       addSystemLog({
         modulo: "Seguridad",
         accion: "Validacion Google",
@@ -13859,6 +13895,34 @@
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
     }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    useEffect(() => {
+      // El Host publica ICG en un documento separado; escucharlo evita depender
+      // de una escritura del estado general para recibir ventas nuevas.
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseDocRef.current || (page !== "icg" && page !== "icgHost")) return;
+      const externalRef = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData);
+      const unsubscribe = externalRef.onSnapshot(function(snapshot) {
+        if (!snapshot.exists) return;
+        const raw = snapshot.data() || {};
+        const value = raw.appStateCompressed ? decodeFirebaseCompressedState(raw.appStateCompressed) : raw.appState;
+        if (!value || typeof value !== "object") return;
+        const signature = String(raw.syncMeta && raw.syncMeta.signature || quickHashText(JSON.stringify(value)));
+        if (firebaseExternalDocSignaturesRef.current.icgFrontRestData === signature) return;
+        firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current, { icgFrontRestData: signature });
+        Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
+        saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+        const cacheKey = `${externalRef.parent.path}/${FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData}`;
+        firebaseExternalStateCache[cacheKey] = { metaSignature: signature, value };
+        setIcgFrontRestData(function(previous) {
+          return preserveIcgDecisionLocks(ensureIcgFrontRestData(value), previous);
+        });
+        setFirebaseStatus("connected");
+        setFirebaseMessage("Ventas ICG recibidas desde Host");
+        setLastSyncedAt(formatDatetime(new Date()));
+      }, function(error) {
+        console.error("ICG external sync error:", error);
+      });
+      return unsubscribe;
+    }, [firebaseCfg.enabled, firebaseAuthReady, firebaseAuthEmail, page]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
