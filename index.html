@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261003135129-36feadf";</script>
+  <script>window.WTF_APP_VERSION = "20261003203441-cb1d5d7";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13425,30 +13425,17 @@
       }
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      if (isMobileOrStandaloneAuthEnvironment()) {
-        try {
-          window.sessionStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
-          window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
-          window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY, String(Date.now()));
-        } catch (_) {}
-        try {
-          await auth.signInWithRedirect(provider);
-        } catch (error) {
-          try {
-            window.sessionStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
-            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY);
-            window.localStorage.removeItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY);
-          } catch (_) {}
-          throw error;
-        }
-        return null;
-      }
       let result;
       try {
         result = await auth.signInWithPopup(provider);
       } catch (error) {
         const code = String(error && error.code || "").toLowerCase();
         if (code === "auth/popup-blocked") {
+          try {
+            window.sessionStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
+            window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_PENDING_KEY, "1");
+            window.localStorage.setItem(FIREBASE_GOOGLE_REDIRECT_STARTED_AT_KEY, String(Date.now()));
+          } catch (_) {}
           await auth.signInWithRedirect(provider);
           return null;
         }
