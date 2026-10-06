@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261006171411-d7da20c";</script>
+  <script>window.WTF_APP_VERSION = "20261006181947-038c277";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5394,6 +5394,7 @@
   function serializeFirebaseSyncState(state) {
     const value = cloneData(state || {});
     delete value.systemLogs;
+    CENTRAL_RECORD_KEYS.forEach(function(key) { delete value[key]; });
     return serializeAppState(value);
   }
   function compactIcgDatasetForFirebase(data, key, rowLimit) {
@@ -5495,6 +5496,15 @@
   const SYSTEM_LOGS_CURSOR_STORAGE = "wtf_system_logs_cursor_v1";
   const SYSTEM_LOGS_DEVICE_STORAGE = "wtf_system_logs_device_id_v1";
   const SYSTEM_LOGS_EVENTS_MODE_STORAGE = "wtf_system_logs_events_mode_v1";
+  const CENTRAL_RECORDS_COLLECTION = "registrosEventos";
+  const CENTRAL_RECORDS_META_COLLECTION = "registrosMeta";
+  const CENTRAL_RECORDS_REVISION_STORAGE = "wtf_registros_remote_revision_v1";
+  const CENTRAL_RECORDS_DEVICE_STORAGE = "wtf_registros_device_id_v1";
+  const CENTRAL_RECORDS_PENDING_STORAGE = "wtf_registros_pending_events_v1";
+  const CENTRAL_RECORD_KEYS = new Set([
+    "regEntradas", "regSalidas", "regDecomiso", "regRecuento",
+    "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento"
+  ]);
   const FIREBASE_EXTERNAL_SIGNATURES_STORAGE = "wtf_firebase_external_doc_signatures_v1";
   const FIREBASE_LAZY_MODULE_KEYS = new Set([
     "icgFrontRestData",
@@ -12426,6 +12436,10 @@
     const firebaseWriteQueuedRef = useRef(false);
     const firebaseExternalDocSignaturesRef = useRef({});
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const centralizedRecordsPreviousRef = useRef(null);
+    const centralizedRecordsLoadedRef = useRef(false);
+    const centralizedRecordsLoadingRef = useRef(false);
+    const centralizedRecordsWriteInFlightRef = useRef(false);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
@@ -12538,6 +12552,242 @@
     };
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
+    }
+    function getCentralizedRecordsRootRef() {
+      const docRef = firebaseDocRef.current;
+      return docRef && docRef.parent ? docRef.parent : null;
+    }
+    function getCentralizedRecordsCollectionRef() {
+      const root = getCentralizedRecordsRootRef();
+      return root ? root.doc(CENTRAL_RECORDS_COLLECTION).collection("events") : null;
+    }
+    function getCentralizedRecordsMetaRef(moduleId) {
+      const root = getCentralizedRecordsRootRef();
+      return root ? root.doc(CENTRAL_RECORDS_META_COLLECTION).collection("modules").doc(moduleId) : null;
+    }
+    function getCentralizedRecordsDeviceId() {
+      let id = String(load(CENTRAL_RECORDS_DEVICE_STORAGE, "") || "").trim();
+      if (!id) {
+        id = syncClientIdRef.current || `records-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        save(CENTRAL_RECORDS_DEVICE_STORAGE, id);
+      }
+      return id;
+    }
+    function centralizedRecordScope(sourceKey) {
+      return String(sourceKey || "").startsWith("bar") ? "bar" : "cocina";
+    }
+    function centralizedRecordType(sourceKey) {
+      const key = String(sourceKey || "");
+      if (key.toLowerCase().includes("recuento")) return "recuento";
+      if (key.toLowerCase().includes("decomiso")) return "decomiso";
+      if (key.toLowerCase().includes("salida")) return "salida";
+      return "entrada";
+    }
+    function centralizedRecordRowKey(sourceKey, row) {
+      const rowId = String(row && (row.id || row.ID || row.numero || row.ticket || "") || "").trim();
+      return `${sourceKey}:${rowId || quickHashText(JSON.stringify(row || {}))}`;
+    }
+    function centralizedRecordEventId(sourceKey, rowKey, row, deleted) {
+      const fingerprint = quickHashText(JSON.stringify({
+        sourceKey,
+        rowKey,
+        deleted: Boolean(deleted),
+        row: row || {}
+      }));
+      return `evt-${quickHashText(`${sourceKey}|${rowKey}|${fingerprint}`)}`;
+    }
+    function buildCentralizedRecordEvent(sourceKey, row, deleted = false) {
+      const safeRow = row && typeof row === "object" ? cloneData(row) : {};
+      const rowKey = centralizedRecordRowKey(sourceKey, safeRow);
+      const eventId = centralizedRecordEventId(sourceKey, rowKey, safeRow, deleted);
+      const email = String(firebaseAuthEmail || authUserEmail || "").trim().toLowerCase();
+      return {
+        id: eventId,
+        sourceKey,
+        rowKey,
+        tipo: centralizedRecordType(sourceKey),
+        modulo: centralizedRecordScope(sourceKey),
+        rowData: deleted ? {} : safeRow,
+        deleted: Boolean(deleted),
+        usuario: getUserDisplayLabel(currentUser) || "Usuario autorizado",
+        email,
+        deviceId: getCentralizedRecordsDeviceId(),
+        source: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? "pwa" : "web",
+        fechaCliente: new Date().toISOString(),
+        updatedAtClient: new Date().toISOString(),
+        revision: Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0) + 1
+      };
+    }
+    function getCentralizedRecordStateSnapshot() {
+      const state = getCurrentAppState();
+      const keys = {};
+      CENTRAL_RECORD_KEYS.forEach((key) => {
+        keys[key] = Array.isArray(state[key]) ? state[key] : [];
+      });
+      return keys;
+    }
+    async function writeCentralizedRecordEvent(event) {
+      const collection = getCentralizedRecordsCollectionRef();
+      if (!collection || !event || !firebaseAuthEmail) return false;
+      const ref = collection.doc(event.id);
+      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
+      const payload = Object.assign({}, event, {
+        createdAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString(),
+        updatedAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString()
+      });
+      try {
+        if (typeof ref.create === "function") await ref.create(payload);
+        else await ref.set(payload);
+        return true;
+      } catch (error) {
+        const message = String(error && error.message || error || "").toLowerCase();
+        if (message.includes("already exists") || message.includes("already-exists")) return true;
+        throw error;
+      }
+    }
+    async function writeCentralizedRecordsMeta(modules, revision) {
+      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
+      await Promise.all(Array.from(modules).map(async (moduleId) => {
+        const ref = getCentralizedRecordsMetaRef(moduleId);
+        if (!ref) return;
+        await ref.set({
+          revision,
+          updatedAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString(),
+          updatedAtClient: new Date().toISOString(),
+          updatedBy: firebaseAuthEmail,
+          deviceId: getCentralizedRecordsDeviceId()
+        }, { merge: true });
+      }));
+    }
+    function getPendingCentralizedRecordEvents() {
+      const value = load(CENTRAL_RECORDS_PENDING_STORAGE, []);
+      return Array.isArray(value) ? value : [];
+    }
+    function savePendingCentralizedRecordEvents(events) {
+      save(CENTRAL_RECORDS_PENDING_STORAGE, Array.isArray(events) ? events.slice(-2000) : []);
+    }
+    async function flushCentralizedRecordEvents() {
+      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || centralizedRecordsWriteInFlightRef.current) return;
+      const pending = getPendingCentralizedRecordEvents();
+      if (!pending.length) return;
+      centralizedRecordsWriteInFlightRef.current = true;
+      const remaining = [];
+      const modules = new Set();
+      try {
+        for (const event of pending) {
+          try {
+            await writeCentralizedRecordEvent(event);
+            modules.add(String(event.modulo || "cocina"));
+          } catch (_) {
+            remaining.push(event);
+          }
+        }
+        savePendingCentralizedRecordEvents(remaining);
+        if (modules.size && remaining.length < pending.length) {
+          await writeCentralizedRecordsMeta(modules, Date.now());
+        }
+      } finally {
+        centralizedRecordsWriteInFlightRef.current = false;
+      }
+    }
+    async function syncCentralizedRecordChanges(snapshot) {
+      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || !firebaseDocRef.current) return;
+      if (centralizedRecordsWriteInFlightRef.current) return;
+      let previous = centralizedRecordsPreviousRef.current;
+      centralizedRecordsPreviousRef.current = snapshot;
+      if (!previous) {
+        // Migracion controlada: solo se ejecuta una vez por dispositivo y por evento.
+        previous = {};
+      }
+      const events = [];
+      const modules = new Set();
+      CENTRAL_RECORD_KEYS.forEach((sourceKey) => {
+        const currentRows = Array.isArray(snapshot[sourceKey]) ? snapshot[sourceKey] : [];
+        const previousRows = Array.isArray(previous[sourceKey]) ? previous[sourceKey] : [];
+        const currentByKey = new Map(currentRows.map((row) => [centralizedRecordRowKey(sourceKey, row), row]));
+        const previousByKey = new Map(previousRows.map((row) => [centralizedRecordRowKey(sourceKey, row), row]));
+        currentByKey.forEach((row, rowKey) => {
+          const currentHash = quickHashText(JSON.stringify(row || {}));
+          const previousHash = quickHashText(JSON.stringify(previousByKey.get(rowKey) || {}));
+          if (currentHash !== previousHash) {
+            events.push(buildCentralizedRecordEvent(sourceKey, row, false));
+            modules.add(centralizedRecordScope(sourceKey));
+          }
+        });
+        previousByKey.forEach((row, rowKey) => {
+          if (!currentByKey.has(rowKey)) {
+            events.push(buildCentralizedRecordEvent(sourceKey, row, true));
+            modules.add(centralizedRecordScope(sourceKey));
+          }
+        });
+      });
+      if (!events.length) {
+        await flushCentralizedRecordEvents();
+        return;
+      }
+      centralizedRecordsWriteInFlightRef.current = true;
+      try {
+        const failed = [];
+        const modules = new Set();
+        for (const event of events) {
+          try {
+            await writeCentralizedRecordEvent(event);
+            modules.add(event.modulo);
+          } catch (_) {
+            failed.push(event);
+          }
+        }
+        const queued = getPendingCentralizedRecordEvents().concat(failed);
+        savePendingCentralizedRecordEvents(queued);
+        const revision = Date.now();
+        save(CENTRAL_RECORDS_REVISION_STORAGE, revision);
+        if (modules.size) await writeCentralizedRecordsMeta(modules, revision);
+      } catch (error) {
+        console.error("No se pudieron sincronizar eventos de Registros:", error);
+      } finally {
+        centralizedRecordsWriteInFlightRef.current = false;
+      }
+    }
+    async function loadCentralizedRecordsFromEvents(baseState) {
+      const collection = getCentralizedRecordsCollectionRef();
+      if (!collection || !firebaseAuthEmail || centralizedRecordsLoadingRef.current) return baseState;
+      centralizedRecordsLoadingRef.current = true;
+      try {
+        const metaSnapshots = await Promise.all(["cocina", "bar"].map((moduleId) => getCentralizedRecordsMetaRef(moduleId)?.get()));
+        const remoteRevision = Math.max(...metaSnapshots.filter(Boolean).map((snapshot) => Number(snapshot.exists && snapshot.data().revision || 0)), 0);
+        const localRevision = Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0);
+        if (centralizedRecordsLoadedRef.current && remoteRevision <= localRevision) return baseState;
+        const snapshot = await collection.orderBy("updatedAtClient", "desc").get();
+        const latest = new Map();
+        snapshot.forEach((doc) => {
+          const event = doc.data() || {};
+          const key = String(event.rowKey || "");
+          if (!key || latest.has(key)) return;
+          latest.set(key, event);
+        });
+        const result = Object.assign({}, baseState || {});
+        const rowsByKey = {};
+        const seenKeys = new Set();
+        CENTRAL_RECORD_KEYS.forEach((key) => { rowsByKey[key] = []; });
+        latest.forEach((event) => {
+          const sourceKey = String(event.sourceKey || "");
+          if (!CENTRAL_RECORD_KEYS.has(sourceKey)) return;
+          seenKeys.add(sourceKey);
+          if (event.deleted !== true) rowsByKey[sourceKey].push(event.rowData || {});
+        });
+        CENTRAL_RECORD_KEYS.forEach((key) => {
+          if (seenKeys.has(key)) result[key] = rowsByKey[key];
+        });
+        centralizedRecordsLoadedRef.current = true;
+        centralizedRecordsPreviousRef.current = Object.assign({}, rowsByKey);
+        save(CENTRAL_RECORDS_REVISION_STORAGE, remoteRevision);
+        return result;
+      } catch (error) {
+        console.warn("No se pudieron leer los eventos centralizados de Registros:", error);
+        return baseState;
+      } finally {
+        centralizedRecordsLoadingRef.current = false;
+      }
     }
     function getSystemLogsRootRef() {
       const docRef = firebaseDocRef.current;
@@ -12746,6 +12996,12 @@
       const externalDocSignatures = Object.assign({}, firebaseExternalDocSignaturesRef.current || {});
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
+        if (CENTRAL_RECORD_KEYS.has(key)) {
+          // Los registros operativos se publican como eventos individuales.
+          // Los documentos antiguos permanecen disponibles solo para migracion/compatibilidad.
+          delete firebaseState[key];
+          return;
+        }
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
@@ -13827,7 +14083,9 @@
             localExternalSignatures: firebaseExternalDocSignaturesRef.current,
             activePage: page
           });
-          if (remoteState) {
+          const centralizedRemoteState = remoteState ? await loadCentralizedRecordsFromEvents(remoteState) : remoteState;
+          if (centralizedRemoteState) {
+            Object.assign(remoteState, centralizedRemoteState);
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
               applyRemoteState(migratedState);
@@ -13940,6 +14198,46 @@
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
     }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || firebaseStatus !== "connected" || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+      flushCentralizedRecordEvents().catch(() => {});
+      syncCentralizedRecordChanges(getCentralizedRecordStateSnapshot()).catch((error) => {
+        console.warn("Sincronizacion incremental de Registros pendiente:", error);
+      });
+    }, [firebaseCfg, firebaseStatus, firebaseAuthEmail, regEntradas, regSalidas, regDecomiso, regRecuento, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, movementDeletedKeys]);
+    useEffect(() => {
+      if (!firebaseAuthEmail || firebaseStatus !== "connected") return;
+      const refresh = () => flushCentralizedRecordEvents().catch(() => {});
+      window.addEventListener("online", refresh);
+      window.addEventListener("focus", refresh);
+      window.addEventListener("pageshow", refresh);
+      return () => {
+        window.removeEventListener("online", refresh);
+        window.removeEventListener("focus", refresh);
+        window.removeEventListener("pageshow", refresh);
+      };
+    }, [firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
+      if (!firebaseAuthEmail || firebaseStatus !== "connected" || !firebaseBootstrappedRef.current) return;
+      const refs = [getCentralizedRecordsMetaRef("cocina"), getCentralizedRecordsMetaRef("bar")].filter(Boolean);
+      if (!refs.length) return;
+      let active = true;
+      const refreshRecordsFromCloud = async () => {
+        if (!active || centralizedRecordsLoadingRef.current) return;
+        const current = getCurrentAppState();
+        const next = await loadCentralizedRecordsFromEvents(current);
+        if (!active || next === current) return;
+        const currentSignature = quickHashText(JSON.stringify(getCentralizedRecordStateSnapshot()));
+        const nextSignature = quickHashText(JSON.stringify(CENTRAL_RECORD_KEYS.size ? Array.from(CENTRAL_RECORD_KEYS).map((key) => next[key] || []) : []));
+        if (currentSignature !== nextSignature) applyRemoteState(next);
+      };
+      const unsubs = refs.map((ref) => ref.onSnapshot(() => refreshRecordsFromCloud().catch(() => {}), () => {}));
+      refreshRecordsFromCloud().catch(() => {});
+      return () => {
+        active = false;
+        unsubs.forEach((unsubscribe) => { if (typeof unsubscribe === "function") unsubscribe(); });
+      };
+    }, [firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {

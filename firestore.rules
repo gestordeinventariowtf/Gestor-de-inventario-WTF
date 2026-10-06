@@ -110,6 +110,27 @@ service cloud.firestore {
       allow read, write: if isAuthorizedUser() && isExternalStateDocument(externalStateDoc);
     }
 
+    match /wtfSistema/registrosEventos/events/{eventId} {
+      allow read: if isAuthorizedUser();
+      allow create: if isAuthorizedUser()
+        && request.resource.data.id == eventId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.tipo is string
+        && request.resource.data.modulo in ['cocina', 'bar']
+        && request.resource.data.sourceKey is string
+        && request.resource.data.rowKey is string
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAuthorizedUser()
+        && request.resource.data.id == eventId
+        && request.resource.data.email == request.auth.token.email;
+      allow delete: if isAuthorizedAdmin();
+    }
+
+    match /wtfSistema/registrosMeta/modules/{moduleId} {
+      allow read, write: if isAuthorizedUser()
+        && moduleId in ['cocina', 'bar'];
+    }
+
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
       allow read: if isAuthorizedUser();
       allow write: if isAuthorizedUser()
