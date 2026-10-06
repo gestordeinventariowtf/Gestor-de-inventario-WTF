@@ -119,6 +119,10 @@ service cloud.firestore {
         && request.resource.data.modulo in ['cocina', 'bar']
         && request.resource.data.sourceKey is string
         && request.resource.data.rowKey is string
+        && request.resource.data.movementId is string
+        && request.resource.data.inventoryKey is string
+        && request.resource.data.existenciaAnterior is number
+        && request.resource.data.existenciaNueva is number
         && request.resource.data.createdAt == request.time;
       allow update: if isAuthorizedUser()
         && request.resource.data.id == eventId

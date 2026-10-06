@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261006181947-038c277";</script>
+  <script>window.WTF_APP_VERSION = "20261006185710-30de2e0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2779,7 +2779,7 @@
     const innerQty = getPackageInnerContentQty(product, item);
     const innerUnit = getPackageInnerContentUnit(product, item);
     if (inputUnit === normalizeUnit(outerUnit)) {
-      return {
+      const event = {
         missing: false,
         unitsPerPack,
         internalUnit,
@@ -12605,6 +12605,9 @@
         id: eventId,
         sourceKey,
         rowKey,
+        movementId: String(safeRow.movementId || safeRow.id || rowKey),
+        inventoryKey: String(safeRow.inventoryKey || `${safeRow.storageKey || ""}:${safeRow.productId || safeRow.numero || ""}`),
+        inventoryStateKey: String(safeRow.inventoryStateKey || safeRow.storageKey || ""),
         tipo: centralizedRecordType(sourceKey),
         modulo: centralizedRecordScope(sourceKey),
         rowData: deleted ? {} : safeRow,
@@ -12617,6 +12620,12 @@
         updatedAtClient: new Date().toISOString(),
         revision: Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0) + 1
       };
+      ["existenciaAnterior", "existenciaNueva", "entradaAcumulada", "salidaAcumulada", "decomisoAcumulado"].forEach((field) => {
+        if (safeRow[field] !== undefined && safeRow[field] !== null && safeRow[field] !== "") event[field] = Number(safeRow[field]);
+      });
+      if (event.existenciaAnterior === undefined) event.existenciaAnterior = 0;
+      if (event.existenciaNueva === undefined) event.existenciaNueva = 0;
+      return event;
     }
     function getCentralizedRecordStateSnapshot() {
       const state = getCurrentAppState();
@@ -12768,15 +12777,45 @@
         const result = Object.assign({}, baseState || {});
         const rowsByKey = {};
         const seenKeys = new Set();
+        const latestInventory = new Map();
         CENTRAL_RECORD_KEYS.forEach((key) => { rowsByKey[key] = []; });
         latest.forEach((event) => {
           const sourceKey = String(event.sourceKey || "");
           if (!CENTRAL_RECORD_KEYS.has(sourceKey)) return;
           seenKeys.add(sourceKey);
+          if (event.inventoryKey && Number.isFinite(Number(event.existenciaNueva))) {
+            const previousInventoryEvent = latestInventory.get(String(event.inventoryKey));
+            if (!previousInventoryEvent || String(event.updatedAtClient || event.fechaCliente || "") > String(previousInventoryEvent.updatedAtClient || previousInventoryEvent.fechaCliente || "")) {
+              latestInventory.set(String(event.inventoryKey), event);
+            }
+          }
           if (event.deleted !== true) rowsByKey[sourceKey].push(event.rowData || {});
         });
         CENTRAL_RECORD_KEYS.forEach((key) => {
           if (seenKeys.has(key)) result[key] = rowsByKey[key];
+        });
+        const inventoryStateByEventKey = {
+          inventario: "inventario",
+          cuartoFrioInventario: "cuartoFrioInventario",
+          barInventario: "barInventario",
+          barCuartoFrioInventario: "barCuartoFrioInventario"
+        };
+        latestInventory.forEach((event, inventoryKey) => {
+          const stateKey = inventoryStateByEventKey[event.inventoryStateKey] || inventoryStateByEventKey[String(inventoryKey).split(":")[0]];
+          if (!stateKey || !Array.isArray(result[stateKey])) return;
+          const productId = String(event.productId || String(inventoryKey).split(":").slice(1).join(":") || "");
+          result[stateKey] = result[stateKey].map((row) => {
+            if (String(row && row.id || "") !== productId) return row;
+            const next = Object.assign({}, row, {
+              movementUpdatedAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.movementUpdatedAt,
+              movimientosActualizadosAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.movimientosActualizadosAt,
+              updatedAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.updatedAt
+            });
+            if (event.entradaAcumulada !== undefined) next.entrada = Number(event.entradaAcumulada);
+            if (event.salidaAcumulada !== undefined) next.salida = Number(event.salidaAcumulada);
+            if (event.decomisoAcumulado !== undefined) next.decomiso = Number(event.decomisoAcumulado);
+            return next;
+          });
         });
         centralizedRecordsLoadedRef.current = true;
         centralizedRecordsPreviousRef.current = Object.assign({}, rowsByKey);
@@ -14759,6 +14798,26 @@
       if (options.existenciaNueva !== undefined) row.existenciaNueva = options.existenciaNueva;
       return row;
     }
+    function attachInventoryMovementSnapshot(row, prod, storageKey, tipo, existenciaAnterior, cantidad, now) {
+      const before = roundQty4(existenciaAnterior);
+      const entrada = roundQty4(parseStockNumber(prod && prod.entrada, 0) + (tipo === "entrada" ? cantidad : 0));
+      const salida = roundQty4(parseStockNumber(prod && prod.salida, 0) + (tipo === "salida" ? cantidad : 0));
+      const decomiso = roundQty4(parseStockNumber(prod && prod.decomiso, 0) + (tipo === "decomiso" ? cantidad : 0));
+      const after = Math.max(0, roundQty4(entrada - salida - decomiso));
+      return Object.assign({}, row, {
+        movementId: String(row && row.id || ""),
+        inventoryKey: `${storageKey}:${String(prod && prod.id || "")}`,
+        inventoryStateKey: storageKey,
+        productId: String(prod && prod.id || ""),
+        codArticulo: getInventoryCodArticulo(prod, ""),
+        existenciaAnterior: before,
+        existenciaNueva: after,
+        entradaAcumulada: entrada,
+        salidaAcumulada: salida,
+        decomisoAcumulado: decomiso,
+        inventorySnapshotAt: now
+      });
+    }
     function hasMovementAlreadyRegistered(rows, row) {
       const keys = getMovementDedupKeys(row);
       if (!keys.length) return false;
@@ -14809,7 +14868,8 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      const reg = buildInventoryMovementRow("bar-inv", "barInventario", "Inventario Bar", "Bar", prod, cantidad, movementUser, options);
+      let reg = buildInventoryMovementRow("bar-inv", "barInventario", "Inventario Bar", "Bar", prod, cantidad, movementUser, options);
+      reg = attachInventoryMovementSnapshot(reg, prod, "barInventario", tipo, exist, cantidad, now);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
@@ -14840,7 +14900,8 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      const reg = buildInventoryMovementRow("cocina-inv", "inventario", "Inventario Cocina", "Cocina", prod, cantidad, movementUser, options);
+      let reg = buildInventoryMovementRow("cocina-inv", "inventario", "Inventario Cocina", "Cocina", prod, cantidad, movementUser, options);
+      reg = attachInventoryMovementSnapshot(reg, prod, "inventario", tipo, exist, cantidad, now);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -14872,7 +14933,8 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      const reg = buildInventoryMovementRow("bar-frio", "barCuartoFrioInventario", "Cuarto Frio Bar", "Bar", prod, cantidad, movementUser, options);
+      let reg = buildInventoryMovementRow("bar-frio", "barCuartoFrioInventario", "Cuarto Frio Bar", "Bar", prod, cantidad, movementUser, options);
+      reg = attachInventoryMovementSnapshot(reg, prod, "barCuartoFrioInventario", tipo, exist, cantidad, now);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
@@ -14903,7 +14965,8 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      const reg = buildInventoryMovementRow("cocina-frio", "cuartoFrioInventario", "Cuarto Frio Cocina", "Cocina", prod, cantidad, movementUser, options);
+      let reg = buildInventoryMovementRow("cocina-frio", "cuartoFrioInventario", "Cuarto Frio Cocina", "Cocina", prod, cantidad, movementUser, options);
+      reg = attachInventoryMovementSnapshot(reg, prod, "cuartoFrioInventario", tipo, exist, cantidad, now);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -25653,10 +25716,14 @@
           });
         });
         const entradaRegs = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
-          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
+          const stateKey = target === "cuartoFrio" ? "cuartoFrioInventario" : "inventario";
+          const product = row.product || {};
+          return { id: row.movementId, movementId: row.movementId, inventoryKey: `${stateKey}:${String(row.productId || product.id || "")}`, inventoryStateKey: stateKey, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt, existenciaAnterior: Number(row.existenciaSistemaAntes || 0), existenciaNueva: Number(row.existenciaAjustada || 0), entradaAcumulada: Number(product.entrada || 0) + Number(row.ajuste || 0), salidaAcumulada: Number(product.salida || 0), decomisoAcumulado: Number(product.decomiso || 0) };
         });
         const salidaRegs = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
-          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
+          const stateKey = target === "cuartoFrio" ? "cuartoFrioInventario" : "inventario";
+          const product = row.product || {};
+          return { id: row.movementId, movementId: row.movementId, inventoryKey: `${stateKey}:${String(row.productId || product.id || "")}`, inventoryStateKey: stateKey, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt, existenciaAnterior: Number(row.existenciaSistemaAntes || 0), existenciaNueva: Number(row.existenciaAjustada || 0), entradaAcumulada: Number(product.entrada || 0), salidaAcumulada: Number(product.salida || 0) + Math.abs(Number(row.ajuste || 0)), decomisoAcumulado: Number(product.decomiso || 0) };
         });
         if (entradaRegs.length) setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).concat(entradaRegs));
         if (salidaRegs.length) setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).concat(salidaRegs));
