@@ -123,6 +123,9 @@ service cloud.firestore {
         && request.resource.data.inventoryKey is string
         && request.resource.data.existenciaAnterior is number
         && request.resource.data.existenciaNueva is number
+        && (!('operationId' in request.resource.data) || request.resource.data.operationId is string)
+        && (!('productionId' in request.resource.data) || request.resource.data.productionId is string)
+        && (!('transferId' in request.resource.data) || request.resource.data.transferId is string)
         && request.resource.data.createdAt == request.time;
       allow update: if isAuthorizedUser()
         && request.resource.data.id == eventId
