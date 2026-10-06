@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261003224003-a04761e";</script>
+  <script>window.WTF_APP_VERSION = "20261006171411-d7da20c";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4475,7 +4475,8 @@
   function getInventoryMergeKey(row) {
     if (!row) return "";
     if (row.tipo === "separador") {
-      return ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|");
+      // El nombre identifica al renglón. El id histórico no debe permitir duplicados visuales.
+      return ["sep", getInventoryCanonicalProductName(row.nombre || "")].join("|");
     }
     return [
       "prod",
@@ -4493,6 +4494,12 @@
     return name ? ["prod-name", name].join("|") : "";
   }
   function getInventoryDeletedKeysForRow(row) {
+    if (row && row.tipo === "separador") {
+      return Array.from(new Set([
+        getInventoryMergeKey(row),
+        ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|")
+      ].filter(Boolean)));
+    }
     return [getInventoryMergeKey(row), getInventoryDeletedNameKey(row)].filter(Boolean);
   }
   function getInventoryRowCreatedTime(row) {
@@ -5384,6 +5391,11 @@
       barHistSalidaRapida: repairIcgMiseQuickExitUsers(normalizeMovementRows(state.barHistSalidaRapida || [], movementDeletedKeys.barHistSalidaRapida))
     });
   }
+  function serializeFirebaseSyncState(state) {
+    const value = cloneData(state || {});
+    delete value.systemLogs;
+    return serializeAppState(value);
+  }
   function compactIcgDatasetForFirebase(data, key, rowLimit) {
     const normalized = ensureIcgFrontRestData(data);
     const base = normalized.datasets && normalized.datasets[key] ? normalized.datasets[key] : {};
@@ -5458,7 +5470,6 @@
   ];
   const FIREBASE_EXTERNAL_STATE_DOCS = {
     icgFrontRestData: "icgFrontRestData",
-    systemLogs: "systemLogs",
     regEntradas: "regEntradas",
     regSalidas: "regSalidas",
     regDecomiso: "regDecomiso",
@@ -5476,6 +5487,14 @@
     barHistSalidaRapida: "barHistSalidaRapida"
   };
   const FIREBASE_SYNC_INDEX_DOC_ID = "syncIndex";
+  const SYSTEM_LOGS_DOC_ID = "systemLogs";
+  const SYSTEM_LOGS_EVENTS_COLLECTION = "events";
+  const SYSTEM_LOGS_META_COLLECTION = "meta";
+  const SYSTEM_LOGS_META_DOC_ID = "state";
+  const SYSTEM_LOGS_QUEUE_STORAGE = "wtf_system_logs_pending_events_v1";
+  const SYSTEM_LOGS_CURSOR_STORAGE = "wtf_system_logs_cursor_v1";
+  const SYSTEM_LOGS_DEVICE_STORAGE = "wtf_system_logs_device_id_v1";
+  const SYSTEM_LOGS_EVENTS_MODE_STORAGE = "wtf_system_logs_events_mode_v1";
   const FIREBASE_EXTERNAL_SIGNATURES_STORAGE = "wtf_firebase_external_doc_signatures_v1";
   const FIREBASE_LAZY_MODULE_KEYS = new Set([
     "icgFrontRestData",
@@ -12371,6 +12390,9 @@
     const [authorizing, setAuthorizing] = useState(false);
     const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
     const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
+    const [systemLogsEventsReady, setSystemLogsEventsReady] = useState(() => Boolean(load(SYSTEM_LOGS_EVENTS_MODE_STORAGE, false)));
+    const [systemLogsEventsLoading, setSystemLogsEventsLoading] = useState(false);
+    const [systemLogsEventsHasMore, setSystemLogsEventsHasMore] = useState(true);
     const [icgControl, setIcgControl] = useState(() => {
       const normalized = ensureIcgFrontRestData(icgFrontRestData);
       const paused = isIcgInventoryImpactPaused(normalized);
@@ -12517,6 +12539,163 @@
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
     }
+    function getSystemLogsRootRef() {
+      const docRef = firebaseDocRef.current;
+      return docRef && docRef.parent ? docRef.parent.doc(SYSTEM_LOGS_DOC_ID) : null;
+    }
+    function getSystemLogsEventsRef() {
+      const root = getSystemLogsRootRef();
+      return root ? root.collection(SYSTEM_LOGS_EVENTS_COLLECTION) : null;
+    }
+    function getSystemLogsMetaRef() {
+      const root = getSystemLogsRootRef();
+      return root ? root.collection(SYSTEM_LOGS_META_COLLECTION).doc(SYSTEM_LOGS_META_DOC_ID) : null;
+    }
+    function getSystemLogsDeviceId() {
+      let id = String(load(SYSTEM_LOGS_DEVICE_STORAGE, "") || "").trim();
+      if (!id) {
+        id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        save(SYSTEM_LOGS_DEVICE_STORAGE, id);
+      }
+      return id;
+    }
+    function getPendingSystemLogEvents() {
+      const rows = load(SYSTEM_LOGS_QUEUE_STORAGE, []);
+      return Array.isArray(rows) ? rows.filter((row) => row && row.id) : [];
+    }
+    function savePendingSystemLogEvents(rows) {
+      save(SYSTEM_LOGS_QUEUE_STORAGE, Array.isArray(rows) ? rows.slice(0, 500) : []);
+    }
+    function buildSystemLogEvent(row) {
+      const item = compactSystemLogEntry(row || {});
+      return Object.assign({}, item, {
+        id: String(item.id || createMovementId("syslog")),
+        fechaCliente: String(item.fecha || new Date().toISOString()),
+        usuario: String(item.usuario || "Sistema"),
+        email: String(firebaseAuthEmail || item.email || "").trim(),
+        deviceId: getSystemLogsDeviceId(),
+        source: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? "pwa" : "web",
+        revision: Number(syncRevisionRef.current || 0)
+      });
+    }
+    async function writeSystemLogEvent(event) {
+      const ref = getSystemLogsEventsRef();
+      if (!ref || !firebaseAuthEmail) return false;
+      const eventRef = ref.doc(String(event.id));
+      const payload = Object.assign({}, event, {
+        fechaServidor: window.firebase.firestore.FieldValue.serverTimestamp(),
+        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+      });
+      try {
+        if (typeof eventRef.create === "function") await eventRef.create(payload);
+        else await eventRef.set(payload, { merge: false });
+      } catch (error) {
+        const text = String(error && (error.code || error.message) || error || "");
+        if (!/already-exists|already exists|aborted|6/i.test(text)) throw error;
+      }
+      const metaRef = getSystemLogsMetaRef();
+      if (metaRef) {
+        await metaRef.set({
+          revision: window.firebase.firestore.FieldValue.increment(1),
+          totalApproximate: window.firebase.firestore.FieldValue.increment(1),
+          newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: event.email || "system"
+        }, { merge: true }).catch(() => {});
+      }
+      return true;
+    }
+    async function flushSystemLogEvents() {
+      if (!firebaseAuthEmail || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      const pending = getPendingSystemLogEvents();
+      if (!pending.length) return;
+      const remaining = [];
+      for (const event of pending) {
+        try {
+          if (!(await writeSystemLogEvent(event))) remaining.push(event);
+        } catch (error) {
+          remaining.push(event);
+          break;
+        }
+      }
+      savePendingSystemLogEvents(remaining);
+    }
+    function queueSystemLogEvent(row) {
+      const event = buildSystemLogEvent(row);
+      const pending = getPendingSystemLogEvents().filter((item) => String(item.id) !== String(event.id));
+      pending.push(event);
+      savePendingSystemLogEvents(pending);
+      flushSystemLogEvents().catch(() => {});
+    }
+    async function migrateLegacySystemLogsToEvents() {
+      const metaRef = getSystemLogsMetaRef();
+      const legacyRef = getSystemLogsRootRef();
+      if (!metaRef || !legacyRef || !firebaseAuthEmail) return;
+      const metaSnapshot = await metaRef.get();
+      if (metaSnapshot.exists && Number(metaSnapshot.data().migrationVersion || 0) >= 1) return;
+      const legacySnapshot = await legacyRef.get();
+      if (!legacySnapshot.exists) {
+        await metaRef.set({ migrationVersion: 1, migratedAt: window.firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        return;
+      }
+      const legacyData = legacySnapshot.data() || {};
+      let legacyState = legacyData.appState || {};
+      if (legacyData.appStateCompressed) legacyState = decodeFirebaseCompressedState(legacyData.appStateCompressed) || legacyState;
+      const legacyRows = legacyState && Array.isArray(legacyState.systemLogs) ? legacyState.systemLogs : [];
+      for (const row of legacyRows) {
+        try {
+          await writeSystemLogEvent(buildSystemLogEvent(row));
+        } catch (error) {
+          console.warn("No se pudo migrar un log historico:", error);
+        }
+      }
+      await metaRef.set({
+        migrationVersion: 1,
+        migratedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+        migratedCount: legacyRows.length
+      }, { merge: true });
+    }
+    async function loadSystemLogEventsPage(older = false) {
+      const ref = getSystemLogsEventsRef();
+      if (!ref || !firebaseAuthEmail || !firebaseBootstrappedRef.current || systemLogsEventsLoading) return;
+      setSystemLogsEventsLoading(true);
+      try {
+        await migrateLegacySystemLogsToEvents();
+        await flushSystemLogEvents();
+        const cursor = load(SYSTEM_LOGS_CURSOR_STORAGE, {}) || {};
+        let query = ref;
+        if (older && cursor.oldestClientTime) {
+          query = query.orderBy("fechaCliente", "desc").startAfter(String(cursor.oldestClientTime)).limit(200);
+        } else if (!older && cursor.initialized && cursor.latestClientTime) {
+          query = query.where("fechaCliente", ">", String(cursor.latestClientTime)).orderBy("fechaCliente", "asc").limit(200);
+        } else {
+          query = query.orderBy("fechaCliente", "desc").limit(200);
+        }
+        const snapshot = await query.get();
+        const incoming = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data() || {};
+          incoming.push(Object.assign({}, data, { id: data.id || doc.id, fecha: data.fecha || data.fechaCliente || "" }));
+        });
+        if (incoming.length) {
+          setSystemLogs((previous) => normalizeSystemLogs(normalizeSystemLogs(previous).concat(incoming)));
+          const dates = incoming.map((row) => String(row.fechaCliente || row.fecha || "")).filter(Boolean).sort();
+          const nextCursor = Object.assign({}, cursor, {
+            initialized: true,
+            latestClientTime: !older ? (dates[dates.length - 1] || cursor.latestClientTime || "") : (cursor.latestClientTime || dates[dates.length - 1] || ""),
+            oldestClientTime: older ? (dates[0] || cursor.oldestClientTime || "") : (cursor.oldestClientTime || dates[0] || "")
+          });
+          save(SYSTEM_LOGS_CURSOR_STORAGE, nextCursor);
+        }
+        setSystemLogsEventsHasMore(incoming.length >= 200);
+        setSystemLogsEventsReady(true);
+        save(SYSTEM_LOGS_EVENTS_MODE_STORAGE, true);
+      } catch (error) {
+        console.warn("No se pudieron leer eventos de Logs de Sistema:", error);
+      } finally {
+        setSystemLogsEventsLoading(false);
+      }
+    }
     function addSystemLog(payload, userOverride) {
       const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
       setSystemLogs(function(prev) {
@@ -12524,6 +12703,7 @@
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
+      queueSystemLogEvent(entry);
       return entry;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
@@ -12555,7 +12735,10 @@
     }
     function createFirebaseWriteDoc(appState, reason) {
       const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
-      const signature = serializeAppState(fullFirebaseState);
+      // Los logs se almacenan como eventos independientes. Nunca volver a
+      // incluir el arreglo completo en el documento principal de Firebase.
+      delete fullFirebaseState.systemLogs;
+      const signature = serializeFirebaseSyncState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
       const externalDocs = [];
@@ -12824,7 +13007,9 @@
       if (nextState.userDeletedKeys && typeof nextState.userDeletedKeys === "object") setUserDeletedKeys(normalizeUserDeletedKeys(nextState.userDeletedKeys));
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios, nextState.userDeletedKeys));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
-      if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
+      if (Array.isArray(nextState.systemLogs) && !systemLogsEventsReady && !load(SYSTEM_LOGS_EVENTS_MODE_STORAGE, false)) {
+        setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
+      }
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
         return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
@@ -12975,8 +13160,8 @@
           activePage: page
         });
         if (!remoteState) return;
-        const remoteSignature = serializeAppState(remoteState);
-        const currentSignature = serializeAppState(getCurrentAppState());
+        const remoteSignature = serializeFirebaseSyncState(remoteState);
+        const currentSignature = serializeFirebaseSyncState(getCurrentAppState());
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           if (Object.keys(remoteExternalSignatures).length) {
@@ -13028,7 +13213,7 @@
     }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
     useEffect(() => save("wtf_correos", correos), [correos]);
-    useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
+    useEffect(() => saveSoon(KEYS.systemLogs, normalizeSystemLogs(systemLogs).slice(0, 200)), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
@@ -13177,6 +13362,23 @@
       }
     }, [firebaseCfg]);
     const firebaseAuthEmail = firebaseAuthUser && firebaseAuthUser.email ? String(firebaseAuthUser.email).trim().toLowerCase() : "";
+    useEffect(() => {
+      if (page !== "systemLogs" || !firebaseAuthEmail || firebaseStatus !== "connected") return;
+      loadSystemLogEventsPage(false).catch(() => {});
+      const refresh = () => loadSystemLogEventsPage(false).catch(() => {});
+      window.addEventListener("online", refresh);
+      window.addEventListener("focus", refresh);
+      window.addEventListener("pageshow", refresh);
+      return () => {
+        window.removeEventListener("online", refresh);
+        window.removeEventListener("focus", refresh);
+        window.removeEventListener("pageshow", refresh);
+      };
+    }, [page, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
+      if (!firebaseAuthEmail || firebaseStatus !== "connected") return;
+      flushSystemLogEvents().catch(() => {});
+    }, [firebaseAuthEmail, firebaseStatus]);
     const currentUser = useMemo(() => {
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
@@ -13641,8 +13843,8 @@
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
               return;
             }
-            const remoteSignature = serializeAppState(remoteState);
-            const currentSignature = serializeAppState(getCurrentAppState());
+              const remoteSignature = serializeFirebaseSyncState(remoteState);
+              const currentSignature = serializeFirebaseSyncState(getCurrentAppState());
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
@@ -13737,7 +13939,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -14947,7 +15149,7 @@
       usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
-      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
+      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs, eventsReady: systemLogsEventsReady, eventsLoading: systemLogsEventsLoading, eventsHasMore: systemLogsEventsHasMore, pendingCount: getPendingSystemLogEvents().length, onLoadMore: () => loadSystemLogEventsPage(true) }),
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
@@ -22037,7 +22239,7 @@
       )
     );
   }
-  function SystemLogsPage({ logs }) {
+  function SystemLogsPage({ logs, eventsReady = false, eventsLoading = false, eventsHasMore = false, pendingCount = 0, onLoadMore = null }) {
     const [query, setQuery] = useState("");
     const [bridgeQuery, setBridgeQuery] = useState("");
     const [actionFilter, setActionFilter] = useState("todos");
@@ -22056,7 +22258,7 @@
       inventario: rows.filter(function(row) { return normalizar(row.modulo).includes("inventario") || normalizar(row.modulo).includes("cuarto frio"); }).length,
       mise: rows.filter(function(row) { return normalizar(row.modulo).includes("mise"); }).length
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles"), eventsReady ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Eventos centralizados") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, "Preparando eventos"), pendingCount ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, pendingCount, " pendientes") : null, eventsHasMore && onLoadMore ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: onLoadMore, disabled: eventsLoading }, eventsLoading ? "Cargando..." : "Cargar mas") : null), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
       return /* @__PURE__ */ React.createElement("option", { key: action, value: action }, action);
     }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Modulo"), /* @__PURE__ */ React.createElement("th", null, "Accion"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Detalle"))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map(function(row) {
       const accion = String(row.accion || "Evento");
@@ -23800,11 +24002,55 @@
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
+  function InventoryOrderModal({ inventario, pageLabel, onClose, onConfirm }) {
+    const sections = useMemo(() => {
+      const result = [];
+      let current = { id: "__root__", nombre: "SIN RENGLON", productos: [] };
+      result.push(current);
+      (Array.isArray(inventario) ? inventario : []).forEach(function(row) {
+        if (row && row.tipo === "separador") {
+          current = { id: String(row.id), nombre: row.nombre || "SIN RENGLON", productos: [] };
+          result.push(current);
+        } else if (row && row.tipo === "producto") current.productos.push(row);
+      });
+      return result.filter((section) => section.productos.length > 1);
+    }, [inventario]);
+    const [draft, setDraft] = useState(() => sections.reduce((map, section) => { map[section.id] = section.productos.map((row) => row.id); return map; }, {}));
+    const [dragged, setDragged] = useState(null);
+    useEffect(() => setDraft(sections.reduce((map, section) => { map[section.id] = section.productos.map((row) => row.id); return map; }, {})), [sections]);
+    function moveRow(sectionId, targetId) {
+      if (!dragged || dragged.sectionId !== sectionId || dragged.rowId === targetId) return;
+      setDraft((previous) => {
+        const ids = Array.isArray(previous[sectionId]) ? previous[sectionId].slice() : [];
+        const from = ids.indexOf(dragged.rowId);
+        const to = ids.indexOf(targetId);
+        if (from < 0 || to < 0) return previous;
+        ids.splice(from, 1);
+        ids.splice(to, 0, dragged.rowId);
+        return Object.assign({}, previous, { [sectionId]: ids });
+      });
+    }
+    const rowById = new Map((Array.isArray(inventario) ? inventario : []).map((row) => [row.id, row]));
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 760 }, onClick: (e) => e.stopPropagation() },
+      /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-lines", style: { marginRight: 7, color: "var(--azul)" } }), "Ordenar ", pageLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose, title: "Cerrar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))),
+      /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Arrastra cada producto para cambiar su secuencia. Se conservan intactos sus codigos, vinculos, existencias y movimientos."), sections.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay un renglon con suficientes productos para reorganizar.") : sections.map(function(section) {
+        const ids = Array.isArray(draft[section.id]) ? draft[section.id] : [];
+        return /* @__PURE__ */ React.createElement("div", { key: section.id, className: "card", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("strong", null, section.nombre), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, ids.length, " productos")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 6 } }, ids.map(function(id, index) {
+          const row = rowById.get(id);
+          if (!row) return null;
+          return /* @__PURE__ */ React.createElement("div", { key: id, draggable: true, onDragStart: () => setDragged({ sectionId: section.id, rowId: id }), onDragOver: (event) => event.preventDefault(), onDrop: () => { moveRow(section.id, id); setDragged(null); }, onDragEnd: () => setDragged(null), style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", border: "1px solid var(--borde)", borderRadius: 7, background: dragged && dragged.rowId === id ? "#eff6ff" : "#fff", cursor: "grab" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-vertical", style: { color: "var(--gris)" } }), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris", style: { minWidth: 32, textAlign: "center" } }, index + 1), /* @__PURE__ */ React.createElement("strong", { style: { flex: 1 } }, row.nombre), /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", fontSize: 11 } }, getInventoryCodArticulo(row, "Sin codigo")));
+        })));
+      })),
+      /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => onConfirm(Object.keys(draft).map((sectionId) => ({ sectionId, ids: draft[sectionId] }))), disabled: sections.length === 0 }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar orden"))
+    ));
+  }
   function InventarioPage({ inventario, setInventario, usuarios, currentUser = null, onSystemLog = null, moduleLabel = "Cocina", pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null, regEntradas = [], setRegEntradas = null, regSalidas = [], setRegSalidas = null, regDecomiso = [], setRegDecomiso = null, regRecuento = [], setRegRecuento = null, movementStateKeys = {}, onMarkMovementRowsDeleted = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
     const [modalSep, setModalSep] = useState(false);
+    const [editingSeparatorId, setEditingSeparatorId] = useState(null);
+    const [separatorNameDraft, setSeparatorNameDraft] = useState("");
     const [editingId, setEditingId] = useState(null);
     const [editData, setEditData] = useState({});
     const [confirmReset, setConfirmReset] = useState(null);
@@ -23812,6 +24058,8 @@
     const [busquedaAlerta, setBusquedaAlerta] = useState("");
     const [showRelocateKey, setShowRelocateKey] = useState(false);
     const [modalReubicar, setModalReubicar] = useState(false);
+    const [showOrderKey, setShowOrderKey] = useState(false);
+    const [modalOrden, setModalOrden] = useState(false);
     const [showMigrateKey, setShowMigrateKey] = useState(false);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
@@ -24160,15 +24408,70 @@
       toast("Producto agregado");
     }
     function addSeparador() {
-      if (!newSep.trim()) {
+      const separatorName = String(editingSeparatorId != null ? separatorNameDraft : newSep).trim();
+      if (!separatorName) {
         toast("Ingrese el nombre", "error");
         return;
       }
       const now = new Date().toISOString();
-      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: newSep.trim().toUpperCase(), createdAt: now, updatedAt: now }]);
+      if (editingSeparatorId != null) {
+        setInventario((p) => p.map((row) => row.id === editingSeparatorId && row.tipo === "separador" ? { ...row, nombre: separatorName.toUpperCase(), updatedAt: now } : row));
+        setEditingSeparatorId(null);
+        setSeparatorNameDraft("");
+        setModalSep(false);
+        toast("Renglón actualizado");
+        return;
+      }
+      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: separatorName.toUpperCase(), createdAt: now, updatedAt: now }]);
       setNewSep("");
       setModalSep(false);
       toast("Renglón agregado");
+    }
+    function editSeparador(row) {
+      if (!row || row.tipo !== "separador") return;
+      setEditingSeparatorId(row.id);
+      setSeparatorNameDraft(String(row.nombre || ""));
+      setModalSep(true);
+    }
+    function openOrderAccess() {
+      if (!inventario.some((row) => row && row.tipo === "producto")) {
+        toast(`No hay productos para ordenar en ${pageLabel}.`, "error");
+        return;
+      }
+      setShowOrderKey(true);
+    }
+    function saveProductOrder(sectionOrders) {
+      const orders = new Map((Array.isArray(sectionOrders) ? sectionOrders : []).map((item) => [String(item.sectionId), Array.isArray(item.ids) ? item.ids : []]));
+      const now = new Date().toISOString();
+      setInventario(function(previous) {
+        const rows = Array.isArray(previous) ? previous.slice() : [];
+        const positionsBySection = new Map();
+        let sectionId = "__root__";
+        rows.forEach(function(row, index) {
+          if (row && row.tipo === "separador") sectionId = String(row.id);
+          else if (row && row.tipo === "producto") {
+            if (!positionsBySection.has(sectionId)) positionsBySection.set(sectionId, []);
+            positionsBySection.get(sectionId).push(index);
+          }
+        });
+        const productById = new Map(rows.filter((row) => row && row.tipo === "producto").map((row) => [String(row.id), row]));
+        positionsBySection.forEach(function(positions, key) {
+          const ids = orders.get(key) || [];
+          const ordered = ids.map((id) => productById.get(String(id))).filter(Boolean);
+          if (ordered.length !== positions.length) return;
+          positions.forEach((position, index) => { rows[position] = Object.assign({}, ordered[index], { updatedAt: now }); });
+        });
+        return rows;
+      });
+      if (typeof onSystemLog === "function") onSystemLog({ modulo: `${pageLabel} ${moduleLabel}`, accion: "Reordenar productos", detalle: `Se actualizo unicamente la secuencia visual de productos en ${pageLabel} ${moduleLabel}. Los identificadores y vinculos se conservaron.` }, currentUser);
+      setModalOrden(false);
+      toast(`Orden de ${pageLabel} actualizado`, "ok");
+    }
+    function closeSeparatorModal() {
+      setModalSep(false);
+      setEditingSeparatorId(null);
+      setSeparatorNameDraft("");
+      setNewSep("");
     }
     function openRelocateAccess() {
       if (!separadores.length) {
@@ -24246,7 +24549,7 @@
     }
     const tableRows = rows.map((r) => {
       if (r.tipo === "separador") {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar renglón", onClick: () => editSeparador(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Eliminar renglón", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
       }
       const exist = getInventoryExistence(r);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
@@ -24336,7 +24639,7 @@
         )
       )
     ) : null;
-    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalSep(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newSep, onChange: (e) => setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalSep(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
+    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), editingSeparatorId != null ? "Editar Renglón" : "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeSeparatorModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editingSeparatorId != null ? separatorNameDraft : newSep, onChange: (e) => editingSeparatorId != null ? setSeparatorNameDraft(e.target.value) : setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeSeparatorModal }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: editingSeparatorId != null ? "fas fa-check" : "fas fa-plus" }), editingSeparatorId != null ? "Guardar" : "Agregar")))) : null;
     const alertasModal = modalAlertas ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { color: "#f59e0b", marginRight: 7 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAlertas(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busquedaAlerta, onChange: (e) => setBusquedaAlerta(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "55vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Stock Mín."))), /* @__PURE__ */ React.createElement("tbody", null, alertasFiltradas.map(function(r) {
       const stockStatus = r.stockStatus || getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const covered = stockStatus.coveredByMise;
@@ -24363,12 +24666,14 @@
       setFocusedSearchResultId(null);
     } }, "Ver todos")) : null;
     const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => { setPinnedSearchTarget(null); setFocusedSearchResultId(null); setBusqueda(e.target.value); } })), pinnedSearchNotice);
-    const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
+    const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openOrderAccess, title: "Reordenar productos sin cambiar sus identificadores" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-lines" }), "Ordenar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
     const inventoryRightTools = /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "grid", gap: 8, justifyItems: "stretch", minWidth: 150 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || ""), codArticulo: String(p.codArticulo || "").trim() || suggestedCodArticulo }));
       openAddProductoModal();
     } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => generateInventoryCountPdf(inventario, pageLabel, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF"));
-    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "inventory-main-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
+    const orderKeyModal = showOrderKey ? /* @__PURE__ */ React.createElement(AdminKeyModal, { title: `Autorizar ordenamiento de ${pageLabel}`, usuarios, onClose: () => setShowOrderKey(false), onConfirm: () => { setShowOrderKey(false); setModalOrden(true); } }) : null;
+    const orderModal = modalOrden ? /* @__PURE__ */ React.createElement(InventoryOrderModal, { inventario, pageLabel, onClose: () => setModalOrden(false), onConfirm: saveProductOrder }) : null;
+    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "inventory-main-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, orderKeyModal, orderModal, migrateKeyModal, migrateModal);
   }
   function InventarioReubicarModal({ inventario, onClose, onConfirm }) {
     const [step, setStep] = useState(1);

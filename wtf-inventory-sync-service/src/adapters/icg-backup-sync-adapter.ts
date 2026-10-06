@@ -2167,11 +2167,28 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
       const movementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || data.fecha || now.slice(0, 10);
       const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, movementDate), line.codAlmacen || ""].join("|"));
-      return createBackupMovement(line, movementDate, importKey, "pendiente", "Movimiento recibido desde Host. La Web.App aplicara el descuento automatico de forma idempotente.");
+      return createBackupMovement(line, movementDate, importKey, "pendiente", "Vista previa ICG local. Aun no aplica salida ni descuento de inventario");
     })
   };
-  await writeAppState(config, appState, result);
-  return result;
+  const pendingMovements = result.movements || [];
+  try {
+    await writeAppState(config, appState, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Object.assign({}, result, {
+      ok: false,
+      pending: pendingMovements.length,
+      errors: [message],
+      message: `No se pudo enviar la informacion ICG a la Web.App. La linea queda pendiente para reintento: ${message}`,
+      movements: pendingMovements
+    });
+  }
+  return Object.assign({}, result, {
+    movements: pendingMovements.map((movement) => Object.assign({}, movement, {
+      estado: "sincronizado",
+      mensaje: "Descuento aplicado en WTF Web desde Base de Datos ICG Local."
+    }))
+  });
 }
 
 export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<IcgBackupSyncResult> {

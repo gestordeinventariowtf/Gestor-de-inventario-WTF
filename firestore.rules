@@ -82,7 +82,24 @@ service cloud.firestore {
     }
 
     match /wtfSistema/systemLogs {
-      allow read, write: if isAuthorizedUser();
+      allow read: if isAuthorizedUser();
+      allow write: if false;
+
+      match /events/{logId} {
+        allow read: if isAuthorizedUser();
+        allow create: if isAuthorizedUser()
+          && request.resource.data.id == logId
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.accion is string
+          && request.resource.data.modulo is string
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if isAuthorizedAdmin();
+      }
+
+      match /meta/{metaId} {
+        allow read, write: if isAuthorizedUser()
+          && metaId == 'state';
+      }
     }
 
     match /wtfSistema/syncIndex {
