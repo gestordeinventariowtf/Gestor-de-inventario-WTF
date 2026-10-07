@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261007045123-53dfeb3";</script>
+  <script>window.WTF_APP_VERSION = "20261007051109-32de8f0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5505,6 +5505,9 @@
   const CENTRAL_RECORDS_DEVICE_STORAGE = "wtf_registros_device_id_v1";
   const CENTRAL_RECORDS_PENDING_STORAGE = "wtf_registros_pending_events_v1";
   const PRODUCTION_HISTORY_REFRESH_DEBOUNCE_MS = 700;
+  const PRODUCTION_HISTORY_REVISION_STORAGE = "wtf_production_history_revision_v2:";
+  const PRODUCTION_HISTORY_CURSOR_STORAGE = "wtf_production_history_cursor_v2:";
+  const PRODUCTION_HISTORY_PAGE_SIZE = 200;
   const CENTRAL_RECORD_KEYS = new Set([
     "regEntradas", "regSalidas", "regDecomiso", "regRecuento",
     "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento",
@@ -12450,6 +12453,7 @@
     const systemLogsMetaUnsubscribeRef = useRef(null);
     const systemLogsRefreshTimerRef = useRef(null);
     const productionHistoryRefreshTimerRef = useRef(null);
+    const productionHistoryLoadingRef = useRef(false);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
@@ -12948,6 +12952,90 @@
         return baseState;
       } finally {
         centralizedRecordsLoadingRef.current = false;
+      }
+    }
+    function getProductionHistoryStorageKey(prefix, moduleId) {
+      return `${prefix}${String(moduleId || "cocina")}`;
+    }
+    function getProductionHistoryRows(sourceKey) {
+      return sourceKey === "barRegProduccion" ? barRegProduccion : regProduccion;
+    }
+    function setProductionHistoryRows(sourceKey, rows) {
+      const deleted = productionHistoryDeletedKeys && productionHistoryDeletedKeys[sourceKey];
+      const normalized = normalizeProductionHistoryRows(rows, deleted);
+      if (sourceKey === "barRegProduccion") setBarRegProduccion(normalized);
+      else setRegProduccion(normalized);
+    }
+    async function loadProductionHistoryFromEvents() {
+      const collection = getCentralizedRecordsCollectionRef();
+      if (!collection || !firebaseAuthEmail || !firebaseBootstrappedRef.current || productionHistoryLoadingRef.current) return;
+      productionHistoryLoadingRef.current = true;
+      try {
+        const sources = [
+          { moduleId: "cocina", sourceKey: "regProduccion" },
+          { moduleId: "bar", sourceKey: "barRegProduccion" }
+        ];
+        for (const source of sources) {
+          const metaRef = getCentralizedRecordsMetaRef(source.moduleId);
+          if (!metaRef) continue;
+          const metaSnapshot = await metaRef.get();
+          const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
+          const remoteRevision = Number(meta.revision || 0);
+          const revisionKey = getProductionHistoryStorageKey(PRODUCTION_HISTORY_REVISION_STORAGE, source.moduleId);
+          const cursorKey = getProductionHistoryStorageKey(PRODUCTION_HISTORY_CURSOR_STORAGE, source.moduleId);
+          const localRevision = Number(load(revisionKey, 0) || 0);
+          const storedCursor = String(load(cursorKey, "") || "").trim();
+          const currentRows = getProductionHistoryRows(source.sourceKey);
+          if (remoteRevision <= localRevision && storedCursor) continue;
+          const fullLoad = !storedCursor;
+          let query = collection.where("sourceKey", "==", source.sourceKey).orderBy("updatedAtClient", "asc").limit(PRODUCTION_HISTORY_PAGE_SIZE);
+          const incoming = [];
+          let cursor = fullLoad ? "" : storedCursor;
+          let page = 0;
+          while (page < 50) {
+            const pageQuery = cursor ? query.startAfter(cursor) : query;
+            const snapshot = await pageQuery.get();
+            if (!snapshot || snapshot.empty) break;
+            snapshot.forEach((doc) => {
+              const event = doc.data() || {};
+              incoming.push(Object.assign({}, event, { id: event.id || doc.id }));
+            });
+            const last = snapshot.docs[snapshot.docs.length - 1];
+            const lastEvent = last && last.data ? last.data() || {} : {};
+            const nextCursor = String(lastEvent.updatedAtClient || "").trim();
+            if (!nextCursor || snapshot.size < PRODUCTION_HISTORY_PAGE_SIZE || nextCursor === cursor) break;
+            cursor = nextCursor;
+            page += 1;
+          }
+          if (!incoming.length && !fullLoad) {
+            save(revisionKey, remoteRevision);
+            continue;
+          }
+          const byRowKey = new Map();
+          if (!fullLoad) {
+            (Array.isArray(currentRows) ? currentRows : []).forEach((row) => {
+              const rowKey = centralizedRecordRowKey(source.sourceKey, row);
+              if (rowKey) byRowKey.set(rowKey, row);
+            });
+          }
+          incoming.forEach((event) => {
+            const rowKey = String(event.rowKey || centralizedRecordRowKey(source.sourceKey, event.rowData || {}));
+            if (!rowKey) return;
+            if (event.deleted === true) byRowKey.delete(rowKey);
+            else byRowKey.set(rowKey, event.rowData || {});
+          });
+          const rows = Array.from(byRowKey.values());
+          setProductionHistoryRows(source.sourceKey, rows);
+          if (incoming.length) {
+            const lastIncoming = incoming[incoming.length - 1];
+            save(cursorKey, String(lastIncoming.updatedAtClient || cursor || ""));
+          }
+          save(revisionKey, remoteRevision);
+        }
+      } catch (error) {
+        console.warn("No se pudo cargar el Historial de Produccion centralizado:", error);
+      } finally {
+        productionHistoryLoadingRef.current = false;
       }
     }
     function getSystemLogsRootRef() {
@@ -14496,6 +14584,7 @@
         const currentSignature = quickHashText(JSON.stringify(getCentralizedRecordStateSnapshot()));
         const nextSignature = quickHashText(JSON.stringify(CENTRAL_RECORD_KEYS.size ? Array.from(CENTRAL_RECORD_KEYS).map((key) => next[key] || []) : []));
         if (currentSignature !== nextSignature) applyRemoteState(next);
+        await loadProductionHistoryFromEvents();
       };
       const unsubs = refs.map((ref) => ref.onSnapshot(() => scheduleProductionHistoryRefresh(), () => {}));
       refreshRecordsFromCloud().catch(() => {});
