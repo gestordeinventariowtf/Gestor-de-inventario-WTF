@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261007005921-7983abc";</script>
+  <script>window.WTF_APP_VERSION = "20261007031930-a81bb22";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12662,6 +12662,43 @@
         throw error;
       }
     }
+    async function writeCentralizedRecordBatch(events, revision) {
+      const root = getCentralizedRecordsRootRef();
+      const collection = getCentralizedRecordsCollectionRef();
+      if (!root || !collection || !firebaseAuthEmail || !Array.isArray(events) || !events.length) return false;
+      const firestore = root.firestore;
+      if (!firestore || typeof firestore.batch !== "function") {
+        for (const event of events) await writeCentralizedRecordEvent(event);
+        await writeCentralizedRecordsMeta(new Set(events.map((event) => String(event.modulo || "cocina"))), revision);
+        return true;
+      }
+      const batch = firestore.batch();
+      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
+      const nowClient = new Date().toISOString();
+      const serverTimestamp = fieldValue ? fieldValue.serverTimestamp() : nowClient;
+      const modules = new Set();
+      events.forEach((event) => {
+        if (!event || !event.id) return;
+        modules.add(String(event.modulo || "cocina"));
+        batch.set(collection.doc(event.id), Object.assign({}, event, {
+          createdAt: serverTimestamp,
+          updatedAt: serverTimestamp
+        }), { merge: true });
+      });
+      modules.forEach((moduleId) => {
+        const ref = getCentralizedRecordsMetaRef(moduleId);
+        if (!ref) return;
+        batch.set(ref, {
+          revision,
+          updatedAt: serverTimestamp,
+          updatedAtClient: nowClient,
+          updatedBy: firebaseAuthEmail,
+          deviceId: getCentralizedRecordsDeviceId()
+        }, { merge: true });
+      });
+      await batch.commit();
+      return true;
+    }
     async function writeCentralizedRecordsMeta(modules, revision) {
       const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
       await Promise.all(Array.from(modules).map(async (moduleId) => {
@@ -12689,20 +12726,17 @@
       if (!pending.length) return;
       centralizedRecordsWriteInFlightRef.current = true;
       const remaining = [];
-      const modules = new Set();
       try {
-        for (const event of pending) {
+        const revision = Date.now();
+        for (let offset = 0; offset < pending.length; offset += 350) {
+          const chunk = pending.slice(offset, offset + 350);
           try {
-            await writeCentralizedRecordEvent(event);
-            modules.add(String(event.modulo || "cocina"));
+            await writeCentralizedRecordBatch(chunk, revision);
           } catch (_) {
-            remaining.push(event);
+            remaining.push(...chunk);
           }
         }
         savePendingCentralizedRecordEvents(remaining);
-        if (modules.size && remaining.length < pending.length) {
-          await writeCentralizedRecordsMeta(modules, Date.now());
-        }
       } finally {
         centralizedRecordsWriteInFlightRef.current = false;
       }
@@ -12746,20 +12780,18 @@
       centralizedRecordsWriteInFlightRef.current = true;
       try {
         const failed = [];
-        const modules = new Set();
-        for (const event of events) {
+        const revision = Date.now();
+        for (let offset = 0; offset < events.length; offset += 350) {
+          const chunk = events.slice(offset, offset + 350);
           try {
-            await writeCentralizedRecordEvent(event);
-            modules.add(event.modulo);
+            await writeCentralizedRecordBatch(chunk, revision);
           } catch (_) {
-            failed.push(event);
+            failed.push(...chunk);
           }
         }
         const queued = getPendingCentralizedRecordEvents().concat(failed);
         savePendingCentralizedRecordEvents(queued);
-        const revision = Date.now();
         save(CENTRAL_RECORDS_REVISION_STORAGE, revision);
-        if (modules.size) await writeCentralizedRecordsMeta(modules, revision);
       } catch (error) {
         console.error("No se pudieron sincronizar eventos de Registros:", error);
       } finally {
