@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261007041055-46c1742";</script>
+  <script>window.WTF_APP_VERSION = "20261007045123-53dfeb3";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5496,6 +5496,7 @@
   const SYSTEM_LOGS_CURSOR_STORAGE = "wtf_system_logs_cursor_v1";
   const SYSTEM_LOGS_DEVICE_STORAGE = "wtf_system_logs_device_id_v1";
   const SYSTEM_LOGS_EVENTS_MODE_STORAGE = "wtf_system_logs_events_mode_v1";
+  const SYSTEM_LOGS_REFRESH_DEBOUNCE_MS = 700;
   const CENTRAL_RECORDS_COLLECTION = "registrosEventos";
   const CENTRAL_RECORDS_META_COLLECTION = "registrosMeta";
   const CENTRAL_RECORDS_REVISION_STORAGE = "wtf_registros_remote_revision_v1";
@@ -5503,6 +5504,7 @@
   const CENTRAL_RECORDS_MODULE_CURSOR_PREFIX = "wtf_registros_cursor_module_v1:";
   const CENTRAL_RECORDS_DEVICE_STORAGE = "wtf_registros_device_id_v1";
   const CENTRAL_RECORDS_PENDING_STORAGE = "wtf_registros_pending_events_v1";
+  const PRODUCTION_HISTORY_REFRESH_DEBOUNCE_MS = 700;
   const CENTRAL_RECORD_KEYS = new Set([
     "regEntradas", "regSalidas", "regDecomiso", "regRecuento",
     "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento",
@@ -12445,6 +12447,9 @@
     const centralizedRecordsLoadingRef = useRef(false);
     const centralizedRecordsWriteInFlightRef = useRef(false);
     const productionHistoryMigrationInFlightRef = useRef(false);
+    const systemLogsMetaUnsubscribeRef = useRef(null);
+    const systemLogsRefreshTimerRef = useRef(null);
+    const productionHistoryRefreshTimerRef = useRef(null);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
@@ -13788,6 +13793,24 @@
       };
     }, [page, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
+      const metaRef = getSystemLogsMetaRef();
+      if (page !== "systemLogs" || !firebaseAuthEmail || firebaseStatus !== "connected" || !metaRef || typeof metaRef.onSnapshot !== "function") return;
+      const scheduleRefresh = () => {
+        if (systemLogsRefreshTimerRef.current) window.clearTimeout(systemLogsRefreshTimerRef.current);
+        systemLogsRefreshTimerRef.current = window.setTimeout(() => {
+          systemLogsRefreshTimerRef.current = null;
+          loadSystemLogEventsPage(false).catch(() => {});
+        }, SYSTEM_LOGS_REFRESH_DEBOUNCE_MS);
+      };
+      systemLogsMetaUnsubscribeRef.current = metaRef.onSnapshot(() => scheduleRefresh(), () => {});
+      return () => {
+        if (typeof systemLogsMetaUnsubscribeRef.current === "function") systemLogsMetaUnsubscribeRef.current();
+        systemLogsMetaUnsubscribeRef.current = null;
+        if (systemLogsRefreshTimerRef.current) window.clearTimeout(systemLogsRefreshTimerRef.current);
+        systemLogsRefreshTimerRef.current = null;
+      };
+    }, [page, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
       if (!firebaseAuthEmail || firebaseStatus !== "connected") return;
       flushSystemLogEvents().catch(() => {});
     }, [firebaseAuthEmail, firebaseStatus]);
@@ -14458,6 +14481,13 @@
       const refs = [getCentralizedRecordsMetaRef("cocina"), getCentralizedRecordsMetaRef("bar")].filter(Boolean);
       if (!refs.length) return;
       let active = true;
+      const scheduleProductionHistoryRefresh = () => {
+        if (productionHistoryRefreshTimerRef.current) window.clearTimeout(productionHistoryRefreshTimerRef.current);
+        productionHistoryRefreshTimerRef.current = window.setTimeout(() => {
+          productionHistoryRefreshTimerRef.current = null;
+          refreshRecordsFromCloud().catch(() => {});
+        }, PRODUCTION_HISTORY_REFRESH_DEBOUNCE_MS);
+      };
       const refreshRecordsFromCloud = async () => {
         if (!active || centralizedRecordsLoadingRef.current) return;
         const current = getCurrentAppState();
@@ -14467,11 +14497,13 @@
         const nextSignature = quickHashText(JSON.stringify(CENTRAL_RECORD_KEYS.size ? Array.from(CENTRAL_RECORD_KEYS).map((key) => next[key] || []) : []));
         if (currentSignature !== nextSignature) applyRemoteState(next);
       };
-      const unsubs = refs.map((ref) => ref.onSnapshot(() => refreshRecordsFromCloud().catch(() => {}), () => {}));
+      const unsubs = refs.map((ref) => ref.onSnapshot(() => scheduleProductionHistoryRefresh(), () => {}));
       refreshRecordsFromCloud().catch(() => {});
       return () => {
         active = false;
         unsubs.forEach((unsubscribe) => { if (typeof unsubscribe === "function") unsubscribe(); });
+        if (productionHistoryRefreshTimerRef.current) window.clearTimeout(productionHistoryRefreshTimerRef.current);
+        productionHistoryRefreshTimerRef.current = null;
       };
     }, [firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
