@@ -82,24 +82,7 @@ service cloud.firestore {
     }
 
     match /wtfSistema/systemLogs {
-      allow read: if isAuthorizedUser();
-      allow write: if false;
-
-      match /events/{logId} {
-        allow read: if isAuthorizedUser();
-        allow create: if isAuthorizedUser()
-          && request.resource.data.id == logId
-          && request.resource.data.email == request.auth.token.email
-          && request.resource.data.accion is string
-          && request.resource.data.modulo is string
-          && request.resource.data.createdAt == request.time;
-        allow update, delete: if isAuthorizedAdmin();
-      }
-
-      match /meta/{metaId} {
-        allow read, write: if isAuthorizedUser()
-          && metaId == 'state';
-      }
+      allow read, write: if isAuthorizedUser();
     }
 
     match /wtfSistema/syncIndex {
@@ -108,34 +91,6 @@ service cloud.firestore {
 
     match /wtfSistema/{externalStateDoc} {
       allow read, write: if isAuthorizedUser() && isExternalStateDocument(externalStateDoc);
-    }
-
-    match /wtfSistema/registrosEventos/events/{eventId} {
-      allow read: if isAuthorizedUser();
-      allow create: if isAuthorizedUser()
-        && request.resource.data.id == eventId
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.tipo is string
-        && request.resource.data.modulo in ['cocina', 'bar']
-        && request.resource.data.sourceKey is string
-        && request.resource.data.rowKey is string
-        && request.resource.data.movementId is string
-        && request.resource.data.inventoryKey is string
-        && request.resource.data.existenciaAnterior is number
-        && request.resource.data.existenciaNueva is number
-        && (!('operationId' in request.resource.data) || request.resource.data.operationId is string)
-        && (!('productionId' in request.resource.data) || request.resource.data.productionId is string)
-        && (!('transferId' in request.resource.data) || request.resource.data.transferId is string)
-        && request.resource.data.createdAt == request.time;
-      allow update: if isAuthorizedUser()
-        && request.resource.data.id == eventId
-        && request.resource.data.email == request.auth.token.email;
-      allow delete: if isAuthorizedAdmin();
-    }
-
-    match /wtfSistema/registrosMeta/modules/{moduleId} {
-      allow read, write: if isAuthorizedUser()
-        && moduleId in ['cocina', 'bar'];
     }
 
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {

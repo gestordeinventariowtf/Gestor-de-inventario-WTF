@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261007051109-32de8f0";</script>
+  <script>window.WTF_APP_VERSION = "20261007060620-8d4fb5a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2779,7 +2779,7 @@
     const innerQty = getPackageInnerContentQty(product, item);
     const innerUnit = getPackageInnerContentUnit(product, item);
     if (inputUnit === normalizeUnit(outerUnit)) {
-      const event = {
+      return {
         missing: false,
         unitsPerPack,
         internalUnit,
@@ -4475,8 +4475,7 @@
   function getInventoryMergeKey(row) {
     if (!row) return "";
     if (row.tipo === "separador") {
-      // El nombre identifica al renglón. El id histórico no debe permitir duplicados visuales.
-      return ["sep", getInventoryCanonicalProductName(row.nombre || "")].join("|");
+      return ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|");
     }
     return [
       "prod",
@@ -4494,12 +4493,6 @@
     return name ? ["prod-name", name].join("|") : "";
   }
   function getInventoryDeletedKeysForRow(row) {
-    if (row && row.tipo === "separador") {
-      return Array.from(new Set([
-        getInventoryMergeKey(row),
-        ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|")
-      ].filter(Boolean)));
-    }
     return [getInventoryMergeKey(row), getInventoryDeletedNameKey(row)].filter(Boolean);
   }
   function getInventoryRowCreatedTime(row) {
@@ -5391,12 +5384,6 @@
       barHistSalidaRapida: repairIcgMiseQuickExitUsers(normalizeMovementRows(state.barHistSalidaRapida || [], movementDeletedKeys.barHistSalidaRapida))
     });
   }
-  function serializeFirebaseSyncState(state) {
-    const value = cloneData(state || {});
-    delete value.systemLogs;
-    CENTRAL_RECORD_KEYS.forEach(function(key) { delete value[key]; });
-    return serializeAppState(value);
-  }
   function compactIcgDatasetForFirebase(data, key, rowLimit) {
     const normalized = ensureIcgFrontRestData(data);
     const base = normalized.datasets && normalized.datasets[key] ? normalized.datasets[key] : {};
@@ -5471,6 +5458,7 @@
   ];
   const FIREBASE_EXTERNAL_STATE_DOCS = {
     icgFrontRestData: "icgFrontRestData",
+    systemLogs: "systemLogs",
     regEntradas: "regEntradas",
     regSalidas: "regSalidas",
     regDecomiso: "regDecomiso",
@@ -5488,32 +5476,6 @@
     barHistSalidaRapida: "barHistSalidaRapida"
   };
   const FIREBASE_SYNC_INDEX_DOC_ID = "syncIndex";
-  const SYSTEM_LOGS_DOC_ID = "systemLogs";
-  const SYSTEM_LOGS_EVENTS_COLLECTION = "events";
-  const SYSTEM_LOGS_META_COLLECTION = "meta";
-  const SYSTEM_LOGS_META_DOC_ID = "state";
-  const SYSTEM_LOGS_QUEUE_STORAGE = "wtf_system_logs_pending_events_v1";
-  const SYSTEM_LOGS_CURSOR_STORAGE = "wtf_system_logs_cursor_v1";
-  const SYSTEM_LOGS_DEVICE_STORAGE = "wtf_system_logs_device_id_v1";
-  const SYSTEM_LOGS_EVENTS_MODE_STORAGE = "wtf_system_logs_events_mode_v1";
-  const SYSTEM_LOGS_REFRESH_DEBOUNCE_MS = 700;
-  const CENTRAL_RECORDS_COLLECTION = "registrosEventos";
-  const CENTRAL_RECORDS_META_COLLECTION = "registrosMeta";
-  const CENTRAL_RECORDS_REVISION_STORAGE = "wtf_registros_remote_revision_v1";
-  const CENTRAL_RECORDS_CURSOR_STORAGE = "wtf_registros_remote_cursor_v1";
-  const CENTRAL_RECORDS_MODULE_CURSOR_PREFIX = "wtf_registros_cursor_module_v1:";
-  const CENTRAL_RECORDS_DEVICE_STORAGE = "wtf_registros_device_id_v1";
-  const CENTRAL_RECORDS_PENDING_STORAGE = "wtf_registros_pending_events_v1";
-  const PRODUCTION_HISTORY_REFRESH_DEBOUNCE_MS = 700;
-  const PRODUCTION_HISTORY_REVISION_STORAGE = "wtf_production_history_revision_v2:";
-  const PRODUCTION_HISTORY_CURSOR_STORAGE = "wtf_production_history_cursor_v2:";
-  const PRODUCTION_HISTORY_PAGE_SIZE = 200;
-  const CENTRAL_RECORD_KEYS = new Set([
-    "regEntradas", "regSalidas", "regDecomiso", "regRecuento",
-    "barRegEntradas", "barRegSalidas", "barRegDecomiso", "barRegRecuento",
-    "regProduccion", "histEntradaRapida", "histSalidaRapida",
-    "barRegProduccion", "barHistEntradaRapida", "barHistSalidaRapida"
-  ]);
   const FIREBASE_EXTERNAL_SIGNATURES_STORAGE = "wtf_firebase_external_doc_signatures_v1";
   const FIREBASE_LAZY_MODULE_KEYS = new Set([
     "icgFrontRestData",
@@ -12409,9 +12371,6 @@
     const [authorizing, setAuthorizing] = useState(false);
     const [correos, setCorreos] = useState(() => load("wtf_correos", ["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com", "jhonndell077@gmail.com", "cocinaplazaduarte@gmail.com"]));
     const [systemLogs, setSystemLogs] = useState(() => normalizeSystemLogs(load(KEYS.systemLogs, [])));
-    const [systemLogsEventsReady, setSystemLogsEventsReady] = useState(() => Boolean(load(SYSTEM_LOGS_EVENTS_MODE_STORAGE, false)));
-    const [systemLogsEventsLoading, setSystemLogsEventsLoading] = useState(false);
-    const [systemLogsEventsHasMore, setSystemLogsEventsHasMore] = useState(true);
     const [icgControl, setIcgControl] = useState(() => {
       const normalized = ensureIcgFrontRestData(icgFrontRestData);
       const paused = isIcgInventoryImpactPaused(normalized);
@@ -12445,15 +12404,6 @@
     const firebaseWriteQueuedRef = useRef(false);
     const firebaseExternalDocSignaturesRef = useRef({});
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    const centralizedRecordsPreviousRef = useRef(null);
-    const centralizedRecordsLoadedRef = useRef(false);
-    const centralizedRecordsLoadingRef = useRef(false);
-    const centralizedRecordsWriteInFlightRef = useRef(false);
-    const productionHistoryMigrationInFlightRef = useRef(false);
-    const systemLogsMetaUnsubscribeRef = useRef(null);
-    const systemLogsRefreshTimerRef = useRef(null);
-    const productionHistoryRefreshTimerRef = useRef(null);
-    const productionHistoryLoadingRef = useRef(false);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
@@ -12567,634 +12517,6 @@
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
     }
-    function getCentralizedRecordsRootRef() {
-      const docRef = firebaseDocRef.current;
-      return docRef && docRef.parent ? docRef.parent : null;
-    }
-    function getCentralizedRecordsCollectionRef() {
-      const root = getCentralizedRecordsRootRef();
-      return root ? root.doc(CENTRAL_RECORDS_COLLECTION).collection("events") : null;
-    }
-    function getCentralizedRecordsMetaRef(moduleId) {
-      const root = getCentralizedRecordsRootRef();
-      return root ? root.doc(CENTRAL_RECORDS_META_COLLECTION).collection("modules").doc(moduleId) : null;
-    }
-    function getCentralizedRecordsDeviceId() {
-      let id = String(load(CENTRAL_RECORDS_DEVICE_STORAGE, "") || "").trim();
-      if (!id) {
-        id = syncClientIdRef.current || `records-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        save(CENTRAL_RECORDS_DEVICE_STORAGE, id);
-      }
-      return id;
-    }
-    function getCentralizedRecordsModuleCursor(moduleId) {
-      const key = `${CENTRAL_RECORDS_MODULE_CURSOR_PREFIX}${String(moduleId || "cocina")}`;
-      return String(load(key, load(CENTRAL_RECORDS_CURSOR_STORAGE, "")) || "").trim();
-    }
-    function saveCentralizedRecordsModuleCursor(moduleId, cursor) {
-      const clean = String(cursor || "").trim();
-      if (!clean) return;
-      save(`${CENTRAL_RECORDS_MODULE_CURSOR_PREFIX}${String(moduleId || "cocina")}`, clean);
-      save(CENTRAL_RECORDS_CURSOR_STORAGE, clean);
-    }
-    function centralizedRecordScope(sourceKey) {
-      return String(sourceKey || "").startsWith("bar") ? "bar" : "cocina";
-    }
-    function centralizedRecordType(sourceKey) {
-      const key = String(sourceKey || "");
-      if (key.toLowerCase().includes("produccion")) return "produccion";
-      if (key.toLowerCase().includes("recuento")) return "recuento";
-      if (key.toLowerCase().includes("decomiso")) return "decomiso";
-      if (key.toLowerCase().includes("salida")) return "salida";
-      return "entrada";
-    }
-    function centralizedRecordRowKey(sourceKey, row) {
-      const rowId = String(row && (row.id || row.ID || row.numero || row.ticket || "") || "").trim();
-      return `${sourceKey}:${rowId || quickHashText(JSON.stringify(row || {}))}`;
-    }
-    function centralizedRecordEventId(sourceKey, rowKey, row, deleted) {
-      const fingerprint = quickHashText(JSON.stringify({
-        sourceKey,
-        rowKey,
-        deleted: Boolean(deleted),
-        row: row || {}
-      }));
-      return `evt-${quickHashText(`${sourceKey}|${rowKey}|${fingerprint}`)}`;
-    }
-    function buildCentralizedRecordEvent(sourceKey, row, deleted = false) {
-      const safeRow = row && typeof row === "object" ? cloneData(row) : {};
-      const rowKey = centralizedRecordRowKey(sourceKey, safeRow);
-      const eventId = centralizedRecordEventId(sourceKey, rowKey, safeRow, deleted);
-      const email = String(firebaseAuthEmail || authUserEmail || "").trim().toLowerCase();
-      return {
-        id: eventId,
-        sourceKey,
-        rowKey,
-        movementId: String(safeRow.movementId || safeRow.id || rowKey),
-        operationId: String(safeRow.operationId || safeRow.transferOperationId || safeRow.transferId || ""),
-        productionId: String(safeRow.productionId || ""),
-        transferId: String(safeRow.transferId || ""),
-        inventoryKey: String(safeRow.inventoryKey || `${safeRow.storageKey || ""}:${safeRow.productId || safeRow.numero || ""}`),
-        inventoryStateKey: String(safeRow.inventoryStateKey || safeRow.storageKey || ""),
-        tipo: centralizedRecordType(sourceKey),
-        modulo: centralizedRecordScope(sourceKey),
-        rowData: deleted ? {} : safeRow,
-        deleted: Boolean(deleted),
-        usuario: getUserDisplayLabel(currentUser) || "Usuario autorizado",
-        email,
-        deviceId: getCentralizedRecordsDeviceId(),
-        source: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? "pwa" : "web",
-        fechaCliente: new Date().toISOString(),
-        updatedAtClient: new Date().toISOString(),
-        revision: Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0) + 1
-      };
-      ["existenciaAnterior", "existenciaNueva", "entradaAcumulada", "salidaAcumulada", "decomisoAcumulado"].forEach((field) => {
-        if (safeRow[field] !== undefined && safeRow[field] !== null && safeRow[field] !== "") event[field] = Number(safeRow[field]);
-      });
-      if (event.existenciaAnterior === undefined) event.existenciaAnterior = 0;
-      if (event.existenciaNueva === undefined) event.existenciaNueva = 0;
-      return event;
-    }
-    function getCentralizedRecordStateSnapshot() {
-      const state = getCurrentAppState();
-      const keys = {};
-      CENTRAL_RECORD_KEYS.forEach((key) => {
-        keys[key] = Array.isArray(state[key]) ? state[key] : [];
-      });
-      return keys;
-    }
-    async function writeCentralizedRecordEvent(event) {
-      const collection = getCentralizedRecordsCollectionRef();
-      if (!collection || !event || !firebaseAuthEmail) return false;
-      const ref = collection.doc(event.id);
-      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
-      const payload = Object.assign({}, event, {
-        createdAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString(),
-        updatedAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString()
-      });
-      try {
-        if (typeof ref.create === "function") await ref.create(payload);
-        else await ref.set(payload);
-        return true;
-      } catch (error) {
-        const message = String(error && error.message || error || "").toLowerCase();
-        if (message.includes("already exists") || message.includes("already-exists")) return true;
-        throw error;
-      }
-    }
-    async function writeCentralizedRecordBatch(events, revision) {
-      const root = getCentralizedRecordsRootRef();
-      const collection = getCentralizedRecordsCollectionRef();
-      if (!root || !collection || !firebaseAuthEmail || !Array.isArray(events) || !events.length) return false;
-      const firestore = root.firestore;
-      if (!firestore || typeof firestore.batch !== "function") {
-        for (const event of events) await writeCentralizedRecordEvent(event);
-        await writeCentralizedRecordsMeta(new Set(events.map((event) => String(event.modulo || "cocina"))), revision);
-        return true;
-      }
-      const batch = firestore.batch();
-      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
-      const nowClient = new Date().toISOString();
-      const serverTimestamp = fieldValue ? fieldValue.serverTimestamp() : nowClient;
-      const modules = new Set();
-      events.forEach((event) => {
-        if (!event || !event.id) return;
-        modules.add(String(event.modulo || "cocina"));
-        batch.set(collection.doc(event.id), Object.assign({}, event, {
-          createdAt: serverTimestamp,
-          updatedAt: serverTimestamp
-        }), { merge: true });
-      });
-      modules.forEach((moduleId) => {
-        const ref = getCentralizedRecordsMetaRef(moduleId);
-        if (!ref) return;
-        batch.set(ref, {
-          revision,
-          updatedAt: serverTimestamp,
-          updatedAtClient: nowClient,
-          updatedBy: firebaseAuthEmail,
-          deviceId: getCentralizedRecordsDeviceId()
-        }, { merge: true });
-      });
-      await batch.commit();
-      return true;
-    }
-    async function writeCentralizedRecordsMeta(modules, revision) {
-      const fieldValue = window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue;
-      await Promise.all(Array.from(modules).map(async (moduleId) => {
-        const ref = getCentralizedRecordsMetaRef(moduleId);
-        if (!ref) return;
-        await ref.set({
-          revision,
-          updatedAt: fieldValue ? fieldValue.serverTimestamp() : new Date().toISOString(),
-          updatedAtClient: new Date().toISOString(),
-          updatedBy: firebaseAuthEmail,
-          deviceId: getCentralizedRecordsDeviceId()
-        }, { merge: true });
-      }));
-    }
-    function getPendingCentralizedRecordEvents() {
-      const value = load(CENTRAL_RECORDS_PENDING_STORAGE, []);
-      return Array.isArray(value) ? value : [];
-    }
-    function savePendingCentralizedRecordEvents(events) {
-      save(CENTRAL_RECORDS_PENDING_STORAGE, Array.isArray(events) ? events.slice(-2000) : []);
-    }
-    async function flushCentralizedRecordEvents() {
-      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || centralizedRecordsWriteInFlightRef.current) return;
-      const pending = getPendingCentralizedRecordEvents();
-      if (!pending.length) return;
-      centralizedRecordsWriteInFlightRef.current = true;
-      const remaining = [];
-      try {
-        const revision = Date.now();
-        for (let offset = 0; offset < pending.length; offset += 350) {
-          const chunk = pending.slice(offset, offset + 350);
-          try {
-            await writeCentralizedRecordBatch(chunk, revision);
-          } catch (_) {
-            remaining.push(...chunk);
-          }
-        }
-        savePendingCentralizedRecordEvents(remaining);
-      } finally {
-        centralizedRecordsWriteInFlightRef.current = false;
-      }
-    }
-    async function syncCentralizedRecordChanges(snapshot) {
-      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || !firebaseDocRef.current) return;
-      if (productionHistoryMigrationInFlightRef.current) return;
-      if (centralizedRecordsWriteInFlightRef.current) return;
-      let previous = centralizedRecordsPreviousRef.current;
-      centralizedRecordsPreviousRef.current = snapshot;
-      if (!previous) {
-        // Migracion controlada: solo se ejecuta una vez por dispositivo y por evento.
-        previous = {};
-      }
-      const events = [];
-      const modules = new Set();
-      CENTRAL_RECORD_KEYS.forEach((sourceKey) => {
-        const currentRows = Array.isArray(snapshot[sourceKey]) ? snapshot[sourceKey] : [];
-        const previousRows = Array.isArray(previous[sourceKey]) ? previous[sourceKey] : [];
-        const currentByKey = new Map(currentRows.map((row) => [centralizedRecordRowKey(sourceKey, row), row]));
-        const previousByKey = new Map(previousRows.map((row) => [centralizedRecordRowKey(sourceKey, row), row]));
-        currentByKey.forEach((row, rowKey) => {
-          const currentHash = quickHashText(JSON.stringify(row || {}));
-          const previousHash = quickHashText(JSON.stringify(previousByKey.get(rowKey) || {}));
-          if (currentHash !== previousHash) {
-            events.push(buildCentralizedRecordEvent(sourceKey, row, false));
-            modules.add(centralizedRecordScope(sourceKey));
-          }
-        });
-        previousByKey.forEach((row, rowKey) => {
-          if (!currentByKey.has(rowKey)) {
-            events.push(buildCentralizedRecordEvent(sourceKey, row, true));
-            modules.add(centralizedRecordScope(sourceKey));
-          }
-        });
-      });
-      if (!events.length) {
-        await flushCentralizedRecordEvents();
-        return;
-      }
-      centralizedRecordsWriteInFlightRef.current = true;
-      try {
-        const failed = [];
-        const revision = Date.now();
-        for (let offset = 0; offset < events.length; offset += 350) {
-          const chunk = events.slice(offset, offset + 350);
-          try {
-            await writeCentralizedRecordBatch(chunk, revision);
-          } catch (_) {
-            failed.push(...chunk);
-          }
-        }
-        const queued = getPendingCentralizedRecordEvents().concat(failed);
-        savePendingCentralizedRecordEvents(queued);
-        save(CENTRAL_RECORDS_REVISION_STORAGE, revision);
-      } catch (error) {
-        console.error("No se pudieron sincronizar eventos de Registros:", error);
-      } finally {
-        centralizedRecordsWriteInFlightRef.current = false;
-      }
-    }
-    async function loadCentralizedRecordsFromEvents(baseState) {
-      const collection = getCentralizedRecordsCollectionRef();
-      if (!collection || !firebaseAuthEmail || centralizedRecordsLoadingRef.current) return baseState;
-      centralizedRecordsLoadingRef.current = true;
-      try {
-        const metaSnapshots = await Promise.all(["cocina", "bar"].map((moduleId) => getCentralizedRecordsMetaRef(moduleId)?.get()));
-        const remoteRevision = Math.max(...metaSnapshots.filter(Boolean).map((snapshot) => Number(snapshot.exists && snapshot.data().revision || 0)), 0);
-        const localRevision = Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0);
-        if (centralizedRecordsLoadedRef.current && remoteRevision <= localRevision) return baseState;
-        const eventDocs = [];
-        const moduleEventTimes = {};
-        let usedLegacyQuery = false;
-        for (const moduleId of ["cocina", "bar"]) {
-          if (usedLegacyQuery) break;
-          const cursor = getCentralizedRecordsModuleCursor(moduleId);
-          try {
-            let eventQuery = collection.where("modulo", "==", moduleId).orderBy("updatedAtClient", "asc").limit(200);
-            if (cursor) eventQuery = eventQuery.startAfter(cursor);
-            const snapshot = await eventQuery.get();
-            snapshot.forEach((doc) => {
-              const event = doc.data() || {};
-              eventDocs.push({ doc, event, moduleId });
-              if (event.updatedAtClient) {
-                if (!moduleEventTimes[moduleId]) moduleEventTimes[moduleId] = [];
-                moduleEventTimes[moduleId].push(String(event.updatedAtClient));
-              }
-            });
-          } catch (error) {
-            // Compatibilidad con proyectos que todavía no tienen el índice compuesto.
-            if (usedLegacyQuery) throw error;
-            usedLegacyQuery = true;
-            const legacyCursor = String(load(CENTRAL_RECORDS_CURSOR_STORAGE, "") || "").trim();
-            let eventQuery = collection.orderBy("updatedAtClient", "asc").limit(200);
-            if (legacyCursor) eventQuery = eventQuery.startAfter(legacyCursor);
-            const snapshot = await eventQuery.get();
-            snapshot.forEach((doc) => {
-              const event = doc.data() || {};
-              const moduleId = String(event.modulo || "");
-              if (moduleId !== "cocina" && moduleId !== "bar") return;
-              eventDocs.push({ doc, event, moduleId });
-              if (event.updatedAtClient) {
-                if (!moduleEventTimes[moduleId]) moduleEventTimes[moduleId] = [];
-                moduleEventTimes[moduleId].push(String(event.updatedAtClient));
-              }
-            });
-          }
-        }
-        const latest = new Map();
-        eventDocs.forEach(({ event }) => {
-          const key = String(event.rowKey || "");
-          const sourceKey = String(event.sourceKey || "");
-          if (!key || !CENTRAL_RECORD_KEYS.has(sourceKey)) return;
-          const eventKey = `${sourceKey}|${key}`;
-          latest.set(eventKey, event);
-        });
-        const result = Object.assign({}, baseState || {});
-        const rowsByKey = {};
-        const seenKeys = new Set();
-        const latestInventory = new Map();
-        CENTRAL_RECORD_KEYS.forEach((key) => { rowsByKey[key] = []; });
-        if (cursor) {
-          CENTRAL_RECORD_KEYS.forEach((sourceKey) => {
-            const existing = Array.isArray(result[sourceKey]) ? result[sourceKey] : [];
-            existing.forEach((row) => {
-              const rowKey = centralizedRecordRowKey(sourceKey, row);
-              if (rowKey) rowsByKey[sourceKey].push(row);
-            });
-          });
-        }
-        latest.forEach((event) => {
-          const sourceKey = String(event.sourceKey || "");
-          if (!CENTRAL_RECORD_KEYS.has(sourceKey)) return;
-          seenKeys.add(sourceKey);
-          if (event.inventoryKey && Number.isFinite(Number(event.existenciaNueva))) {
-            const previousInventoryEvent = latestInventory.get(String(event.inventoryKey));
-            if (!previousInventoryEvent || String(event.updatedAtClient || event.fechaCliente || "") > String(previousInventoryEvent.updatedAtClient || previousInventoryEvent.fechaCliente || "")) {
-              latestInventory.set(String(event.inventoryKey), event);
-            }
-          }
-          const existingIndex = rowsByKey[sourceKey].findIndex((row) => centralizedRecordRowKey(sourceKey, row) === String(event.rowKey || ""));
-          if (event.deleted === true) {
-            if (existingIndex >= 0) rowsByKey[sourceKey].splice(existingIndex, 1);
-          } else if (existingIndex >= 0) {
-            rowsByKey[sourceKey][existingIndex] = event.rowData || {};
-          } else {
-            rowsByKey[sourceKey].push(event.rowData || {});
-          }
-        });
-        CENTRAL_RECORD_KEYS.forEach((key) => {
-          if (seenKeys.has(key)) result[key] = rowsByKey[key];
-        });
-        const inventoryStateByEventKey = {
-          inventario: "inventario",
-          cuartoFrioInventario: "cuartoFrioInventario",
-          barInventario: "barInventario",
-          barCuartoFrioInventario: "barCuartoFrioInventario",
-          miseAnPlace: "miseAnPlace",
-          barMiseAnPlace: "barMiseAnPlace"
-        };
-        latestInventory.forEach((event, inventoryKey) => {
-          const stateKey = inventoryStateByEventKey[event.inventoryStateKey] || inventoryStateByEventKey[String(inventoryKey).split(":")[0]];
-          if (!stateKey || !Array.isArray(result[stateKey])) return;
-          const productId = String(event.productId || String(inventoryKey).split(":").slice(1).join(":") || "");
-          result[stateKey] = result[stateKey].map((row) => {
-            if (String(row && row.id || "") !== productId) return row;
-            const next = Object.assign({}, row, {
-              movementUpdatedAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.movementUpdatedAt,
-              movimientosActualizadosAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.movimientosActualizadosAt,
-              updatedAt: event.inventorySnapshotAt || event.updatedAtClient || event.fechaCliente || row.updatedAt
-            });
-            if (event.entradaAcumulada !== undefined) next.entrada = Number(event.entradaAcumulada);
-            if (event.salidaAcumulada !== undefined) next.salida = Number(event.salidaAcumulada);
-            if (event.decomisoAcumulado !== undefined) next.decomiso = Number(event.decomisoAcumulado);
-            if (stateKey === "miseAnPlace" || stateKey === "barMiseAnPlace") {
-              if (event.existenciaNueva !== undefined) next.existencia = Number(event.existenciaNueva);
-            } else if (event.existenciaNueva !== undefined && event.entradaAcumulada === undefined && event.salidaAcumulada === undefined && event.decomisoAcumulado === undefined) {
-              next.existencia = Number(event.existenciaNueva);
-            }
-            return next;
-          });
-        });
-        Object.keys(moduleEventTimes).forEach((moduleId) => {
-          const times = moduleEventTimes[moduleId].filter(Boolean).sort();
-          if (times.length) saveCentralizedRecordsModuleCursor(moduleId, times[times.length - 1]);
-        });
-        centralizedRecordsLoadedRef.current = true;
-        centralizedRecordsPreviousRef.current = Object.assign({}, rowsByKey);
-        save(CENTRAL_RECORDS_REVISION_STORAGE, remoteRevision);
-        return result;
-      } catch (error) {
-        console.warn("No se pudieron leer los eventos centralizados de Registros:", error);
-        return baseState;
-      } finally {
-        centralizedRecordsLoadingRef.current = false;
-      }
-    }
-    function getProductionHistoryStorageKey(prefix, moduleId) {
-      return `${prefix}${String(moduleId || "cocina")}`;
-    }
-    function getProductionHistoryRows(sourceKey) {
-      return sourceKey === "barRegProduccion" ? barRegProduccion : regProduccion;
-    }
-    function setProductionHistoryRows(sourceKey, rows) {
-      const deleted = productionHistoryDeletedKeys && productionHistoryDeletedKeys[sourceKey];
-      const normalized = normalizeProductionHistoryRows(rows, deleted);
-      if (sourceKey === "barRegProduccion") setBarRegProduccion(normalized);
-      else setRegProduccion(normalized);
-    }
-    async function loadProductionHistoryFromEvents() {
-      const collection = getCentralizedRecordsCollectionRef();
-      if (!collection || !firebaseAuthEmail || !firebaseBootstrappedRef.current || productionHistoryLoadingRef.current) return;
-      productionHistoryLoadingRef.current = true;
-      try {
-        const sources = [
-          { moduleId: "cocina", sourceKey: "regProduccion" },
-          { moduleId: "bar", sourceKey: "barRegProduccion" }
-        ];
-        for (const source of sources) {
-          const metaRef = getCentralizedRecordsMetaRef(source.moduleId);
-          if (!metaRef) continue;
-          const metaSnapshot = await metaRef.get();
-          const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
-          const remoteRevision = Number(meta.revision || 0);
-          const revisionKey = getProductionHistoryStorageKey(PRODUCTION_HISTORY_REVISION_STORAGE, source.moduleId);
-          const cursorKey = getProductionHistoryStorageKey(PRODUCTION_HISTORY_CURSOR_STORAGE, source.moduleId);
-          const localRevision = Number(load(revisionKey, 0) || 0);
-          const storedCursor = String(load(cursorKey, "") || "").trim();
-          const currentRows = getProductionHistoryRows(source.sourceKey);
-          if (remoteRevision <= localRevision && storedCursor) continue;
-          const fullLoad = !storedCursor;
-          let query = collection.where("sourceKey", "==", source.sourceKey).orderBy("updatedAtClient", "asc").limit(PRODUCTION_HISTORY_PAGE_SIZE);
-          const incoming = [];
-          let cursor = fullLoad ? "" : storedCursor;
-          let page = 0;
-          while (page < 50) {
-            const pageQuery = cursor ? query.startAfter(cursor) : query;
-            const snapshot = await pageQuery.get();
-            if (!snapshot || snapshot.empty) break;
-            snapshot.forEach((doc) => {
-              const event = doc.data() || {};
-              incoming.push(Object.assign({}, event, { id: event.id || doc.id }));
-            });
-            const last = snapshot.docs[snapshot.docs.length - 1];
-            const lastEvent = last && last.data ? last.data() || {} : {};
-            const nextCursor = String(lastEvent.updatedAtClient || "").trim();
-            if (!nextCursor || snapshot.size < PRODUCTION_HISTORY_PAGE_SIZE || nextCursor === cursor) break;
-            cursor = nextCursor;
-            page += 1;
-          }
-          if (!incoming.length && !fullLoad) {
-            save(revisionKey, remoteRevision);
-            continue;
-          }
-          const byRowKey = new Map();
-          if (!fullLoad) {
-            (Array.isArray(currentRows) ? currentRows : []).forEach((row) => {
-              const rowKey = centralizedRecordRowKey(source.sourceKey, row);
-              if (rowKey) byRowKey.set(rowKey, row);
-            });
-          }
-          incoming.forEach((event) => {
-            const rowKey = String(event.rowKey || centralizedRecordRowKey(source.sourceKey, event.rowData || {}));
-            if (!rowKey) return;
-            if (event.deleted === true) byRowKey.delete(rowKey);
-            else byRowKey.set(rowKey, event.rowData || {});
-          });
-          const rows = Array.from(byRowKey.values());
-          setProductionHistoryRows(source.sourceKey, rows);
-          if (incoming.length) {
-            const lastIncoming = incoming[incoming.length - 1];
-            save(cursorKey, String(lastIncoming.updatedAtClient || cursor || ""));
-          }
-          save(revisionKey, remoteRevision);
-        }
-      } catch (error) {
-        console.warn("No se pudo cargar el Historial de Produccion centralizado:", error);
-      } finally {
-        productionHistoryLoadingRef.current = false;
-      }
-    }
-    function getSystemLogsRootRef() {
-      const docRef = firebaseDocRef.current;
-      return docRef && docRef.parent ? docRef.parent.doc(SYSTEM_LOGS_DOC_ID) : null;
-    }
-    function getSystemLogsEventsRef() {
-      const root = getSystemLogsRootRef();
-      return root ? root.collection(SYSTEM_LOGS_EVENTS_COLLECTION) : null;
-    }
-    function getSystemLogsMetaRef() {
-      const root = getSystemLogsRootRef();
-      return root ? root.collection(SYSTEM_LOGS_META_COLLECTION).doc(SYSTEM_LOGS_META_DOC_ID) : null;
-    }
-    function getSystemLogsDeviceId() {
-      let id = String(load(SYSTEM_LOGS_DEVICE_STORAGE, "") || "").trim();
-      if (!id) {
-        id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        save(SYSTEM_LOGS_DEVICE_STORAGE, id);
-      }
-      return id;
-    }
-    function getPendingSystemLogEvents() {
-      const rows = load(SYSTEM_LOGS_QUEUE_STORAGE, []);
-      return Array.isArray(rows) ? rows.filter((row) => row && row.id) : [];
-    }
-    function savePendingSystemLogEvents(rows) {
-      save(SYSTEM_LOGS_QUEUE_STORAGE, Array.isArray(rows) ? rows.slice(0, 500) : []);
-    }
-    function buildSystemLogEvent(row) {
-      const item = compactSystemLogEntry(row || {});
-      return Object.assign({}, item, {
-        id: String(item.id || createMovementId("syslog")),
-        fechaCliente: String(item.fecha || new Date().toISOString()),
-        usuario: String(item.usuario || "Sistema"),
-        email: String(firebaseAuthEmail || item.email || "").trim(),
-        deviceId: getSystemLogsDeviceId(),
-        source: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? "pwa" : "web",
-        revision: Number(syncRevisionRef.current || 0)
-      });
-    }
-    async function writeSystemLogEvent(event) {
-      const ref = getSystemLogsEventsRef();
-      if (!ref || !firebaseAuthEmail) return false;
-      const eventRef = ref.doc(String(event.id));
-      const payload = Object.assign({}, event, {
-        fechaServidor: window.firebase.firestore.FieldValue.serverTimestamp(),
-        createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
-      });
-      try {
-        if (typeof eventRef.create === "function") await eventRef.create(payload);
-        else await eventRef.set(payload, { merge: false });
-      } catch (error) {
-        const text = String(error && (error.code || error.message) || error || "");
-        if (!/already-exists|already exists|aborted|6/i.test(text)) throw error;
-      }
-      const metaRef = getSystemLogsMetaRef();
-      if (metaRef) {
-        await metaRef.set({
-          revision: window.firebase.firestore.FieldValue.increment(1),
-          totalApproximate: window.firebase.firestore.FieldValue.increment(1),
-          newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: event.email || "system"
-        }, { merge: true }).catch(() => {});
-      }
-      return true;
-    }
-    async function flushSystemLogEvents() {
-      if (!firebaseAuthEmail || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
-      const pending = getPendingSystemLogEvents();
-      if (!pending.length) return;
-      const remaining = [];
-      for (const event of pending) {
-        try {
-          if (!(await writeSystemLogEvent(event))) remaining.push(event);
-        } catch (error) {
-          remaining.push(event);
-          break;
-        }
-      }
-      savePendingSystemLogEvents(remaining);
-    }
-    function queueSystemLogEvent(row) {
-      const event = buildSystemLogEvent(row);
-      const pending = getPendingSystemLogEvents().filter((item) => String(item.id) !== String(event.id));
-      pending.push(event);
-      savePendingSystemLogEvents(pending);
-      flushSystemLogEvents().catch(() => {});
-    }
-    async function migrateLegacySystemLogsToEvents() {
-      const metaRef = getSystemLogsMetaRef();
-      const legacyRef = getSystemLogsRootRef();
-      if (!metaRef || !legacyRef || !firebaseAuthEmail) return;
-      const metaSnapshot = await metaRef.get();
-      if (metaSnapshot.exists && Number(metaSnapshot.data().migrationVersion || 0) >= 1) return;
-      const legacySnapshot = await legacyRef.get();
-      if (!legacySnapshot.exists) {
-        await metaRef.set({ migrationVersion: 1, migratedAt: window.firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-        return;
-      }
-      const legacyData = legacySnapshot.data() || {};
-      let legacyState = legacyData.appState || {};
-      if (legacyData.appStateCompressed) legacyState = decodeFirebaseCompressedState(legacyData.appStateCompressed) || legacyState;
-      const legacyRows = legacyState && Array.isArray(legacyState.systemLogs) ? legacyState.systemLogs : [];
-      for (const row of legacyRows) {
-        try {
-          await writeSystemLogEvent(buildSystemLogEvent(row));
-        } catch (error) {
-          console.warn("No se pudo migrar un log historico:", error);
-        }
-      }
-      await metaRef.set({
-        migrationVersion: 1,
-        migratedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-        migratedCount: legacyRows.length
-      }, { merge: true });
-    }
-    async function loadSystemLogEventsPage(older = false) {
-      const ref = getSystemLogsEventsRef();
-      if (!ref || !firebaseAuthEmail || !firebaseBootstrappedRef.current || systemLogsEventsLoading) return;
-      setSystemLogsEventsLoading(true);
-      try {
-        await migrateLegacySystemLogsToEvents();
-        await flushSystemLogEvents();
-        const cursor = load(SYSTEM_LOGS_CURSOR_STORAGE, {}) || {};
-        let query = ref;
-        if (older && cursor.oldestClientTime) {
-          query = query.orderBy("fechaCliente", "desc").startAfter(String(cursor.oldestClientTime)).limit(200);
-        } else if (!older && cursor.initialized && cursor.latestClientTime) {
-          query = query.where("fechaCliente", ">", String(cursor.latestClientTime)).orderBy("fechaCliente", "asc").limit(200);
-        } else {
-          query = query.orderBy("fechaCliente", "desc").limit(200);
-        }
-        const snapshot = await query.get();
-        const incoming = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data() || {};
-          incoming.push(Object.assign({}, data, { id: data.id || doc.id, fecha: data.fecha || data.fechaCliente || "" }));
-        });
-        if (incoming.length) {
-          setSystemLogs((previous) => normalizeSystemLogs(normalizeSystemLogs(previous).concat(incoming)));
-          const dates = incoming.map((row) => String(row.fechaCliente || row.fecha || "")).filter(Boolean).sort();
-          const nextCursor = Object.assign({}, cursor, {
-            initialized: true,
-            latestClientTime: !older ? (dates[dates.length - 1] || cursor.latestClientTime || "") : (cursor.latestClientTime || dates[dates.length - 1] || ""),
-            oldestClientTime: older ? (dates[0] || cursor.oldestClientTime || "") : (cursor.oldestClientTime || dates[0] || "")
-          });
-          save(SYSTEM_LOGS_CURSOR_STORAGE, nextCursor);
-        }
-        setSystemLogsEventsHasMore(incoming.length >= 200);
-        setSystemLogsEventsReady(true);
-        save(SYSTEM_LOGS_EVENTS_MODE_STORAGE, true);
-      } catch (error) {
-        console.warn("No se pudieron leer eventos de Logs de Sistema:", error);
-      } finally {
-        setSystemLogsEventsLoading(false);
-      }
-    }
     function addSystemLog(payload, userOverride) {
       const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
       setSystemLogs(function(prev) {
@@ -13202,7 +12524,6 @@
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
-      queueSystemLogEvent(entry);
       return entry;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
@@ -13234,10 +12555,7 @@
     }
     function createFirebaseWriteDoc(appState, reason) {
       const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
-      // Los logs se almacenan como eventos independientes. Nunca volver a
-      // incluir el arreglo completo en el documento principal de Firebase.
-      delete fullFirebaseState.systemLogs;
-      const signature = serializeFirebaseSyncState(fullFirebaseState);
+      const signature = serializeAppState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
       const externalDocs = [];
@@ -13245,12 +12563,6 @@
       const externalDocSignatures = Object.assign({}, firebaseExternalDocSignaturesRef.current || {});
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
-        if (CENTRAL_RECORD_KEYS.has(key)) {
-          // Los registros operativos se publican como eventos individuales.
-          // Los documentos antiguos permanecen disponibles solo para migracion/compatibilidad.
-          delete firebaseState[key];
-          return;
-        }
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
@@ -13512,9 +12824,7 @@
       if (nextState.userDeletedKeys && typeof nextState.userDeletedKeys === "object") setUserDeletedKeys(normalizeUserDeletedKeys(nextState.userDeletedKeys));
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios, nextState.userDeletedKeys));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
-      if (Array.isArray(nextState.systemLogs) && !systemLogsEventsReady && !load(SYSTEM_LOGS_EVENTS_MODE_STORAGE, false)) {
-        setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
-      }
+      if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
         return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
@@ -13665,8 +12975,8 @@
           activePage: page
         });
         if (!remoteState) return;
-        const remoteSignature = serializeFirebaseSyncState(remoteState);
-        const currentSignature = serializeFirebaseSyncState(getCurrentAppState());
+        const remoteSignature = serializeAppState(remoteState);
+        const currentSignature = serializeAppState(getCurrentAppState());
         if (remoteSignature === currentSignature) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           if (Object.keys(remoteExternalSignatures).length) {
@@ -13718,7 +13028,7 @@
     }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
     useEffect(() => save("wtf_correos", correos), [correos]);
-    useEffect(() => saveSoon(KEYS.systemLogs, normalizeSystemLogs(systemLogs).slice(0, 200)), [systemLogs]);
+    useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
     useEffect(() => save(MISE_DELETED_KEYS_STORAGE, normalizeMiseDeletedKeys(miseDeletedKeys)), [miseDeletedKeys]);
     useEffect(() => save(RECIPE_DELETED_KEYS_STORAGE, normalizeRecipeDeletedKeys(recipeDeletedKeys)), [recipeDeletedKeys]);
@@ -13867,41 +13177,6 @@
       }
     }, [firebaseCfg]);
     const firebaseAuthEmail = firebaseAuthUser && firebaseAuthUser.email ? String(firebaseAuthUser.email).trim().toLowerCase() : "";
-    useEffect(() => {
-      if (page !== "systemLogs" || !firebaseAuthEmail || firebaseStatus !== "connected") return;
-      loadSystemLogEventsPage(false).catch(() => {});
-      const refresh = () => loadSystemLogEventsPage(false).catch(() => {});
-      window.addEventListener("online", refresh);
-      window.addEventListener("focus", refresh);
-      window.addEventListener("pageshow", refresh);
-      return () => {
-        window.removeEventListener("online", refresh);
-        window.removeEventListener("focus", refresh);
-        window.removeEventListener("pageshow", refresh);
-      };
-    }, [page, firebaseAuthEmail, firebaseStatus]);
-    useEffect(() => {
-      const metaRef = getSystemLogsMetaRef();
-      if (page !== "systemLogs" || !firebaseAuthEmail || firebaseStatus !== "connected" || !metaRef || typeof metaRef.onSnapshot !== "function") return;
-      const scheduleRefresh = () => {
-        if (systemLogsRefreshTimerRef.current) window.clearTimeout(systemLogsRefreshTimerRef.current);
-        systemLogsRefreshTimerRef.current = window.setTimeout(() => {
-          systemLogsRefreshTimerRef.current = null;
-          loadSystemLogEventsPage(false).catch(() => {});
-        }, SYSTEM_LOGS_REFRESH_DEBOUNCE_MS);
-      };
-      systemLogsMetaUnsubscribeRef.current = metaRef.onSnapshot(() => scheduleRefresh(), () => {});
-      return () => {
-        if (typeof systemLogsMetaUnsubscribeRef.current === "function") systemLogsMetaUnsubscribeRef.current();
-        systemLogsMetaUnsubscribeRef.current = null;
-        if (systemLogsRefreshTimerRef.current) window.clearTimeout(systemLogsRefreshTimerRef.current);
-        systemLogsRefreshTimerRef.current = null;
-      };
-    }, [page, firebaseAuthEmail, firebaseStatus]);
-    useEffect(() => {
-      if (!firebaseAuthEmail || firebaseStatus !== "connected") return;
-      flushSystemLogEvents().catch(() => {});
-    }, [firebaseAuthEmail, firebaseStatus]);
     const currentUser = useMemo(() => {
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
@@ -13914,86 +13189,6 @@
         return normalizar(u.email) === normalizar(authUserEmail);
       }) || null;
     }, [usuarios, authUserEmail]);
-    async function migrateLegacyProductionHistoryToEvents() {
-      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || !firebaseDocRef.current) return;
-      if (!currentUser || !isAdminUser(currentUser) || productionHistoryMigrationInFlightRef.current) return;
-      productionHistoryMigrationInFlightRef.current = true;
-      try {
-        const sources = [
-          { sourceKey: "regProduccion", moduleId: "cocina" },
-          { sourceKey: "barRegProduccion", moduleId: "bar" }
-        ];
-        for (const source of sources) {
-          const metaRef = getCentralizedRecordsMetaRef(source.moduleId);
-          if (!metaRef) continue;
-          const existingMeta = await metaRef.get();
-          const existingData = existingMeta.exists ? existingMeta.data() || {} : {};
-          if (Number(existingData.productionHistoryMigrationVersion || 0) >= 1) continue;
-          await metaRef.set({
-            productionHistoryMigrationName: "production-history-events",
-            productionHistoryMigrationStartedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            productionHistoryMigrationStartedBy: firebaseAuthEmail,
-            productionHistoryMigrationVersion: 0
-          }, { merge: true });
-          const legacyValue = await readFirebaseExternalStateDoc(firebaseDocRef.current, source.sourceKey, "");
-          const rows = Array.isArray(legacyValue) ? legacyValue : legacyValue && Array.isArray(legacyValue[source.sourceKey]) ? legacyValue[source.sourceKey] : [];
-          let migratedCount = 0;
-          let duplicateCount = 0;
-          let errorCount = 0;
-          let lastEventId = "";
-          for (const row of rows) {
-            try {
-              const safeRow = row && typeof row === "object" ? cloneData(row) : {};
-              const rowKey = centralizedRecordRowKey(source.sourceKey, safeRow);
-              const event = buildCentralizedRecordEvent(source.sourceKey, safeRow, false);
-              event.id = centralizedRecordEventId(source.sourceKey, rowKey, safeRow, false);
-              event.operationId = `production-history-migration:${source.sourceKey}:${quickHashText(rowKey)}`;
-              event.productionId = String(safeRow.id || safeRow.productionId || rowKey);
-              event.source = "migration";
-              event.deviceId = "migration";
-              event.tipo = "produccion";
-              event.modulo = source.moduleId;
-              event.fechaCliente = String(safeRow.fecha || safeRow.fechaCliente || event.fechaCliente);
-              const eventRef = getCentralizedRecordsCollectionRef().doc(event.id);
-              const existed = await eventRef.get();
-              if (existed.exists) {
-                duplicateCount += 1;
-              } else {
-                await writeCentralizedRecordEvent(event);
-                migratedCount += 1;
-              }
-              lastEventId = event.id;
-            } catch (error) {
-              errorCount += 1;
-              console.warn("No se pudo migrar una produccion historica:", error);
-            }
-          }
-          const revision = Date.now();
-          await metaRef.set({
-            productionHistoryMigrationVersion: 1,
-            productionHistoryMigrationCompletedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            productionHistoryMigrationCompletedBy: firebaseAuthEmail,
-            productionHistoryMigratedCount: migratedCount,
-            productionHistoryDuplicateCount: duplicateCount,
-            productionHistoryErrorCount: errorCount,
-            productionHistoryLastEventId: lastEventId,
-            revision,
-            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAtClient: new Date().toISOString(),
-            updatedBy: firebaseAuthEmail,
-            deviceId: "migration"
-          }, { merge: true });
-        }
-      } finally {
-        productionHistoryMigrationInFlightRef.current = false;
-      }
-    }
-    useEffect(() => {
-      if (page !== "produccion" || firebaseStatus !== "connected" || !firebaseAuthEmail || !currentUser || !isAdminUser(currentUser)) return;
-      migrateLegacyProductionHistoryToEvents().catch((error) => {
-        console.warn("Migracion del historial de Produccion pendiente:", error);
-      });
-    }, [page, firebaseStatus, firebaseAuthEmail, currentUser]);
     useEffect(() => {
       if (!authUserEmail) return;
       if (firebaseCfg.enabled && (!firebaseBootstrappedRef.current || firebaseStatus === "connecting")) return;
@@ -14430,9 +13625,7 @@
             localExternalSignatures: firebaseExternalDocSignaturesRef.current,
             activePage: page
           });
-          const centralizedRemoteState = remoteState ? await loadCentralizedRecordsFromEvents(remoteState) : remoteState;
-          if (centralizedRemoteState) {
-            Object.assign(remoteState, centralizedRemoteState);
+          if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
               applyRemoteState(migratedState);
@@ -14448,8 +13641,8 @@
               setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
               return;
             }
-              const remoteSignature = serializeFirebaseSyncState(remoteState);
-              const currentSignature = serializeFirebaseSyncState(getCurrentAppState());
+            const remoteSignature = serializeAppState(remoteState);
+            const currentSignature = serializeAppState(getCurrentAppState());
             const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
@@ -14544,57 +13737,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
-    useEffect(() => {
-      if (!firebaseCfg.enabled || firebaseStatus !== "connected" || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
-      flushCentralizedRecordEvents().catch(() => {});
-      syncCentralizedRecordChanges(getCentralizedRecordStateSnapshot()).catch((error) => {
-        console.warn("Sincronizacion incremental de Registros pendiente:", error);
-      });
-    }, [firebaseCfg, firebaseStatus, firebaseAuthEmail, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, histEntradaRapida, histSalidaRapida, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barHistEntradaRapida, barHistSalidaRapida, movementDeletedKeys, productionHistoryDeletedKeys]);
-    useEffect(() => {
-      if (!firebaseAuthEmail || firebaseStatus !== "connected") return;
-      const refresh = () => flushCentralizedRecordEvents().catch(() => {});
-      window.addEventListener("online", refresh);
-      window.addEventListener("focus", refresh);
-      window.addEventListener("pageshow", refresh);
-      return () => {
-        window.removeEventListener("online", refresh);
-        window.removeEventListener("focus", refresh);
-        window.removeEventListener("pageshow", refresh);
-      };
-    }, [firebaseAuthEmail, firebaseStatus]);
-    useEffect(() => {
-      if (!firebaseAuthEmail || firebaseStatus !== "connected" || !firebaseBootstrappedRef.current) return;
-      const refs = [getCentralizedRecordsMetaRef("cocina"), getCentralizedRecordsMetaRef("bar")].filter(Boolean);
-      if (!refs.length) return;
-      let active = true;
-      const scheduleProductionHistoryRefresh = () => {
-        if (productionHistoryRefreshTimerRef.current) window.clearTimeout(productionHistoryRefreshTimerRef.current);
-        productionHistoryRefreshTimerRef.current = window.setTimeout(() => {
-          productionHistoryRefreshTimerRef.current = null;
-          refreshRecordsFromCloud().catch(() => {});
-        }, PRODUCTION_HISTORY_REFRESH_DEBOUNCE_MS);
-      };
-      const refreshRecordsFromCloud = async () => {
-        if (!active || centralizedRecordsLoadingRef.current) return;
-        const current = getCurrentAppState();
-        const next = await loadCentralizedRecordsFromEvents(current);
-        if (!active || next === current) return;
-        const currentSignature = quickHashText(JSON.stringify(getCentralizedRecordStateSnapshot()));
-        const nextSignature = quickHashText(JSON.stringify(CENTRAL_RECORD_KEYS.size ? Array.from(CENTRAL_RECORD_KEYS).map((key) => next[key] || []) : []));
-        if (currentSignature !== nextSignature) applyRemoteState(next);
-        await loadProductionHistoryFromEvents();
-      };
-      const unsubs = refs.map((ref) => ref.onSnapshot(() => scheduleProductionHistoryRefresh(), () => {}));
-      refreshRecordsFromCloud().catch(() => {});
-      return () => {
-        active = false;
-        unsubs.forEach((unsubscribe) => { if (typeof unsubscribe === "function") unsubscribe(); });
-        if (productionHistoryRefreshTimerRef.current) window.clearTimeout(productionHistoryRefreshTimerRef.current);
-        productionHistoryRefreshTimerRef.current = null;
-      };
-    }, [firebaseAuthEmail, firebaseStatus]);
+    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -15116,26 +14259,6 @@
       if (options.existenciaNueva !== undefined) row.existenciaNueva = options.existenciaNueva;
       return row;
     }
-    function attachInventoryMovementSnapshot(row, prod, storageKey, tipo, existenciaAnterior, cantidad, now) {
-      const before = roundQty4(existenciaAnterior);
-      const entrada = roundQty4(parseStockNumber(prod && prod.entrada, 0) + (tipo === "entrada" ? cantidad : 0));
-      const salida = roundQty4(parseStockNumber(prod && prod.salida, 0) + (tipo === "salida" ? cantidad : 0));
-      const decomiso = roundQty4(parseStockNumber(prod && prod.decomiso, 0) + (tipo === "decomiso" ? cantidad : 0));
-      const after = Math.max(0, roundQty4(entrada - salida - decomiso));
-      return Object.assign({}, row, {
-        movementId: String(row && row.id || ""),
-        inventoryKey: `${storageKey}:${String(prod && prod.id || "")}`,
-        inventoryStateKey: storageKey,
-        productId: String(prod && prod.id || ""),
-        codArticulo: getInventoryCodArticulo(prod, ""),
-        existenciaAnterior: before,
-        existenciaNueva: after,
-        entradaAcumulada: entrada,
-        salidaAcumulada: salida,
-        decomisoAcumulado: decomiso,
-        inventorySnapshotAt: now
-      });
-    }
     function hasMovementAlreadyRegistered(rows, row) {
       const keys = getMovementDedupKeys(row);
       if (!keys.length) return false;
@@ -15186,8 +14309,7 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      let reg = buildInventoryMovementRow("bar-inv", "barInventario", "Inventario Bar", "Bar", prod, cantidad, movementUser, options);
-      reg = attachInventoryMovementSnapshot(reg, prod, "barInventario", tipo, exist, cantidad, now);
+      const reg = buildInventoryMovementRow("bar-inv", "barInventario", "Inventario Bar", "Bar", prod, cantidad, movementUser, options);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
@@ -15218,8 +14340,7 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      let reg = buildInventoryMovementRow("cocina-inv", "inventario", "Inventario Cocina", "Cocina", prod, cantidad, movementUser, options);
-      reg = attachInventoryMovementSnapshot(reg, prod, "inventario", tipo, exist, cantidad, now);
+      const reg = buildInventoryMovementRow("cocina-inv", "inventario", "Inventario Cocina", "Cocina", prod, cantidad, movementUser, options);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -15251,8 +14372,7 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      let reg = buildInventoryMovementRow("bar-frio", "barCuartoFrioInventario", "Cuarto Frio Bar", "Bar", prod, cantidad, movementUser, options);
-      reg = attachInventoryMovementSnapshot(reg, prod, "barCuartoFrioInventario", tipo, exist, cantidad, now);
+      const reg = buildInventoryMovementRow("bar-frio", "barCuartoFrioInventario", "Cuarto Frio Bar", "Bar", prod, cantidad, movementUser, options);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
@@ -15283,8 +14403,7 @@
       if (!prod) throw new Error(`Producto "${productoNombre}" no encontrado.`);
       const exist = getInventoryExistence(prod);
       if (tipo === "salida" || tipo === "decomiso") assertInventoryMovementAvailable(prod, cantidad, prod.nombre);
-      let reg = buildInventoryMovementRow("cocina-frio", "cuartoFrioInventario", "Cuarto Frio Cocina", "Cocina", prod, cantidad, movementUser, options);
-      reg = attachInventoryMovementSnapshot(reg, prod, "cuartoFrioInventario", tipo, exist, cantidad, now);
+      const reg = buildInventoryMovementRow("cocina-frio", "cuartoFrioInventario", "Cuarto Frio Cocina", "Cocina", prod, cantidad, movementUser, options);
       if (tipo === "entrada") {
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
@@ -15828,7 +14947,7 @@
       usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
-      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs, eventsReady: systemLogsEventsReady, eventsLoading: systemLogsEventsLoading, eventsHasMore: systemLogsEventsHasMore, pendingCount: getPendingSystemLogEvents().length, onLoadMore: () => loadSystemLogEventsPage(true) }),
+      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
@@ -16919,9 +16038,6 @@
         toast("La producción no tiene una cantidad válida para transferir.", "error");
         return;
       }
-      const stableProductionId = String(row.id || `production-${quickHashText(JSON.stringify({ producto: row.productoProducido || "", fecha: row.fecha || "", usuario: row.usuario || "" }))}`).trim();
-      const transferId = String(row.transferId || `transfer-${quickHashText(`${moduleLabel}|${stableProductionId}`)}`).trim();
-      const operationId = `production-transfer:${moduleLabel}:${stableProductionId}:${transferId}`;
       const productoNombre = String(row.productoProducido || "").trim();
       if (!productoNombre) {
         toast("La producción no tiene nombre de producto.", "error");
@@ -17016,10 +16132,8 @@
         }, 0);
         if (!Number.isFinite(cantidadSalida) || cantidadSalida <= 0) return;
         miseHistorialTransferencia.push({
-          id: `prod-mise-transfer-${stableProductionId}-${item.id || normalizar(item.producto)}-${transferId}`,
-          operationId,
-          transferId,
-          productionId: stableProductionId,
+          id: `prod-mise-transfer-${row.id || Date.now()}-${item.id || normalizar(item.producto)}-${now}`,
+          productionId: row.id || "",
           fecha: now,
           producto: item.producto || item.nombre || "",
           cantidad: Number(cantidadSalida.toFixed(4)),
@@ -17028,12 +16142,7 @@
           origen: `Transferencia produccion: ${productoNombre}`,
           existenciaAnterior,
           existenciaNueva: Math.max(0, Number((existenciaAnterior - cantidadSalida).toFixed(4))),
-          inventoryKey: `mise:${item.id || normalizar(item.producto)}`,
-          inventoryStateKey: moduleLabel === "Bar" ? "barMiseAnPlace" : "miseAnPlace",
-          entradaAcumulada: Number(item.entrada || 0),
-          salidaAcumulada: Number(item.salida || 0),
-          modulo: moduleLabel,
-          source: "produccion"
+          modulo: moduleLabel
         });
       });
       function applyProductionStockConsumption(setter, entries, storageKey) {
@@ -17070,15 +16179,7 @@
         }), "otherCuartoFrio");
         if (typeof setRegSalidas === "function") {
           const salidaRecords = stockInsumosPendientes.map(function(entry) {
-            const item = findProductionStockItem(entry);
-            const existenciaAnterior = item ? getInventoryExistence(item) : 0;
-            const cantidadSalida = Number(entry.cantidadDescontada || 0);
-            const existenciaNueva = Math.max(0, Number((existenciaAnterior - cantidadSalida).toFixed(4)));
-            return buildStoredProductionSalidaRecord(entry, now, getUserDisplayLabel(currentUser), productoNombre, stableProductionId, operationId, transferId, {
-              existenciaAnterior,
-              existenciaNueva,
-              salidaAcumulada: Number((Number(item && item.salida || 0) + cantidadSalida).toFixed(4))
-            });
+            return buildStoredProductionSalidaRecord(entry, now, getUserDisplayLabel(currentUser), productoNombre, row.id);
           }).filter(Boolean);
           if (salidaRecords.length) {
             setRegSalidas(function(prev) {
@@ -17129,10 +16230,8 @@
       if (typeof setHistEntradaRapida === "function") {
         const existenciaAnteriorEntrada = getMiseSafeNumber(match.existencia, 0);
         const entradaTransferencia = {
-          id: `ent-prod-transfer-${stableProductionId}-${match.id || normalizar(match.producto)}-${transferId}`,
-          operationId,
-          transferId,
-          productionId: stableProductionId,
+          id: `ent-prod-transfer-${row.id || Date.now()}-${match.id || normalizar(match.producto)}-${now}`,
+          productionId: row.id || "",
           fecha: now,
           producto: match.producto || productoNombre,
           medida: unidadDestinoTransferencia,
@@ -17140,14 +16239,9 @@
           cantidadOriginal: `${Number(cantidad.toFixed(4))} ${unidadProducida}`,
           existenciaAnterior: existenciaAnteriorEntrada,
           existenciaNueva: Number((existenciaAnteriorEntrada + cantidadDestinoTransferencia).toFixed(4)),
-          inventoryKey: `mise:${match.id || normalizar(match.producto)}`,
-          inventoryStateKey: moduleLabel === "Bar" ? "barMiseAnPlace" : "miseAnPlace",
-          entradaAcumulada: Number(match.entrada || 0) + Number(cantidadDestinoTransferencia.toFixed(4)),
-          salidaAcumulada: Number(match.salida || 0),
           usuario: getUserDisplayLabel(currentUser),
           origen: `Transferencia produccion: ${productoNombre}`,
-          modulo: moduleLabel,
-          source: "produccion"
+          modulo: moduleLabel
         };
         setHistEntradaRapida(function(prev) {
           const current = Array.isArray(prev) ? prev : [];
@@ -17170,8 +16264,6 @@
       setProducciones(function(prev) {
         return (Array.isArray(prev) ? prev : []).map(function(item) {
           return item.id === row.id ? Object.assign({}, item, {
-            transferId,
-            transferOperationId: operationId,
             transferidoAMiseAt: fechaTransferencia,
             transferidoAMiseTarget: match ? match.producto : productoNombre,
             miseProductoTarget: match ? match.producto : item.miseProductoTarget || "",
@@ -18220,18 +17312,13 @@
         usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque)
       };
     }
-    function buildStoredProductionSalidaRecord(entry, now, usuario, productoProducido, productionId, operationId, transferId, snapshot) {
+    function buildStoredProductionSalidaRecord(entry, now, usuario, productoProducido, productionId) {
       const cantidad = Number(entry && entry.cantidadDescontada || 0);
       if (!entry || !Number.isFinite(cantidad) || cantidad <= 0) return null;
-      const safeSnapshot = snapshot && typeof snapshot === "object" ? snapshot : {};
-      return Object.assign({
-        _id: `prod-exit-${transferId || productionId || "unknown"}-${entry.storageKey || "inventario"}-${entry.productId || normalizar(entry.producto || "stock")}`,
-        operationId: operationId || "",
-        transferId: transferId || "",
+      return {
+        _id: createMovementId(`prod-${normalizar(entry.storageKey || "inventario") || "stock"}`),
         storageKey: entry.storageKey || "inventario",
         productionId: productionId || "",
-        inventoryKey: `${entry.storageKey || "inventario"}:${entry.productId || entry.producto || ""}`,
-        inventoryStateKey: entry.storageKey || "inventario",
         fecha: now,
         numero: entry.productId,
         medida: entry.unidadInventario || entry.unidadUsada || "Uni",
@@ -18257,10 +17344,7 @@
         cantidadPorUnidadInterna: entry.cantidadPorUnidadInterna || "",
         unidadPorUnidadInterna: entry.unidadPorUnidadInterna || "",
         usaUnidadInternaEmpaque: Boolean(entry.usaUnidadInternaEmpaque)
-      }, safeSnapshot, {
-        movementSource: "Transferencia produccion",
-        source: "produccion"
-      });
+      };
     }
     function guardarCargaDirecta() {
       setDirectLoadError("");
@@ -22953,7 +22037,7 @@
       )
     );
   }
-  function SystemLogsPage({ logs, eventsReady = false, eventsLoading = false, eventsHasMore = false, pendingCount = 0, onLoadMore = null }) {
+  function SystemLogsPage({ logs }) {
     const [query, setQuery] = useState("");
     const [bridgeQuery, setBridgeQuery] = useState("");
     const [actionFilter, setActionFilter] = useState("todos");
@@ -22972,7 +22056,7 @@
       inventario: rows.filter(function(row) { return normalizar(row.modulo).includes("inventario") || normalizar(row.modulo).includes("cuarto frio"); }).length,
       mise: rows.filter(function(row) { return normalizar(row.modulo).includes("mise"); }).length
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles"), eventsReady ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-verde" }, "Eventos centralizados") : /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, "Preparando eventos"), pendingCount ? /* @__PURE__ */ React.createElement("span", { className: "pill pill-naranja" }, pendingCount, " pendientes") : null, eventsHasMore && onLoadMore ? /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline", onClick: onLoadMore, disabled: eventsLoading }, eventsLoading ? "Cargando..." : "Cargar mas") : null), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
       return /* @__PURE__ */ React.createElement("option", { key: action, value: action }, action);
     }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Modulo"), /* @__PURE__ */ React.createElement("th", null, "Accion"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Detalle"))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map(function(row) {
       const accion = String(row.accion || "Evento");
@@ -24716,55 +23800,11 @@
   function StatCard({ label, value, color, onClick }) {
     return /* @__PURE__ */ React.createElement("div", { className: `stat-card ${color} ${onClick ? "clickable" : ""}`, onClick, title: onClick ? "Ir a la secci\xF3n" : "" }, /* @__PURE__ */ React.createElement("div", { className: "stat-label" }, label), /* @__PURE__ */ React.createElement("div", { className: "stat-value" }, value));
   }
-  function InventoryOrderModal({ inventario, pageLabel, onClose, onConfirm }) {
-    const sections = useMemo(() => {
-      const result = [];
-      let current = { id: "__root__", nombre: "SIN RENGLON", productos: [] };
-      result.push(current);
-      (Array.isArray(inventario) ? inventario : []).forEach(function(row) {
-        if (row && row.tipo === "separador") {
-          current = { id: String(row.id), nombre: row.nombre || "SIN RENGLON", productos: [] };
-          result.push(current);
-        } else if (row && row.tipo === "producto") current.productos.push(row);
-      });
-      return result.filter((section) => section.productos.length > 1);
-    }, [inventario]);
-    const [draft, setDraft] = useState(() => sections.reduce((map, section) => { map[section.id] = section.productos.map((row) => row.id); return map; }, {}));
-    const [dragged, setDragged] = useState(null);
-    useEffect(() => setDraft(sections.reduce((map, section) => { map[section.id] = section.productos.map((row) => row.id); return map; }, {})), [sections]);
-    function moveRow(sectionId, targetId) {
-      if (!dragged || dragged.sectionId !== sectionId || dragged.rowId === targetId) return;
-      setDraft((previous) => {
-        const ids = Array.isArray(previous[sectionId]) ? previous[sectionId].slice() : [];
-        const from = ids.indexOf(dragged.rowId);
-        const to = ids.indexOf(targetId);
-        if (from < 0 || to < 0) return previous;
-        ids.splice(from, 1);
-        ids.splice(to, 0, dragged.rowId);
-        return Object.assign({}, previous, { [sectionId]: ids });
-      });
-    }
-    const rowById = new Map((Array.isArray(inventario) ? inventario : []).map((row) => [row.id, row]));
-    return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", style: { maxWidth: 760 }, onClick: (e) => e.stopPropagation() },
-      /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-lines", style: { marginRight: 7, color: "var(--azul)" } }), "Ordenar ", pageLabel), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose, title: "Cerrar" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))),
-      /* @__PURE__ */ React.createElement("div", { className: "modal-body", style: { display: "grid", gap: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Arrastra cada producto para cambiar su secuencia. Se conservan intactos sus codigos, vinculos, existencias y movimientos."), sections.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: 24, color: "var(--gris)" } }, "No hay un renglon con suficientes productos para reorganizar.") : sections.map(function(section) {
-        const ids = Array.isArray(draft[section.id]) ? draft[section.id] : [];
-        return /* @__PURE__ */ React.createElement("div", { key: section.id, className: "card", style: { margin: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("strong", null, section.nombre), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, ids.length, " productos")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 6 } }, ids.map(function(id, index) {
-          const row = rowById.get(id);
-          if (!row) return null;
-          return /* @__PURE__ */ React.createElement("div", { key: id, draggable: true, onDragStart: () => setDragged({ sectionId: section.id, rowId: id }), onDragOver: (event) => event.preventDefault(), onDrop: () => { moveRow(section.id, id); setDragged(null); }, onDragEnd: () => setDragged(null), style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", border: "1px solid var(--borde)", borderRadius: 7, background: dragged && dragged.rowId === id ? "#eff6ff" : "#fff", cursor: "grab" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-vertical", style: { color: "var(--gris)" } }), /* @__PURE__ */ React.createElement("span", { className: "pill pill-gris", style: { minWidth: 32, textAlign: "center" } }, index + 1), /* @__PURE__ */ React.createElement("strong", { style: { flex: 1 } }, row.nombre), /* @__PURE__ */ React.createElement("span", { style: { color: "var(--gris)", fontSize: 11 } }, getInventoryCodArticulo(row, "Sin codigo")));
-        })));
-      })),
-      /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => onConfirm(Object.keys(draft).map((sectionId) => ({ sectionId, ids: draft[sectionId] }))), disabled: sections.length === 0 }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-save" }), "Guardar orden"))
-    ));
-  }
   function InventarioPage({ inventario, setInventario, usuarios, currentUser = null, onSystemLog = null, moduleLabel = "Cocina", pageLabel = "Inventario", sourceKey = "inventario", inventoryStateKey = "", onMarkDeleted = null, allowMigration = false, migrateTargetLabel = "Cuarto Frio", onMigrateProducts = null, searchSources = [], codeSources = [], onNavigateToPage = null, inventorySearchTarget = null, miseAnPlace = [], icgFrontRestData = null, setIcgFrontRestData = null, regEntradas = [], setRegEntradas = null, regSalidas = [], setRegSalidas = null, regDecomiso = [], setRegDecomiso = null, regRecuento = [], setRegRecuento = null, movementStateKeys = {}, onMarkMovementRowsDeleted = null }) {
     const toast = useToast();
     const [busqueda, setBusqueda] = useState("");
     const [modalAdd, setModalAdd] = useState(false);
     const [modalSep, setModalSep] = useState(false);
-    const [editingSeparatorId, setEditingSeparatorId] = useState(null);
-    const [separatorNameDraft, setSeparatorNameDraft] = useState("");
     const [editingId, setEditingId] = useState(null);
     const [editData, setEditData] = useState({});
     const [confirmReset, setConfirmReset] = useState(null);
@@ -24772,8 +23812,6 @@
     const [busquedaAlerta, setBusquedaAlerta] = useState("");
     const [showRelocateKey, setShowRelocateKey] = useState(false);
     const [modalReubicar, setModalReubicar] = useState(false);
-    const [showOrderKey, setShowOrderKey] = useState(false);
-    const [modalOrden, setModalOrden] = useState(false);
     const [showMigrateKey, setShowMigrateKey] = useState(false);
     const [modalMigrar, setModalMigrar] = useState(false);
     const [focusedSearchResultId, setFocusedSearchResultId] = useState(null);
@@ -25122,70 +24160,15 @@
       toast("Producto agregado");
     }
     function addSeparador() {
-      const separatorName = String(editingSeparatorId != null ? separatorNameDraft : newSep).trim();
-      if (!separatorName) {
+      if (!newSep.trim()) {
         toast("Ingrese el nombre", "error");
         return;
       }
       const now = new Date().toISOString();
-      if (editingSeparatorId != null) {
-        setInventario((p) => p.map((row) => row.id === editingSeparatorId && row.tipo === "separador" ? { ...row, nombre: separatorName.toUpperCase(), updatedAt: now } : row));
-        setEditingSeparatorId(null);
-        setSeparatorNameDraft("");
-        setModalSep(false);
-        toast("Renglón actualizado");
-        return;
-      }
-      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: separatorName.toUpperCase(), createdAt: now, updatedAt: now }]);
+      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: newSep.trim().toUpperCase(), createdAt: now, updatedAt: now }]);
       setNewSep("");
       setModalSep(false);
       toast("Renglón agregado");
-    }
-    function editSeparador(row) {
-      if (!row || row.tipo !== "separador") return;
-      setEditingSeparatorId(row.id);
-      setSeparatorNameDraft(String(row.nombre || ""));
-      setModalSep(true);
-    }
-    function openOrderAccess() {
-      if (!inventario.some((row) => row && row.tipo === "producto")) {
-        toast(`No hay productos para ordenar en ${pageLabel}.`, "error");
-        return;
-      }
-      setShowOrderKey(true);
-    }
-    function saveProductOrder(sectionOrders) {
-      const orders = new Map((Array.isArray(sectionOrders) ? sectionOrders : []).map((item) => [String(item.sectionId), Array.isArray(item.ids) ? item.ids : []]));
-      const now = new Date().toISOString();
-      setInventario(function(previous) {
-        const rows = Array.isArray(previous) ? previous.slice() : [];
-        const positionsBySection = new Map();
-        let sectionId = "__root__";
-        rows.forEach(function(row, index) {
-          if (row && row.tipo === "separador") sectionId = String(row.id);
-          else if (row && row.tipo === "producto") {
-            if (!positionsBySection.has(sectionId)) positionsBySection.set(sectionId, []);
-            positionsBySection.get(sectionId).push(index);
-          }
-        });
-        const productById = new Map(rows.filter((row) => row && row.tipo === "producto").map((row) => [String(row.id), row]));
-        positionsBySection.forEach(function(positions, key) {
-          const ids = orders.get(key) || [];
-          const ordered = ids.map((id) => productById.get(String(id))).filter(Boolean);
-          if (ordered.length !== positions.length) return;
-          positions.forEach((position, index) => { rows[position] = Object.assign({}, ordered[index], { updatedAt: now }); });
-        });
-        return rows;
-      });
-      if (typeof onSystemLog === "function") onSystemLog({ modulo: `${pageLabel} ${moduleLabel}`, accion: "Reordenar productos", detalle: `Se actualizo unicamente la secuencia visual de productos en ${pageLabel} ${moduleLabel}. Los identificadores y vinculos se conservaron.` }, currentUser);
-      setModalOrden(false);
-      toast(`Orden de ${pageLabel} actualizado`, "ok");
-    }
-    function closeSeparatorModal() {
-      setModalSep(false);
-      setEditingSeparatorId(null);
-      setSeparatorNameDraft("");
-      setNewSep("");
     }
     function openRelocateAccess() {
       if (!separadores.length) {
@@ -25263,7 +24246,7 @@
     }
     const tableRows = rows.map((r) => {
       if (r.tipo === "separador") {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-outline btn-icon", title: "Editar renglón", onClick: () => editSeparador(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Eliminar renglón", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
       }
       const exist = getInventoryExistence(r);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
@@ -25353,7 +24336,7 @@
         )
       )
     ) : null;
-    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), editingSeparatorId != null ? "Editar Renglón" : "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: closeSeparatorModal }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: editingSeparatorId != null ? separatorNameDraft : newSep, onChange: (e) => editingSeparatorId != null ? setSeparatorNameDraft(e.target.value) : setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: closeSeparatorModal }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: editingSeparatorId != null ? "fas fa-check" : "fas fa-plus" }), editingSeparatorId != null ? "Guardar" : "Agregar")))) : null;
+    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalSep(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newSep, onChange: (e) => setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalSep(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
     const alertasModal = modalAlertas ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { color: "#f59e0b", marginRight: 7 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAlertas(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busquedaAlerta, onChange: (e) => setBusquedaAlerta(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "55vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Stock Mín."))), /* @__PURE__ */ React.createElement("tbody", null, alertasFiltradas.map(function(r) {
       const stockStatus = r.stockStatus || getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const covered = stockStatus.coveredByMise;
@@ -25380,14 +24363,12 @@
       setFocusedSearchResultId(null);
     } }, "Ver todos")) : null;
     const inventoryLeftTools = /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, justifyItems: "start", flex: "1 1 420px", maxWidth: 560, minWidth: 280 } }, /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner", title: `${bajoStockCount} productos por debajo del stock mínimo urgente`, style: { width: "100%" } }, /* @__PURE__ */ React.createElement("strong", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { marginRight: 8 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("div", { className: "stock-alert-banner-actions" }, /* @__PURE__ */ React.createElement("small", null, bajoStockCount, " urgente", bajoStockCount === 1 ? "" : "s", cubiertoMiseCount > 0 ? ` · ${cubiertoMiseCount} cubierto${cubiertoMiseCount === 1 ? "" : "s"} por Mise` : ""), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo btn-sm", onClick: () => setModalAlertas(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-eye" }), "Ver productos en alerta"))), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { width: "100%", maxWidth: 360 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: `Buscar producto en ${pageLabel.toLowerCase()}...`, value: busqueda, onChange: (e) => { setPinnedSearchTarget(null); setFocusedSearchResultId(null); setBusqueda(e.target.value); } })), pinnedSearchNotice);
-    const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openOrderAccess, title: "Reordenar productos sin cambiar sus identificadores" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-grip-lines" }), "Ordenar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
+    const inventoryMiddleTools = /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: openRelocateAccess }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-right-left" }), "Reubicar"), allowMigration && /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: openMigrationAccess, title: `Mover productos desde ${pageLabel} hacia ${migrateTargetLabel}` }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake" }), `Migrar a ${migrateTargetLabel}`), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline", onClick: () => setModalSep(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group" }), "Renglón"));
     const inventoryRightTools = /* @__PURE__ */ React.createElement("div", { style: { marginLeft: "auto", display: "grid", gap: 8, justifyItems: "stretch", minWidth: 150 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => {
       setNewProd((p) => ({ ...p, separadorId: p.separadorId || String((separadores[0] || {}).id || ""), codArticulo: String(p.codArticulo || "").trim() || suggestedCodArticulo }));
       openAddProductoModal();
     } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => generateInventoryCountPdf(inventario, pageLabel, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF"));
-    const orderKeyModal = showOrderKey ? /* @__PURE__ */ React.createElement(AdminKeyModal, { title: `Autorizar ordenamiento de ${pageLabel}`, usuarios, onClose: () => setShowOrderKey(false), onConfirm: () => { setShowOrderKey(false); setModalOrden(true); } }) : null;
-    const orderModal = modalOrden ? /* @__PURE__ */ React.createElement(InventoryOrderModal, { inventario, pageLabel, onClose: () => setModalOrden(false), onConfirm: saveProductOrder }) : null;
-    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "inventory-main-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, orderKeyModal, orderModal, migrateKeyModal, migrateModal);
+    return /* @__PURE__ */ React.createElement("div", null, miseLinkDatalist, /* @__PURE__ */ React.createElement("div", { className: "action-bar", style: { alignItems: "flex-start", gap: 12 } }, inventoryLeftTools, inventoryMiddleTools, inventoryRightTools), globalResultsNode, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "inventory-main-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { colSpan: "6", style: { borderBottom: "none", background: "transparent" } }), /* @__PURE__ */ React.createElement("th", { colSpan: "4", className: "col-div-left", style: { textAlign: "center", background: "#f0fdf4", color: "#166534", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", paddingTop: 4, paddingBottom: 4, borderBottom: "none" } }, "MOVIMIENTOS & EXISTENCIA"), /* @__PURE__ */ React.createElement("th", { style: { borderBottom: "none", background: "transparent" } })), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Stock L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock V-D"), /* @__PURE__ */ React.createElement("th", { className: "col-div-left" }, "Entradas"), /* @__PURE__ */ React.createElement("th", null, "Salidas"), /* @__PURE__ */ React.createElement("th", null, "Decomiso"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows, rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "11", style: { textAlign: "center", padding: "30px", color: "var(--gris)" } }, `Sin productos en ${pageLabel}`)))))), addModal, sepModal, alertasModal, resetModal, relocateKeyModal, relocateModal, migrateKeyModal, migrateModal);
   }
   function InventarioReubicarModal({ inventario, onClose, onConfirm }) {
     const [step, setStep] = useState(1);
@@ -26069,14 +25050,10 @@
           });
         });
         const entradaRegs = adjustments.filter((row) => row.ajuste > 0).map(function(row) {
-          const stateKey = target === "cuartoFrio" ? "cuartoFrioInventario" : "inventario";
-          const product = row.product || {};
-          return { id: row.movementId, movementId: row.movementId, inventoryKey: `${stateKey}:${String(row.productId || product.id || "")}`, inventoryStateKey: stateKey, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt, existenciaAnterior: Number(row.existenciaSistemaAntes || 0), existenciaNueva: Number(row.existenciaAjustada || 0), entradaAcumulada: Number(product.entrada || 0) + Number(row.ajuste || 0), salidaAcumulada: Number(product.salida || 0), decomisoAcumulado: Number(product.decomiso || 0) };
+          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Number(row.ajuste.toFixed(4)), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
         });
         const salidaRegs = adjustments.filter((row) => row.ajuste < 0).map(function(row) {
-          const stateKey = target === "cuartoFrio" ? "cuartoFrioInventario" : "inventario";
-          const product = row.product || {};
-          return { id: row.movementId, movementId: row.movementId, inventoryKey: `${stateKey}:${String(row.productId || product.id || "")}`, inventoryStateKey: stateKey, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt, existenciaAnterior: Number(row.existenciaSistemaAntes || 0), existenciaNueva: Number(row.existenciaAjustada || 0), entradaAcumulada: Number(product.entrada || 0), salidaAcumulada: Number(product.salida || 0) + Math.abs(Number(row.ajuste || 0)), decomisoAcumulado: Number(product.decomiso || 0) };
+          return { id: row.movementId, fecha: now, producto: row.producto, medida: row.medida || "Uni", cantidad: Math.abs(Number(row.ajuste.toFixed(4))), usuario, origen: `Recuento ${row.source || targetLabel}`, conteoFecha: countedAt };
         });
         if (entradaRegs.length) setRegEntradas((prev) => (Array.isArray(prev) ? prev : []).concat(entradaRegs));
         if (salidaRegs.length) setRegSalidas((prev) => (Array.isArray(prev) ? prev : []).concat(salidaRegs));
