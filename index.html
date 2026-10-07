@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261006201745-6ed0eea";</script>
+  <script>window.WTF_APP_VERSION = "20261007005921-7983abc";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12443,6 +12443,7 @@
     const centralizedRecordsLoadedRef = useRef(false);
     const centralizedRecordsLoadingRef = useRef(false);
     const centralizedRecordsWriteInFlightRef = useRef(false);
+    const productionHistoryMigrationInFlightRef = useRef(false);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
@@ -12708,6 +12709,7 @@
     }
     async function syncCentralizedRecordChanges(snapshot) {
       if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || !firebaseDocRef.current) return;
+      if (productionHistoryMigrationInFlightRef.current) return;
       if (centralizedRecordsWriteInFlightRef.current) return;
       let previous = centralizedRecordsPreviousRef.current;
       centralizedRecordsPreviousRef.current = snapshot;
@@ -13728,6 +13730,86 @@
         return normalizar(u.email) === normalizar(authUserEmail);
       }) || null;
     }, [usuarios, authUserEmail]);
+    async function migrateLegacyProductionHistoryToEvents() {
+      if (!firebaseAuthEmail || !firebaseBootstrappedRef.current || !firebaseDocRef.current) return;
+      if (!currentUser || !isAdminUser(currentUser) || productionHistoryMigrationInFlightRef.current) return;
+      productionHistoryMigrationInFlightRef.current = true;
+      try {
+        const sources = [
+          { sourceKey: "regProduccion", moduleId: "cocina" },
+          { sourceKey: "barRegProduccion", moduleId: "bar" }
+        ];
+        for (const source of sources) {
+          const metaRef = getCentralizedRecordsMetaRef(source.moduleId);
+          if (!metaRef) continue;
+          const existingMeta = await metaRef.get();
+          const existingData = existingMeta.exists ? existingMeta.data() || {} : {};
+          if (Number(existingData.productionHistoryMigrationVersion || 0) >= 1) continue;
+          await metaRef.set({
+            productionHistoryMigrationName: "production-history-events",
+            productionHistoryMigrationStartedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            productionHistoryMigrationStartedBy: firebaseAuthEmail,
+            productionHistoryMigrationVersion: 0
+          }, { merge: true });
+          const legacyValue = await readFirebaseExternalStateDoc(firebaseDocRef.current, source.sourceKey, "");
+          const rows = Array.isArray(legacyValue) ? legacyValue : legacyValue && Array.isArray(legacyValue[source.sourceKey]) ? legacyValue[source.sourceKey] : [];
+          let migratedCount = 0;
+          let duplicateCount = 0;
+          let errorCount = 0;
+          let lastEventId = "";
+          for (const row of rows) {
+            try {
+              const safeRow = row && typeof row === "object" ? cloneData(row) : {};
+              const rowKey = centralizedRecordRowKey(source.sourceKey, safeRow);
+              const event = buildCentralizedRecordEvent(source.sourceKey, safeRow, false);
+              event.id = centralizedRecordEventId(source.sourceKey, rowKey, safeRow, false);
+              event.operationId = `production-history-migration:${source.sourceKey}:${quickHashText(rowKey)}`;
+              event.productionId = String(safeRow.id || safeRow.productionId || rowKey);
+              event.source = "migration";
+              event.deviceId = "migration";
+              event.tipo = "produccion";
+              event.modulo = source.moduleId;
+              event.fechaCliente = String(safeRow.fecha || safeRow.fechaCliente || event.fechaCliente);
+              const eventRef = getCentralizedRecordsCollectionRef().doc(event.id);
+              const existed = await eventRef.get();
+              if (existed.exists) {
+                duplicateCount += 1;
+              } else {
+                await writeCentralizedRecordEvent(event);
+                migratedCount += 1;
+              }
+              lastEventId = event.id;
+            } catch (error) {
+              errorCount += 1;
+              console.warn("No se pudo migrar una produccion historica:", error);
+            }
+          }
+          const revision = Date.now();
+          await metaRef.set({
+            productionHistoryMigrationVersion: 1,
+            productionHistoryMigrationCompletedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            productionHistoryMigrationCompletedBy: firebaseAuthEmail,
+            productionHistoryMigratedCount: migratedCount,
+            productionHistoryDuplicateCount: duplicateCount,
+            productionHistoryErrorCount: errorCount,
+            productionHistoryLastEventId: lastEventId,
+            revision,
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAtClient: new Date().toISOString(),
+            updatedBy: firebaseAuthEmail,
+            deviceId: "migration"
+          }, { merge: true });
+        }
+      } finally {
+        productionHistoryMigrationInFlightRef.current = false;
+      }
+    }
+    useEffect(() => {
+      if (page !== "produccion" || firebaseStatus !== "connected" || !firebaseAuthEmail || !currentUser || !isAdminUser(currentUser)) return;
+      migrateLegacyProductionHistoryToEvents().catch((error) => {
+        console.warn("Migracion del historial de Produccion pendiente:", error);
+      });
+    }, [page, firebaseStatus, firebaseAuthEmail, currentUser]);
     useEffect(() => {
       if (!authUserEmail) return;
       if (firebaseCfg.enabled && (!firebaseBootstrappedRef.current || firebaseStatus === "connecting")) return;
