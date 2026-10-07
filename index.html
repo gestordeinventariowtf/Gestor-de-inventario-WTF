@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261007031930-a81bb22";</script>
+  <script>window.WTF_APP_VERSION = "20261007041055-46c1742";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5500,6 +5500,7 @@
   const CENTRAL_RECORDS_META_COLLECTION = "registrosMeta";
   const CENTRAL_RECORDS_REVISION_STORAGE = "wtf_registros_remote_revision_v1";
   const CENTRAL_RECORDS_CURSOR_STORAGE = "wtf_registros_remote_cursor_v1";
+  const CENTRAL_RECORDS_MODULE_CURSOR_PREFIX = "wtf_registros_cursor_module_v1:";
   const CENTRAL_RECORDS_DEVICE_STORAGE = "wtf_registros_device_id_v1";
   const CENTRAL_RECORDS_PENDING_STORAGE = "wtf_registros_pending_events_v1";
   const CENTRAL_RECORD_KEYS = new Set([
@@ -12577,6 +12578,16 @@
       }
       return id;
     }
+    function getCentralizedRecordsModuleCursor(moduleId) {
+      const key = `${CENTRAL_RECORDS_MODULE_CURSOR_PREFIX}${String(moduleId || "cocina")}`;
+      return String(load(key, load(CENTRAL_RECORDS_CURSOR_STORAGE, "")) || "").trim();
+    }
+    function saveCentralizedRecordsModuleCursor(moduleId, cursor) {
+      const clean = String(cursor || "").trim();
+      if (!clean) return;
+      save(`${CENTRAL_RECORDS_MODULE_CURSOR_PREFIX}${String(moduleId || "cocina")}`, clean);
+      save(CENTRAL_RECORDS_CURSOR_STORAGE, clean);
+    }
     function centralizedRecordScope(sourceKey) {
       return String(sourceKey || "").startsWith("bar") ? "bar" : "cocina";
     }
@@ -12807,18 +12818,50 @@
         const remoteRevision = Math.max(...metaSnapshots.filter(Boolean).map((snapshot) => Number(snapshot.exists && snapshot.data().revision || 0)), 0);
         const localRevision = Number(load(CENTRAL_RECORDS_REVISION_STORAGE, 0) || 0);
         if (centralizedRecordsLoadedRef.current && remoteRevision <= localRevision) return baseState;
-        const cursor = String(load(CENTRAL_RECORDS_CURSOR_STORAGE, "") || "").trim();
-        let eventQuery = collection.orderBy("updatedAtClient", cursor ? "asc" : "desc");
-        if (cursor) eventQuery = eventQuery.where("updatedAtClient", ">", cursor);
-        const snapshot = await eventQuery.get();
+        const eventDocs = [];
+        const moduleEventTimes = {};
+        let usedLegacyQuery = false;
+        for (const moduleId of ["cocina", "bar"]) {
+          if (usedLegacyQuery) break;
+          const cursor = getCentralizedRecordsModuleCursor(moduleId);
+          try {
+            let eventQuery = collection.where("modulo", "==", moduleId).orderBy("updatedAtClient", "asc").limit(200);
+            if (cursor) eventQuery = eventQuery.startAfter(cursor);
+            const snapshot = await eventQuery.get();
+            snapshot.forEach((doc) => {
+              const event = doc.data() || {};
+              eventDocs.push({ doc, event, moduleId });
+              if (event.updatedAtClient) {
+                if (!moduleEventTimes[moduleId]) moduleEventTimes[moduleId] = [];
+                moduleEventTimes[moduleId].push(String(event.updatedAtClient));
+              }
+            });
+          } catch (error) {
+            // Compatibilidad con proyectos que todavía no tienen el índice compuesto.
+            if (usedLegacyQuery) throw error;
+            usedLegacyQuery = true;
+            const legacyCursor = String(load(CENTRAL_RECORDS_CURSOR_STORAGE, "") || "").trim();
+            let eventQuery = collection.orderBy("updatedAtClient", "asc").limit(200);
+            if (legacyCursor) eventQuery = eventQuery.startAfter(legacyCursor);
+            const snapshot = await eventQuery.get();
+            snapshot.forEach((doc) => {
+              const event = doc.data() || {};
+              const moduleId = String(event.modulo || "");
+              if (moduleId !== "cocina" && moduleId !== "bar") return;
+              eventDocs.push({ doc, event, moduleId });
+              if (event.updatedAtClient) {
+                if (!moduleEventTimes[moduleId]) moduleEventTimes[moduleId] = [];
+                moduleEventTimes[moduleId].push(String(event.updatedAtClient));
+              }
+            });
+          }
+        }
         const latest = new Map();
-        snapshot.forEach((doc) => {
-          const event = doc.data() || {};
+        eventDocs.forEach(({ event }) => {
           const key = String(event.rowKey || "");
           const sourceKey = String(event.sourceKey || "");
           if (!key || !CENTRAL_RECORD_KEYS.has(sourceKey)) return;
           const eventKey = `${sourceKey}|${key}`;
-          if (!cursor && latest.has(eventKey)) return;
           latest.set(eventKey, event);
         });
         const result = Object.assign({}, baseState || {});
@@ -12887,12 +12930,10 @@
             return next;
           });
         });
-        const eventTimes = [];
-        snapshot.forEach((doc) => {
-          const event = doc.data() || {};
-          if (event.updatedAtClient) eventTimes.push(String(event.updatedAtClient));
+        Object.keys(moduleEventTimes).forEach((moduleId) => {
+          const times = moduleEventTimes[moduleId].filter(Boolean).sort();
+          if (times.length) saveCentralizedRecordsModuleCursor(moduleId, times[times.length - 1]);
         });
-        if (eventTimes.length) save(CENTRAL_RECORDS_CURSOR_STORAGE, eventTimes.sort().slice(-1)[0]);
         centralizedRecordsLoadedRef.current = true;
         centralizedRecordsPreviousRef.current = Object.assign({}, rowsByKey);
         save(CENTRAL_RECORDS_REVISION_STORAGE, remoteRevision);
