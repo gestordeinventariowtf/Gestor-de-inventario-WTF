@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261008004745-8aa35cd";</script>
+  <script>window.WTF_APP_VERSION = "20261008060444-ccfe2ae";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12517,6 +12517,45 @@
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
     }
+    const firebaseSyncIndexSignatureRef = useRef("");
+    const firebaseModuleRefreshInFlightRef = useRef(false);
+    async function refreshActiveFirebaseModules(syncIndexData, reason) {
+      if (!firebaseDocRef.current || firebaseModuleRefreshInFlightRef.current) return;
+      const activeKeys = Array.from(getFirebaseExternalKeysForPage(page));
+      if (!activeKeys.length) return;
+      firebaseModuleRefreshInFlightRef.current = true;
+      try {
+        const modules = syncIndexData && syncIndexData.modules && typeof syncIndexData.modules === "object" ? syncIndexData.modules : {};
+        const current = getCurrentAppState();
+        const results = await Promise.all(activeKeys.map(async function(key) {
+          const moduleInfo = modules[key] || {};
+          const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
+          if (expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
+            return { key, value: current[key] };
+          }
+          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature);
+          return { key, value };
+        }));
+        const next = Object.assign({}, current);
+        let changed = false;
+        results.forEach(function(result) {
+          if (typeof result.value === "undefined" || result.value === null) return;
+          const incoming = serializeAppState(result.value);
+          const existing = serializeAppState(next[result.key]);
+          if (incoming === existing) return;
+          next[result.key] = result.value;
+          changed = true;
+        });
+        if (changed) {
+          applyRemoteState(next);
+          setFirebaseMessage(reason === "sync-index" ? "Modulo actualizado desde Firebase" : "Datos remotos actualizados");
+        }
+      } catch (error) {
+        console.warn("No se pudieron actualizar los datos del modulo activo:", error);
+      } finally {
+        firebaseModuleRefreshInFlightRef.current = false;
+      }
+    }
     function addSystemLog(payload, userOverride) {
       const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
       setSystemLogs(function(prev) {
@@ -13729,6 +13768,30 @@
         setFirebaseMessage(error && error.message ? error.message : "No se pudo iniciar Firebase");
       }
     }, [firebaseCfg, firebaseCooldownUntil, firebaseAuthReady, firebaseAuthEmail]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current) return;
+      const indexRef = firebaseDocRef.current.parent && firebaseDocRef.current.parent.doc(FIREBASE_SYNC_INDEX_DOC_ID);
+      if (!indexRef || typeof indexRef.onSnapshot !== "function") return;
+      let active = true;
+      const unsubscribe = indexRef.onSnapshot(function(snapshot) {
+        if (!active || !snapshot.exists) return;
+        const data = snapshot.data() || {};
+        const modules = data.modules && typeof data.modules === "object" ? data.modules : {};
+        const signature = quickHashText(JSON.stringify({ revision: data.revision || 0, modules }));
+        if (signature === firebaseSyncIndexSignatureRef.current) return;
+        firebaseSyncIndexSignatureRef.current = signature;
+        refreshActiveFirebaseModules(data, "sync-index").catch(function(error) {
+          console.warn("No se pudo actualizar el modulo desde syncIndex:", error);
+        });
+      }, function(error) {
+        console.warn("No se pudo escuchar syncIndex:", error);
+      });
+      return function() {
+        active = false;
+        firebaseSyncIndexSignatureRef.current = "";
+        if (typeof unsubscribe === "function") unsubscribe();
+      };
+    }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
