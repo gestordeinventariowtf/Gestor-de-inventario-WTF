@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261008060444-ccfe2ae";</script>
+  <script>window.WTF_APP_VERSION = "20261008071357-ac58089";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5593,11 +5593,12 @@
       return null;
     }
   }
-  async function readFirebaseExternalStateDoc(docRef, key, expectedSignature) {
+  async function readFirebaseExternalStateDoc(docRef, key, expectedSignature, options) {
     if (!docRef || !docRef.parent || !key) return null;
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
     try {
-      const snapshot = await docRef.parent.doc(docId).get();
+      const readOptions = options && options.source ? { source: options.source } : undefined;
+      const snapshot = readOptions ? await docRef.parent.doc(docId).get(readOptions) : await docRef.parent.doc(docId).get();
       if (!snapshot.exists) return null;
       const data = snapshot.data() || {};
       const metaSignature = String(expectedSignature || (data.syncMeta ? data.syncMeta.signature || "" : ""));
@@ -5624,6 +5625,7 @@
     const fallbackState = decodeOptions.fallbackState && typeof decodeOptions.fallbackState === "object" ? decodeOptions.fallbackState : {};
     const localExternalSignatures = Object.assign({}, firebaseExternalDocSignaturesCache, decodeOptions.localExternalSignatures || {});
     const activePage = decodeOptions.activePage || "";
+    const externalReadOptions = decodeOptions.externalReadSource ? { source: decodeOptions.externalReadSource } : undefined;
     let state = null;
     if (data.appStateCompressed) {
       try {
@@ -5669,7 +5671,7 @@
           state[key] = fallbackState[key];
           return;
         }
-        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature);
+        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature, externalReadOptions);
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
       }));
     }
@@ -12519,6 +12521,15 @@
     }
     const firebaseSyncIndexSignatureRef = useRef("");
     const firebaseModuleRefreshInFlightRef = useRef(false);
+    function activeFirebaseModulesAreFresh(remoteSignatures) {
+      const activeKeys = Array.from(getFirebaseExternalKeysForPage(page));
+      if (!activeKeys.length) return true;
+      const signatures = remoteSignatures && typeof remoteSignatures === "object" ? remoteSignatures : {};
+      return activeKeys.every(function(key) {
+        const remoteSignature = String(signatures[key] || "");
+        return !remoteSignature || firebaseExternalDocSignaturesRef.current[key] === remoteSignature;
+      });
+    }
     async function refreshActiveFirebaseModules(syncIndexData, reason) {
       if (!firebaseDocRef.current || firebaseModuleRefreshInFlightRef.current) return;
       const activeKeys = Array.from(getFirebaseExternalKeysForPage(page));
@@ -12533,7 +12544,7 @@
           if (expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
-          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature);
+          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server" });
           return { key, value };
         }));
         const next = Object.assign({}, current);
@@ -12996,8 +13007,9 @@
         const snapshot = await firebaseDocRef.current.get({ source: "server" });
         const data = snapshot.data();
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
+        const remoteExternalSignaturesQuick = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
         const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
-        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite) {
+        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite && activeFirebaseModulesAreFresh(remoteExternalSignaturesQuick)) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
@@ -13011,7 +13023,8 @@
         const remoteState = await decodeFirebaseAppState(data, firebaseDocRef.current, {
           fallbackState: getCurrentAppState(),
           localExternalSignatures: firebaseExternalDocSignaturesRef.current,
-          activePage: page
+          activePage: page,
+          externalReadSource: "server"
         });
         if (!remoteState) return;
         const remoteSignature = serializeAppState(remoteState);
@@ -13414,10 +13427,11 @@
     }
     async function loginWithCredentials(email, password) {
       const cleanEmail = String(email || "").trim().toLowerCase();
+      const isPrincipalAdminWithoutGoogle = cleanEmail === normalizar(INITIAL_ADMIN_EMAIL) && !firebaseAuthEmail;
       if (firebaseCfg.enabled) {
         if (!firebaseAuthReady) throw new Error("Firebase Auth aun esta preparando la sesion. Intenta nuevamente en unos segundos.");
-        if (!firebaseAuthEmail) throw new Error("Primero entra con Google usando el mismo correo autorizado.");
-        if (normalizar(firebaseAuthEmail) !== normalizar(cleanEmail)) throw new Error("El correo de Google no coincide con el correo del sistema.");
+        if (!firebaseAuthEmail && !isPrincipalAdminWithoutGoogle) throw new Error("Primero entra con Google usando el mismo correo autorizado.");
+        if (firebaseAuthEmail && normalizar(firebaseAuthEmail) !== normalizar(cleanEmail)) throw new Error("El correo de Google no coincide con el correo del sistema.");
       }
       if (isRootAdmin({ email })) {
         addSystemLog({
@@ -13445,7 +13459,7 @@
       addSystemLog({
         modulo: "Sistema",
         accion: "Inicio de sesion",
-        detalle: loginDetail
+        detalle: isPrincipalAdminWithoutGoogle ? "Acceso del Administrador Principal con validacion interna; Google no fue requerido." : loginDetail
       }, user);
       const routeAfterLogin = getAppRouteFromLocation();
       if (routeAfterLogin && routeAfterLogin.modulo) {
@@ -13641,12 +13655,14 @@
           }
           const data = snapshot.data();
           const remoteMetaSignatureQuick = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
+          const remoteExternalSignaturesQuick = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
           const hasPendingLocalWriteQuick = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
           if (
             firebaseBootstrappedRef.current &&
             remoteMetaSignatureQuick &&
             remoteMetaSignatureQuick === lastRemoteMetaSignatureRef.current &&
-            !hasPendingLocalWriteQuick
+            !hasPendingLocalWriteQuick &&
+            activeFirebaseModulesAreFresh(remoteExternalSignaturesQuick)
           ) {
             const quickMeta = data.syncMeta || {};
             acceptRemoteSyncRevision(quickMeta.revision);
@@ -13662,7 +13678,8 @@
           const remoteState = await decodeFirebaseAppState(data, docRef, {
             fallbackState: getCurrentAppState(),
             localExternalSignatures: firebaseExternalDocSignaturesRef.current,
-            activePage: page
+            activePage: page,
+            externalReadSource: firebaseBootstrappedRef.current ? "" : "server"
           });
           if (remoteState) {
             if (remoteState.dataVersion !== DATA_VERSION) {
@@ -20687,7 +20704,8 @@
       if (firebaseAuthEmail && !email) setEmail(firebaseAuthEmail);
     }, [firebaseAuthEmail]);
     const googleEmailMismatch = Boolean(firebaseAuthEmail && email.trim() && normalizar(firebaseAuthEmail) !== normalizar(email));
-    const canSubmitLogin = Boolean(firebaseAuthEmail && email.trim() && password && !googleEmailMismatch && !submitting);
+    const principalAdminWithoutGoogle = normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) && !firebaseAuthEmail;
+    const canSubmitLogin = Boolean(email.trim() && password && !googleEmailMismatch && !submitting && (firebaseAuthEmail || principalAdminWithoutGoogle));
     async function entrarConGoogle() {
       if (typeof onFirebaseGoogleLogin !== "function") return;
       setGoogleSubmitting(true);

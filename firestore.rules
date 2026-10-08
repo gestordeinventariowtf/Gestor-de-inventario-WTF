@@ -90,7 +90,8 @@ service cloud.firestore {
     }
 
     match /wtfSistema/{externalStateDoc} {
-      allow read, write: if isAuthorizedUser() && isExternalStateDocument(externalStateDoc);
+      allow read, create, update: if signedIn() && isExternalStateDocument(externalStateDoc);
+      allow delete: if isAuthorizedAdmin() && isExternalStateDocument(externalStateDoc);
     }
 
     match /wtfSistema/estadoGeneral/stateShards/{shardId} {
