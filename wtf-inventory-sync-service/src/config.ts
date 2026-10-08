@@ -17,7 +17,7 @@ export function getConfig(): ServiceConfig {
   const dataDir = path.resolve(process.env.WTF_DATA_DIR || "./data");
   return {
     port: Number(process.env.WTF_HOST_PORT || 8787),
-    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-de-inventario-wtf-29056.web.app",
+    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-de-inventario-wtf-prod-2026.web.app",
     firebaseProjectId: process.env.WTF_FIREBASE_PROJECT_ID || "gestor-de-inventario-wtf-29056",
     firebaseCollection: process.env.WTF_FIREBASE_COLLECTION || "wtfSistema",
     firebaseDocumentId: process.env.WTF_FIREBASE_DOCUMENT_ID || "estadoGeneral",
@@ -26,10 +26,6 @@ export function getConfig(): ServiceConfig {
     firebaseApiKey: process.env.WTF_FIREBASE_API_KEY || process.env.WTF_API_KEY || "",
     firebaseAuthEmail: process.env.WTF_FIREBASE_AUTH_EMAIL || "wtfoodrdav.venezuela@gmail.com",
     firebaseAuthPassword: process.env.WTF_FIREBASE_AUTH_PASSWORD || "",
-    hostIdentityMode: process.env.WTF_HOST_IDENTITY_MODE === "technical" ? "technical" : "legacy",
-    hostSyncEndpoint: process.env.WTF_HOST_SYNC_ENDPOINT || "",
-    terminalId: process.env.WTF_TERMINAL_ID || "",
-    terminalSecretProtected: process.env.WTF_TERMINAL_SECRET_PROTECTED || "",
     branch: process.env.WTF_BRANCH || "principal",
     defaultWarehouse: process.env.WTF_DEFAULT_WAREHOUSE || "1",
     mode: process.env.WTF_MODE === "automatico" ? "automatico" : "manual",

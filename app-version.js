@@ -121,16 +121,6 @@
     });
   }
 
-  function wasBrowserReload() {
-    try {
-      const nav = performance && performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
-      if (nav && nav.type) return nav.type === "reload";
-      return Boolean(performance && performance.navigation && performance.navigation.type === 1);
-    } catch (_) {
-      return false;
-    }
-  }
-
   function showUpdateBanner(latestVersion) {
     const cleanLatest = String(latestVersion || "").trim();
     if (isAcceptedVersion(cleanLatest)) {
@@ -215,13 +205,9 @@
         removeUpdateBanner();
         return;
       }
-      if (document.readyState === "complete" && currentVersion && latestVersion !== currentVersion && wasBrowserReload()) {
-        const reloadFlag = getLocalValue(RELOAD_FLAG);
-        if (reloadFlag !== latestVersion) {
-          refreshToLatestVersion(null);
-          return;
-        }
-        showUpdateBanner(latestVersion);
+      if (document.readyState === "complete" && currentVersion && latestVersion !== currentVersion && performance && performance.navigation && performance.navigation.type === 1) {
+        acknowledgeVersion(latestVersion);
+        removeUpdateBanner();
         return;
       }
       if (!currentVersion) {
