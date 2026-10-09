@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261008071357-ac58089";</script>
+  <script>window.WTF_APP_VERSION = "20261009082359-ac2f8fe";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5598,13 +5598,14 @@
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
     try {
       const readOptions = options && options.source ? { source: options.source } : undefined;
+      const bypassCache = Boolean(options && options.bypassCache) || Boolean(options && options.source === "server");
       const snapshot = readOptions ? await docRef.parent.doc(docId).get(readOptions) : await docRef.parent.doc(docId).get();
       if (!snapshot.exists) return null;
       const data = snapshot.data() || {};
       const metaSignature = String(expectedSignature || (data.syncMeta ? data.syncMeta.signature || "" : ""));
       const cacheKey = `${docRef.parent && docRef.parent.path ? docRef.parent.path : "wtfSistema"}/${docId}`;
       const cached = firebaseExternalStateCache[cacheKey];
-      if (cached && cached.metaSignature && metaSignature && cached.metaSignature === metaSignature) {
+      if (!bypassCache && cached && cached.metaSignature && metaSignature && cached.metaSignature === metaSignature) {
         return cached.value;
       }
       let value = null;
@@ -5660,6 +5661,7 @@
       await Promise.all(externalKeys.map(async function(key) {
         const expectedSignature = String(externalSignatures[key] || "");
         if (
+          externalReadSource !== "server" &&
           expectedSignature &&
           localExternalSignatures[key] === expectedSignature &&
           Object.prototype.hasOwnProperty.call(fallbackState, key)
@@ -5671,7 +5673,7 @@
           state[key] = fallbackState[key];
           return;
         }
-        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature, externalReadOptions);
+        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature, Object.assign({}, externalReadOptions || {}, { bypassCache: externalReadSource === "server" }));
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
       }));
     }
@@ -12541,10 +12543,11 @@
         const results = await Promise.all(activeKeys.map(async function(key) {
           const moduleInfo = modules[key] || {};
           const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
-          if (expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
+          const forceServerReadForProduction = page === "produccion" && (key === "regProduccion" || key === "barRegProduccion");
+          if (!forceServerReadForProduction && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
-          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server" });
+          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server", bypassCache: forceServerReadForProduction });
           return { key, value };
         }));
         const next = Object.assign({}, current);
