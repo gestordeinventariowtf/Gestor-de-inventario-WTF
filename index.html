@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011011102-2430ac1";</script>
+  <script>window.WTF_APP_VERSION = "20261011155509-d2e22f0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5832,25 +5832,8 @@
     await Promise.all(docs.map(function(item) {
       return docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
     }));
-    const desiredIds = new Set(docs.map(function(item) { return item.id; }));
-    try {
-      const snapshot = await docRef.firestore.collection("authorizedUsers").get();
-      const staleUpdates = [];
-      snapshot.forEach(function(doc) {
-        const id = getAuthorizedUserDocId(doc.id);
-        if (!id || desiredIds.has(id)) return;
-        staleUpdates.push(doc.ref.set({
-          email: id,
-          active: false,
-          revoked: true,
-          revokedReason: "Correo no registrado en Usuarios y Permisos",
-          updatedAt: new Date().toISOString()
-        }, { merge: true }));
-      });
-      if (staleUpdates.length) await Promise.all(staleUpdates);
-    } catch (error) {
-      console.warn("No se pudo depurar usuarios autorizados obsoletos:", error);
-    }
+    // Una lectura incompleta de usuarios no debe interpretarse como una orden de revocacion.
+    // Las desactivaciones y borrados se realizan unicamente desde la accion administrativa explicita.
   }
   async function writeFirebaseAuthorizedUserDoc(docRef, item) {
     if (!docRef || !docRef.firestore || !item || !item.id) return;
@@ -12440,7 +12423,7 @@
       { nombre: "NEVERA 2", items: [] },
       { nombre: "NEVERA 3", items: [] }
     ]));
-    const [usuarios, setUsuarios] = useState(() => ensureAdminUser(initUsuarios(), initialUserDeletedKeys));
+    const [usuarios, setUsuarios] = useState(() => ensureAdminUser(load(KEYS.usuarios, initUsuarios()), initialUserDeletedKeys));
     const [appSecurity, setAppSecurity] = useState(() => normalizeAppSecurity(load(KEYS.appSecurity, {})));
     const [authUserEmail, setAuthUserEmail] = useState(() => String(load(KEYS.authUser, "") || ""));
     const [firebaseAuthReady, setFirebaseAuthReady] = useState(false);
@@ -13194,7 +13177,9 @@
     useEffect(() => save(USER_DELETED_KEYS_STORAGE, normalizeUserDeletedKeys(userDeletedKeys)), [userDeletedKeys]);
     useEffect(() => save(DATA_VERSION_KEY, DATA_VERSION), []);
     useEffect(() => save("wtf_recetas_produccion_base_version", recetasProduccionBaseVersion), [recetasProduccionBaseVersion]);
-    useEffect(() => removeLocalKey(KEYS.usuarios), [usuarios]);
+    useEffect(() => {
+      save(KEYS.usuarios, ensureAdminUser(usuarios, userDeletedKeys));
+    }, [usuarios, userDeletedKeys]);
     useEffect(() => {
       const email = String(authUserEmail || "").trim();
       if (email) save(KEYS.authUser, email);
@@ -13315,9 +13300,6 @@
         const unsubscribeAuth = app.auth().onAuthStateChanged(function(user) {
           setFirebaseAuthUser(user || null);
           setFirebaseAuthReady(true);
-          if (!user) {
-            setAuthUserEmail("");
-          }
         }, function(error) {
           console.error("Firebase Auth error:", error);
           setFirebaseAuthUser(null);
