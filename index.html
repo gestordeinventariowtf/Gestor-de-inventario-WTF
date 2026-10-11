@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011155509-d2e22f0";</script>
+  <script>window.WTF_APP_VERSION = "20261011161734-d887edb";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4324,7 +4324,11 @@
         const existingTime = getRowUpdateTime(existing);
         const rowTime = getRowUpdateTime(row);
         const preferRow = rowTime > existingTime || (preferLocalOnTie && rowTime === existingTime);
-        map.set(key, Object.assign({}, preferRow ? existing : row, preferRow ? row : existing));
+        const merged = Object.assign({}, preferRow ? existing : row, preferRow ? row : existing);
+        if (!merged.passwordHash && (existing.passwordHash || row.passwordHash)) {
+          merged.passwordHash = existing.passwordHash || row.passwordHash;
+        }
+        map.set(key, merged);
       });
     }
     addRows(remoteRows, false);
@@ -5834,6 +5838,28 @@
     }));
     // Una lectura incompleta de usuarios no debe interpretarse como una orden de revocacion.
     // Las desactivaciones y borrados se realizan unicamente desde la accion administrativa explicita.
+  }
+  async function readFirebaseAuthorizedUsersIndex(docRef) {
+    if (!docRef || !docRef.firestore) return [];
+    const snapshot = await docRef.firestore.collection("authorizedUsers").get({ source: "server" });
+    const rows = [];
+    snapshot.forEach(function(doc) {
+      const data = doc.data() || {};
+      const email = getAuthorizedUserDocId(data.email || doc.id);
+      if (!email || LEGACY_ADMIN_EMAILS_TO_REMOVE.some(function(blocked) { return normalizar(blocked) === email; })) return;
+      rows.push({
+        id: data.id || `authorized-${email}`,
+        nombre: data.nombre || email,
+        email,
+        role: String(data.role || "user").toLowerCase() === "admin" ? "admin" : "user",
+        modulo: data.modulo || "ambos",
+        permisos: Array.isArray(data.permisos) ? data.permisos.slice(0, 80) : [],
+        activo: data.active !== false,
+        protectedAdmin: data.protectedAdmin === true,
+        updatedAt: data.updatedAt || ""
+      });
+    });
+    return rows;
   }
   async function writeFirebaseAuthorizedUserDoc(docRef, item) {
     if (!docRef || !docRef.firestore || !item || !item.id) return;
@@ -12477,6 +12503,7 @@
     const [lastSyncedAt, setLastSyncedAt] = useState("");
     const firebaseDocRef = useRef(null);
     const icgControlDocRef = useRef(null);
+    const authorizedUsersHydratedRef = useRef("");
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
@@ -13364,6 +13391,24 @@
       resetToModuleSelector(true);
       toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
     }, [currentUser, appSecurity]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (!firebaseAuthEmail || !currentUser || !isAdminUser(currentUser) || authorizedUsersHydratedRef.current === firebaseAuthEmail) return;
+      let active = true;
+      readFirebaseAuthorizedUsersIndex(firebaseDocRef.current).then(function(remoteUsers) {
+        if (!active) return;
+        authorizedUsersHydratedRef.current = firebaseAuthEmail;
+        if (!remoteUsers.length) return;
+        setUsuarios(function(localUsers) {
+          return mergeUserRows(localUsers, remoteUsers, userDeletedKeys);
+        });
+      }).catch(function(error) {
+        console.warn("No se pudo leer la lista de usuarios autorizados desde Firebase:", error);
+      });
+      return function() {
+        active = false;
+      };
+    }, [firebaseCfg.enabled, firebaseAuthEmail, currentUser, userDeletedKeys]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail) return;
