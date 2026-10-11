@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011003132-b000497";</script>
+  <script>window.WTF_APP_VERSION = "20261011011102-2430ac1";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3651,13 +3651,16 @@
       return '<section class="group"><div class="group-header"><span>' + escapeHtml(section.name || "SIN RENGLÓN") + '</span><span>Manual:</span></div>' + products + '</section>';
     }).join("");
     const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter landscape;margin:9mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:2px solid #1f7a3a;padding:0 0 8px;margin-bottom:8px}h1{font-size:15pt;margin:0}.meta{font-size:8pt;color:#6b7280;margin-top:3px}.columns{column-count:3;column-gap:3mm;column-fill:auto;height:175mm}.group{border:1px solid #1f7a3a;border-radius:2mm;break-inside:avoid;margin:0 0 2mm}.group-header{display:flex;justify-content:space-between;align-items:flex-start;background:#1f7a3a;color:#fff;font-size:10pt;font-weight:700;padding:2mm 2.5mm}.product{height:9mm;padding:1.2mm 2.5mm;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:2mm;align-items:center}.name{font-weight:700;font-size:9pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{font-size:7pt;white-space:nowrap;font-weight:700}@media print{button{display:none}}</style></head><body><header><h1>Conteo manual - ' + escapeHtml(pageLabel) + '</h1><div class="meta">Generado: ' + escapeHtml(formatDatetime(generatedAt)) + " · Total: " + escapeHtml(total) + ' productos</div></header><main class="columns">' + groups + "</main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
+    const fallbackHtml = html
+      .replace("background:#1f7a3a;color:#fff;font-size:10pt", "background:#166534;color:#fff;font-size:10pt;height:12mm;box-sizing:border-box;align-items:center")
+      .replace("font-family:Arial,sans-serif", "font-family:Helvetica,Arial,sans-serif");
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast && toast("Permite ventanas emergentes para generar el PDF.", "error");
       return;
     }
     printWindow.document.open();
-    printWindow.document.write(html);
+    printWindow.document.write(fallbackHtml);
     printWindow.document.close();
     toast && toast("Se abrio la vista para guardar como PDF.", "info");
   }
@@ -3703,7 +3706,7 @@
     const columnCount = 3;
     const productRowHeight = 9;
     const groupWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
-    const sectionHeaderHeight = 7;
+    const sectionHeaderHeight = 12;
     const nameFontSize = 9;
     const detailFontSize = 7;
     let col = 0;
@@ -3740,17 +3743,17 @@
       doc.roundedRect(x, top, groupWidth, height, 1.5, 1.5, "S");
     }
     function drawSectionHeader(sectionName, x, rowTop, continued) {
-      doc.setFillColor(240, 253, 244);
+      doc.setFillColor(22, 101, 52);
       doc.setDrawColor(31, 122, 58);
       doc.roundedRect(x, rowTop, groupWidth, sectionHeaderHeight, 1.5, 1.5, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(Math.max(4.2, Math.min(6.2, sectionHeaderHeight * 0.68)));
+      doc.setFontSize(10);
       doc.setTextColor(255, 255, 255);
       const sectionText = doc.splitTextToSize(String(sectionName || "SIN RENGLÓN") + (continued ? " (CONT.)" : ""), groupWidth - 24).slice(0, 1);
-      doc.text(sectionText, x + 1.8, rowTop + sectionHeaderHeight - 1.8);
+      doc.text(sectionText, x + 1.8, rowTop + sectionHeaderHeight - 3.2);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
-      doc.text("Manual:", x + groupWidth - 2, rowTop + sectionHeaderHeight - 1.8, { align: "right" });
+      doc.text("Manual:", x + groupWidth - 2, rowTop + sectionHeaderHeight - 3.2, { align: "right" });
     }
     function drawProductLine(item, x, rowTop) {
       doc.setDrawColor(229, 231, 235);
