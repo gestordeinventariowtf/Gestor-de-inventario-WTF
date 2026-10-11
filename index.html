@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261009082359-ac2f8fe";</script>
+  <script>window.WTF_APP_VERSION = "20261011000200-0a26597";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3588,7 +3588,7 @@
       drawTableHeader();
     }
     function drawTableHeader() {
-      doc.setFillColor(240, 253, 244);
+      doc.setFillColor(31, 122, 58);
       doc.rect(margin, y, tableWidth, 8, "F");
       doc.setDrawColor(31, 122, 58);
       doc.line(margin, y + 8, pageWidth - margin, y + 8);
@@ -3639,11 +3639,18 @@
     doc.save("Mise_an_Place_" + generatedAt.toISOString().slice(0, 10) + ".pdf");
     toast && toast("PDF de Mise an Place generado.", "ok");
   }
-  function openInventoryCountPdfPrintFallback(items, pageLabel, generatedAt, toast) {
-    const cards = items.map(function(item) {
-      return '<div class="item"><div class="name">' + escapeHtml(item.nombre || "") + '</div><div class="row"><span>Existencia: <strong>' + escapeHtml(misePdfNumber(item.existencia)) + " " + escapeHtml(item.medida || "") + '</strong></span></div><div class="manual">Manual: __________________</div></div>';
+  function openInventoryCountPdfPrintFallback(sections, pageLabel, generatedAt, toast) {
+    const safeSections = (Array.isArray(sections) ? sections : []).filter(function(section) {
+      return section && Array.isArray(section.items) && section.items.length;
+    });
+    const total = safeSections.reduce(function(sum, section) { return sum + section.items.length; }, 0);
+    const groups = safeSections.map(function(section) {
+      const products = section.items.map(function(item) {
+        return '<div class="product"><div class="name">' + escapeHtml(item.nombre || "") + '</div><div class="details">' + escapeHtml(misePdfNumber(item.existencia)) + " " + escapeHtml(item.medida || "") + '</div></div>';
+      }).join("");
+      return '<section class="group"><div class="group-header"><span>' + escapeHtml(section.name || "SIN RENGLÓN") + '</span><span>Manual:</span></div>' + products + '</section>';
     }).join("");
-    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter landscape;margin:9mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:2px solid #1f7a3a;padding:0 0 8px;margin-bottom:8px}h1{font-size:18px;margin:0}.meta{font-size:11px;color:#6b7280;margin-top:3px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.item{border:1px solid #d1d5db;border-radius:5px;padding:5px;break-inside:avoid;font-size:11px;min-height:44px}.name{font-weight:800;font-size:12px;line-height:1.15}.row{margin-top:4px}.manual{margin-top:5px;font-weight:700}@media print{button{display:none}}</style></head><body><header><h1>Conteo manual - ' + escapeHtml(pageLabel) + '</h1><div class="meta">Generado: ' + escapeHtml(formatDatetime(generatedAt)) + " · Total: " + escapeHtml(items.length) + ' productos</div></header><main class="grid">' + cards + "</main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>Conteo ' + escapeHtml(pageLabel) + '</title><style>@page{size:letter landscape;margin:9mm}body{font-family:Arial,sans-serif;color:#111827;margin:0}header{border-bottom:2px solid #1f7a3a;padding:0 0 8px;margin-bottom:8px}h1{font-size:15pt;margin:0}.meta{font-size:8pt;color:#6b7280;margin-top:3px}.columns{column-count:3;column-gap:3mm;column-fill:auto;height:175mm}.group{border:1px solid #1f7a3a;border-radius:2mm;break-inside:avoid;margin:0 0 2mm}.group-header{display:flex;justify-content:space-between;align-items:flex-start;background:#1f7a3a;color:#fff;font-size:10pt;font-weight:700;padding:2mm 2.5mm}.product{height:9mm;padding:1.2mm 2.5mm;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;gap:2mm;align-items:center}.name{font-weight:700;font-size:9pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.details{font-size:7pt;white-space:nowrap;font-weight:700}@media print{button{display:none}}</style></head><body><header><h1>Conteo manual - ' + escapeHtml(pageLabel) + '</h1><div class="meta">Generado: ' + escapeHtml(formatDatetime(generatedAt)) + " · Total: " + escapeHtml(total) + ' productos</div></header><main class="columns">' + groups + "</main><script>setTimeout(function(){window.print()},300)<\/script></body></html>";
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast && toast("Permite ventanas emergentes para generar el PDF.", "error");
@@ -3682,7 +3689,7 @@
     const generatedAt = /* @__PURE__ */ new Date();
     const jsPdfApi = await loadJsPdfApi();
     if (!jsPdfApi) {
-      openInventoryCountPdfPrintFallback(items, pageLabel, generatedAt, toast);
+      openInventoryCountPdfPrintFallback(sections, pageLabel, generatedAt, toast);
       return;
     }
     const doc = new jsPdfApi({ orientation: "landscape", unit: "mm", format: "letter" });
@@ -3693,22 +3700,12 @@
     const topStart = 25;
     const rowGap = 0.7;
     const availableHeight = pageHeight - topStart - 11;
-    const maxPages = 2;
-    let columnCount = 3;
-    let productRowHeight = 6.5;
-    const layoutUnits = items.length + sections.filter(function(section) { return section.items.length; }).length * 1.15;
-    for (let cols = 3; cols <= 8; cols++) {
-      const neededRows = Math.ceil(layoutUnits / (cols * maxPages));
-      const candidateHeight = availableHeight / Math.max(1, neededRows) - rowGap;
-      columnCount = cols;
-      productRowHeight = Math.min(7.2, candidateHeight);
-      if (candidateHeight >= 5.4) break;
-    }
-    productRowHeight = Math.max(4.2, productRowHeight);
+    const columnCount = 3;
+    const productRowHeight = 9;
     const groupWidth = (pageWidth - margin * 2 - gap * (columnCount - 1)) / columnCount;
-    const sectionHeaderHeight = Math.max(4.6, Math.min(6.2, productRowHeight * 1.05));
-    const nameFontSize = Math.max(4.1, Math.min(7.4, productRowHeight * 0.82));
-    const detailFontSize = Math.max(3.6, Math.min(6.2, productRowHeight * 0.64));
+    const sectionHeaderHeight = 7;
+    const nameFontSize = 9;
+    const detailFontSize = 7;
     let col = 0;
     let y = topStart;
     let pageCount = 1;
@@ -3731,11 +3728,9 @@
       col++;
       y = topStart;
       if (col < columnCount) return;
-      if (pageCount < maxPages) {
-        doc.addPage();
-        drawHeader();
-        pageCount++;
-      }
+      doc.addPage();
+      drawHeader();
+      pageCount++;
       col = 0;
       y = topStart;
     }
@@ -3750,9 +3745,12 @@
       doc.roundedRect(x, rowTop, groupWidth, sectionHeaderHeight, 1.5, 1.5, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(Math.max(4.2, Math.min(6.2, sectionHeaderHeight * 0.68)));
-      doc.setTextColor(22, 101, 52);
-      const sectionText = doc.splitTextToSize(String(sectionName || "SIN RENGLÓN") + (continued ? " (CONT.)" : ""), groupWidth - 4).slice(0, 1);
+      doc.setTextColor(255, 255, 255);
+      const sectionText = doc.splitTextToSize(String(sectionName || "SIN RENGLÓN") + (continued ? " (CONT.)" : ""), groupWidth - 24).slice(0, 1);
       doc.text(sectionText, x + 1.8, rowTop + sectionHeaderHeight - 1.8);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("Manual:", x + groupWidth - 2, rowTop + sectionHeaderHeight - 1.8, { align: "right" });
     }
     function drawProductLine(item, x, rowTop) {
       doc.setDrawColor(229, 231, 235);
@@ -3766,9 +3764,6 @@
       doc.setTextColor(17, 24, 39);
       doc.setFontSize(detailFontSize);
       doc.text(misePdfNumber(item.existencia) + " " + (item.medida || ""), x + groupWidth * 0.61, rowTop + productRowHeight * 0.62, { maxWidth: groupWidth * 0.16 });
-      doc.setFont("helvetica", "normal");
-      doc.text("Manual:", x + groupWidth - 24, rowTop + productRowHeight * 0.62);
-      doc.line(x + groupWidth - 11, rowTop + productRowHeight * 0.66, x + groupWidth - 2, rowTop + productRowHeight * 0.66);
     }
     drawHeader();
     sections.filter(function(section) { return section.items.length; }).forEach(function(section) {
@@ -3827,7 +3822,7 @@
     printWindow.document.close();
     toast && toast("Se abrio la vista para guardar como PDF.", "info");
   }
-  async function generateInventoryCountPdf(inventario, pageLabel, toast) {
+  async function generateInventoryCountPdfLegacy(inventario, pageLabel, toast) {
     const items = (Array.isArray(inventario) ? inventario : []).filter(function(item) {
       return item && item.tipo === "producto" && isInventoryProductVisible(item) && String(item.nombre || "").trim();
     }).map(function(item) {
@@ -4495,6 +4490,93 @@
   function getInventoryDeletedKeysForRow(row) {
     return [getInventoryMergeKey(row), getInventoryDeletedNameKey(row)].filter(Boolean);
   }
+  function getInventoryOrderStateKey(stateKey) {
+    return String(stateKey || "inventario").trim() || "inventario";
+  }
+  function getInventoryOrderIntentStorageKey(stateKey) {
+    return `wtf_inventory_order_intent_v1_${getInventoryOrderStateKey(stateKey)}`;
+  }
+  function getInventoryManualOrderTime(row) {
+    return getRowUpdateTime({ updatedAt: row && row.ordenManualActualizadoAt });
+  }
+  function getInventoryManualOrderTieKey(row) {
+    return String(row && (row.ordenManualOperacionId || row.ordenManualActualizadoPor || row.ordenManualActualizadoBy || "") || "");
+  }
+  function compareInventoryManualOrderVersions(existing, row, preferLocal) {
+    const existingTime = getInventoryManualOrderTime(existing);
+    const rowTime = getInventoryManualOrderTime(row);
+    if (rowTime !== existingTime) return rowTime > existingTime ? row : existing;
+    if (!rowTime) return null;
+    const existingTie = getInventoryManualOrderTieKey(existing);
+    const rowTie = getInventoryManualOrderTieKey(row);
+    if (rowTie !== existingTie) return rowTie > existingTie ? row : existing;
+    if (Number(row && row.ordenManual || 0) !== Number(existing && existing.ordenManual || 0)) {
+      return Number(row && row.ordenManual || 0) > Number(existing && existing.ordenManual || 0) ? row : existing;
+    }
+    return preferLocal ? row : existing;
+  }
+  function readInventoryOrderIntent(stateKey) {
+    try {
+      const value = load(getInventoryOrderIntentStorageKey(stateKey), null);
+      return value && typeof value === "object" ? value : null;
+    } catch (error) {
+      return null;
+    }
+  }
+  function clearInventoryOrderIntent(stateKey) {
+    try {
+      localStorage.removeItem(getInventoryOrderIntentStorageKey(stateKey));
+    } catch (error) {
+    }
+  }
+  function saveInventoryOrderIntent(stateKey, rows, updatedAt, operationId) {
+    const key = getInventoryOrderStateKey(stateKey);
+    const orderedRows = Array.isArray(rows) ? rows : [];
+    save(getInventoryOrderIntentStorageKey(key), {
+      stateKey: key,
+      updatedAt,
+      operationId: operationId || "",
+      rows: orderedRows.map(function(row) {
+        return {
+          id: row && row.id,
+          mergeKey: getInventoryMergeKey(row),
+          ordenManual: row && row.ordenManual,
+          ordenManualActualizadoAt: row && row.ordenManualActualizadoAt,
+          ordenManualActualizadoPor: row && row.ordenManualActualizadoPor,
+          ordenManualOperacionId: row && row.ordenManualOperacionId
+        };
+      }).filter(function(row) { return row.mergeKey || row.id != null; })
+    });
+  }
+  function applyInventoryOrderIntent(rows, stateKey) {
+    const intent = readInventoryOrderIntent(stateKey);
+    if (!intent || !Array.isArray(intent.rows) || !intent.rows.length) return rows;
+    const intentAt = getRowUpdateTime({ updatedAt: intent.updatedAt });
+    if (!intentAt) return rows;
+    const currentRows = Array.isArray(rows) ? rows : [];
+    const maxRemoteOrderAt = currentRows.reduce(function(max, row) {
+      return Math.max(max, getInventoryManualOrderTime(row));
+    }, 0);
+    if (maxRemoteOrderAt >= intentAt) {
+      clearInventoryOrderIntent(stateKey);
+      return rows;
+    }
+    const byKey = new Map();
+    intent.rows.forEach(function(row) {
+      if (row.mergeKey) byKey.set(`key:${row.mergeKey}`, row);
+      if (row.id != null) byKey.set(`id:${row.id}`, row);
+    });
+    return currentRows.map(function(row) {
+      const intentRow = byKey.get(`key:${getInventoryMergeKey(row)}`) || byKey.get(`id:${row && row.id}`);
+      if (!intentRow) return row;
+      return Object.assign({}, row, {
+        ordenManual: intentRow.ordenManual,
+        ordenManualActualizadoAt: intentRow.ordenManualActualizadoAt,
+        ordenManualActualizadoPor: intentRow.ordenManualActualizadoPor,
+        ordenManualOperacionId: intentRow.ordenManualOperacionId
+      });
+    });
+  }
   function getInventoryRowCreatedTime(row) {
     const raw = row && (row.createdAt || row.fechaCreacion || row.createdAtMs);
     if (raw == null || raw === "") return 0;
@@ -4547,6 +4629,7 @@
     const configSource = preferRow ? row : existing;
     const fallbackSource = preferRow ? existing : row;
     const merged = Object.assign({}, fallbackSource, configSource);
+    const manualOrderSource = compareInventoryManualOrderVersions(existing, row, preferLocal);
     const existingId = Number(existing && existing.id);
     const rowId = Number(row && row.id);
     if (Number.isFinite(existingId) && Number.isFinite(rowId)) merged.id = Math.min(existingId, rowId);
@@ -4562,6 +4645,11 @@
     ["movementUpdatedAt", "movementUpdatedBy", "movementSource", "movimientosActualizadosAt"].forEach(function(field) {
       if (movementSource && movementSource[field] !== void 0) merged[field] = movementSource[field];
     });
+    if (manualOrderSource) {
+      ["ordenManual", "ordenManualActualizadoAt", "ordenManualActualizadoPor", "ordenManualOperacionId"].forEach(function(field) {
+        if (manualOrderSource[field] !== void 0) merged[field] = manualOrderSource[field];
+      });
+    }
     ["stockLunesJueves", "stockViernesDomingo"].forEach(function(field) {
       merged[field] = configSource && configSource[field] !== void 0 && configSource[field] !== "" ? configSource[field] : fallbackSource && fallbackSource[field] || 0;
     });
@@ -4641,7 +4729,14 @@
     }
     (Array.isArray(remoteRows) ? remoteRows : []).forEach(function(row) { addRow(row, false); });
     (Array.isArray(localRows) ? localRows : []).forEach(function(row) { addRow(row, true); });
-    return Array.from(map.values()).sort(function(a, b) {
+    const values = Array.from(map.values());
+    const hasManualOrder = values.some(function(row) { return Number.isFinite(Number(row && row.ordenManual)); });
+    return values.sort(function(a, b) {
+      if (hasManualOrder) {
+        const aOrder = Number.isFinite(Number(a && a.ordenManual)) ? Number(a.ordenManual) : Number.MAX_SAFE_INTEGER;
+        const bOrder = Number.isFinite(Number(b && b.ordenManual)) ? Number(b.ordenManual) : Number.MAX_SAFE_INTEGER;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+      }
       return Number(a.id || 0) - Number(b.id || 0) || String(a.nombre || "").localeCompare(String(b.nombre || ""));
     });
   }
@@ -5253,7 +5348,9 @@
       "barInventario",
       "barCuartoFrioInventario"
     ].forEach(function(key) {
-      next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localState && localState[key], remoteState && remoteState[key], next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
+      const localRows = applyInventoryOrderIntent(localState && localState[key], key);
+      const remoteRows = applyInventoryOrderIntent(remoteState && remoteState[key], key);
+      next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localRows, remoteRows, next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
     next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
@@ -12543,11 +12640,11 @@
         const results = await Promise.all(activeKeys.map(async function(key) {
           const moduleInfo = modules[key] || {};
           const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
-          const forceServerReadForProduction = page === "produccion" && (key === "regProduccion" || key === "barRegProduccion");
-          if (!forceServerReadForProduction && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
+          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1);
+          if (!forceServerReadForActiveModule && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
-          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server", bypassCache: forceServerReadForProduction });
+          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server", bypassCache: forceServerReadForActiveModule });
           return { key, value };
         }));
         const next = Object.assign({}, current);
@@ -13350,9 +13447,17 @@
     async function signInWithFirebaseGoogle() {
       if (!window.firebase || !window.firebase.auth) throw new Error("Firebase Auth no esta disponible.");
       const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
-      const provider = new window.firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const result = await app.auth().signInWithPopup(provider);
+      const nativeGoogleAuth = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.WTFGoogleAuth;
+      let result = null;
+      if (nativeGoogleAuth && typeof nativeGoogleAuth.signIn === "function") {
+        const nativeResult = await nativeGoogleAuth.signIn({ serverClientId: "863301490729-5dgoda2srf9ichl724s56nocef2jd0k2.apps.googleusercontent.com" });
+        const credential = window.firebase.auth.GoogleAuthProvider.credential(nativeResult && nativeResult.idToken);
+        result = await app.auth().signInWithCredential(credential);
+      } else {
+        const provider = new window.firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        result = await app.auth().signInWithPopup(provider);
+      }
       const user = result && result.user || app.auth().currentUser;
       if (!user || !user.email) throw new Error("Google no devolvio un correo valido.");
       setFirebaseAuthUser(user);
@@ -23902,6 +24007,7 @@
     const [pinnedSearchTarget, setPinnedSearchTarget] = useState(null);
     const [newProd, setNewProd] = useState({ separadorId: "", codArticulo: "", nombre: "", medida: "Kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("Kg")] });
     const [newSep, setNewSep] = useState("");
+    const [editingSeparatorId, setEditingSeparatorId] = useState(null);
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
     const suggestedCodArticulo = useMemo(() => getNextInventoryCodArticulo(codArticuloSources), [codArticuloSources]);
@@ -24243,16 +24349,45 @@
       setModalAdd(false);
       toast("Producto agregado");
     }
-    function addSeparador() {
-      if (!newSep.trim()) {
+    function saveSeparador() {
+      const separatorName = newSep.trim();
+      if (!separatorName) {
         toast("Ingrese el nombre", "error");
         return;
       }
       const now = new Date().toISOString();
-      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: newSep.trim().toUpperCase(), createdAt: now, updatedAt: now }]);
+      const normalizedName = separatorName.toUpperCase();
+      if (editingSeparatorId != null) {
+        const separator = inventario.find((row) => row.id === editingSeparatorId && row.tipo === "separador");
+        if (!separator) {
+          toast("No se encontró el renglón que deseas editar.", "error");
+          return;
+        }
+        setInventario((p) => p.map((row) => row.id === editingSeparatorId && row.tipo === "separador" ? { ...row, nombre: normalizedName, updatedAt: now } : row));
+        if (typeof onSystemLog === "function") {
+          onSystemLog({
+            modulo: `${pageLabel} ${moduleLabel}`,
+            accion: "Editar renglón",
+            producto: normalizedName,
+            detalle: `Renglón renombrado en ${pageLabel} ${moduleLabel}. Nombre anterior: ${separator.nombre || "Sin nombre"}.`
+          }, currentUser);
+        }
+        setEditingSeparatorId(null);
+        setNewSep("");
+        setModalSep(false);
+        toast("Renglón actualizado");
+        return;
+      }
+      setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: normalizedName, createdAt: now, updatedAt: now }]);
       setNewSep("");
       setModalSep(false);
       toast("Renglón agregado");
+    }
+    function editSeparador(row) {
+      if (!row || row.tipo !== "separador") return;
+      setEditingSeparatorId(row.id);
+      setNewSep(String(row.nombre || ""));
+      setModalSep(true);
     }
     function openRelocateAccess() {
       if (!separadores.length) {
@@ -24296,20 +24431,43 @@
         toast("Seleccione un renglón y al menos un producto.", "error");
         return;
       }
-      const targetSeparator = inventario.find((item) => item.id === targetSeparatorId && item.tipo === "separador");
-      setInventario((prev) => {
-        const selectedSet = new Set(ids);
-        const movingRows = prev.filter((row) => row.tipo === "producto" && selectedSet.has(row.id));
-        if (!movingRows.length) return prev;
-        const remaining = prev.filter((row) => !selectedSet.has(row.id));
-        const separatorIndex = remaining.findIndex((row) => row.id === targetSeparatorId && row.tipo === "separador");
-        if (separatorIndex === -1) return prev;
-        let insertIndex = separatorIndex + 1;
-        while (insertIndex < remaining.length && remaining[insertIndex].tipo !== "separador") insertIndex++;
-        const next = [...remaining];
-        next.splice(insertIndex, 0, ...movingRows);
-        return next;
+      const targetSeparator = inventario.find((item) => Number(item.id) === Number(targetSeparatorId) && item.tipo === "separador");
+      const selectedSet = new Set(ids);
+      const movingRows = inventario.filter((row) => row.tipo === "producto" && selectedSet.has(Number(row.id)));
+      if (!targetSeparator || !movingRows.length) {
+        toast("El renglón o los productos seleccionados ya no están disponibles.", "error");
+        return;
+      }
+      const remaining = inventario.filter((row) => !selectedSet.has(Number(row.id)));
+      const separatorIndex = remaining.findIndex((row) => Number(row.id) === Number(targetSeparatorId) && row.tipo === "separador");
+      if (separatorIndex === -1) {
+        toast("No se encontró el renglón destino.", "error");
+        return;
+      }
+      let insertIndex = separatorIndex + 1;
+      while (insertIndex < remaining.length && remaining[insertIndex].tipo !== "separador") insertIndex++;
+      const next = [...remaining];
+      next.splice(insertIndex, 0, ...movingRows);
+      const now = new Date().toISOString();
+      const operationId = `inventory-order:${getInventoryOrderStateKey(inventoryStateKey || sourceKey)}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+      const orderedRows = next.map(function(row, index) {
+        return Object.assign({}, row, {
+          ordenManual: index,
+          ordenManualActualizadoAt: now,
+          ordenManualActualizadoPor: getUserDisplayLabel(currentUser),
+          ordenManualOperacionId: operationId
+        });
       });
+      setInventario(orderedRows);
+      saveInventoryOrderIntent(inventoryStateKey || sourceKey, orderedRows, now, operationId);
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          modulo: `${pageLabel} ${moduleLabel}`,
+          accion: "Reubicar productos",
+          producto: movingRows.map((row) => row.nombre || "").filter(Boolean).join(", "),
+          detalle: `${movingRows.length} producto${movingRows.length === 1 ? "" : "s"} reubicado${movingRows.length === 1 ? "" : "s"} debajo de ${targetSeparator.nombre}. Operacion: ${operationId}.`
+        }, currentUser);
+      }
       setModalReubicar(false);
       toast(`${ids.length} producto${ids.length === 1 ? "" : "s"} enviado${ids.length === 1 ? "" : "s"} a ${targetSeparator ? targetSeparator.nombre : "ese renglón"}`);
     }
@@ -24330,7 +24488,7 @@
     }
     const tableRows = rows.map((r) => {
       if (r.tipo === "separador") {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
+        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Editar renglón", onClick: () => editSeparador(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Eliminar renglón", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
       }
       const exist = getInventoryExistence(r);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
@@ -24420,7 +24578,7 @@
         )
       )
     ) : null;
-    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalSep(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newSep, onChange: (e) => setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => setModalSep(false) }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: addSeparador }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar")))) : null;
+    const sepModal = modalSep ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-layer-group", style: { marginRight: 7 } }), editingSeparatorId != null ? "Editar Renglón" : "Agregar Renglón"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => { setModalSep(false); setEditingSeparatorId(null); setNewSep(""); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "form-group" }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre del Renglón"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: newSep, onChange: (e) => setNewSep(e.target.value), placeholder: "Ej: CARNES Y PROTEÍNAS", autoFocus: true }))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: () => { setModalSep(false); setEditingSeparatorId(null); setNewSep(""); } }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: saveSeparador }, /* @__PURE__ */ React.createElement("i", { className: editingSeparatorId != null ? "fas fa-save" : "fas fa-plus" }), editingSeparatorId != null ? "Guardar" : "Agregar")))) : null;
     const alertasModal = modalAlertas ? /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation", style: { color: "#f59e0b", marginRight: 7 } }), "Productos en Bajo Stock"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: () => setModalAlertas(false) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { marginBottom: 12 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto, suplidor o medida...", value: busquedaAlerta, onChange: (e) => setBusquedaAlerta(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "table-wrap", style: { maxHeight: "55vh" } }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Suplidor"), /* @__PURE__ */ React.createElement("th", null, "Medida"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Stock Mín."))), /* @__PURE__ */ React.createElement("tbody", null, alertasFiltradas.map(function(r) {
       const stockStatus = r.stockStatus || getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
       const covered = stockStatus.coveredByMise;

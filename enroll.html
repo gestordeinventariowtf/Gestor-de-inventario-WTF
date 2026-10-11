@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Enrolar WTF ICG Host</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="/firebase-config.js"></script>
+  <style>
+    :root { color-scheme: light; font-family: Segoe UI, Arial, sans-serif; background: #f3f6fa; color: #172033; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    main { width: min(620px, 100%); background: #fff; border: 1px solid #dbe3ed; border-radius: 18px; box-shadow: 0 18px 45px rgba(15, 23, 42, .12); overflow: hidden; }
+    header { padding: 24px; background: linear-gradient(135deg, #0f5132, #1769aa); color: #fff; }
+    h1 { margin: 0 0 6px; font-size: 23px; }
+    header p { margin: 0; opacity: .9; line-height: 1.45; }
+    section { padding: 24px; display: grid; gap: 14px; }
+    label { display: grid; gap: 6px; font-weight: 800; font-size: 13px; }
+    input, button { font: inherit; }
+    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; padding: 11px 12px; color: #111827; background: #fff; }
+    input[readonly] { background: #f8fafc; }
+    button { border: 0; border-radius: 9px; padding: 11px 14px; font-weight: 800; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .google { background: #fff; color: #1f2937; border: 1px solid #cbd5e1; }
+    .primary { background: #16803c; color: #fff; }
+    .copy { background: #e8f1ff; color: #1557a6; padding: 7px 10px; font-size: 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .credential { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .notice { padding: 12px; border-radius: 9px; background: #eef6ff; color: #174a7c; font-size: 13px; line-height: 1.45; }
+    .status { min-height: 20px; font-size: 13px; font-weight: 700; }
+    .status.error { color: #b42318; }
+    .status.ok { color: #087443; }
+    .hidden { display: none; }
+    small { color: #64748b; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Enrolar WTF ICG Host</h1>
+      <p>Genera las credenciales de esta computadora para conectarla con el sistema WTF.</p>
+    </header>
+    <section>
+      <div class="notice">Primero verifica el correo con Google. La solicitud quedará pendiente hasta que un administrador la autorice desde el módulo de terminales autorizadas.</div>
+      <label>Nombre de esta computadora
+        <input id="terminalName" value="PC Principal WTF" maxlength="120" autocomplete="off">
+      </label>
+      <label>Correo verificado
+        <input id="verifiedEmail" readonly placeholder="Aún no verificado">
+      </label>
+      <div class="row">
+        <button id="googleButton" class="google" type="button">Entrar con Google para verificar</button>
+        <span id="googleState"><small>No se inicia sesión en el sistema; solo se verifica la identidad.</small></span>
+      </div>
+      <button id="requestButton" class="primary" type="button" disabled>Generar credenciales y solicitar autorización</button>
+      <div id="status" class="status"></div>
+      <div id="credentials" class="hidden">
+        <div class="notice"><strong>Guarda estas credenciales en WTF ICG Host.</strong><br>El secreto no se vuelve a mostrar desde Firestore. Si lo pierdes, vuelve a enrolar esta PC para generar uno nuevo.</div>
+        <label>Terminal ID
+          <div class="credential"><input id="terminalId" readonly><button class="copy" type="button" data-copy="terminalId">Copiar</button></div>
+        </label>
+        <label>Secreto de terminal
+          <div class="credential"><input id="terminalSecret" readonly><button class="copy" type="button" data-copy="terminalSecret">Copiar</button></div>
+        </label>
+        <label>Sucursal
+          <input id="branchId" readonly>
+        </label>
+        <small id="authorizationState"></small>
+      </div>
+    </section>
+  </main>
+  <script>
+    (function () {
+      "use strict";
+      const config = window.WTF_FIREBASE_CONFIG || {};
+      const control = config.controlHorario || {};
+      const endpoint = String(control.terminalEndpoint || "").trim();
+      const branchId = String(control.defaultBranchId || "wtf-av-venezuela").trim();
+      const firebaseConfig = config.firebaseConfig || {};
+      const googleButton = document.getElementById("googleButton");
+      const requestButton = document.getElementById("requestButton");
+      const verifiedEmail = document.getElementById("verifiedEmail");
+      const googleState = document.getElementById("googleState");
+      const status = document.getElementById("status");
+      const credentials = document.getElementById("credentials");
+      let verifiedUser = null;
+      let busy = false;
+      function setStatus(message, kind) { status.textContent = message || ""; status.className = "status" + (kind ? " " + kind : ""); }
+      function makeSecret() {
+        const bytes = new Uint8Array(32);
+        if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+        else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+        let binary = "";
+        bytes.forEach(function (value) { binary += String.fromCharCode(value); });
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+      function deviceInfo() {
+        return { userAgent: navigator.userAgent || "", platform: navigator.platform || "", language: navigator.language || "", screen: window.screen ? window.screen.width + "x" + window.screen.height : "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" };
+      }
+      async function verifyGoogle() {
+        if (!window.firebase || !firebaseConfig.apiKey) throw new Error("Firebase Authentication no está disponible.");
+        const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseConfig);
+        const auth = app.auth();
+        const provider = new window.firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        const result = await auth.signInWithPopup(provider);
+        verifiedUser = result && result.user ? result.user : auth.currentUser;
+        if (!verifiedUser || !verifiedUser.email) throw new Error("Google no devolvió un correo válido.");
+        verifiedEmail.value = verifiedUser.email;
+        googleState.innerHTML = "<small>Correo verificado correctamente.</small>";
+        requestButton.disabled = false;
+        try { await auth.signOut(); } catch (_) {}
+      }
+      async function requestAuthorization() {
+        if (!verifiedUser || !verifiedUser.email) throw new Error("Verifica primero el correo con Google.");
+        if (!endpoint) throw new Error("No hay endpoint de enrolamiento configurado.");
+        const terminalId = "";
+        const secret = makeSecret();
+        const name = String(document.getElementById("terminalName").value || "PC WTF").trim() || "PC WTF";
+        const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request", terminalId, secret, name, branchId, user: { email: verifiedUser.email, nombre: verifiedUser.displayName || verifiedUser.email }, deviceInfo: deviceInfo() }) });
+        const result = await response.json().catch(function () { return null; });
+        if (!response.ok || !result || result.ok === false) throw new Error(result && result.error || "No se pudo solicitar la autorización.");
+        document.getElementById("terminalId").value = result.terminalId || "";
+        document.getElementById("terminalSecret").value = secret;
+        document.getElementById("branchId").value = branchId;
+        document.getElementById("authorizationState").textContent = result.status === "active" ? "Esta terminal ya estaba autorizada." : "Solicitud enviada. Un administrador debe autorizarla antes de usarla.";
+        credentials.classList.remove("hidden");
+        try { localStorage.setItem("wtf_authorized_terminal_credential_v1", JSON.stringify({ terminalId: result.terminalId || "", secret, branchId, name, requestedAt: new Date().toISOString() })); } catch (_) {}
+        setStatus("Credenciales generadas correctamente.", "ok");
+      }
+      googleButton.addEventListener("click", function () {
+        if (busy) return;
+        busy = true; googleButton.disabled = true; setStatus("Abriendo verificación de Google...", "");
+        verifyGoogle().then(function () { setStatus("Correo verificado. Ya puedes solicitar las credenciales.", "ok"); }).catch(function (error) { setStatus(error.message || "No se pudo verificar Google.", "error"); }).finally(function () { busy = false; googleButton.disabled = false; });
+      });
+      requestButton.addEventListener("click", function () {
+        if (busy) return;
+        busy = true; requestButton.disabled = true; setStatus("Generando credenciales...", "");
+        requestAuthorization().catch(function (error) { setStatus(error.message || "No se pudo generar la credencial.", "error"); }).finally(function () { busy = false; requestButton.disabled = !verifiedUser; });
+      });
+      document.querySelectorAll("[data-copy]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          const input = document.getElementById(button.getAttribute("data-copy"));
+          if (!input || !input.value) return;
+          navigator.clipboard.writeText(input.value).then(function () { button.textContent = "Copiado"; setTimeout(function () { button.textContent = "Copiar"; }, 1200); }).catch(function () { input.select(); document.execCommand("copy"); });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
