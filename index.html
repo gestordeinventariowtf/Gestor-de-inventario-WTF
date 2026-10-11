@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011000200-0a26597";</script>
+  <script>window.WTF_APP_VERSION = "20261011001824-9e70e51";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -12442,6 +12442,7 @@
     const [authUserEmail, setAuthUserEmail] = useState(() => String(load(KEYS.authUser, "") || ""));
     const [firebaseAuthReady, setFirebaseAuthReady] = useState(false);
     const [firebaseAuthUser, setFirebaseAuthUser] = useState(null);
+    const firebaseAuthEmail = firebaseAuthUser && firebaseAuthUser.email ? String(firebaseAuthUser.email).trim().toLowerCase() : "";
     const [modulo, setModulo] = useState(() => initialAppRoute.modulo || null);
     const [welcomeCoverDismissedKey, setWelcomeCoverDismissedKey] = useState(() => getStoredWelcomeCoverDismissedKey());
     const [pedirClaveModulo, setPedirClaveModulo] = useState(false);
@@ -13328,7 +13329,6 @@
         setFirebaseAuthReady(true);
       }
     }, [firebaseCfg]);
-    const firebaseAuthEmail = firebaseAuthUser && firebaseAuthUser.email ? String(firebaseAuthUser.email).trim().toLowerCase() : "";
     const currentUser = useMemo(() => {
       const found = usuarios.find(function(u) {
         return u.activo !== false && normalizar(u.email) === normalizar(authUserEmail);
@@ -24488,7 +24488,29 @@
     }
     const tableRows = rows.map((r) => {
       if (r.tipo === "separador") {
-        return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "tr-separator" }, /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 4 } }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Editar renglón", onClick: () => editSeparador(r) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", title: "Eliminar renglón", onClick: () => deleteRow(r.id) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" }))));
+        return /* @__PURE__ */ React.createElement(
+          "tr",
+          { key: r.id, className: "tr-separator" },
+          /* @__PURE__ */ React.createElement("td", { colSpan: "10" }, r.nombre),
+          /* @__PURE__ */ React.createElement(
+            "td",
+            null,
+            /* @__PURE__ */ React.createElement(
+              "div",
+              { style: { display: "flex", gap: 4 } },
+              /* @__PURE__ */ React.createElement(
+                "button",
+                { className: "btn btn-sm btn-gris btn-icon", title: "Editar renglón", onClick: () => editSeparador(r) },
+                /* @__PURE__ */ React.createElement("i", { className: "fas fa-pen" })
+              ),
+              /* @__PURE__ */ React.createElement(
+                "button",
+                { className: "btn btn-sm btn-gris btn-icon", title: "Eliminar renglón", onClick: () => deleteRow(r.id) },
+                /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash" })
+              )
+            )
+          )
+        );
       }
       const exist = getInventoryExistence(r);
       const stockStatus = getInventoryStockStatus(r, miseAnPlace, r.stockLunesJueves);
