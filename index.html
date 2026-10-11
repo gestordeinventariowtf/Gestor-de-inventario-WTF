@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011001824-9e70e51";</script>
+  <script>window.WTF_APP_VERSION = "20261011003132-b000497";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5758,7 +5758,7 @@
       await Promise.all(externalKeys.map(async function(key) {
         const expectedSignature = String(externalSignatures[key] || "");
         if (
-          externalReadSource !== "server" &&
+          decodeOptions.externalReadSource !== "server" &&
           expectedSignature &&
           localExternalSignatures[key] === expectedSignature &&
           Object.prototype.hasOwnProperty.call(fallbackState, key)
@@ -5770,7 +5770,7 @@
           state[key] = fallbackState[key];
           return;
         }
-        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature, Object.assign({}, externalReadOptions || {}, { bypassCache: externalReadSource === "server" }));
+        const externalValue = await readFirebaseExternalStateDoc(docRef, key, expectedSignature, Object.assign({}, externalReadOptions || {}, { bypassCache: decodeOptions.externalReadSource === "server" }));
         if (typeof externalValue !== "undefined" && externalValue !== null) state[key] = externalValue;
       }));
     }
