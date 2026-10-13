@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013005221-91e1c03";</script>
+  <script>window.WTF_APP_VERSION = "20261013022453-218a6f0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3498,6 +3498,19 @@
     const fallback = Number(index) + 1;
     return Number.isFinite(fallback) ? String(fallback).padStart(3, "0") : "";
   }
+  function sortMiseItemsAscending(items) {
+    return (Array.isArray(items) ? items : []).map(function(item, index) {
+      return { item, index, code: String(getMiseCodArticulo(item, index) || "").trim() };
+    }).sort(function(a, b) {
+      const aNumber = /^\d+$/.test(a.code) ? Number(a.code) : NaN;
+      const bNumber = /^\d+$/.test(b.code) ? Number(b.code) : NaN;
+      if (Number.isFinite(aNumber) && Number.isFinite(bNumber) && aNumber !== bNumber) return aNumber - bNumber;
+      if (Number.isFinite(aNumber) !== Number.isFinite(bNumber)) return Number.isFinite(aNumber) ? -1 : 1;
+      return a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: "base" }) || a.index - b.index;
+    }).map(function(entry) {
+      return entry.item;
+    });
+  }
   function misePdfStatus(item) {
     const existencia = Number(item && item.existencia || 0);
     if (existencia <= 0) return { label: "Sin stock", color: [220, 38, 38] };
@@ -3516,7 +3529,7 @@
       return;
     }
     printWindow.document.open();
-    printWindow.document.write(html);
+    printWindow.document.write(html.replace("th{background:#f0fdf4;color:#166534", "th{background:#1f7a3a;color:#fff"));
     printWindow.document.close();
     toast && toast("Se abrio la vista para guardar como PDF.", "info");
   }
@@ -3544,7 +3557,7 @@
     return window.__wtfJsPdfLoading;
   }
   async function generateMisePdf(miseAnPlace, toast) {
-    const items = (Array.isArray(miseAnPlace) ? miseAnPlace : []).filter((item) => item && item.producto);
+    const items = sortMiseItemsAscending((Array.isArray(miseAnPlace) ? miseAnPlace : []).filter((item) => item && item.producto));
     if (!items.length) {
       toast && toast("No hay productos de Mise an Place para generar PDF.", "error");
       return;
@@ -3594,7 +3607,7 @@
       doc.line(margin, y + 8, pageWidth - margin, y + 8);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8);
-      doc.setTextColor(22, 101, 52);
+      doc.setTextColor(255, 255, 255);
       cols.forEach(function(col) {
         doc.text(col.label, col.x + 1.5, y + 5.2);
       });
@@ -25825,7 +25838,7 @@
         return Object.assign({}, prev, { icgLinks: nextLinks });
       });
     }
-    const miseRows = useMemo(() => normalizeMiseItems(miseAnPlace), [miseAnPlace]);
+    const miseRows = useMemo(() => sortMiseItemsAscending(normalizeMiseItems(miseAnPlace)), [miseAnPlace]);
     const terminoBusqueda = normalizar(busqueda);
     const miseFiltrada = terminoBusqueda ? miseRows.filter((m) => {
       return normalizar(m.producto).includes(terminoBusqueda) || normalizar(getMiseCodArticulo(m, 0)).includes(terminoBusqueda) || normalizar(m.existencia).includes(terminoBusqueda) || normalizar(getMiseStockMinLJ(m)).includes(terminoBusqueda) || normalizar(getMiseStockMinVD(m)).includes(terminoBusqueda);
