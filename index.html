@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261011161734-d887edb";</script>
+  <script>window.WTF_APP_VERSION = "20261013005221-91e1c03";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4776,6 +4776,7 @@
   function getRowUpdateTime(row) {
     const candidates = [
       row && row.updatedAt,
+      row && row.updatedAtMs,
       row && row._updatedAt,
       row && row.fechaActualizacion,
       row && row.createdAt,
@@ -5004,9 +5005,9 @@
   }
   function getUserMergeKey(row) {
     if (!row || typeof row !== "object") return "";
-    if (row.id) return `id:${row.id}`;
     const email = normalizar(row.email || row.correo || "");
     if (email) return `email:${email}`;
+    if (row.id) return `id:${row.id}`;
     const name = normalizar(row.nombre || "");
     return name ? `name:${name}` : "";
   }
@@ -5083,10 +5084,13 @@
           nombre: protectedAdmin && normalizar(email) === normalizar(INITIAL_ADMIN_EMAIL) ? "Administrador Principal" : user.nombre || "",
           role,
           active,
+          passwordHash: user.passwordHash || "",
           modulo: user.modulo || "ambos",
           permisos: Array.isArray(user.permisos) ? user.permisos.slice(0, 80) : [],
           protectedAdmin,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          updatedAtMs: Date.now(),
+          deleted: false
         }
       });
       seen.add(email);
@@ -5102,6 +5106,10 @@
         email,
         active: false,
         revoked: true,
+        deleted: true,
+        deletedAt: new Date(ts).toISOString(),
+        deletedAtMs: ts,
+        updatedAtMs: ts,
         revokedReason: reason || "Usuario retirado de Usuarios y Permisos",
         updatedAt: new Date().toISOString()
       }
@@ -5840,13 +5848,19 @@
     // Las desactivaciones y borrados se realizan unicamente desde la accion administrativa explicita.
   }
   async function readFirebaseAuthorizedUsersIndex(docRef) {
-    if (!docRef || !docRef.firestore) return [];
+    if (!docRef || !docRef.firestore) return { rows: [], deletedKeys: {} };
     const snapshot = await docRef.firestore.collection("authorizedUsers").get({ source: "server" });
     const rows = [];
+    const deletedKeys = {};
     snapshot.forEach(function(doc) {
       const data = doc.data() || {};
       const email = getAuthorizedUserDocId(data.email || doc.id);
       if (!email || LEGACY_ADMIN_EMAILS_TO_REMOVE.some(function(blocked) { return normalizar(blocked) === email; })) return;
+      if (data.deleted === true || data.revoked === true) {
+        const deletedAtMs = Number(data.deletedAtMs || data.updatedAtMs || 0);
+        if (deletedAtMs > 0) deletedKeys[`email:${email}`] = deletedAtMs;
+        return;
+      }
       rows.push({
         id: data.id || `authorized-${email}`,
         nombre: data.nombre || email,
@@ -5854,12 +5868,14 @@
         role: String(data.role || "user").toLowerCase() === "admin" ? "admin" : "user",
         modulo: data.modulo || "ambos",
         permisos: Array.isArray(data.permisos) ? data.permisos.slice(0, 80) : [],
+        passwordHash: data.passwordHash || "",
         activo: data.active !== false,
         protectedAdmin: data.protectedAdmin === true,
-        updatedAt: data.updatedAt || ""
+        updatedAt: data.updatedAt || "",
+        updatedAtMs: Number(data.updatedAtMs || 0)
       });
     });
-    return rows;
+    return { rows, deletedKeys };
   }
   async function writeFirebaseAuthorizedUserDoc(docRef, item) {
     if (!docRef || !docRef.firestore || !item || !item.id) return;
@@ -5892,12 +5908,30 @@
   }
   function ensureAdminUser(users, deletedKeys) {
     const normalizedDeletedKeys = normalizeUserDeletedKeys(deletedKeys);
-    const list = Array.isArray(users) ? users.map(function(u) {
+    let list = Array.isArray(users) ? users.map(function(u) {
       return migrateUserPasswordSecret(u);
     }).filter(function(u) {
       const email = normalizar(u && u.email || "");
       return !isRootAdmin(u) && !LEGACY_ADMIN_EMAILS_TO_REMOVE.includes(email) && !isUserRowDeleted(u, normalizedDeletedKeys);
     }) : [];
+    const uniqueUsers = new Map();
+    list.forEach(function(user) {
+      const key = normalizar(user && user.email || "") || `id:${user && user.id || ""}`;
+      if (!key) return;
+      const previous = uniqueUsers.get(key);
+      if (!previous) {
+        uniqueUsers.set(key, user);
+        return;
+      }
+      const previousTime = getRowUpdateTime(previous);
+      const userTime = getRowUpdateTime(user);
+      const preferred = userTime >= previousTime ? user : previous;
+      const fallback = preferred === user ? previous : user;
+      uniqueUsers.set(key, Object.assign({}, fallback, preferred, {
+        passwordHash: preferred.passwordHash || fallback.passwordHash || ""
+      }));
+    });
+    list = Array.from(uniqueUsers.values());
     const allOperationalPermissions = PERMISSION_OPTIONS.map(function(perm) {
       return perm.key;
     }).filter(function(key) {
@@ -5978,7 +6012,8 @@
   function isRootAdmin(user) {
     if (!user) return false;
     const email = normalizar(user.email || user);
-    return user.id === ROOT_ADMIN_ID || email === normalizar(ADMIN_DEFAULT.email);
+    return email === normalizar(ADMIN_DEFAULT.email)
+      || (user.id === ROOT_ADMIN_ID && (!email || email === normalizar(ADMIN_DEFAULT.email)));
   }
   const ROOT_ADMIN_OPERATIONAL_BLOCK_MESSAGE = "Recuerde que debe entrar con su USUARIO.";
   function isRootAdminOperationalBlocked(user) {
@@ -13395,12 +13430,19 @@
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail || !currentUser || !isAdminUser(currentUser) || authorizedUsersHydratedRef.current === firebaseAuthEmail) return;
       let active = true;
-      readFirebaseAuthorizedUsersIndex(firebaseDocRef.current).then(function(remoteUsers) {
+      readFirebaseAuthorizedUsersIndex(firebaseDocRef.current).then(function(remoteResult) {
         if (!active) return;
         authorizedUsersHydratedRef.current = firebaseAuthEmail;
+        const remoteUsers = remoteResult && Array.isArray(remoteResult.rows) ? remoteResult.rows : [];
+        const remoteDeletedKeys = remoteResult && remoteResult.deletedKeys ? remoteResult.deletedKeys : {};
+        if (Object.keys(remoteDeletedKeys).length) {
+          setUserDeletedKeys(function(localKeys) {
+            return mergeUserDeletedKeys(localKeys, remoteDeletedKeys);
+          });
+        }
         if (!remoteUsers.length) return;
         setUsuarios(function(localUsers) {
-          return mergeUserRows(localUsers, remoteUsers, userDeletedKeys);
+          return mergeUserRows(localUsers, remoteUsers, mergeUserDeletedKeys(userDeletedKeys, remoteDeletedKeys));
         });
       }).catch(function(error) {
         console.warn("No se pudo leer la lista de usuarios autorizados desde Firebase:", error);

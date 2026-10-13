@@ -63,8 +63,18 @@ service cloud.firestore {
     match /authorizedUsers/{email} {
       allow get: if signedIn() && request.auth.token.email == email;
       allow list: if isAuthorizedAdmin();
-      allow create, update: if isAuthorizedAdmin()
+      allow create: if isAuthorizedAdmin()
         || (isProtectedAdminEmail() && email == request.auth.token.email);
+      // Un borrado administrativo queda como tombstone remoto. Un cliente
+      // con datos viejos no puede reactivar el mismo correo por accidente.
+      allow update: if (isAuthorizedAdmin()
+        || (isProtectedAdminEmail() && email == request.auth.token.email))
+        && (!resource.data.keys().hasAll(['deleted', 'deletedAtMs'])
+          || resource.data.deleted != true
+          || request.resource.data.deleted == true
+          || (request.resource.data.updatedAtMs is number
+            && resource.data.deletedAtMs is number
+            && request.resource.data.updatedAtMs > resource.data.deletedAtMs));
       allow delete: if isAuthorizedAdmin()
         && !(email in ['Henryortiz1704@gmail.com', 'henryortiz1704@gmail.com']);
     }
