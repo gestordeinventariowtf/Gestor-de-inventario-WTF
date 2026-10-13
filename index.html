@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013191529-7a7e789";</script>
+  <script>window.WTF_APP_VERSION = "20261013212123-a9d9a7a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4122,10 +4122,17 @@
   }
   function readSystemLogPendingQueue() {
     const rows = load(SYSTEM_LOG_EVENT_PENDING_KEY, []);
-    return Array.isArray(rows) ? rows.filter(Boolean) : [];
+    return (Array.isArray(rows) ? rows : []).map(function(row) {
+      if (row && row.event && typeof row.event === "object") {
+        return Object.assign({ status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" }, row);
+      }
+      return { event: row, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" };
+    }).filter(function(row) { return row && row.event && row.event.id; });
   }
   function writeSystemLogPendingQueue(rows) {
-    save(SYSTEM_LOG_EVENT_PENDING_KEY, (Array.isArray(rows) ? rows : []).slice(0, SYSTEM_LOG_ACTIVE_LIMIT));
+    // La cola pendiente no debe compartir el limite visual del historial:
+    // mientras no haya confirmacion remota, cada evento debe conservarse.
+    save(SYSTEM_LOG_EVENT_PENDING_KEY, Array.isArray(rows) ? rows : []);
   }
   function sanitizeSystemLogEvent(row, user) {
     const source = row && typeof row === "object" ? row : {};
@@ -12647,6 +12654,8 @@
     const systemLogsLoadInFlightRef = useRef(false);
     const systemLogsMetaWriteTimerRef = useRef(null);
     const systemLogsMigrationRef = useRef(false);
+    const systemLogsFlushInFlightRef = useRef(false);
+    const systemLogsFlushRequestedAgainRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12819,8 +12828,8 @@
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
       const pending = readSystemLogPendingQueue();
-      if (!pending.some(function(row) { return row && row.id === event.id; })) {
-        pending.unshift(event);
+      if (!pending.some(function(row) { return row && row.event && row.event.id === event.id; })) {
+        pending.unshift({ event, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" });
         writeSystemLogPendingQueue(pending);
       }
       flushSystemLogQueue();
@@ -12846,29 +12855,63 @@
       }, 700);
     }
     async function flushSystemLogQueue() {
-      const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
-      if (!refs || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
-      const pending = readSystemLogPendingQueue();
-      if (!pending.length) return;
-      const remaining = [];
-      for (const event of pending) {
-        try {
-          const remoteEvent = Object.assign({}, event, {
-            createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-            synced: true
-          });
-          await refs.events.doc(event.id).create(remoteEvent);
-          scheduleSystemLogsMetaUpdate();
-        } catch (error) {
-          if (String(error && error.code || "") === "already-exists") {
+      if (systemLogsFlushInFlightRef.current) {
+        systemLogsFlushRequestedAgainRef.current = true;
+        return;
+      }
+      systemLogsFlushInFlightRef.current = true;
+      try {
+        const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+        if (!refs || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+        const pendingAtStart = readSystemLogPendingQueue();
+        if (!pendingAtStart.length) return;
+        const confirmedIds = new Set();
+        const failedItems = new Map();
+        for (const queueItem of pendingAtStart) {
+          const event = queueItem.event;
+          const attempt = Number(queueItem.attempts || 0) + 1;
+          try {
+            const remoteEvent = Object.assign({}, event, {
+              createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+              synced: true
+            });
+            await refs.events.doc(event.id).create(remoteEvent);
+            confirmedIds.add(event.id);
             scheduleSystemLogsMetaUpdate();
-            continue;
+          } catch (error) {
+            if (String(error && error.code || "") === "already-exists") {
+              confirmedIds.add(event.id);
+              scheduleSystemLogsMetaUpdate();
+              continue;
+            }
+            failedItems.set(event.id, Object.assign({}, queueItem, {
+              status: "error",
+              attempts: attempt,
+              lastAttemptAt: Date.now(),
+              lastError: String(error && (error.code || error.message) || error || "Error de sincronización")
+            }));
+            console.warn("Log pendiente de sincronizar:", error);
           }
-          remaining.push(event);
-          console.warn("Log pendiente de sincronizar:", error);
+        }
+        // Volver a leer antes de guardar evita que una ejecución antigua pise
+        // eventos agregados mientras había solicitudes Firestore en curso.
+        const latestQueue = readSystemLogPendingQueue();
+        const remaining = latestQueue.filter(function(queueItem) {
+          return !confirmedIds.has(queueItem.event.id);
+        }).map(function(queueItem) {
+          return failedItems.get(queueItem.event.id) || queueItem;
+        });
+        failedItems.forEach(function(queueItem, eventId) {
+          if (!remaining.some(function(item) { return item.event.id === eventId; })) remaining.push(queueItem);
+        });
+        writeSystemLogPendingQueue(remaining);
+      } finally {
+        systemLogsFlushInFlightRef.current = false;
+        if (systemLogsFlushRequestedAgainRef.current) {
+          systemLogsFlushRequestedAgainRef.current = false;
+          window.setTimeout(function() { flushSystemLogQueue(); }, 0);
         }
       }
-      writeSystemLogPendingQueue(remaining);
     }
     function systemLogRemoteToLocal(data) {
       const row = data && typeof data === "object" ? data : {};
@@ -12914,12 +12957,15 @@
         if (!snapshot.empty) systemLogsLastDocRef.current = snapshot.docs[snapshot.docs.length - 1];
         const incoming = snapshot.docs.map(function(doc) { return systemLogRemoteToLocal(Object.assign({ id: doc.id }, doc.data() || {})); });
         if (incoming.length) save(SYSTEM_LOG_EVENT_CURSOR_KEY, incoming[incoming.length - 1].fecha || "");
+        const pendingRows = readSystemLogPendingQueue().map(function(item) {
+          return Object.assign({}, item.event, { synced: false, estado: item.status || "pending" });
+        });
         if (reset) {
-          setSystemLogs(normalizeSystemLogs(incoming));
-          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming));
-        } else if (incoming.length) {
-          setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(Array.isArray(prev) ? prev : [])); });
-          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(load(SYSTEM_LOG_EVENT_CACHE_KEY, []))));
+          setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(Array.isArray(prev) ? prev : [], pendingRows)); });
+          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(Array.isArray(systemLogs) ? systemLogs : [], pendingRows)));
+        } else if (incoming.length || pendingRows.length) {
+          setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(pendingRows, Array.isArray(prev) ? prev : [])); });
+          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(pendingRows, load(SYSTEM_LOG_EVENT_CACHE_KEY, []))));
         }
       } catch (error) {
         console.warn("No se pudieron leer los eventos de Logs de Sistema:", error);
