@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013022453-218a6f0";</script>
+  <script>window.WTF_APP_VERSION = "20261013023600-8cb1c52";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -15217,7 +15217,7 @@
       finanzas: () => /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); resetToModuleSelector(false); } }),
-      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
+      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, userDeletedKeys, setUserDeletedKeys, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
@@ -22367,7 +22367,7 @@
       )
     );
   }
-  function UsuariosPage({ usuarios, setUsuarios, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null, onAuthorizedUserAccessChange = null }) {
+  function UsuariosPage({ usuarios, setUsuarios, userDeletedKeys = {}, setUserDeletedKeys = null, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null, onAuthorizedUserAccessChange = null }) {
     const toast = useToast();
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
     const securityInfo = normalizeAppSecurity(appSecurity);
@@ -22556,11 +22556,9 @@
         return;
       }
       const deletedAt = Date.now();
-      setUserDeletedKeys(function(prev) {
-        return markUserDeletedKeysFromRow(prev, user, deletedAt);
-      });
+      const nextDeletedKeys = markUserDeletedKeysFromRow(userDeletedKeys, user, deletedAt);
+      if (typeof setUserDeletedKeys === "function") setUserDeletedKeys(nextDeletedKeys);
       setUsuarios(function(prev) {
-        const nextDeletedKeys = markUserDeletedKeysFromRow(userDeletedKeys, user, deletedAt);
         return ensureAdminUser(prev.filter(function(u) {
           return u.id !== user.id;
         }), nextDeletedKeys);
