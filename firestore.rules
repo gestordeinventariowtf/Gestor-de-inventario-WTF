@@ -17,7 +17,9 @@ service cloud.firestore {
     }
 
     function authUserDoc() {
-      return /databases/$(database)/documents/authorizedUsers/$(request.auth.token.email);
+      // Los documentos de usuarios autorizados usan el correo normalizado en
+      // minusculas; el token de Google puede conservar mayusculas.
+      return /databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower());
     }
 
     function hasAuthorizedUserDoc() {
@@ -100,7 +102,8 @@ service cloud.firestore {
       allow read: if isAuthorizedUser();
       allow create: if isAuthorizedUser()
         && request.resource.data.id == logId
-        && (request.resource.data.email == request.auth.token.email
+        && request.resource.data.email is string
+        && (request.resource.data.email.lower() == request.auth.token.email.lower()
           || (request.resource.data.origen == 'migration' && isAuthorizedAdmin()))
         && request.resource.data.createdAt == request.time
         && request.resource.data.schemaVersion is number

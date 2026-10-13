@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013052406-f6d1777";</script>
+  <script>window.WTF_APP_VERSION = "20261013060712-2d36a6e";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4141,7 +4141,9 @@
       id,
       clientCreatedAt: String(safe.fecha || now),
       usuario: compactSystemLogText(safe.usuario || "Sistema"),
-      email: compactSystemLogText(safe.email || "").toLowerCase(),
+      // Conservar la capitalizacion del token Firebase. Las reglas comparan
+      // de forma normalizada, pero el valor original facilita la auditoria.
+      email: compactSystemLogText(safe.email || "").trim(),
       modulo: compactSystemLogText(safe.modulo || "Sistema"),
       accion: compactSystemLogText(safe.accion || "Evento"),
       producto: compactSystemLogText(safe.producto || ""),
