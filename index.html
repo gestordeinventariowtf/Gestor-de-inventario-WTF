@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013060712-2d36a6e";</script>
+  <script>window.WTF_APP_VERSION = "20261013191529-7a7e789";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -14799,6 +14799,31 @@
         return hasMovementAlreadyRegistered(list, row) ? list : list.concat([row]);
       });
     }
+    function logInventoryMovementEvent(row, tipo) {
+      if (!row || typeof addSystemLog !== "function") return;
+      const action = tipo === "entrada" ? "Entrada de inventario" : tipo === "salida" ? "Salida de inventario" : "Decomiso de inventario";
+      const stableId = `syslog-movement-${quickHashText([row.id || row._id || "", tipo, row.storageKey || "", row.producto || ""].join("|"))}`;
+      addSystemLog({
+        id: stableId,
+        modulo: row.modulo || row.origen || "Inventario",
+        accion: action,
+        producto: row.producto || "",
+        detalle: `${action} registrada: ${row.cantidad || 0} ${row.medida || ""}. Existencia anterior: ${row.existenciaAnterior == null ? "-" : row.existenciaAnterior}; nueva: ${row.existenciaNueva == null ? "-" : row.existenciaNueva}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: row.origen || "web",
+        target: row.storageKey || "",
+        targetId: row.id || row._id || "",
+        entity: "inventoryMovement",
+        entityId: row.id || row._id || "",
+        storageKey: row.storageKey || "",
+        movimientoIcgId: row.movimientoIcgId || "",
+        physicalIcgKey: row.physicalIcgKey || "",
+        ticket: row.ticket || "",
+        serie: row.serie || "",
+        numero: row.numero || ""
+      });
+    }
     function isIcgInventoryMovement(options = {}) {
       return Boolean(options.physicalIcgKey || options.PhysicalIcgKey || options.importKey || options.ImportKey || options.movimientoIcgId || options.MovimientoICGId || normalizar(options.origen || "").includes("icg"));
     }
@@ -14829,6 +14854,7 @@
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
         appendMovementRowOnce(setBarRegEntradas, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
       if (tipo === "salida") {
         const alreadyRegistered = hasMovementAlreadyRegistered(barRegSalidas, reg);
@@ -14837,6 +14863,7 @@
         setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Salida manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setBarRegSalidas, reg);
+        logInventoryMovementEvent(reg, tipo);
         if (!alreadyRegistered && options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Inventario Bar", now);
       }
       if (tipo === "decomiso") {
@@ -14845,6 +14872,7 @@
         setBarInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Decomiso manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setBarRegDecomiso, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
     }
     function addMovimiento(tipo, productoNombre, cantidad, options = {}) {
@@ -14860,6 +14888,7 @@
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
         appendMovementRowOnce(setRegEntradas, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
       if (tipo === "salida") {
         const alreadyRegistered = hasMovementAlreadyRegistered(regSalidas, reg);
@@ -14868,6 +14897,7 @@
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setRegSalidas, reg);
+        logInventoryMovementEvent(reg, tipo);
         if (!alreadyRegistered && options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Inventario Cocina", now);
       }
       if (tipo === "decomiso") {
@@ -14876,6 +14906,7 @@
         setInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setRegDecomiso, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
       syncNeveras({ nombre: prod.nombre, delta: tipo === "entrada" ? cantidad : -cantidad, existenciaAntes: exist });
     }
@@ -14892,6 +14923,7 @@
         if (hasMovementAlreadyRegistered(barRegEntradas, reg)) return;
         setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Entrada manual") : r));
         appendMovementRowOnce(setBarRegEntradas, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
       if (tipo === "salida") {
         const alreadyRegistered = hasMovementAlreadyRegistered(barRegSalidas, reg);
@@ -14900,6 +14932,7 @@
         setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Salida manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setBarRegSalidas, reg);
+        logInventoryMovementEvent(reg, tipo);
         if (!alreadyRegistered && options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, barMiseAnPlace, setBarMise, "Cuarto Frio Bar", now);
       }
       if (tipo === "decomiso") {
@@ -14908,6 +14941,7 @@
         setBarCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), options.origen || "Decomiso manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setBarRegDecomiso, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
     }
     function addMovimientoCuartoFrio(tipo, productoNombre, cantidad, options = {}) {
@@ -14923,6 +14957,7 @@
         if (hasMovementAlreadyRegistered(regEntradas, reg)) return;
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, entrada: roundQty4((r.entrada || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Entrada manual") : r));
         appendMovementRowOnce(setRegEntradas, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
       if (tipo === "salida") {
         const alreadyRegistered = hasMovementAlreadyRegistered(regSalidas, reg);
@@ -14931,6 +14966,7 @@
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, salida: roundQty4((r.salida || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Salida manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setRegSalidas, reg);
+        logInventoryMovementEvent(reg, tipo);
         if (!alreadyRegistered && options.transferToMise !== false) transferInventorySalidaToMise(prod, cantidad, options.sourceUnit || prod.medida, miseAnPlace, setMise, "Cuarto Frio Cocina", now);
       }
       if (tipo === "decomiso") {
@@ -14939,6 +14975,7 @@
         setCuartoFrioInventario((p) => p.map((r) => r.id === prod.id ? withInventoryMovementStamp({ ...r, decomiso: roundQty4((r.decomiso || 0) + cantidad) }, now, getUserDisplayLabel(movementUser), "Decomiso manual") : r));
         rememberIcgInventoryImpactThisSession(reg, options);
         appendMovementRowOnce(setRegDecomiso, reg);
+        logInventoryMovementEvent(reg, tipo);
       }
     }
     const navItems = [
@@ -15449,7 +15486,7 @@
       entradas: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "entrada", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       salidas: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       decomiso: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
-      recuento: () => /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
+      recuento: () => /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, onSystemLog: addSystemLog, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
       mise: () => /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: () => /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: () => /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
@@ -15463,7 +15500,7 @@
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
       systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs, onLoadMore: () => loadSystemLogsFromEvents(false), pendingCount: readSystemLogPendingQueue().length }),
-      produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
+      produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, onSystemLog: addSystemLog, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
       return /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: loginWithCredentials, onRequestTerminal: requestLoginTerminalAuthorization, toast, firebaseAuthReady, firebaseAuthEmail, onFirebaseGoogleLogin: signInWithFirebaseGoogle, onFirebaseGoogleLogout: signOutFirebaseAuth });
@@ -15702,8 +15739,27 @@
       }
     ));
   }
-  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, productionHolds = [], setProductionHolds, productionHoldDeletedKeys = {}, setProductionHoldDeletedKeys, productionHoldDeletedKey = "productionHolds", productionHistoryStateKey = "regProduccion", onMarkProductionHistoryDeleted, recipeStateKey = "recetasProduccion", onMarkRecipeDeleted, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, moduleLabel }) {
+  function ProduccionPage({ inventario, setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, otherInventario = [], setOtherInventario, otherCuartoFrioInventario = [], setOtherCuartoFrioInventario, otherModuleLabel = "Bar", miseAnPlace, setMise, producciones, setProducciones, recetas, setRecetas, productionHolds = [], setProductionHolds, productionHoldDeletedKeys = {}, setProductionHoldDeletedKeys, productionHoldDeletedKey = "productionHolds", productionHistoryStateKey = "regProduccion", onMarkProductionHistoryDeleted, recipeStateKey = "recetasProduccion", onMarkRecipeDeleted, regEntradas, setRegEntradas, regSalidas, setRegSalidas, histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, currentUser, usuarios, onSystemLog, moduleLabel }) {
     const toast = useToast();
+    function logProductionEvent(action, row, detail, operationId) {
+      if (typeof onSystemLog !== "function") return;
+      const sourceId = row && (row.id || row.productionId || row.transferId) || operationId || "production";
+      const stableOperation = operationId || sourceId;
+      onSystemLog({
+        id: `syslog-production-${quickHashText([moduleLabel, action, stableOperation].join("|"))}`,
+        modulo: `Producción ${moduleLabel}`,
+        accion: action,
+        producto: row && (row.productoProducido || row.producto || "") || "",
+        detalle: detail || action,
+        tipo: "PRODUCCION",
+        estado: "success",
+        origen: "web",
+        target: productionHistoryStateKey,
+        targetId: String(sourceId),
+        entity: "production",
+        entityId: String(sourceId)
+      });
+    }
     const [modalOpen, setModalOpen] = useState(false);
     const [recipeModalOpen, setRecipeModalOpen] = useState(false);
     const [directLoadModalOpen, setDirectLoadModalOpen] = useState(false);
@@ -16794,6 +16850,7 @@
           }) : item;
         });
       });
+      logProductionEvent("Transferencia de producción", row, `Producción transferida a Mise an Place: ${match.producto}. Cantidad: ${cantidadDestinoTransferencia} ${unidadDestinoTransferencia}.`, `${row.id || productoNombre}|transferencia`);
       toast(`Produccion transferida a Mise an Place: ${match.producto}`, "ok");
     }
     function prepararEliminacionProduccion(row) {
@@ -17073,6 +17130,7 @@
           return getMovementKey(item) !== getMovementKey(row) && item.id !== row.id;
         });
       });
+      logProductionEvent("Eliminar producción", row, `Producción eliminada: ${nombreProducido}.`, `${row.id || nombreProducido}|eliminar`);
       closeDeleteModal();
       toast(deleteRequest.warnings && deleteRequest.warnings.length ? `Producción eliminada: ${nombreProducido}. Se aplicó eliminación definitiva con advertencias.` : `Producción eliminada: ${nombreProducido}`, "ok");
     }
@@ -17928,6 +17986,7 @@
             cargaDirectaBar: true
           }];
         });
+        logProductionEvent("Carga directa de producción", { id: `direct-${now}`, productoProducido: nombre, cantidadProducida: cantidad }, `Producción cargada directamente en Inventario Bar: ${nombre}. Cantidad: ${cantidad} ${unidad}.`, `direct-${moduleLabel}-${now}-${nombre}`);
         toast(existingProduct ? `Producción cargada en Inventario Bar: ${existingProduct.nombre}` : `Producto creado y cargado en Inventario Bar: ${nombre}`, "ok");
         closeDirectLoadModal();
         resetDirectLoadForm();
@@ -17985,6 +18044,7 @@
           unidadTransferidaAMise: directLoadTargetUnit
         }];
       });
+      logProductionEvent("Carga directa de producción", { id: `direct-${now}`, productoProducido: nombre, cantidadProducida: cantidad }, `Carga rápida aplicada a Mise an Place: ${targetName}. Cantidad: ${directLoadConvertedQty} ${directLoadTargetUnit}.`, `direct-${moduleLabel}-${now}-${nombre}`);
       toast(`Carga rapida aplicada a Mise an Place: ${targetName}`, "ok");
       closeDirectLoadModal();
       resetDirectLoadForm();
@@ -18038,9 +18098,10 @@
         if (comparison.exceedsExpected) acc.alertas += 1;
         return acc;
       }, { cantidadBruta: 0, cantidadMermaEsperada: 0, cantidadMermaReal: 0, cantidadNeta: 0, alertas: 0 });
+      const productionId = `prod-${Date.now()}-${Math.random()}`;
       setProducciones(function(prev) {
         return [...(Array.isArray(prev) ? prev : []), {
-          id: `prod-${Date.now()}-${Math.random()}`,
+          id: productionId,
           fecha: now,
           modulo: moduleLabel,
           usuario,
@@ -18108,6 +18169,7 @@
           }
         }];
       });
+      logProductionEvent("Crear producción", { id: productionId, productoProducido: nombreProducido, cantidadProducida: cantidadProducidaInput }, `Producción registrada: ${nombreProducido}. Cantidad: ${cantidadProducidaInput} ${producedUnit}.`, productionId);
       toast(`Produccion registrada: ${nombreProducido}`, "ok");
       if (activeProductionHoldId) deleteProductionHold(activeProductionHoldId);
       setModalOpen(false);
@@ -25172,7 +25234,7 @@
       };
     }).filter(Boolean);
   }
-  function RecuentoPage({ moduleLabel = "Cocina", currentUser, usuarios = [], inventario = [], setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace = [], setMise, regEntradas = [], setRegEntradas, regSalidas = [], setRegSalidas, regDecomiso = [], histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, histDecomisoCocina = [], setHistDecomisoCocina, regRecuento = [], setRegRecuento, movementStateKeys = {}, onMarkMovementRowsDeleted = null }) {
+  function RecuentoPage({ moduleLabel = "Cocina", currentUser, usuarios = [], onSystemLog = null, inventario = [], setInventario, cuartoFrioInventario = [], setCuartoFrioInventario, miseAnPlace = [], setMise, regEntradas = [], setRegEntradas, regSalidas = [], setRegSalidas, regDecomiso = [], histEntradaRapida = [], setHistEntradaRapida, histSalidaRapida = [], setHistSalidaRapida, histDecomisoCocina = [], setHistDecomisoCocina, regRecuento = [], setRegRecuento, movementStateKeys = {}, onMarkMovementRowsDeleted = null }) {
     const toast = useToast();
     const [target, setTarget] = useState("inventario");
     const [countedAt, setCountedAt] = useState(() => getLocalDatetimeInputValue());
@@ -25684,6 +25746,21 @@
         detalles: reportDetails
       };
       setRegRecuento((prev) => (Array.isArray(prev) ? prev : []).concat([report]));
+      if (typeof onSystemLog === "function") {
+        onSystemLog({
+          id: `syslog-recuento-${quickHashText([moduleLabel, report.id, report.targetKey].join("|"))}`,
+          modulo: `Recuento ${moduleLabel}`,
+          accion: "Recuento aplicado",
+          detalle: `Recuento aplicado en ${report.destino}: ${report.aplicadas} línea(s), ${report.ajustes} ajuste(s).`,
+          tipo: "RECUENTO",
+          estado: "success",
+          origen: "web",
+          target: report.targetKey,
+          targetId: report.id,
+          entity: "recuento",
+          entityId: report.id
+        });
+      }
       setRows([]);
       setReviewReady(false);
       toast(`Recuento aplicado: ${adjustments.length} ajustes`, "ok");
@@ -26310,7 +26387,7 @@
     if (tab === "tabla") {
       mainView = /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "action-bar" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalAdd(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-rojo", onClick: () => setModalDecomiso(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-trash-can" }), "Decomiso"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: () => setModalEntrada(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Entrada r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: () => setModalSalida(true) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-bolt" }), "Salida r\xE1pida"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", style: { marginLeft: "auto" }, onClick: () => generateMisePdf(miseRows, toast) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-file-pdf" }), "Generar PDF")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-fire-burner", style: { color: "var(--azul)", marginRight: 7 } }), "Productos Mise an Place"), /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 320, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "CodArticulo"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo L-J"), /* @__PURE__ */ React.createElement("th", null, "Stock Minimo V-D"), /* @__PURE__ */ React.createElement("th", null, "Existencia"), /* @__PURE__ */ React.createElement("th", null, "Unidad de Medida"), /* @__PURE__ */ React.createElement("th", null, "Usar en Produccion"), /* @__PURE__ */ React.createElement("th", null, "Acciones"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
     } else if (tab === "neveras") {
-      mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseRows, productos });
+      mainView = /* @__PURE__ */ React.createElement(NeverasView, { neveras, setNeveras, miseItems: miseRows, productos, currentUser, moduleLabel, onSystemLog });
     } else if (tab === "histEntrada") {
       mainView = /* @__PURE__ */ React.createElement(HistorialRapidoMise, { data: histEntradaRapida, tipo: "entrada" });
     } else if (tab === "histSalida") {
@@ -26370,9 +26447,9 @@
       )
     ) : null;
     const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, miseRows, icgArticles: icgArticleRows, icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
-    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
-    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
-    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
+    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, currentUser, moduleLabel, onSystemLog, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
+    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, moduleLabel, onSystemLog, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
+    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, moduleLabel, onSystemLog, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
   function MiseKitComponentsEditor({ data, setData, miseRows = [], currentId = null }) {
@@ -26573,7 +26650,7 @@
       )
     );
   }
-  function DecomisoMiseModal({ miseAnPlace, setMise, setHistDecomisoCocina, onClose, toast, syncNeveras }) {
+  function DecomisoMiseModal({ miseAnPlace, setMise, setHistDecomisoCocina, currentUser, moduleLabel = "Cocina", onSystemLog, onClose, toast, syncNeveras }) {
     const hoy = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [data, setData] = useState({ producto: "", fecha: hoy, cantidad: "", motivo: "", area: "", responsable: "" });
     const [error, setError] = useState("");
@@ -26593,6 +26670,20 @@
       const now = new Date().toISOString();
       setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: Math.max(0, Number((getMiseSafeNumber(m.existencia, 0) - cant).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: data.responsable || "Sistema", movementSource: "Decomiso Mise", movimientosActualizadosAt: now } : m));
       setHistDecomisoCocina((p) => [...p, { ...data, cantidad: cant }]);
+      if (typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-mise-${quickHashText([moduleLabel, "decomiso", data.producto, data.fecha, cant, data.motivo].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Decomiso Mise an Place",
+        producto: data.producto,
+        detalle: `Decomiso de ${cant} ${data.producto}. Motivo: ${data.motivo || "No especificado"}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: moduleLabel,
+        targetId: data.producto,
+        entity: "miseDecomiso",
+        entityId: data.producto
+      }, currentUser);
       syncNeveras && syncNeveras({ nombre: data.producto, delta: -cant, existenciaAntes: existenciaActual });
       toast(`Decomiso: ${data.producto} x${cant}`);
       onClose();
@@ -26661,7 +26752,7 @@
     }
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 300, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o usuario...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("span", { className: `pill pill-${cfg.color}` }, rows.length, " registros")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Unidad"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, "Exist. anterior"), /* @__PURE__ */ React.createElement("th", null, "Exist. nueva"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
   }
-  function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, onClose, toast, syncNeveras }) {
+  function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
     const [error, setError] = useState("");
     const [activeProductRow, setActiveProductRow] = useState(0);
@@ -26752,12 +26843,26 @@
         return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) + acum[k].delta), medida: acum[k].medida, updatedAt: fecha } : m;
       }));
       if (setHistEntradaRapida) setHistEntradaRapida((p) => [...p, ...registros]);
+      if (typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-mise-${quickHashText([moduleLabel, "entrada-rapida", ...registros.map((row) => row.id)].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Entrada rápida Mise an Place",
+        producto: registros.map((row) => row.producto).join(", "),
+        detalle: `Entrada rápida confirmada para ${registros.length} producto(s): ${registros.map((row) => `${row.producto} +${row.cantidad} ${row.medida}`).join("; ")}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: moduleLabel,
+        targetId: registros.map((row) => row.id).join(","),
+        entity: "miseEntradaRapida",
+        entityId: registros.map((row) => row.id).join(",")
+      }, currentUser);
       toast(`Entrada r\xE1pida: ${Object.keys(acum).length} productos actualizados`);
       onClose();
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => updateProductRow(i, e.target.value), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map(renderUnitOption)), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
-  function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
+  function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
     const [activeProductRow, setActiveProductRow] = useState(0);
@@ -26846,6 +26951,20 @@
         return delta > 0 ? { ...m, existencia: Math.max(0, roundMiseQty(getMiseSafeNumber(m.existencia, 0) - delta)), updatedAt: fecha } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
+      if (typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-mise-${quickHashText([moduleLabel, "salida-rapida", ...registros.map((row) => row.id)].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Salida rápida Mise an Place",
+        producto: registros.map((row) => row.producto).join(", "),
+        detalle: `Salida rápida confirmada para ${registros.length} producto(s): ${registros.map((row) => `${row.producto} -${row.cantidad} ${row.medida}`).join("; ")}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: moduleLabel,
+        targetId: registros.map((row) => row.id).join(","),
+        entity: "miseSalidaRapida",
+        entityId: registros.map((row) => row.id).join(",")
+      }, currentUser);
       if (setProducciones) {
         setProducciones(function(prev) {
           const current = Array.isArray(prev) ? prev : [];
@@ -26913,7 +27032,7 @@
   function ConfirmNeveraModal({ items, onConfirm, onCancel }) {
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-snowflake", style: { color: "var(--azul)", marginRight: 7 } }), "Actualizar neveras"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, marginBottom: 12, color: "#374151" } }, "Hay existencias en neveras que podr\xEDan no estar directamente relacionadas con este movimiento. \xBFDescontar tambi\xE9n de las neveras?"), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "En neveras"), /* @__PURE__ */ React.createElement("th", null, "Cambio"))), /* @__PURE__ */ React.createElement("tbody", null, items.map((it, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 500 } }, it.nombre), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "exist-ok" }, it.totalEnNeveras)), /* @__PURE__ */ React.createElement("td", { style: { color: "var(--rojo)", fontWeight: 600 } }, it.delta))))))), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onCancel }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }), "No, mantener nevera"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-azul", onClick: onConfirm }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check" }), "S\xED, actualizar nevera"))));
   }
-  function NeverasView({ neveras, setNeveras, miseItems, productos }) {
+  function NeverasView({ neveras, setNeveras, miseItems, productos, currentUser, moduleLabel = "Cocina", onSystemLog }) {
     const toast = useToast();
     const [transferModal, setTransferModal] = useState(null);
     const EPS = 1e-9;
@@ -26991,10 +27110,37 @@
         }
         return { ...n, items: [...n.items, { id: Date.now() + Math.random(), codArticulo, producto, existencia: cantidad }] };
       }));
+      if (typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-nevera-${quickHashText([moduleLabel, "agregar", neveraIdx, producto, cantidad].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Transferencia hacia nevera",
+        producto,
+        detalle: `Se agregaron ${cantidad} a ${neveras[neveraIdx].nombre}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: neveras[neveraIdx].nombre,
+        targetId: producto,
+        entity: "miseNevera"
+      }, currentUser);
       return true;
     }
     function removeFromNevera(neveraIdx, itemId) {
+      const removed = (neveras[neveraIdx] && neveras[neveraIdx].items || []).find((it) => it.id === itemId);
       setNeveras((ns) => ns.map((n, i) => i !== neveraIdx ? n : { ...n, items: n.items.filter((it) => it.id !== itemId) }));
+      if (removed && typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-nevera-${quickHashText([moduleLabel, "retirar", neveraIdx, itemId].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Retiro de producto de nevera",
+        producto: removed.producto || "",
+        detalle: `Se retiró ${removed.existencia || 0} de ${neveras[neveraIdx].nombre}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: neveras[neveraIdx].nombre,
+        targetId: itemId,
+        entity: "miseNevera"
+      }, currentUser);
     }
     function transferir(fromIdx, item, toIdx, cantidad) {
       const disponible = Math.max(0, Number(item && item.existencia || 0));
@@ -27015,6 +27161,19 @@
         }
         return n;
       }));
+      if (typeof onSystemLog === "function") onSystemLog({
+        id: `syslog-nevera-${quickHashText([moduleLabel, "transferir", fromIdx, toIdx, item.id, cantidad].join("|"))}`,
+        modulo: `Mise an Place ${moduleLabel}`,
+        accion: "Transferencia entre neveras",
+        producto: item.producto || "",
+        detalle: `Se transfirieron ${cantidad} desde ${neveras[fromIdx].nombre} hacia ${neveras[toIdx].nombre}.`,
+        tipo: "MOVIMIENTO",
+        estado: "success",
+        origen: "Mise an Place",
+        target: neveras[toIdx].nombre,
+        targetId: item.id,
+        entity: "miseNevera"
+      }, currentUser);
       toast(`Transferido: ${item.producto} \u2192 ${neveras[toIdx].nombre}`);
       setTransferModal(null);
     }
