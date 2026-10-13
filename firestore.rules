@@ -92,7 +92,32 @@ service cloud.firestore {
     }
 
     match /wtfSistema/systemLogs {
-      allow read, write: if isAuthorizedUser();
+      allow read: if isAuthorizedUser();
+      allow write: if false;
+    }
+
+    match /wtfSistema/systemLogs/events/{logId} {
+      allow read: if isAuthorizedUser();
+      allow create: if isAuthorizedUser()
+        && request.resource.data.id == logId
+        && (request.resource.data.email == request.auth.token.email
+          || (request.resource.data.origen == 'migration' && isAuthorizedAdmin()))
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.schemaVersion is number
+        && request.resource.data.modulo is string
+        && request.resource.data.accion is string
+        && request.resource.data.detalle is string
+        && request.resource.data.deviceId is string
+        && request.resource.data.origen is string
+        && request.resource.data.deleted == false;
+      allow update, delete: if false;
+    }
+
+    match /wtfSistema/systemLogs/meta/{metaId} {
+      allow read: if isAuthorizedUser();
+      allow create, update: if isAuthorizedUser()
+        && request.resource.data.schemaVersion is number;
+      allow delete: if isAuthorizedAdmin();
     }
 
     match /wtfSistema/syncIndex {

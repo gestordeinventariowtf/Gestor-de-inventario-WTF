@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013023729-2d44814";</script>
+  <script>window.WTF_APP_VERSION = "20261013051247-7de94f3";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3952,6 +3952,15 @@
   const SYSTEM_LOG_ACTIVE_LIMIT = 2500;
   const SYSTEM_LOG_SORT_LIMIT = 5000;
   const SYSTEM_LOG_RETENTION_DAYS = 15;
+  const SYSTEM_LOG_EVENT_TEXT_LIMIT = 420;
+  const SYSTEM_LOG_EVENT_PAGE_SIZE = 100;
+  const SYSTEM_LOG_EVENT_CACHE_KEY = "wtf_system_logs_cache";
+  const SYSTEM_LOG_EVENT_PENDING_KEY = "wtf_system_logs_pending";
+  const SYSTEM_LOG_EVENT_CURSOR_KEY = "wtf_system_logs_cursor";
+  const SYSTEM_LOG_EVENT_DEVICE_KEY = "wtf_system_logs_device_id";
+  const SYSTEM_LOG_EVENT_REVISION_KEY = "wtf_system_logs_remote_revision";
+  const SYSTEM_LOG_EVENT_SCHEMA_VERSION = 1;
+  const SYSTEM_LOG_EVENT_RETENTION_DAYS = 365;
   const SYSTEM_LOG_KEEP_FIELDS = [
     "id", "fecha", "usuario", "email", "modulo", "accion", "producto", "detalle",
     "tipo", "estado", "origen", "target", "targetId", "entity", "entityId",
@@ -4084,6 +4093,68 @@
       producto: "",
       detalle: ""
     }, safePayload, { usuario });
+  }
+  function getSystemLogDeviceId() {
+    let deviceId = load(SYSTEM_LOG_EVENT_DEVICE_KEY, "");
+    if (!deviceId) {
+      deviceId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      save(SYSTEM_LOG_EVENT_DEVICE_KEY, deviceId);
+    }
+    return String(deviceId).slice(0, 120);
+  }
+  function getSystemLogSessionId() {
+    try {
+      const key = "wtf_system_logs_session_id";
+      let sessionId = sessionStorage.getItem(key);
+      if (!sessionId) {
+        sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(key, sessionId);
+      }
+      return String(sessionId).slice(0, 120);
+    } catch (_) {
+      return "session-unavailable";
+    }
+  }
+  function getSystemLogsRemoteRefs(docRef, cfg) {
+    if (!docRef || !docRef.firestore) return null;
+    const root = docRef.firestore.collection((cfg && cfg.collection) || "wtfSistema").doc("systemLogs");
+    return { root, events: root.collection("events"), meta: root.collection("meta").doc("state") };
+  }
+  function readSystemLogPendingQueue() {
+    const rows = load(SYSTEM_LOG_EVENT_PENDING_KEY, []);
+    return Array.isArray(rows) ? rows.filter(Boolean) : [];
+  }
+  function writeSystemLogPendingQueue(rows) {
+    save(SYSTEM_LOG_EVENT_PENDING_KEY, (Array.isArray(rows) ? rows : []).slice(0, SYSTEM_LOG_ACTIVE_LIMIT));
+  }
+  function sanitizeSystemLogEvent(row, user) {
+    const source = row && typeof row === "object" ? row : {};
+    const safe = compactSystemLogEntry(buildSystemLogEntry(user || null, source));
+    const now = new Date().toISOString();
+    const baseId = getSystemLogKey(safe) || `${now}|${safe.accion || "Evento"}`;
+    const id = String(safe.id || `syslog-${quickHashText(baseId)}`).slice(0, 140);
+    const allowed = {};
+    SYSTEM_LOG_KEEP_FIELDS.forEach(function(key) {
+      if (Object.prototype.hasOwnProperty.call(safe, key)) allowed[key] = safe[key];
+    });
+    return Object.assign(allowed, {
+      id,
+      clientCreatedAt: String(safe.fecha || now),
+      usuario: compactSystemLogText(safe.usuario || "Sistema"),
+      email: compactSystemLogText(safe.email || "").toLowerCase(),
+      modulo: compactSystemLogText(safe.modulo || "Sistema"),
+      accion: compactSystemLogText(safe.accion || "Evento"),
+      producto: compactSystemLogText(safe.producto || ""),
+      detalle: compactSystemLogText(safe.detalle || ""),
+      tipo: compactSystemLogText(safe.tipo || "INFO"),
+      estado: compactSystemLogText(safe.estado || "success"),
+      origen: compactSystemLogText(safe.origen || "web"),
+      deviceId: getSystemLogDeviceId(),
+      sessionId: getSystemLogSessionId(),
+      synced: false,
+      schemaVersion: SYSTEM_LOG_EVENT_SCHEMA_VERSION,
+      deleted: false
+    });
   }
   function getMovementKey(row) {
     if (!row || typeof row !== "object") return "";
@@ -5785,6 +5856,7 @@
     const externalSignatures = data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
     if (docRef && externalKeys.length) {
       await Promise.all(externalKeys.map(async function(key) {
+        if (key === "systemLogs") return;
         const expectedSignature = String(externalSignatures[key] || "");
         if (
           decodeOptions.externalReadSource !== "server" &&
@@ -12567,6 +12639,12 @@
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
     const firebaseExternalDocSignaturesRef = useRef({});
+    const systemLogsMetaUnsubscribeRef = useRef(null);
+    const systemLogsMetaRevisionRef = useRef(Number(load(SYSTEM_LOG_EVENT_REVISION_KEY, 0)) || 0);
+    const systemLogsLastDocRef = useRef(null);
+    const systemLogsLoadInFlightRef = useRef(false);
+    const systemLogsMetaWriteTimerRef = useRef(null);
+    const systemLogsMigrationRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12732,12 +12810,140 @@
     }
     function addSystemLog(payload, userOverride) {
       const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
+      const event = sanitizeSystemLogEvent(entry, userOverride || currentUser);
       setSystemLogs(function(prev) {
         const rows = Array.isArray(prev) ? prev : [];
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
+      const pending = readSystemLogPendingQueue();
+      if (!pending.some(function(row) { return row && row.id === event.id; })) {
+        pending.unshift(event);
+        writeSystemLogPendingQueue(pending);
+      }
+      flushSystemLogQueue();
       return entry;
+    }
+    function scheduleSystemLogsMetaUpdate() {
+      if (systemLogsMetaWriteTimerRef.current) return;
+      systemLogsMetaWriteTimerRef.current = window.setTimeout(async function() {
+        systemLogsMetaWriteTimerRef.current = null;
+        const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+        if (!refs || !firebaseAuthEmail) return;
+        try {
+          await refs.meta.set({
+            revision: window.firebase.firestore.FieldValue.increment(1),
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: firebaseAuthEmail,
+            schemaVersion: SYSTEM_LOG_EVENT_SCHEMA_VERSION
+          }, { merge: true });
+        } catch (error) {
+          console.warn("No se pudo actualizar el indice de Logs de Sistema:", error);
+        }
+      }, 700);
+    }
+    async function flushSystemLogQueue() {
+      const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+      if (!refs || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+      const pending = readSystemLogPendingQueue();
+      if (!pending.length) return;
+      const remaining = [];
+      for (const event of pending) {
+        try {
+          const remoteEvent = Object.assign({}, event, {
+            createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            synced: true
+          });
+          await refs.events.doc(event.id).create(remoteEvent);
+          scheduleSystemLogsMetaUpdate();
+        } catch (error) {
+          if (String(error && error.code || "") === "already-exists") {
+            scheduleSystemLogsMetaUpdate();
+            continue;
+          }
+          remaining.push(event);
+          console.warn("Log pendiente de sincronizar:", error);
+        }
+      }
+      writeSystemLogPendingQueue(remaining);
+    }
+    function systemLogRemoteToLocal(data) {
+      const row = data && typeof data === "object" ? data : {};
+      const created = row.createdAt && typeof row.createdAt.toDate === "function" ? row.createdAt.toDate().toISOString() : row.clientCreatedAt || row.fecha || new Date().toISOString();
+      return compactSystemLogEntry(Object.assign({}, row, { id: row.id, fecha: created, synced: true }));
+    }
+    async function migrateLegacySystemLogsOnce() {
+      if (systemLogsMigrationRef.current) return;
+      const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+      if (!refs || !firebaseAuthReady || !firebaseAuthEmail) return;
+      systemLogsMigrationRef.current = true;
+      try {
+        const metaSnapshot = await refs.meta.get({ source: "server" });
+        const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
+        if (Number(meta.migrationVersion || 0) >= 1) return;
+        const legacySnapshot = await refs.root.get({ source: "server" });
+        const legacyData = legacySnapshot.exists ? legacySnapshot.data() || {} : {};
+        const legacyValue = legacyData.appStateCompressed ? decodeFirebaseCompressedState(legacyData.appStateCompressed) : legacyData.appState;
+        const legacyRows = Array.isArray(legacyValue) ? legacyValue : [];
+        let migrated = 0;
+        for (const row of legacyRows) {
+          const safe = sanitizeSystemLogEvent(Object.assign({}, row, { id: row && row.id ? `legacy-${row.id}` : void 0, origen: row && row.origen || "migration" }), { email: row && row.email || firebaseAuthEmail, nombre: row && row.usuario || "Sistema" });
+          try {
+            await refs.events.doc(safe.id).create(Object.assign({}, safe, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), synced: true }));
+            migrated += 1;
+          } catch (error) {
+            if (String(error && error.code || "") !== "already-exists") console.warn("No se pudo migrar un log antiguo:", error);
+          }
+        }
+        await refs.meta.set({ migrationVersion: 1, migrationCompletedAt: window.firebase.firestore.FieldValue.serverTimestamp(), migratedCount: migrated, schemaVersion: SYSTEM_LOG_EVENT_SCHEMA_VERSION }, { merge: true });
+      } catch (error) {
+        console.warn("No se pudo completar la migracion de Logs de Sistema:", error);
+        systemLogsMigrationRef.current = false;
+      }
+    }
+    async function loadSystemLogsFromEvents(reset) {
+      const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+      if (!refs || !firebaseAuthReady || !firebaseAuthEmail || systemLogsLoadInFlightRef.current) return;
+      systemLogsLoadInFlightRef.current = true;
+      try {
+        const query = reset || !systemLogsLastDocRef.current ? refs.events.orderBy("createdAt", "desc").limit(SYSTEM_LOG_EVENT_PAGE_SIZE) : refs.events.orderBy("createdAt", "desc").startAfter(systemLogsLastDocRef.current).limit(SYSTEM_LOG_EVENT_PAGE_SIZE);
+        const snapshot = await query.get({ source: "server" });
+        if (!snapshot.empty) systemLogsLastDocRef.current = snapshot.docs[snapshot.docs.length - 1];
+        const incoming = snapshot.docs.map(function(doc) { return systemLogRemoteToLocal(Object.assign({ id: doc.id }, doc.data() || {})); });
+        if (incoming.length) save(SYSTEM_LOG_EVENT_CURSOR_KEY, incoming[incoming.length - 1].fecha || "");
+        if (reset) {
+          setSystemLogs(normalizeSystemLogs(incoming));
+          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming));
+        } else if (incoming.length) {
+          setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(Array.isArray(prev) ? prev : [])); });
+          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(load(SYSTEM_LOG_EVENT_CACHE_KEY, []))));
+        }
+      } catch (error) {
+        console.warn("No se pudieron leer los eventos de Logs de Sistema:", error);
+      } finally {
+        systemLogsLoadInFlightRef.current = false;
+      }
+    }
+    function startSystemLogsRealtime() {
+      const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
+      if (!refs || !firebaseAuthReady || !firebaseAuthEmail) return function() {};
+      migrateLegacySystemLogsOnce().then(function() { loadSystemLogsFromEvents(true); });
+      refs.meta.get({ source: "server" }).then(function(snapshot) {
+        const revision = Number(snapshot.exists ? (snapshot.data() || {}).revision || 0 : 0);
+        systemLogsMetaRevisionRef.current = revision;
+        save(SYSTEM_LOG_EVENT_REVISION_KEY, revision);
+      }).catch(function(error) { console.warn("No se pudo leer meta de Logs de Sistema:", error); });
+      const unsubscribe = refs.meta.onSnapshot(function(snapshot) {
+        const data = snapshot.exists ? snapshot.data() || {} : {};
+        const revision = Number(data.revision || 0);
+        if (revision === systemLogsMetaRevisionRef.current && systemLogsLastDocRef.current) return;
+        systemLogsMetaRevisionRef.current = revision;
+        save(SYSTEM_LOG_EVENT_REVISION_KEY, revision);
+        loadSystemLogsFromEvents(true);
+      }, function(error) { console.warn("No se pudo escuchar meta de Logs de Sistema:", error); });
+      flushSystemLogQueue();
+      return unsubscribe;
     }
     useEffect(() => save("wtf_sync_client_id", syncClientIdRef.current), []);
     function getSyncMeta(signature, reason) {
@@ -12768,6 +12974,7 @@
     }
     function createFirebaseWriteDoc(appState, reason) {
       const fullFirebaseState = prepareFirebaseAppStateForWrite(appState);
+      delete fullFirebaseState.systemLogs;
       const signature = serializeAppState(fullFirebaseState);
       const syncMeta = getSyncMeta(signature, reason);
       const firebaseState = Object.assign({}, fullFirebaseState);
@@ -12776,6 +12983,10 @@
       const externalDocSignatures = Object.assign({}, firebaseExternalDocSignaturesRef.current || {});
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
+        if (key === "systemLogs") {
+          delete firebaseState[key];
+          return;
+        }
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
@@ -14004,6 +14215,22 @@
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
     useEffect(() => {
+      if (systemLogsMetaUnsubscribeRef.current) {
+        systemLogsMetaUnsubscribeRef.current();
+        systemLogsMetaUnsubscribeRef.current = null;
+      }
+      systemLogsLastDocRef.current = null;
+      if (page === "systemLogs" && firebaseCfg.enabled && firebaseAuthReady && firebaseAuthEmail && firebaseBootstrappedRef.current) {
+        systemLogsMetaUnsubscribeRef.current = startSystemLogsRealtime();
+      }
+      return function() {
+        if (systemLogsMetaUnsubscribeRef.current) {
+          systemLogsMetaUnsubscribeRef.current();
+          systemLogsMetaUnsubscribeRef.current = null;
+        }
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
       const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 6500 : 2600;
@@ -14011,7 +14238,7 @@
       return function() {
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       };
-    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, systemLogs, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
+    }, [firebaseCfg, firebaseAuthEmail, inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regRecuento, regProduccion, recetasProduccion, productionHolds, recetasProduccionBaseVersion, inventoryDeletedKeys, miseDeletedKeys, recipeDeletedKeys, productionHistoryDeletedKeys, productionHoldDeletedKeys, movementDeletedKeys, histDecomisoCocina, histEntradaRapida, histSalidaRapida, icgFrontRestData, assetManagementData, employeeCenterData, financialData, neveras, correos, googleConfig, usuarios, appSecurity, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegRecuento, barRegProduccion, barProductionHolds, barRecetasProduccion, barHistEntradaRapida, barHistSalidaRapida]);
     useEffect(() => {
       let lastPullAt = 0;
       function handlePwaSync(event) {
@@ -14020,6 +14247,7 @@
         if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
+        flushSystemLogQueue();
         if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
       }
       window.addEventListener("wtf:pwa-resume", handlePwaSync);
@@ -14028,6 +14256,11 @@
         window.removeEventListener("wtf:pwa-resume", handlePwaSync);
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
+    }, []);
+    useEffect(() => {
+      const handleOnline = () => flushSystemLogQueue();
+      window.addEventListener("online", handleOnline);
+      return function() { window.removeEventListener("online", handleOnline); };
     }, []);
     useEffect(() => {
       if (modulo) sessionStorage.setItem("wtf_modulo", modulo);
@@ -15218,10 +15451,10 @@
       finanzas: () => /* @__PURE__ */ React.createElement(FinanzasPage, { data: financialData, setData: setFinancialData, currentUser, usuarios, employeeCenterData, icgFrontRestData, inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario, regEntradas, barRegEntradas, onSystemLog: addSystemLog }),
       activosOperativos: () => /* @__PURE__ */ React.createElement(ActivosOperativosPage, { data: assetManagementData, setData: setAssetManagementData, currentUser, usuarios, onSystemLog: addSystemLog }),
       employeeCenter: () => /* @__PURE__ */ React.createElement(EmployeeCenterPage, { data: employeeCenterData, setData: setEmployeeCenterData, usuarios, setUsuarios, currentUser, onSystemLog: addSystemLog, onLocalMutation: markLocalSyncChange, onExitToModules: () => { sessionStorage.setItem("wtf_employee_welcome_seen", authUserEmail || "current"); resetToModuleSelector(false); } }),
-      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, userDeletedKeys, setUserDeletedKeys, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess }),
+      usuarios: () => /* @__PURE__ */ React.createElement(UsuariosPage, { usuarios, setUsuarios, userDeletedKeys, setUserDeletedKeys, employeeCenterData, currentUser, appSecurity, onRevokeAdminSessions: revokeAdminSessionsEverywhere, onAuthorizedUserAccessChange: syncAuthorizedUserAccess, onSystemLog: addSystemLog }),
       aiAssistant: () => /* @__PURE__ */ React.createElement(AiAssistantPage, { inventario, cuartoFrioInventario, miseAnPlace, regEntradas, regSalidas, regDecomiso, regProduccion, barInventario, barCuartoFrioInventario, barMiseAnPlace, barRegEntradas, barRegSalidas, barRegDecomiso, barRegProduccion, icgFrontRestData, systemLogs, currentUser }),
       notificaciones: () => /* @__PURE__ */ React.createElement(NotificacionesPage, { currentUser, usuarios }),
-      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs }),
+      systemLogs: () => /* @__PURE__ */ React.createElement(SystemLogsPage, { logs: systemLogs, onLoadMore: () => loadSystemLogsFromEvents(false), pendingCount: readSystemLogPendingQueue().length }),
       produccion: () => /* @__PURE__ */ React.createElement(ProduccionPage, { inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, otherInventario, setOtherInventario, otherCuartoFrioInventario: otherCuartoFrio, setOtherCuartoFrioInventario: setOtherCuartoFrio, otherModuleLabel, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, producciones: activeProduccion, setProducciones: setActiveProduccion, recetas: activeRecetasProduccion, setRecetas: setActiveRecetasProduccion, productionHolds: activeProductionHolds, setProductionHolds: setActiveProductionHolds, productionHoldDeletedKeys, setProductionHoldDeletedKeys, productionHoldDeletedKey: activeProductionHoldDeletedKey, productionHistoryStateKey: esBar ? "barRegProduccion" : "regProduccion", onMarkProductionHistoryDeleted: markProductionHistoryRowDeleted, recipeStateKey: esBar ? "barRecetasProduccion" : "recetasProduccion", onMarkRecipeDeleted: markRecipeRowDeleted, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, currentUser, usuarios, moduleLabel: esBar ? "Bar" : "Cocina" })
     };
     if (!currentUser) {
@@ -22312,7 +22545,7 @@
       )
     );
   }
-  function SystemLogsPage({ logs }) {
+  function SystemLogsPage({ logs, onLoadMore = null, pendingCount = 0 }) {
     const [query, setQuery] = useState("");
     const [bridgeQuery, setBridgeQuery] = useState("");
     const [actionFilter, setActionFilter] = useState("todos");
@@ -22331,6 +22564,24 @@
       inventario: rows.filter(function(row) { return normalizar(row.modulo).includes("inventario") || normalizar(row.modulo).includes("cuarto frio"); }).length,
       mise: rows.filter(function(row) { return normalizar(row.modulo).includes("mise"); }).length
     };
+    useEffect(() => {
+      if (typeof onLoadMore !== "function") return;
+      const headers = Array.from(document.querySelectorAll(".card-header"));
+      const header = headers.find(function(node) { return String(node.textContent || "").includes("Logs de Sistema"); });
+      if (!header) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-outline";
+      button.dataset.systemLogsLoadMore = "true";
+      button.title = "Cargar la siguiente pagina desde Firestore";
+      button.innerHTML = '<i class="fas fa-arrow-down"></i> Cargar mas';
+      button.addEventListener("click", onLoadMore);
+      header.appendChild(button);
+      return function() {
+        button.removeEventListener("click", onLoadMore);
+        if (button.parentNode === header) header.removeChild(button);
+      };
+    }, [onLoadMore, rows.length, pendingCount]);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "stats-grid" }, /* @__PURE__ */ React.createElement(StatCard, { label: "Eventos", value: rows.length, color: "azul" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Sesiones", value: stats.sesiones, color: "verde" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Inventario/Cuarto Frio", value: stats.inventario, color: "naranja" }), /* @__PURE__ */ React.createElement(StatCard, { label: "Mise an Place", value: stats.mise, color: "rojo" })), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list", style: { marginRight: 7, color: "var(--azul)" } }), "Logs de Sistema"), /* @__PURE__ */ React.createElement("span", { className: "pill pill-azul" }, filtered.length, " visibles")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 360, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar usuario, producto, modulo o detalle...", value: query, onChange: (e) => setQuery(e.target.value) })), /* @__PURE__ */ React.createElement("select", { className: "form-control", style: { maxWidth: 260 }, value: actionFilter, onChange: (e) => setActionFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "todos" }, "Todas las acciones"), actionOptions.map(function(action) {
       return /* @__PURE__ */ React.createElement("option", { key: action, value: action }, action);
     }))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Usuario"), /* @__PURE__ */ React.createElement("th", null, "Modulo"), /* @__PURE__ */ React.createElement("th", null, "Accion"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Detalle"))), /* @__PURE__ */ React.createElement("tbody", null, filtered.map(function(row) {
@@ -22368,7 +22619,7 @@
       )
     );
   }
-  function UsuariosPage({ usuarios, setUsuarios, userDeletedKeys = {}, setUserDeletedKeys = null, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null, onAuthorizedUserAccessChange = null }) {
+  function UsuariosPage({ usuarios, setUsuarios, userDeletedKeys = {}, setUserDeletedKeys = null, employeeCenterData = null, currentUser = null, appSecurity = {}, onRevokeAdminSessions = null, onAuthorizedUserAccessChange = null, onSystemLog = null }) {
     const toast = useToast();
     const employeeProfiles = ensureEmployeeCenterData(employeeCenterData).profiles || [];
     const securityInfo = normalizeAppSecurity(appSecurity);
@@ -22510,6 +22761,7 @@
           notifyAuthorizedAccess(previousUser, "Correo reemplazado en Usuarios y Permisos");
         }
         notifyAuthorizedAccess(savedUser, savedUser.activo === false ? "Usuario desactivado en Usuarios y Permisos" : "");
+        if (typeof onSystemLog === "function") onSystemLog({ modulo: "Usuarios y Permisos", accion: "Editar usuario", registro: savedUser.email, detalle: `Usuario actualizado. Rol: ${savedUser.role || "user"}. Estado: ${savedUser.activo === false ? "Inactivo" : "Activo"}.` });
         toast("Usuario actualizado.", "ok");
       } else {
         const now = new Date().toISOString();
@@ -22534,6 +22786,7 @@
           return ensureAdminUser([].concat(prev, [savedUser]));
         });
         notifyAuthorizedAccess(savedUser, savedUser.activo === false ? "Usuario creado inactivo en Usuarios y Permisos" : "");
+        if (typeof onSystemLog === "function") onSystemLog({ modulo: "Usuarios y Permisos", accion: "Crear usuario", registro: savedUser.email, detalle: `Usuario creado. Rol: ${savedUser.role || "user"}. Estado: ${savedUser.activo === false ? "Inactivo" : "Activo"}.` });
         toast("Usuario creado.", "ok");
       }
       resetForm();
@@ -22550,6 +22803,7 @@
         }));
       });
       notifyAuthorizedAccess(Object.assign({}, user, { activo: user.activo === false ? true : false }), user.activo === false ? "" : "Usuario desactivado en Usuarios y Permisos");
+      if (typeof onSystemLog === "function") onSystemLog({ modulo: "Usuarios y Permisos", accion: user.activo === false ? "Activar usuario" : "Desactivar usuario", registro: user.email, detalle: `Estado cambiado a ${user.activo === false ? "Activo" : "Inactivo"}.` });
     }
     function deleteUser(user) {
       if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
@@ -22566,6 +22820,7 @@
       });
       if (editingId === user.id) resetForm();
       notifyAuthorizedAccess(user, "Usuario eliminado de Usuarios y Permisos");
+      if (typeof onSystemLog === "function") onSystemLog({ modulo: "Usuarios y Permisos", accion: "Eliminar usuario", registro: user.email, detalle: "Usuario eliminado de Usuarios y Permisos. Se genero proteccion contra reaparicion desde datos antiguos." });
       toast("Usuario eliminado.", "ok");
     }
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "grid-2", style: { alignItems: "start" } }, /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "card-header" }, /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-plus", style: { marginRight: 7 } }), "Crear o editar usuario")), /* @__PURE__ */ React.createElement("div", { className: "card-body", style: { display: "grid", gap: 12 } }, isAdminUser(currentUser) && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seguridad de administradores"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "#92400e", marginTop: 3 } }, securityInfo.adminSessionsRevokedAt ? `Ultimo cierre global: ${formatDatetime(securityInfo.adminSessionsRevokedAt)} por ${securityInfo.adminSessionsRevokedBy || "Administrador"}` : "Sin cierre global registrado.")), /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-rojo btn-sm", onClick: function() { setAdminSessionRevokeRequest(true); } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-user-lock" }), "Cerrar sesiones admin en todas partes")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#92400e" } }, "Usa esta opcion si dejaste una sesion administradora abierta en otra computadora. Los administradores deberan iniciar sesion nuevamente.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Nombre"), /* @__PURE__ */ React.createElement("input", { className: "form-control", value: form.nombre, onChange: (e) => setForm((p) => Object.assign({}, p, { nombre: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Correo"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "email", value: form.email, onChange: (e) => setForm((p) => Object.assign({}, p, { email: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, editingId ? "Nueva contrase\xF1a (opcional)" : "Contrase\xF1a"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "password", value: form.password, onChange: (e) => setForm((p) => Object.assign({}, p, { password: e.target.value })) })), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Rol"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.role, onChange: (e) => setForm((p) => Object.assign({}, p, { role: e.target.value, permisos: p.permisos && p.permisos.length ? p.permisos : ["dashboard"] })) }, /* @__PURE__ */ React.createElement("option", { value: "user" }, "Usuario"), /* @__PURE__ */ React.createElement("option", { value: "admin" }, "Administrador"))), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Módulo asignado"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.modulo || "ambos", onChange: (e) => setForm((p) => Object.assign({}, p, { modulo: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "ambos" }, "Todos (Cocina, Bar y Sharp de Limpieza)"), /* @__PURE__ */ React.createElement("option", { value: "cocina" }, "Cocina"), /* @__PURE__ */ React.createElement("option", { value: "bar" }, "Bar"), /* @__PURE__ */ React.createElement("option", { value: "sharp" }, "Sharp de Limpieza"), /* @__PURE__ */ React.createElement("option", { value: "employeeCenter" }, "Centro del Colaborador")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#6b7280", marginTop: 4 } }, "ICG FrontRest, ICG Host, Producción y Autorización de Recetas se conceden desde Permisos de acceso.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Perfil laboral"), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: form.perfilLaboral || "", onChange: (e) => setForm((p) => Object.assign({}, p, { perfilLaboral: e.target.value, cargoVisible: p.cargoVisible || e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "Sin perfil laboral"), employeeProfiles.map(function(profile) { const tasksCount = ensureEmployeeCenterData(employeeCenterData).tasks.filter((task) => task.estado !== "Archivado" && (task.perfil === "Todos" || normalizar(task.perfil) === normalizar(profile.nombre))).length; return /* @__PURE__ */ React.createElement("option", { key: profile.id || profile.nombre, value: profile.nombre }, `${profile.nombre}${profile.area ? " · " + profile.area : ""}${tasksCount ? " · " + tasksCount + " tareas" : ""}`); })), /* @__PURE__ */ React.createElement("input", { className: "form-control", style: { marginTop: 8 }, placeholder: "Cargo visible para el colaborador", value: form.cargoVisible || "", onChange: (e) => setForm((p) => Object.assign({}, p, { cargoVisible: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "Las tareas visibles del Centro del Colaborador se filtran por este perfil laboral.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Portada de bienvenida"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(180px,1fr) minmax(120px,.55fr)", gap: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", border: "1px solid #e5e7eb", borderRadius: 8, background: form.bienvenidaActiva ? "#f0fdf4" : "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: form.bienvenidaActiva === true, onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaActiva: e.target.checked })) }), "Mostrar portada"), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "1", max: "365", step: "0.0001", value: form.bienvenidaDias ?? "", inputMode: "decimal", onChange: (e) => setForm((p) => Object.assign({}, p, { bienvenidaDias: e.target.value })), title: "Duracion en dias" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "var(--gris)", marginTop: 4 } }, "La portada aparece despues del login y antes de los modulos durante la cantidad de dias indicada.")), /* @__PURE__ */ React.createElement("div", { className: "form-group", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("label", { className: "form-label" }, "Permisos de acceso"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 } }, PERMISSION_OPTIONS.filter(function(perm) {
