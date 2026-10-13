@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013051929-3a4e024";</script>
+  <script>window.WTF_APP_VERSION = "20261013052406-f6d1777";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13248,7 +13248,8 @@
       if (nextState.userDeletedKeys && typeof nextState.userDeletedKeys === "object") setUserDeletedKeys(normalizeUserDeletedKeys(nextState.userDeletedKeys));
       if (Array.isArray(nextState.usuarios)) setUsuarios(mergeUserRows(usuarios, nextState.usuarios, nextState.userDeletedKeys));
       if (nextState.appSecurity && typeof nextState.appSecurity === "object") setAppSecurity(function(prev) { return mergeAppSecurity(prev, nextState.appSecurity); });
-      if (Array.isArray(nextState.systemLogs)) setSystemLogs(normalizeSystemLogs(nextState.systemLogs));
+      // Logs de Sistema se hidratan exclusivamente desde systemLogs/events.
+      // El arreglo legado nunca debe volver a pisar los eventos remotos.
       if (Array.isArray(nextState.barInventario)) setBarInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.barInventario;
         return repairBarAguaInventoryRows(normalizeInventoryRowsForDisplay(mergeInventoryRows(prev, nextState.barInventario, deleted), deleted));
@@ -14230,6 +14231,11 @@
         }
       };
     }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+      const timer = window.setTimeout(() => flushSystemLogQueue(), 0);
+      return function() { window.clearTimeout(timer); };
+    }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
     useEffect(() => {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (applyingRemoteRef.current) return;
