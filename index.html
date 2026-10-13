@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013023600-8cb1c52";</script>
+  <script>window.WTF_APP_VERSION = "20261013023729-2d44814";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5113,6 +5113,7 @@
   function buildRevokedAuthorizedUserDoc(user, reason) {
     const email = getAuthorizedUserDocId(user && user.email || user);
     if (!email) return null;
+    const ts = Date.now();
     return {
       id: email,
       data: {
