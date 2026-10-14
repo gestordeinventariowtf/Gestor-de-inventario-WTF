@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014024750-8e574be";</script>
+  <script>window.WTF_APP_VERSION = "20261014025510-d40e386";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6025,7 +6025,11 @@
       const data = doc.data() || {};
       const email = getAuthorizedUserDocId(data.email || doc.id);
       if (!email || LEGACY_ADMIN_EMAILS_TO_REMOVE.some(function(blocked) { return normalizar(blocked) === email; })) return;
-      if (data.deleted === true || data.revoked === true) {
+      // Solo se respeta una revocacion que provenga de una accion
+      // administrativa explicita. Los tombstones antiguos creados por la
+      // limpieza automatica no deben volver a ocultar usuarios validos.
+      const explicitRevocation = data.explicitAdministrativeAction === true;
+      if (explicitRevocation && (data.deleted === true || data.revoked === true)) {
         const deletedAtMs = Number(data.deletedAtMs || data.updatedAtMs || 0);
         if (deletedAtMs > 0) deletedKeys[`email:${email}`] = deletedAtMs;
         return;
