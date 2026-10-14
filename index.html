@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261013212123-a9d9a7a";</script>
+  <script>window.WTF_APP_VERSION = "20261014014520-51326b1";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5710,6 +5710,15 @@
     if (currentPage === "icg") return new Set(["icgFrontRestData"]);
     if (currentPage === "icgHost") return new Set(["icgFrontRestData"]);
     if (currentPage === "systemLogs") return new Set(["systemLogs"]);
+    if (currentPage === "mise") {
+      return new Set([
+        "histEntradaRapida",
+        "histSalidaRapida",
+        "histDecomisoCocina",
+        "barHistEntradaRapida",
+        "barHistSalidaRapida"
+      ]);
+    }
     if (currentPage === "registros") {
       return new Set([
         "regEntradas",
@@ -5916,7 +5925,16 @@
     }
     if (writeDoc.syncIndexDoc && docRef.parent) {
       try {
-        await docRef.parent.doc(FIREBASE_SYNC_INDEX_DOC_ID).set(writeDoc.syncIndexDoc, { merge: true });
+        const syncIndexRef = docRef.parent.doc(FIREBASE_SYNC_INDEX_DOC_ID);
+        const syncIndexDoc = Object.assign({}, writeDoc.syncIndexDoc);
+        const moduleSignatures = syncIndexDoc.modules && typeof syncIndexDoc.modules === "object" ? syncIndexDoc.modules : {};
+        delete syncIndexDoc.modules;
+        await syncIndexRef.set(syncIndexDoc, { merge: true });
+        const modulePatch = {};
+        Object.keys(moduleSignatures).forEach(function(moduleKey) {
+          modulePatch[`modules.${moduleKey}`] = moduleSignatures[moduleKey];
+        });
+        if (Object.keys(modulePatch).length) await syncIndexRef.update(modulePatch);
       } catch (error) {
         console.warn("No se pudo actualizar el indice liviano de sincronizacion:", error);
       }
@@ -12792,7 +12810,7 @@
         const results = await Promise.all(activeKeys.map(async function(key) {
           const moduleInfo = modules[key] || {};
           const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
-          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1);
+          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1) || (page === "mise" && ["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"].indexOf(key) !== -1);
           if (!forceServerReadForActiveModule && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
@@ -14263,6 +14281,45 @@
         if (typeof unsubscribe === "function") unsubscribe();
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
+    useEffect(() => {
+      if (page !== "mise" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current) return;
+      const activeKeys = Array.from(getFirebaseExternalKeysForPage("mise"));
+      const unsubscribers = [];
+      let active = true;
+      activeKeys.forEach(function(key) {
+        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+        const historyRef = firebaseDocRef.current.parent && firebaseDocRef.current.parent.doc(docId);
+        if (!historyRef || typeof historyRef.onSnapshot !== "function") return;
+        let serverSnapshotSeen = false;
+        const unsubscribe = historyRef.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+          if (!active || !snapshot.exists) return;
+          if (snapshot.metadata && snapshot.metadata.fromCache && !serverSnapshotSeen) return;
+          serverSnapshotSeen = true;
+          const data = snapshot.data() || {};
+          const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+          if (typeof value === "undefined" || value === null) return;
+          const signature = quickHashText(JSON.stringify(value || {}));
+          const current = getCurrentAppState();
+          if (firebaseExternalDocSignaturesRef.current[key] === signature && Object.prototype.hasOwnProperty.call(current, key)) return;
+          firebaseExternalDocSignaturesRef.current[key] = signature;
+          firebaseExternalDocSignaturesCache[key] = signature;
+          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+          const next = Object.assign({}, current, { [key]: value });
+          applyRemoteState(next);
+          setFirebaseMessage("Historial Mise actualizado desde Firebase");
+        }, function(error) {
+          if (!active) return;
+          console.warn("No se pudo escuchar el historial Mise en Firebase:", key, error);
+        });
+        if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
+      });
+      return function() {
+        active = false;
+        unsubscribers.forEach(function(unsubscribe) {
+          try { unsubscribe(); } catch (_) {}
+        });
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
       if (systemLogsMetaUnsubscribeRef.current) {
         systemLogsMetaUnsubscribeRef.current();
