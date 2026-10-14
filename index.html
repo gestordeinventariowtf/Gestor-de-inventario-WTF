@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014051408-7161b64";</script>
+  <script>window.WTF_APP_VERSION = "20261014053020-0b111fd";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -14648,14 +14648,18 @@
         const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
         const ref = firebaseDocRef.current.parent.doc(docId);
         if (!ref || typeof ref.onSnapshot !== "function") return;
-        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+        const applyRemoteRecordsSnapshot = function(snapshot) {
           if (!active || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
           const data = snapshot.data() || {};
           const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
           if (!Array.isArray(value)) return;
           applyRemoteState({ [key]: value });
           setFirebaseMessage("Registros actualizados desde Firebase");
-        }, function(error) {
+        };
+        ref.get({ source: "server" }).then(applyRemoteRecordsSnapshot).catch(function(error) {
+          if (active) console.warn("No se pudo leer desde servidor el historial remoto de Registros:", key, error);
+        });
+        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteRecordsSnapshot, function(error) {
           if (active) console.warn("No se pudo escuchar el historial remoto de Registros:", key, error);
         });
         if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
@@ -14672,6 +14676,54 @@
       const unsubscribers = [];
       let active = true;
       const moduleNames = ["cocina", "bar"];
+      const remoteHistoryKeys = [
+        "histEntradaRapida",
+        "histSalidaRapida",
+        "histDecomisoCocina",
+        "barHistEntradaRapida",
+        "barHistSalidaRapida"
+      ];
+      const applyRemoteMiseHistorySnapshot = function(key, snapshot) {
+        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        const data = snapshot.data() || {};
+        const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+        if (!Array.isArray(value)) return;
+        // Firestore is authoritative for confirmed history; the existing merge keeps
+        // locally pending rows until their individual write is confirmed.
+        applyRemoteState({ [key]: value });
+        setFirebaseMessage("Historiales Mise actualizados desde Firebase");
+      };
+      remoteHistoryKeys.forEach(function(key) {
+        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+        const ref = firebaseDocRef.current.parent && firebaseDocRef.current.parent.doc(docId);
+        if (!ref) return;
+        ref.get({ source: "server" }).then(function(snapshot) {
+          applyRemoteMiseHistorySnapshot(key, snapshot);
+        }).catch(function(error) {
+          if (active) console.warn("No se pudo leer desde servidor el historial remoto de Mise:", key, error);
+        });
+        if (typeof ref.onSnapshot === "function") {
+          const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+            applyRemoteMiseHistorySnapshot(key, snapshot);
+          }, function(error) {
+            if (active) console.warn("No se pudo escuchar el historial remoto de Mise:", key, error);
+          });
+          if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
+        }
+      });
+      // Neveras live in the main state document. Force one server read on entry;
+      // the existing main-state listener continues delivering subsequent changes.
+      firebaseDocRef.current.get({ source: "server" }).then(function(snapshot) {
+        if (!active || !snapshot || !snapshot.exists) return;
+        const data = snapshot.data() || {};
+        const remoteState = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+        if (remoteState && Array.isArray(remoteState.neveras)) {
+          applyRemoteState({ neveras: remoteState.neveras });
+          setFirebaseMessage("Neveras actualizadas desde Firebase");
+        }
+      }).catch(function(error) {
+        if (active) console.warn("No se pudo leer Neveras desde el servidor:", error);
+      });
       moduleNames.forEach(function(moduleName) {
         loadMiseHistoryEvents(moduleName, false).catch(function(error) { console.warn("No se pudo cargar Mise:", moduleName, error); });
         flushMiseHistoryQueue(moduleName).catch(function(error) { console.warn("No se pudo enviar la cola Mise:", moduleName, error); });
