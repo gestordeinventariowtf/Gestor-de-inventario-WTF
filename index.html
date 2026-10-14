@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014190100-8afb432";</script>
+  <script>window.WTF_APP_VERSION = "20261014193813-0437585";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4704,24 +4704,33 @@
       }).filter(function(row) { return row.mergeKey || row.id != null; })
     });
   }
-  function applyInventoryOrderIntent(rows, stateKey) {
+  function applyInventoryOrderIntent(rows, stateKey, options) {
+    const preserveIntent = Boolean(options && options.preserveIntent);
     const intent = readInventoryOrderIntent(stateKey);
     if (!intent || !Array.isArray(intent.rows) || !intent.rows.length) return rows;
     const intentAt = getRowUpdateTime({ updatedAt: intent.updatedAt });
     if (!intentAt) return rows;
     const currentRows = Array.isArray(rows) ? rows : [];
-    const maxRemoteOrderAt = currentRows.reduce(function(max, row) {
-      return Math.max(max, getInventoryManualOrderTime(row));
-    }, 0);
-    if (maxRemoteOrderAt >= intentAt) {
+    const byKey = new Map();
+    currentRows.forEach(function(row) {
+      byKey.set(`key:${getInventoryMergeKey(row)}`, row);
+      if (row && row.id != null) byKey.set(`id:${row.id}`, row);
+    });
+    const resolvedRows = intent.rows.map(function(row) {
+      return byKey.get(`key:${row.mergeKey}`) || byKey.get(`id:${row && row.id}`);
+    }).filter(Boolean);
+    const sameOperationConfirmed = resolvedRows.length === intent.rows.length && resolvedRows.every(function(row) {
+      return getInventoryManualOrderTime(row) >= intentAt
+        && String(row.ordenManualOperacionId || "") === String(intent.operationId || "");
+    });
+    const newerCompleteOperation = resolvedRows.length === intent.rows.length && resolvedRows.every(function(row) {
+      return getInventoryManualOrderTime(row) > intentAt
+        && String(row.ordenManualOperacionId || "") !== String(intent.operationId || "");
+    });
+    if (!preserveIntent && (sameOperationConfirmed || newerCompleteOperation)) {
       clearInventoryOrderIntent(stateKey);
       return rows;
     }
-    const byKey = new Map();
-    intent.rows.forEach(function(row) {
-      if (row.mergeKey) byKey.set(`key:${row.mergeKey}`, row);
-      if (row.id != null) byKey.set(`id:${row.id}`, row);
-    });
     return currentRows.map(function(row) {
       const intentRow = byKey.get(`key:${getInventoryMergeKey(row)}`) || byKey.get(`id:${row && row.id}`);
       if (!intentRow) return row;
@@ -4934,6 +4943,14 @@
     ];
     for (const raw of candidates) {
       if (raw == null || raw === "") continue;
+      if (raw && typeof raw.toMillis === "function") {
+        const millis = Number(raw.toMillis());
+        if (Number.isFinite(millis) && millis > 0) return millis;
+      }
+      if (raw && Number.isFinite(Number(raw.seconds))) {
+        const millis = Number(raw.seconds) * 1000 + Number(raw.nanoseconds || 0) / 1e6;
+        if (millis > 0) return millis;
+      }
       const numeric = Number(raw);
       if (Number.isFinite(numeric) && numeric > 0) return numeric;
       const parsed = Date.parse(String(raw));
@@ -5517,9 +5534,12 @@
       "barInventario",
       "barCuartoFrioInventario"
     ].forEach(function(key) {
-      const localRows = applyInventoryOrderIntent(localState && localState[key], key);
-      const remoteRows = applyInventoryOrderIntent(remoteState && remoteState[key], key);
+      const localRows = applyInventoryOrderIntent(localState && localState[key], key, { preserveIntent: true });
+      const remoteRows = applyInventoryOrderIntent(remoteState && remoteState[key], key, { preserveIntent: true });
       next[key] = normalizeInventoryRowsForDisplay(mergeInventoryRows(localRows, remoteRows, next.inventoryDeletedKeys[key]), next.inventoryDeletedKeys[key]);
+      // Reapply the latest local ordering after the merge. A stale remote snapshot
+      // must never be allowed to reorder products again.
+      next[key] = applyInventoryOrderIntent(next[key], key);
       next.inventoryDeletedKeys[key] = pruneInventoryDeletedKeys(next.inventoryDeletedKeys, key);
     });
     next.miseDeletedKeys = mergeMiseDeletedKeys(remoteState && remoteState.miseDeletedKeys, includeLocalDeletedKeys ? localState && localState.miseDeletedKeys : null);
