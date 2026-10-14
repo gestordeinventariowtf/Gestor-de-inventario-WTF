@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014035113-1e46d0b";</script>
+  <script>window.WTF_APP_VERSION = "20261014044445-8c504c1";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -4626,7 +4626,7 @@
   function getInventoryMergeKey(row) {
     if (!row) return "";
     if (row.tipo === "separador") {
-      return ["sep", normalizar(row.nombre || ""), row.id == null ? "" : String(row.id)].join("|");
+      return ["sep", normalizar(row.nombre || "")].join("|");
     }
     return [
       "prod",
@@ -24998,10 +24998,10 @@
     }
     function deleteRow(id) {
       if (!confirm("\xBFEliminar esta fila?")) return;
-      const target = inventario.find((r) => r.id === id);
+      const target = inventario.find((r) => String(r.id) === String(id));
       if (target && typeof onMarkDeleted === "function") onMarkDeleted(inventoryStateKey || sourceKey, target);
       const deletedKeys = new Set(getInventoryDeletedKeysForRow(target));
-      setInventario((p) => p.filter((r) => r.id !== id && !getInventoryDeletedKeysForRow(r).some(function(key) { return deletedKeys.has(key); })));
+      setInventario((p) => p.filter((r) => String(r.id) !== String(id) && !getInventoryDeletedKeysForRow(r).some(function(key) { return deletedKeys.has(key); })));
       if (typeof onSystemLog === "function" && target) {
         onSystemLog({
           modulo: `${pageLabel} ${moduleLabel}`,
@@ -25208,12 +25208,26 @@
       const now = new Date().toISOString();
       const normalizedName = separatorName.toUpperCase();
       if (editingSeparatorId != null) {
-        const separator = inventario.find((row) => row.id === editingSeparatorId && row.tipo === "separador");
+        const separator = inventario.find((row) => String(row.id) === String(editingSeparatorId) && row.tipo === "separador");
         if (!separator) {
           toast("No se encontró el renglón que deseas editar.", "error");
           return;
         }
-        setInventario((p) => p.map((row) => row.id === editingSeparatorId && row.tipo === "separador" ? { ...row, nombre: normalizedName, updatedAt: now } : row));
+        const previousKey = getInventoryMergeKey(separator);
+        const duplicate = inventario.some((row) => row.tipo === "separador" && normalizar(row.nombre || "") === normalizar(normalizedName) && getInventoryMergeKey(row) !== previousKey);
+        if (duplicate) {
+          toast("Ya existe otro renglón con ese nombre.", "error");
+          return;
+        }
+        setInventario((p) => {
+          let keptSeparator = false;
+          return p.filter((row) => {
+            if (row.tipo !== "separador" || getInventoryMergeKey(row) !== previousKey) return true;
+            if (keptSeparator) return false;
+            keptSeparator = true;
+            return true;
+          }).map((row) => row.tipo === "separador" && getInventoryMergeKey(row) === previousKey ? { ...row, nombre: normalizedName, updatedAt: now } : row);
+        });
         if (typeof onSystemLog === "function") {
           onSystemLog({
             modulo: `${pageLabel} ${moduleLabel}`,
@@ -25226,6 +25240,10 @@
         setNewSep("");
         setModalSep(false);
         toast("Renglón actualizado");
+        return;
+      }
+      if (inventario.some((row) => row.tipo === "separador" && normalizar(row.nombre || "") === normalizar(normalizedName))) {
+        toast("Ya existe un renglón con ese nombre.", "error");
         return;
       }
       setInventario((p) => [...p, { id: nextId(), tipo: "separador", nombre: normalizedName, createdAt: now, updatedAt: now }]);
