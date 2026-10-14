@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014044445-8c504c1";</script>
+  <script>window.WTF_APP_VERSION = "20261014051408-7161b64";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13105,7 +13105,7 @@
         const results = await Promise.all(activeKeys.map(async function(key) {
           const moduleInfo = modules[key] || {};
           const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
-          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1) || (page === "mise" && ["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"].indexOf(key) !== -1);
+          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1) || (page === "mise" && ["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"].indexOf(key) !== -1) || (page === "recuento" && (key === "regRecuento" || key === "barRegRecuento"));
           if (!forceServerReadForActiveModule && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
@@ -14613,6 +14613,60 @@
         if (typeof unsubscribe === "function") unsubscribe();
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
+    useEffect(() => {
+      if (page !== "recuento" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      let active = true;
+      const unsubscribers = [];
+      ["regRecuento", "barRegRecuento"].forEach(function(key) {
+        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+        const ref = firebaseDocRef.current.parent.doc(docId);
+        if (!ref || typeof ref.onSnapshot !== "function") return;
+        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+          if (!active || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+          const data = snapshot.data() || {};
+          const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+          if (!Array.isArray(value)) return;
+          applyRemoteState({ [key]: value });
+          setFirebaseMessage("Informes de recuento actualizados desde Firebase");
+        }, function(error) {
+          if (active) console.warn("No se pudo escuchar el historial remoto de recuento:", key, error);
+        });
+        if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
+      });
+      return function() {
+        active = false;
+        unsubscribers.forEach(function(unsubscribe) {
+          try { unsubscribe(); } catch (_) {}
+        });
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
+      if (page !== "registros" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      let active = true;
+      const unsubscribers = [];
+      ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].forEach(function(key) {
+        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+        const ref = firebaseDocRef.current.parent.doc(docId);
+        if (!ref || typeof ref.onSnapshot !== "function") return;
+        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+          if (!active || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+          const data = snapshot.data() || {};
+          const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+          if (!Array.isArray(value)) return;
+          applyRemoteState({ [key]: value });
+          setFirebaseMessage("Registros actualizados desde Firebase");
+        }, function(error) {
+          if (active) console.warn("No se pudo escuchar el historial remoto de Registros:", key, error);
+        });
+        if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
+      });
+      return function() {
+        active = false;
+        unsubscribers.forEach(function(unsubscribe) {
+          try { unsubscribe(); } catch (_) {}
+        });
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
       if (page !== "mise" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current) return;
       const unsubscribers = [];
