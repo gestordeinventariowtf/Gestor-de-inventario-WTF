@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014025510-d40e386";</script>
+  <script>window.WTF_APP_VERSION = "20261014031938-3469fa5";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -3955,6 +3955,8 @@
   const SYSTEM_LOG_EVENT_TEXT_LIMIT = 420;
   const SYSTEM_LOG_EVENT_PAGE_SIZE = 100;
   const SYSTEM_LOG_EVENT_CACHE_KEY = "wtf_system_logs_cache";
+  const SYSTEM_LOG_EVENT_CACHE_BACKUP_KEY = "wtf_system_logs_local_cache_backup_v1";
+  const SYSTEM_LOG_EVENT_UNRECOVERED_KEY = "wtf_system_logs_unrecovered_v1";
   const SYSTEM_LOG_EVENT_PENDING_KEY = "wtf_system_logs_pending";
   const SYSTEM_LOG_EVENT_CURSOR_KEY = "wtf_system_logs_cursor";
   const SYSTEM_LOG_EVENT_DEVICE_KEY = "wtf_system_logs_device_id";
@@ -4120,6 +4122,21 @@
     const root = docRef.firestore.collection((cfg && cfg.collection) || "wtfSistema").doc("systemLogs");
     return { root, events: root.collection("events"), meta: root.collection("meta").doc("state") };
   }
+  async function createFirestoreDocIdempotent(docRef, data) {
+    if (!docRef || !docRef.firestore || typeof docRef.firestore.runTransaction !== "function") {
+      throw new Error("Firestore no esta listo para escribir el evento");
+    }
+    return docRef.firestore.runTransaction(async function(transaction) {
+      const snapshot = await transaction.get(docRef);
+      if (snapshot.exists) {
+        const error = new Error("El evento ya existe");
+        error.code = "already-exists";
+        throw error;
+      }
+      transaction.set(docRef, data);
+      return true;
+    });
+  }
   function readSystemLogPendingQueue() {
     const rows = load(SYSTEM_LOG_EVENT_PENDING_KEY, []);
     return (Array.isArray(rows) ? rows : []).map(function(row) {
@@ -4133,6 +4150,45 @@
     // La cola pendiente no debe compartir el limite visual del historial:
     // mientras no haya confirmacion remota, cada evento debe conservarse.
     save(SYSTEM_LOG_EVENT_PENDING_KEY, Array.isArray(rows) ? rows : []);
+  }
+  function enqueueSystemLogPending(event) {
+    if (!event || !event.id) return;
+    // Leer nuevamente justo antes de guardar evita que una copia antigua
+    // de otra ruta de sincronizacion elimine un evento recien agregado.
+    const latest = readSystemLogPendingQueue();
+    if (latest.some(function(row) { return row && row.event && row.event.id === event.id; })) return;
+    latest.unshift({ event, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" });
+    writeSystemLogPendingQueue(latest);
+  }
+  function recoverSystemLogsFromLocalCache(currentEmail) {
+    const email = String(currentEmail || "").trim().toLowerCase();
+    if (!email) return 0;
+    const sources = [load(SYSTEM_LOG_EVENT_CACHE_KEY, []), load(SYSTEM_LOG_EVENT_CACHE_BACKUP_KEY, [])];
+    const byId = new Map();
+    sources.forEach(function(rows) {
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        if (!row || !row.id || byId.has(row.id)) return;
+        byId.set(row.id, row);
+      });
+    });
+    const storedUnrecovered = load(SYSTEM_LOG_EVENT_UNRECOVERED_KEY, []);
+    const unrecovered = Array.isArray(storedUnrecovered) ? storedUnrecovered : [];
+    let recovered = 0;
+    byId.forEach(function(row) {
+      const originalEmail = String(row.email || "").trim().toLowerCase();
+      // Nunca atribuir a otro usuario un evento creado por una sesion distinta.
+      if (originalEmail && originalEmail !== email) {
+        if (!unrecovered.some(function(item) { return item && item.id === row.id; })) {
+          unrecovered.push({ id: row.id, originalEmail, reason: "auth-different", savedAt: new Date().toISOString() });
+        }
+        return;
+      }
+      const event = sanitizeSystemLogEvent(Object.assign({}, row, { origen: row.origen || "cache-recovery" }), { email, nombre: row.usuario || "Sistema" });
+      enqueueSystemLogPending(event);
+      recovered += 1;
+    });
+    if (unrecovered.length) save(SYSTEM_LOG_EVENT_UNRECOVERED_KEY, unrecovered.slice(-1000));
+    return recovered;
   }
   function sanitizeSystemLogEvent(row, user) {
     const source = row && typeof row === "object" ? row : {};
@@ -12735,6 +12791,7 @@
     const systemLogsFlushInFlightRef = useRef(false);
     const systemLogsFlushRequestedAgainRef = useRef(false);
     const systemLogsFlushRetryTimerRef = useRef(null);
+    const systemLogsCacheRecoveryRef = useRef("");
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12890,7 +12947,7 @@
       let confirmed = 0;
       let newlyCreated = 0;
       try {
-        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        const eventsRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
         for (const item of queue) {
           const event = item && item.event ? item.event : item;
           if (!event || !event.eventId) continue;
@@ -12901,7 +12958,7 @@
               updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
               updatedBy: firebaseAuthEmail
             });
-            await eventsRef.doc(event.eventId).create(remoteEvent);
+            await createFirestoreDocIdempotent(eventsRef.doc(event.eventId), remoteEvent);
             confirmed += 1;
             newlyCreated += 1;
           } catch (error) {
@@ -12910,7 +12967,7 @@
           }
         }
         if (newlyCreated) {
-          const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc(moduleName);
+          const metaRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_META_COLLECTION).collection("modules").doc(moduleName);
           await metaRef.set({
             revision: window.firebase.firestore.FieldValue.increment(newlyCreated),
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
@@ -12968,7 +13025,7 @@
       if (!force && miseHistoryLoadedRef.current[moduleName] || !firebaseDocRef.current) return;
       miseHistoryLoadedRef.current[moduleName] = true;
       try {
-        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        const eventsRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
         let snapshot;
         try { snapshot = await eventsRef.where("module", "==", moduleName).orderBy("createdAt", "desc").limit(200).get({ source: "server" }); }
         catch (_) { snapshot = await eventsRef.orderBy("createdAt", "desc").limit(200).get({ source: "server" }); }
@@ -12980,7 +13037,7 @@
     async function migrateMiseHistoryOnce() {
       if (miseHistoryMigrationRef.current || !firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail || !canManageAdministration(currentUser)) return;
       miseHistoryMigrationRef.current = true;
-      const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc("migration");
+      const metaRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_META_COLLECTION).collection("modules").doc("migration");
       try {
         const metaSnapshot = await metaRef.get({ source: "server" });
         const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
@@ -12993,7 +13050,7 @@
           { module: "bar", type: "entradaRapida", key: "barHistEntradaRapida" },
           { module: "bar", type: "salidaRapida", key: "barHistSalidaRapida" }
         ];
-        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        const eventsRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
         let totalSourceRows = 0;
         let migratedCount = 0;
         let alreadyExistsCount = 0;
@@ -13008,7 +13065,7 @@
             event.source = "migration";
             event.email = firebaseAuthEmail;
             try {
-              await eventsRef.doc(event.eventId).create(Object.assign({}, event, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedAt: window.firebase.firestore.FieldValue.serverTimestamp() }));
+              await createFirestoreDocIdempotent(eventsRef.doc(event.eventId), Object.assign({}, event, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedAt: window.firebase.firestore.FieldValue.serverTimestamp() }));
               migratedCount += 1;
             } catch (error) {
               if (String(error && error.code || "").toLowerCase().includes("already-exists")) alreadyExistsCount += 1;
@@ -13083,11 +13140,7 @@
         const next = [entry].concat(rows);
         return next.length > SYSTEM_LOG_ACTIVE_LIMIT ? next.slice(0, SYSTEM_LOG_ACTIVE_LIMIT) : next;
       });
-      const pending = readSystemLogPendingQueue();
-      if (!pending.some(function(row) { return row && row.event && row.event.id === event.id; })) {
-        pending.unshift({ event, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" });
-        writeSystemLogPendingQueue(pending);
-      }
+      enqueueSystemLogPending(event);
       flushSystemLogQueue();
       return entry;
     }
@@ -13153,7 +13206,7 @@
               createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
               synced: true
             });
-            await refs.events.doc(event.id).create(remoteEvent);
+            await createFirestoreDocIdempotent(refs.events.doc(event.id), remoteEvent);
             confirmedIds.add(event.id);
             scheduleSystemLogsMetaUpdate();
           } catch (error) {
@@ -13215,7 +13268,7 @@
         for (const row of legacyRows) {
           const safe = sanitizeSystemLogEvent(Object.assign({}, row, { id: row && row.id ? `legacy-${row.id}` : void 0, origen: row && row.origen || "migration" }), { email: row && row.email || firebaseAuthEmail, nombre: row && row.usuario || "Sistema" });
           try {
-            await refs.events.doc(safe.id).create(Object.assign({}, safe, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), synced: true }));
+            await createFirestoreDocIdempotent(refs.events.doc(safe.id), Object.assign({}, safe, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), synced: true }));
             migrated += 1;
           } catch (error) {
             if (String(error && error.code || "") !== "already-exists") console.warn("No se pudo migrar un log antiguo:", error);
@@ -13241,8 +13294,16 @@
           return Object.assign({}, item.event, { synced: false, estado: item.status || "pending" });
         });
         if (reset) {
-          setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(Array.isArray(prev) ? prev : [], pendingRows)); });
-          save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(Array.isArray(systemLogs) ? systemLogs : [], pendingRows)));
+          // La lectura inicial desde servidor es la fuente de verdad. No
+          // mezclar el historial visual antiguo porque inflaria el conteo y
+          // hacia que cada dispositivo mostrara una cantidad diferente.
+          const legacyCache = load(SYSTEM_LOG_EVENT_CACHE_KEY, []);
+          if (Array.isArray(legacyCache) && legacyCache.length) {
+            save("wtf_system_logs_local_cache_backup_v1", legacyCache);
+          }
+          const remoteRows = normalizeSystemLogs(incoming.concat(pendingRows));
+          setSystemLogs(remoteRows);
+          save(SYSTEM_LOG_EVENT_CACHE_KEY, remoteRows);
         } else if (incoming.length || pendingRows.length) {
           setSystemLogs(function(prev) { return normalizeSystemLogs(incoming.concat(pendingRows, Array.isArray(prev) ? prev : [])); });
           save(SYSTEM_LOG_EVENT_CACHE_KEY, normalizeSystemLogs(incoming.concat(pendingRows, load(SYSTEM_LOG_EVENT_CACHE_KEY, []))));
@@ -14556,7 +14617,7 @@
       moduleNames.forEach(function(moduleName) {
         loadMiseHistoryEvents(moduleName, false).catch(function(error) { console.warn("No se pudo cargar Mise:", moduleName, error); });
         flushMiseHistoryQueue(moduleName).catch(function(error) { console.warn("No se pudo enviar la cola Mise:", moduleName, error); });
-        const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc(moduleName);
+        const metaRef = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema").doc(MISE_HISTORY_META_COLLECTION).collection("modules").doc(moduleName);
         if (!metaRef || typeof metaRef.onSnapshot !== "function") return;
         const unsubscribe = metaRef.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
           if (!active || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
@@ -14580,7 +14641,7 @@
         systemLogsMetaUnsubscribeRef.current = null;
       }
       systemLogsLastDocRef.current = null;
-      if (page === "systemLogs" && firebaseCfg.enabled && firebaseAuthReady && firebaseAuthEmail && firebaseBootstrappedRef.current) {
+      if (page === "systemLogs" && firebaseCfg.enabled && firebaseAuthReady && firebaseAuthEmail) {
         systemLogsMetaUnsubscribeRef.current = startSystemLogsRealtime();
       }
       return function() {
@@ -14591,7 +14652,11 @@
       };
     }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
-      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail) return;
+      if (systemLogsCacheRecoveryRef.current !== firebaseAuthEmail) {
+        systemLogsCacheRecoveryRef.current = firebaseAuthEmail;
+        recoverSystemLogsFromLocalCache(firebaseAuthEmail);
+      }
       const timer = window.setTimeout(() => flushSystemLogQueue(), 0);
       return function() { window.clearTimeout(timer); };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
