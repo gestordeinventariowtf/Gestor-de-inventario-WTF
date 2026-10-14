@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014031938-3469fa5";</script>
+  <script>window.WTF_APP_VERSION = "20261014033130-00064ef";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -14174,7 +14174,8 @@
       }
       setFirebaseAuthUser(null);
     }
-    function cerrarSesion() {
+    async function cerrarSesion() {
+      const sessionUser = currentUser;
       const token = accessTokenRef.current;
       if (token && window.google && window.google.accounts && window.google.accounts.oauth2 && typeof window.google.accounts.oauth2.revoke === "function") {
         try {
@@ -14184,16 +14185,19 @@
           console.warn(err);
         }
       }
-      resetGoogleSession();
-      signOutFirebaseAuth();
-      if (currentUser) {
+      if (sessionUser) {
         addSystemLog({
           modulo: "Sistema",
           accion: "Cierre de sesion",
           detalle: "El usuario cerro sesion en el sistema."
-        });
-        if (isAdminUser(currentUser)) clearAdminSessionStartedAt(currentUser.email);
+        }, sessionUser);
+        // Confirmar el evento mientras Firebase Auth aun esta vigente.
+        // Desconectar Auth antes de este punto dejaba el cierre solo en cache.
+        try { await flushSystemLogQueue(); } catch (error) { console.warn("No se pudo confirmar el cierre en Logs de Sistema:", error); }
+        if (isAdminUser(sessionUser)) clearAdminSessionStartedAt(sessionUser.email);
       }
+      resetGoogleSession();
+      await signOutFirebaseAuth();
       setAuthUserEmail("");
       clearStoredWelcomeCoverSeen();
       setWelcomeCoverDismissedKey("");
