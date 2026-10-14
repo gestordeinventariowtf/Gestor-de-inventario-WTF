@@ -44,6 +44,7 @@
     </header>
     <section>
       <div class="notice">Primero verifica el correo con Google. La solicitud quedará pendiente hasta que un administrador la autorice desde el módulo de terminales autorizadas.</div>
+      <div id="hostState" class="notice">Verificando WTF ICG HOST local...</div>
       <label>Nombre de esta computadora
         <input id="terminalName" value="PC Principal WTF" maxlength="120" autocomplete="off">
       </label>
@@ -83,9 +84,11 @@
       const requestButton = document.getElementById("requestButton");
       const verifiedEmail = document.getElementById("verifiedEmail");
       const googleState = document.getElementById("googleState");
+      const hostState = document.getElementById("hostState");
       const status = document.getElementById("status");
       const credentials = document.getElementById("credentials");
       let verifiedUser = null;
+      let hostDetected = false;
       let busy = false;
       function setStatus(message, kind) { status.textContent = message || ""; status.className = "status" + (kind ? " " + kind : ""); }
       function makeSecret() {
@@ -99,6 +102,38 @@
       function deviceInfo() {
         return { userAgent: navigator.userAgent || "", platform: navigator.platform || "", language: navigator.language || "", screen: window.screen ? window.screen.width + "x" + window.screen.height : "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "" };
       }
+      async function detectLocalHost() {
+        const endpoints = ["http://127.0.0.1:8787/api/health", "http://localhost:8787/api/health"];
+        hostDetected = false;
+        hostState.textContent = "Verificando WTF ICG HOST local...";
+        hostState.style.background = "#eef6ff";
+        hostState.style.color = "#174a7c";
+        for (const healthUrl of endpoints) {
+          const controller = window.AbortController ? new AbortController() : null;
+          const timeout = window.setTimeout(function () { if (controller) controller.abort(); }, 2500);
+          try {
+            const response = await fetch(healthUrl, { method: "GET", cache: "no-store", mode: "cors", signal: controller ? controller.signal : undefined });
+            const result = await response.json().catch(function () { return null; });
+            if (response.ok && result && result.ok === true && String(result.service || "").toLowerCase() === "wtf inventory sync service") {
+              hostDetected = true;
+              hostState.textContent = "WTF ICG HOST detectado en esta computadora. Ya puedes continuar con el enrolamiento.";
+              hostState.style.background = "#ecfdf3";
+              hostState.style.color = "#087443";
+              requestButton.disabled = !verifiedUser;
+              return true;
+            }
+          } catch (_) {
+            // Try localhost after 127.0.0.1; browsers can expose only one alias.
+          } finally {
+            window.clearTimeout(timeout);
+          }
+        }
+        hostState.textContent = "No se detectó WTF ICG HOST local. Abre el software WTF ICG HOST en esta computadora y pulsa Actualizar comprobación.";
+        hostState.style.background = "#fff7ed";
+        hostState.style.color = "#9a3412";
+        requestButton.disabled = true;
+        return false;
+      }
       async function verifyGoogle() {
         if (!window.firebase || !firebaseConfig.apiKey) throw new Error("Firebase Authentication no está disponible.");
         const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseConfig);
@@ -110,16 +145,17 @@
         if (!verifiedUser || !verifiedUser.email) throw new Error("Google no devolvió un correo válido.");
         verifiedEmail.value = verifiedUser.email;
         googleState.innerHTML = "<small>Correo verificado correctamente.</small>";
-        requestButton.disabled = false;
+        requestButton.disabled = !hostDetected;
         try { await auth.signOut(); } catch (_) {}
       }
       async function requestAuthorization() {
         if (!verifiedUser || !verifiedUser.email) throw new Error("Verifica primero el correo con Google.");
+        if (!(await detectLocalHost())) throw new Error("El enrolamiento solo puede hacerse desde una computadora con WTF ICG HOST activo.");
         if (!endpoint) throw new Error("No hay endpoint de enrolamiento configurado.");
         const terminalId = "";
         const secret = makeSecret();
         const name = String(document.getElementById("terminalName").value || "PC WTF").trim() || "PC WTF";
-        const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request", terminalId, secret, name, branchId, user: { email: verifiedUser.email, nombre: verifiedUser.displayName || verifiedUser.email }, deviceInfo: deviceInfo() }) });
+        const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request", terminalId, secret, name, branchId, hostDetected: true, hostService: "WTF Inventory Sync Service", user: { email: verifiedUser.email, nombre: verifiedUser.displayName || verifiedUser.email }, deviceInfo: deviceInfo() }) });
         const result = await response.json().catch(function () { return null; });
         if (!response.ok || !result || result.ok === false) throw new Error(result && result.error || "No se pudo solicitar la autorización.");
         document.getElementById("terminalId").value = result.terminalId || "";
@@ -138,7 +174,7 @@
       requestButton.addEventListener("click", function () {
         if (busy) return;
         busy = true; requestButton.disabled = true; setStatus("Generando credenciales...", "");
-        requestAuthorization().catch(function (error) { setStatus(error.message || "No se pudo generar la credencial.", "error"); }).finally(function () { busy = false; requestButton.disabled = !verifiedUser; });
+        requestAuthorization().catch(function (error) { setStatus(error.message || "No se pudo generar la credencial.", "error"); }).finally(function () { busy = false; requestButton.disabled = !verifiedUser || !hostDetected; });
       });
       document.querySelectorAll("[data-copy]").forEach(function (button) {
         button.addEventListener("click", function () {
@@ -147,6 +183,7 @@
           navigator.clipboard.writeText(input.value).then(function () { button.textContent = "Copiado"; setTimeout(function () { button.textContent = "Copiar"; }, 1200); }).catch(function () { input.select(); document.execCommand("copy"); });
         });
       });
+      detectLocalHost();
     })();
   </script>
 </body>
