@@ -127,6 +127,30 @@ service cloud.firestore {
       allow read, write: if isAuthorizedUser();
     }
 
+    match /wtfSistema/miseHistoryEvents/events/{eventId} {
+      allow read: if isAuthorizedUser();
+      allow create: if isAuthorizedUser()
+        && request.resource.data.id == eventId
+        && request.resource.data.eventId == eventId
+        && request.resource.data.module in ['cocina', 'bar']
+        && request.resource.data.historyType in ['entradaRapida', 'salidaRapida', 'decomiso']
+        && request.resource.data.email is string
+        && request.resource.data.email.lower() == request.auth.token.email.lower()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.deviceId is string
+        && request.resource.data.deleted == false;
+      allow update: if isAuthorizedAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.eventId == resource.data.eventId;
+      allow delete: if isAuthorizedAdmin();
+    }
+
+    match /wtfSistema/miseHistoryMeta/{metaId} {
+      allow read: if isAuthorizedUser();
+      allow create, update: if isAuthorizedUser();
+      allow delete: if isAuthorizedAdmin();
+    }
+
     match /wtfSistema/{externalStateDoc} {
       allow read, create, update: if signedIn() && isExternalStateDocument(externalStateDoc);
       allow delete: if isAuthorizedAdmin() && isExternalStateDocument(externalStateDoc);

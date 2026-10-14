@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261014014520-51326b1";</script>
+  <script>window.WTF_APP_VERSION = "20261014024750-8e574be";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5190,10 +5190,11 @@
     });
     return docs;
   }
-  function buildRevokedAuthorizedUserDoc(user, reason) {
+  function buildRevokedAuthorizedUserDoc(user, reason, actor) {
     const email = getAuthorizedUserDocId(user && user.email || user);
     if (!email) return null;
     const ts = Date.now();
+    const actorEmail = getAuthorizedUserDocId(actor && actor.email || "");
     return {
       id: email,
       data: {
@@ -5204,6 +5205,9 @@
         deletedAt: new Date(ts).toISOString(),
         deletedAtMs: ts,
         updatedAtMs: ts,
+        revokedByEmail: actorEmail,
+        revokedBy: actor && (actor.nombre || actor.email) || "",
+        explicitAdministrativeAction: true,
         revokedReason: reason || "Usuario retirado de Usuarios y Permisos",
         updatedAt: new Date().toISOString()
       }
@@ -5681,6 +5685,46 @@
     barHistEntradaRapida: "barHistEntradaRapida",
     barHistSalidaRapida: "barHistSalidaRapida"
   };
+  const MISE_HISTORY_EVENT_COLLECTION = "miseHistoryEvents";
+  const MISE_HISTORY_META_COLLECTION = "miseHistoryMeta";
+  const MISE_HISTORY_PENDING_KEYS = {
+    cocina: "wtf_mise_history_pending_cocina",
+    bar: "wtf_mise_history_pending_bar"
+  };
+  const MISE_HISTORY_SOURCE_KEYS = {
+    cocina: { entradaRapida: "histEntradaRapida", salidaRapida: "histSalidaRapida", decomiso: "histDecomisoCocina" },
+    bar: { entradaRapida: "barHistEntradaRapida", salidaRapida: "barHistSalidaRapida", decomiso: "histDecomisoCocina" }
+  };
+  const MISE_HISTORY_EXTERNAL_KEYS = new Set([
+    "histEntradaRapida",
+    "histSalidaRapida",
+    "histDecomisoCocina",
+    "barHistEntradaRapida",
+    "barHistSalidaRapida"
+  ]);
+  function miseHistorySourceKey(moduleName, historyType) {
+    const moduleKey = String(moduleName || "cocina").toLowerCase() === "bar" ? "bar" : "cocina";
+    return (MISE_HISTORY_SOURCE_KEYS[moduleKey] || MISE_HISTORY_SOURCE_KEYS.cocina)[historyType] || "";
+  }
+  function miseHistoryStableId(event) {
+    const row = event || {};
+    const explicit = String(row.eventId || row.id || row.movementId || row.operationId || "").trim();
+    if (explicit && !/^ent-rap-|^sal-rap-/.test(explicit)) return explicit;
+    return `mise-${quickHashText(JSON.stringify([
+      row.module, row.historyType, row.productId || row.producto, row.cantidad,
+      row.fecha || row.fechaCliente, row.usuario, row.motivo, row.origen,
+      row.movimientoIcgId, row.physicalIcgKey
+    ]))}`;
+  }
+  function sanitizeMiseLegacyData(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const result = {};
+    Object.keys(value).forEach(function(key) {
+      if (/(password|token|secret|credential|apikey|api_key)/i.test(key)) return;
+      result[key] = value[key];
+    });
+    return result;
+  }
   const FIREBASE_SYNC_INDEX_DOC_ID = "syncIndex";
   const FIREBASE_EXTERNAL_SIGNATURES_STORAGE = "wtf_firebase_external_doc_signatures_v1";
   const FIREBASE_LAZY_MODULE_KEYS = new Set([
@@ -5954,7 +5998,19 @@
     if (!docRef || !docRef.firestore) return;
     const docs = buildAuthorizedUserDocs(users);
     if (!docs.length) return;
-    await Promise.all(docs.map(function(item) {
+    // La sincronizacion automatica nunca debe reactivar ni modificar un
+    // tombstone remoto. La reactivacion solo puede ocurrir desde la accion
+    // administrativa explicita del modulo Usuarios y Permisos.
+    const existingSnapshot = await docRef.firestore.collection("authorizedUsers").get({ source: "server" });
+    const existingByEmail = new Map();
+    existingSnapshot.forEach(function(doc) {
+      existingByEmail.set(getAuthorizedUserDocId(doc.id), doc.data() || {});
+    });
+    const safeDocs = docs.filter(function(item) {
+      const existing = existingByEmail.get(getAuthorizedUserDocId(item.id));
+      return !(existing && (existing.deleted === true || existing.revoked === true));
+    });
+    await Promise.all(safeDocs.map(function(item) {
       return docRef.firestore.collection("authorizedUsers").doc(item.id).set(item.data, { merge: true });
     }));
     // Una lectura incompleta de usuarios no debe interpretarse como una orden de revocacion.
@@ -12674,6 +12730,7 @@
     const systemLogsMigrationRef = useRef(false);
     const systemLogsFlushInFlightRef = useRef(false);
     const systemLogsFlushRequestedAgainRef = useRef(false);
+    const systemLogsFlushRetryTimerRef = useRef(null);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -12788,6 +12845,183 @@
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
     }
+    const miseHistoryFlushRef = useRef({ cocina: false, bar: false });
+    const miseHistoryMigrationRef = useRef(false);
+    const miseHistoryLoadedRef = useRef({ cocina: false, bar: false });
+    function getMiseHistoryModule(moduleLabel) {
+      return String(moduleLabel || "Cocina").toLowerCase() === "bar" ? "bar" : "cocina";
+    }
+    function readMiseHistoryPending(moduleName) {
+      try {
+        const raw = localStorage.getItem(MISE_HISTORY_PENDING_KEYS[moduleName]);
+        const value = raw ? JSON.parse(raw) : [];
+        return Array.isArray(value) ? value : [];
+      } catch (_) { return []; }
+    }
+    function writeMiseHistoryPending(moduleName, rows) {
+      try { localStorage.setItem(MISE_HISTORY_PENDING_KEYS[moduleName], JSON.stringify(Array.isArray(rows) ? rows : [])); } catch (_) {}
+    }
+    function createMiseHistoryEvent(row, historyType, moduleLabel) {
+      const moduleName = getMiseHistoryModule(moduleLabel);
+      const event = Object.assign({}, row || {}, {
+        eventId: miseHistoryStableId(Object.assign({}, row || {}, { module: moduleName, historyType })),
+        module: moduleName,
+        historyType,
+        source: "web",
+        schemaVersion: 1,
+        deleted: false,
+        fechaCliente: row && (row.fechaCliente || row.fecha) || new Date().toISOString(),
+        deviceId: load("wtf_device_id", "web-device") || "web-device",
+        sessionId: load("wtf_session_id", "") || ""
+      });
+      event.id = event.eventId;
+      return event;
+    }
+    async function flushMiseHistoryQueue(moduleName) {
+      if (miseHistoryFlushRef.current[moduleName] || !firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail) return;
+      const queue = readMiseHistoryPending(moduleName);
+      if (!queue.length) return;
+      miseHistoryFlushRef.current[moduleName] = true;
+      const remaining = [];
+      let confirmed = 0;
+      let newlyCreated = 0;
+      try {
+        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        for (const item of queue) {
+          const event = item && item.event ? item.event : item;
+          if (!event || !event.eventId) continue;
+          try {
+            const remoteEvent = Object.assign({}, event, {
+              email: firebaseAuthEmail,
+              createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+              updatedBy: firebaseAuthEmail
+            });
+            await eventsRef.doc(event.eventId).create(remoteEvent);
+            confirmed += 1;
+            newlyCreated += 1;
+          } catch (error) {
+            if (String(error && error.code || "").toLowerCase().includes("already-exists")) confirmed += 1;
+            else remaining.push(Object.assign({}, item, { status: "error", attempts: Number(item.attempts || 0) + 1, lastAttemptAt: Date.now(), lastError: String(error && error.message || error) }));
+          }
+        }
+        if (newlyCreated) {
+          const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc(moduleName);
+          await metaRef.set({
+            revision: window.firebase.firestore.FieldValue.increment(newlyCreated),
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: firebaseAuthEmail,
+            deviceId: load("wtf_device_id", "web-device") || "web-device",
+            schemaVersion: 1
+          }, { merge: true });
+        }
+      } finally {
+        writeMiseHistoryPending(moduleName, remaining);
+        miseHistoryFlushRef.current[moduleName] = false;
+      }
+    }
+    function queueMiseHistoryEvent(row, historyType, moduleLabel) {
+      const moduleName = getMiseHistoryModule(moduleLabel);
+      const event = createMiseHistoryEvent(row, historyType, moduleLabel);
+      const queue = readMiseHistoryPending(moduleName);
+      if (!queue.some((item) => item && item.event && item.event.eventId === event.eventId)) {
+        queue.push({ event, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" });
+        writeMiseHistoryPending(moduleName, queue);
+      }
+      flushMiseHistoryQueue(moduleName);
+    }
+    function applyMiseHistoryEvents(events) {
+      const grouped = { cocina: {}, bar: {} };
+      (Array.isArray(events) ? events : []).forEach(function(event) {
+        if (!event || event.deleted) return;
+        const moduleName = getMiseHistoryModule(event.module);
+        const sourceKey = miseHistorySourceKey(moduleName, event.historyType);
+        if (!sourceKey) return;
+        const row = Object.assign({}, event.legacyData || {}, event, { id: event.legacyData && event.legacyData.id || event.eventId || event.id, _miseEventId: event.eventId || event.id });
+        delete row.eventId;
+        delete row.module;
+        delete row.historyType;
+        delete row.legacyData;
+        const bucket = grouped[moduleName][sourceKey] || (grouped[moduleName][sourceKey] = []);
+        if (!bucket.some((existing) => existing.id === row.id)) bucket.push(row);
+      });
+      const current = getCurrentAppState();
+      const next = Object.assign({}, current);
+      Object.keys(grouped.cocina).forEach((key) => {
+        const incoming = grouped.cocina[key];
+        const existing = Array.isArray(next[key]) ? next[key] : [];
+        next[key] = existing.map((oldRow) => incoming.find((row) => row.id === oldRow.id) || oldRow).concat(incoming.filter((row) => !existing.some((oldRow) => oldRow.id === row.id)));
+      });
+      Object.keys(grouped.bar).forEach((key) => {
+        const incoming = grouped.bar[key];
+        const existing = Array.isArray(next[key]) ? next[key] : [];
+        next[key] = existing.map((oldRow) => incoming.find((row) => row.id === oldRow.id) || oldRow).concat(incoming.filter((row) => !existing.some((oldRow) => oldRow.id === row.id)));
+      });
+      applyRemoteState(next);
+    }
+    async function loadMiseHistoryEvents(moduleName, force) {
+      if (!force && miseHistoryLoadedRef.current[moduleName] || !firebaseDocRef.current) return;
+      miseHistoryLoadedRef.current[moduleName] = true;
+      try {
+        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        let snapshot;
+        try { snapshot = await eventsRef.where("module", "==", moduleName).orderBy("createdAt", "desc").limit(200).get({ source: "server" }); }
+        catch (_) { snapshot = await eventsRef.orderBy("createdAt", "desc").limit(200).get({ source: "server" }); }
+        applyMiseHistoryEvents(snapshot.docs.map((doc) => Object.assign({ eventId: doc.id }, doc.data())));
+      } catch (error) {
+        console.warn("No se pudo leer el ledger Mise:", moduleName, error);
+      }
+    }
+    async function migrateMiseHistoryOnce() {
+      if (miseHistoryMigrationRef.current || !firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail || !canManageAdministration(currentUser)) return;
+      miseHistoryMigrationRef.current = true;
+      const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc("migration");
+      try {
+        const metaSnapshot = await metaRef.get({ source: "server" });
+        const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
+        if (meta.status === "completed" && Number(meta.migrationVersion || 0) >= 1) return;
+        await metaRef.set({ migrationName: "mise-history-events", migrationVersion: 1, status: "running", startedAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedBy: firebaseAuthEmail }, { merge: true });
+        const sources = [
+          { module: "cocina", type: "entradaRapida", key: "histEntradaRapida" },
+          { module: "cocina", type: "salidaRapida", key: "histSalidaRapida" },
+          { module: "cocina", type: "decomiso", key: "histDecomisoCocina" },
+          { module: "bar", type: "entradaRapida", key: "barHistEntradaRapida" },
+          { module: "bar", type: "salidaRapida", key: "barHistSalidaRapida" }
+        ];
+        const eventsRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_EVENT_COLLECTION).collection("events");
+        let totalSourceRows = 0;
+        let migratedCount = 0;
+        let alreadyExistsCount = 0;
+        let errorCount = 0;
+        for (const source of sources) {
+          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, source.key, "", { source: "server", bypassCache: true });
+          const rows = Array.isArray(value) ? value : [];
+          totalSourceRows += rows.length;
+          for (const row of rows) {
+            const event = createMiseHistoryEvent(Object.assign({}, row, { legacyData: sanitizeMiseLegacyData(row) }), source.type, source.module === "bar" ? "Bar" : "Cocina");
+            event.origen = "migration";
+            event.source = "migration";
+            event.email = firebaseAuthEmail;
+            try {
+              await eventsRef.doc(event.eventId).create(Object.assign({}, event, { createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedAt: window.firebase.firestore.FieldValue.serverTimestamp() }));
+              migratedCount += 1;
+            } catch (error) {
+              if (String(error && error.code || "").toLowerCase().includes("already-exists")) alreadyExistsCount += 1;
+              else errorCount += 1;
+            }
+          }
+        }
+        await metaRef.set({ migrationName: "mise-history-events", migrationVersion: 1, status: errorCount ? "partial" : "completed", completedAt: window.firebase.firestore.FieldValue.serverTimestamp(), sourceDocuments: sources.map((source) => source.key), totalSourceRows, migratedCount, alreadyExistsCount, errorCount, updatedBy: firebaseAuthEmail }, { merge: true });
+        await loadMiseHistoryEvents("cocina", true);
+        await loadMiseHistoryEvents("bar", true);
+      } catch (error) {
+        console.warn("No se pudo completar la migracion de historiales Mise:", error);
+        await metaRef.set({ status: "failed", lastError: String(error && error.message || error), updatedBy: firebaseAuthEmail }, { merge: true }).catch(() => {});
+      } finally {
+        miseHistoryMigrationRef.current = false;
+      }
+    }
     const firebaseSyncIndexSignatureRef = useRef("");
     const firebaseModuleRefreshInFlightRef = useRef(false);
     function activeFirebaseModulesAreFresh(remoteSignatures) {
@@ -12853,6 +13087,19 @@
       flushSystemLogQueue();
       return entry;
     }
+    function scheduleSystemLogsFlushRetry(delay) {
+      if (systemLogsFlushRetryTimerRef.current) return;
+      const wait = Math.max(1500, Number(delay) || 10000);
+      systemLogsFlushRetryTimerRef.current = window.setTimeout(function() {
+        systemLogsFlushRetryTimerRef.current = null;
+        flushSystemLogQueue();
+      }, wait);
+    }
+    function clearSystemLogsFlushRetry() {
+      if (!systemLogsFlushRetryTimerRef.current) return;
+      window.clearTimeout(systemLogsFlushRetryTimerRef.current);
+      systemLogsFlushRetryTimerRef.current = null;
+    }
     function scheduleSystemLogsMetaUpdate() {
       if (systemLogsMetaWriteTimerRef.current) return;
       systemLogsMetaWriteTimerRef.current = window.setTimeout(async function() {
@@ -12880,9 +13127,15 @@
       systemLogsFlushInFlightRef.current = true;
       try {
         const refs = getSystemLogsRemoteRefs(firebaseDocRef.current, firebaseCfg);
-        if (!refs || !firebaseAuthReady || !firebaseAuthEmail || !firebaseBootstrappedRef.current) return;
+        if (!refs || !firebaseAuthReady || !firebaseAuthEmail) {
+          if (readSystemLogPendingQueue().length) scheduleSystemLogsFlushRetry(10000);
+          return;
+        }
         const pendingAtStart = readSystemLogPendingQueue();
-        if (!pendingAtStart.length) return;
+        if (!pendingAtStart.length) {
+          clearSystemLogsFlushRetry();
+          return;
+        }
         const confirmedIds = new Set();
         const failedItems = new Map();
         for (const queueItem of pendingAtStart) {
@@ -12890,6 +13143,9 @@
           const attempt = Number(queueItem.attempts || 0) + 1;
           try {
             const remoteEvent = Object.assign({}, event, {
+              // Firestore Rules deben validar el correo de la sesion Auth
+              // actual, no una copia antigua conservada por la cola local.
+              email: firebaseAuthEmail,
               createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
               synced: true
             });
@@ -12923,6 +13179,8 @@
           if (!remaining.some(function(item) { return item.event.id === eventId; })) remaining.push(queueItem);
         });
         writeSystemLogPendingQueue(remaining);
+        if (remaining.length) scheduleSystemLogsFlushRetry(10000);
+        else clearSystemLogsFlushRetry();
       } finally {
         systemLogsFlushInFlightRef.current = false;
         if (systemLogsFlushRequestedAgainRef.current) {
@@ -13049,6 +13307,10 @@
       const externalDocSignatures = Object.assign({}, firebaseExternalDocSignaturesRef.current || {});
       Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).forEach(function(key) {
         if (!Object.prototype.hasOwnProperty.call(firebaseState, key)) return;
+        if (MISE_HISTORY_EXTERNAL_KEYS.has(key)) {
+          delete firebaseState[key];
+          return;
+        }
         if (key === "systemLogs") {
           delete firebaseState[key];
           return;
@@ -13747,6 +14009,7 @@
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail) return;
       if (!currentUser || !isAdminUser(currentUser)) return;
+      if (authorizedUsersHydratedRef.current !== firebaseAuthEmail) return;
       writeFirebaseAuthorizedUsersIndex(firebaseDocRef.current, usuarios).catch(function(error) {
         console.warn("No se pudo sincronizar el indice de usuarios autorizados:", error);
       });
@@ -14283,36 +14546,23 @@
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
     useEffect(() => {
       if (page !== "mise" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current) return;
-      const activeKeys = Array.from(getFirebaseExternalKeysForPage("mise"));
       const unsubscribers = [];
       let active = true;
-      activeKeys.forEach(function(key) {
-        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
-        const historyRef = firebaseDocRef.current.parent && firebaseDocRef.current.parent.doc(docId);
-        if (!historyRef || typeof historyRef.onSnapshot !== "function") return;
-        let serverSnapshotSeen = false;
-        const unsubscribe = historyRef.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
-          if (!active || !snapshot.exists) return;
-          if (snapshot.metadata && snapshot.metadata.fromCache && !serverSnapshotSeen) return;
-          serverSnapshotSeen = true;
-          const data = snapshot.data() || {};
-          const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
-          if (typeof value === "undefined" || value === null) return;
-          const signature = quickHashText(JSON.stringify(value || {}));
-          const current = getCurrentAppState();
-          if (firebaseExternalDocSignaturesRef.current[key] === signature && Object.prototype.hasOwnProperty.call(current, key)) return;
-          firebaseExternalDocSignaturesRef.current[key] = signature;
-          firebaseExternalDocSignaturesCache[key] = signature;
-          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
-          const next = Object.assign({}, current, { [key]: value });
-          applyRemoteState(next);
-          setFirebaseMessage("Historial Mise actualizado desde Firebase");
+      const moduleNames = ["cocina", "bar"];
+      moduleNames.forEach(function(moduleName) {
+        loadMiseHistoryEvents(moduleName, false).catch(function(error) { console.warn("No se pudo cargar Mise:", moduleName, error); });
+        flushMiseHistoryQueue(moduleName).catch(function(error) { console.warn("No se pudo enviar la cola Mise:", moduleName, error); });
+        const metaRef = firebaseDocRef.current.parent.doc(MISE_HISTORY_META_COLLECTION).doc(moduleName);
+        if (!metaRef || typeof metaRef.onSnapshot !== "function") return;
+        const unsubscribe = metaRef.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+          if (!active || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+          loadMiseHistoryEvents(moduleName, true).catch(function(error) { console.warn("No se pudo actualizar Mise:", moduleName, error); });
         }, function(error) {
-          if (!active) return;
-          console.warn("No se pudo escuchar el historial Mise en Firebase:", key, error);
+          if (active) console.warn("No se pudo escuchar metadata Mise:", moduleName, error);
         });
         if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
       });
+      migrateMiseHistoryOnce().catch(function(error) { console.warn("No se pudo migrar Mise:", error); });
       return function() {
         active = false;
         unsubscribers.forEach(function(unsubscribe) {
@@ -14371,7 +14621,10 @@
     useEffect(() => {
       const handleOnline = () => flushSystemLogQueue();
       window.addEventListener("online", handleOnline);
-      return function() { window.removeEventListener("online", handleOnline); };
+      return function() {
+        window.removeEventListener("online", handleOnline);
+        clearSystemLogsFlushRetry();
+      };
     }, []);
     useEffect(() => {
       if (modulo) sessionStorage.setItem("wtf_modulo", modulo);
@@ -15590,7 +15843,7 @@
       salidas: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "salida", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       decomiso: () => /* @__PURE__ */ React.createElement(MovimientoForm, { tipo: "decomiso", productos: activeMovementProductos, addMovimiento: activeAddMovimiento, storageLabel: hasCocinaBarLinkAccess ? "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)" : "Inventario / Cuarto Frio", storageSources: activeMovementSources, specialAccess: hasCocinaBarLinkAccess, movementDraftTarget, usuarios, currentUser }),
       recuento: () => /* @__PURE__ */ React.createElement(RecuentoPage, { moduleLabel: esBar ? "Bar" : "Cocina", currentUser, usuarios, onSystemLog: addSystemLog, inventario: activeInv, setInventario: setActiveInv, cuartoFrioInventario: activeCuartoFrio, setCuartoFrioInventario: setActiveCuartoFrio, miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, histDecomisoCocina, setHistDecomisoCocina, regRecuento: activeRecuento, setRegRecuento: setActiveRecuento, movementStateKeys: { recuento: esBar ? "barRegRecuento" : "regRecuento", entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", histEntradaRapida: esBar ? "barHistEntradaRapida" : "histEntradaRapida", histSalidaRapida: esBar ? "barHistSalidaRapida" : "histSalidaRapida" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
-      mise: () => /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
+      mise: () => /* @__PURE__ */ React.createElement(MisePage, { miseAnPlace: activeMiseAnPlace, setMise: setActiveMise, miseStateKey: esBar ? "barMiseAnPlace" : "miseAnPlace", onMarkDeleted: markMiseRowDeleted, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida: activeHistEntradaRapida, setHistEntradaRapida: setActiveHistEntradaRapida, histSalidaRapida: activeHistSalidaRapida, setHistSalidaRapida: setActiveHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones: activeProduccion, setProducciones: setActiveProduccion, currentUser, onSystemLog: addSystemLog, onMiseHistoryEvent: queueMiseHistoryEvent, icgFrontRestData, setIcgFrontRestData, moduleLabel: esBar ? "Bar" : "Cocina" }),
       listado: () => /* @__PURE__ */ React.createElement(ListadoCompra, { inventario: activeInv, cuartoFrioInventario: activeCuartoFrio, miseAnPlace: activeMiseAnPlace, correos, setCorreos, googleConfig, setGoogleConfig, googleReady, googleAuthed, authorizing, solicitarPermisosGoogle, ensureGoogleToken, resetGoogleSession, moduleLabel: esBar ? "Bar" : "Cocina" }),
       registros: () => /* @__PURE__ */ React.createElement(Registros, { inventario: activeInv, setInventario: setActiveInv, regEntradas: activeEntradas, setRegEntradas: setActiveEntradas, regSalidas: activeSalidas, setRegSalidas: setActiveSalidas, regDecomiso: activeDecomiso, setRegDecomiso: setActiveDecomiso, currentUser, usuarios, movementStateKeys: { entradas: esBar ? "barRegEntradas" : "regEntradas", salidas: esBar ? "barRegSalidas" : "regSalidas", decomiso: esBar ? "barRegDecomiso" : "regDecomiso" }, onMarkMovementRowsDeleted: markMovementRowsDeleted }),
       histDecomiso: () => /* @__PURE__ */ React.createElement(HistorialDecomisoCocina, { data: histDecomisoCocina, setData: setHistDecomisoCocina, currentUser, usuarios, movementStateKey: "histDecomisoCocina", onMarkMovementRowsDeleted: markMovementRowsDeleted }),
@@ -22819,7 +23072,7 @@
     }
     function notifyAuthorizedAccess(user, reason) {
       if (typeof onAuthorizedUserAccessChange !== "function" || !user || !user.email) return;
-      const item = reason ? buildRevokedAuthorizedUserDoc(user, reason) : buildAuthorizedUserDocs([user]).find(function(doc) {
+      const item = reason ? buildRevokedAuthorizedUserDoc(user, reason, currentUser) : buildAuthorizedUserDocs([user]).find(function(doc) {
         return doc.id === getAuthorizedUserDocId(user.email);
       });
       if (item) onAuthorizedUserAccessChange(item);
@@ -22849,6 +23102,10 @@
       });
     }
     function guardarUsuario() {
+      if (!isAdminUser(currentUser)) {
+        toast("Solo un administrador autorizado puede modificar usuarios.", "error");
+        return;
+      }
       if (editingId) {
         const editingUser = usuarios.find(function(u) { return u.id === editingId; });
         if (isProtectedInitialAdmin(editingUser)) {
@@ -22965,6 +23222,10 @@
       resetForm();
     }
     function toggleActivo(user) {
+      if (!isAdminUser(currentUser)) {
+        toast("Solo un administrador autorizado puede cambiar el estado de usuarios.", "error");
+        return;
+      }
       if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
         toast("El Administrador Principal protegido no puede desactivarse.", "warn");
         return;
@@ -22979,6 +23240,10 @@
       if (typeof onSystemLog === "function") onSystemLog({ modulo: "Usuarios y Permisos", accion: user.activo === false ? "Activar usuario" : "Desactivar usuario", registro: user.email, detalle: `Estado cambiado a ${user.activo === false ? "Activo" : "Inactivo"}.` });
     }
     function deleteUser(user) {
+      if (!isAdminUser(currentUser)) {
+        toast("Solo un administrador autorizado puede eliminar usuarios.", "error");
+        return;
+      }
       if (isRootAdmin(user) || isProtectedInitialAdmin(user)) {
         toast("El Administrador Principal protegido no puede eliminarse.", "warn");
         return;
@@ -26256,7 +26521,7 @@
       )
     );
   }
-  function MisePage({ miseAnPlace, setMise, miseStateKey = "miseAnPlace", onMarkDeleted = null, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, onSystemLog = null, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
+  function MisePage({ miseAnPlace, setMise, miseStateKey = "miseAnPlace", onMarkDeleted = null, histDecomisoCocina, setHistDecomisoCocina, histEntradaRapida, setHistEntradaRapida, histSalidaRapida, setHistSalidaRapida, neveras, setNeveras, productos, syncNeveras, syncNeverasSalidaRapida, producciones, setProducciones, currentUser, onSystemLog = null, onMiseHistoryEvent = null, icgFrontRestData = null, setIcgFrontRestData = null, moduleLabel = "Cocina" }) {
     const toast = useToast();
     const [tab, setTab] = useState("tabla");
     const [modalDecomiso, setModalDecomiso] = useState(false);
@@ -26550,9 +26815,9 @@
       )
     ) : null;
     const editModal = editItem ? /* @__PURE__ */ React.createElement(EditMiseItemModal, { item: editItem, miseRows, icgArticles: icgArticleRows, icgLinkGroups: normalizedIcgData.icgLinkGroups, setIcgFrontRestData, toast, onClose: () => setEditItem(null), onSave: saveEditProd }) : null;
-    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, currentUser, moduleLabel, onSystemLog, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
-    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, moduleLabel, onSystemLog, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
-    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, moduleLabel, onSystemLog, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
+    const decomisoModal = modalDecomiso ? /* @__PURE__ */ React.createElement(DecomisoMiseModal, { miseAnPlace: miseRows, setMise, setHistDecomisoCocina, currentUser, moduleLabel, onSystemLog, onMiseHistoryEvent, onClose: () => setModalDecomiso(false), toast, syncNeveras }) : null;
+    const entradaModal = modalEntrada ? /* @__PURE__ */ React.createElement(EntradaRapidaModal, { miseAnPlace: miseRows, setMise, setHistEntradaRapida, currentUser, moduleLabel, onSystemLog, onMiseHistoryEvent, onClose: () => setModalEntrada(false), toast, syncNeveras }) : null;
+    const salidaModal = modalSalida ? /* @__PURE__ */ React.createElement(SalidaRapidaModal, { miseAnPlace: miseRows, setMise, setHistSalidaRapida, currentUser, moduleLabel, onSystemLog, onMiseHistoryEvent, producciones, setProducciones, onClose: () => setModalSalida(false), toast, syncNeverasSalidaRapida }) : null;
     return /* @__PURE__ */ React.createElement("div", null, tabsNode, mainView, addModal, editModal, decomisoModal, entradaModal, salidaModal);
   }
   function MiseKitComponentsEditor({ data, setData, miseRows = [], currentId = null }) {
@@ -26753,7 +27018,7 @@
       )
     );
   }
-  function DecomisoMiseModal({ miseAnPlace, setMise, setHistDecomisoCocina, currentUser, moduleLabel = "Cocina", onSystemLog, onClose, toast, syncNeveras }) {
+  function DecomisoMiseModal({ miseAnPlace, setMise, setHistDecomisoCocina, currentUser, moduleLabel = "Cocina", onSystemLog, onMiseHistoryEvent, onClose, toast, syncNeveras }) {
     const hoy = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [data, setData] = useState({ producto: "", fecha: hoy, cantidad: "", motivo: "", area: "", responsable: "" });
     const [error, setError] = useState("");
@@ -26773,6 +27038,7 @@
       const now = new Date().toISOString();
       setMise((p) => p.map((m) => normalizar(m.producto) === normalizar(data.producto) ? { ...m, existencia: Math.max(0, Number((getMiseSafeNumber(m.existencia, 0) - cant).toFixed(4))), updatedAt: now, movementUpdatedAt: now, movementUpdatedBy: data.responsable || "Sistema", movementSource: "Decomiso Mise", movimientosActualizadosAt: now } : m));
       setHistDecomisoCocina((p) => [...p, { ...data, cantidad: cant }]);
+      if (typeof onMiseHistoryEvent === "function") onMiseHistoryEvent(Object.assign({}, data, { cantidad: cant, existenciaAnterior: existenciaActual, existenciaNueva: Math.max(0, existenciaActual - cant), usuario: getUserDisplayLabel(currentUser) }), "decomiso", moduleLabel);
       if (typeof onSystemLog === "function") onSystemLog({
         id: `syslog-mise-${quickHashText([moduleLabel, "decomiso", data.producto, data.fecha, cant, data.motivo].join("|"))}`,
         modulo: `Mise an Place ${moduleLabel}`,
@@ -26855,7 +27121,7 @@
     }
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 12, display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "search-wrap", style: { maxWidth: 300, width: "100%" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-search search-icon" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", placeholder: "Buscar producto o usuario...", value: busqueda, onChange: (e) => setBusqueda(e.target.value) })), /* @__PURE__ */ React.createElement("span", { className: `pill pill-${cfg.color}` }, rows.length, " registros")), /* @__PURE__ */ React.createElement("div", { className: "card" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", null, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Fecha"), /* @__PURE__ */ React.createElement("th", null, "Producto"), /* @__PURE__ */ React.createElement("th", null, "Unidad"), /* @__PURE__ */ React.createElement("th", null, "Cantidad"), /* @__PURE__ */ React.createElement("th", null, "Exist. anterior"), /* @__PURE__ */ React.createElement("th", null, "Exist. nueva"), /* @__PURE__ */ React.createElement("th", null, "Usuario"))), /* @__PURE__ */ React.createElement("tbody", null, tableRows)))));
   }
-  function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, onClose, toast, syncNeveras }) {
+  function EntradaRapidaModal({ miseAnPlace, setMise, setHistEntradaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, onMiseHistoryEvent, onClose, toast, syncNeveras }) {
     const [filas, setFilas] = useState([{ p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }, { p: "", c: "", u: "Uni" }]);
     const [error, setError] = useState("");
     const [activeProductRow, setActiveProductRow] = useState(0);
@@ -26946,6 +27212,7 @@
         return acum[k] !== void 0 ? { ...m, existencia: roundMiseQty(Number(m.existencia || 0) + acum[k].delta), medida: acum[k].medida, updatedAt: fecha } : m;
       }));
       if (setHistEntradaRapida) setHistEntradaRapida((p) => [...p, ...registros]);
+      if (typeof onMiseHistoryEvent === "function") registros.forEach((row) => onMiseHistoryEvent(row, "entradaRapida", moduleLabel));
       if (typeof onSystemLog === "function") onSystemLog({
         id: `syslog-mise-${quickHashText([moduleLabel, "entrada-rapida", ...registros.map((row) => row.id)].join("|"))}`,
         modulo: `Mise an Place ${moduleLabel}`,
@@ -26965,7 +27232,7 @@
     }
     return /* @__PURE__ */ React.createElement("div", { className: "modal-overlay" }, /* @__PURE__ */ React.createElement("div", { className: "modal modal-lg", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "modal-header" }, /* @__PURE__ */ React.createElement("h3", null, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up", style: { color: "var(--verde)", marginRight: 7 } }), "Entrada R\xE1pida MISE AN PLACE"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris btn-icon btn-sm", onClick: onClose }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" }))), /* @__PURE__ */ React.createElement("div", { className: "modal-body" }, error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), error), /* @__PURE__ */ React.createElement("datalist", { id: "mise-ent-list" }, getVisibleMiseOptions().map((m) => /* @__PURE__ */ React.createElement("option", { key: m.id, value: m.producto }, m.producto, " \u2014 ", m.existencia, m.medida ? " " + m.medida : ""))), /* @__PURE__ */ React.createElement("div", { className: "mise-row-header" }, /* @__PURE__ */ React.createElement("span", null, "Producto"), /* @__PURE__ */ React.createElement("span", null, "Cantidad"), /* @__PURE__ */ React.createElement("span", null, "Unidad"), /* @__PURE__ */ React.createElement("span", null)), filas.map((f, i) => /* @__PURE__ */ React.createElement("div", { className: "mise-row", key: i, style: { gridTemplateColumns: "minmax(0,1.8fr) minmax(90px,.8fr) minmax(90px,.8fr) auto" } }, /* @__PURE__ */ React.createElement("input", { className: "form-control", list: "mise-ent-list", value: f.p, onFocus: () => setActiveProductRow(i), onChange: (e) => updateProductRow(i, e.target.value), placeholder: "Producto", autoComplete: "off" }), /* @__PURE__ */ React.createElement("input", { className: "form-control", type: "number", min: "0.01", step: "0.01", value: f.c, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, c: e.target.value } : x)), placeholder: "0" }), /* @__PURE__ */ React.createElement("select", { className: "form-control", value: f.u, onChange: (e) => setFilas((fs) => fs.map((x, j) => j === i ? { ...x, u: e.target.value } : x)) }, MISE_ENTRADA_MEDIDAS.map(renderUnitOption)), /* @__PURE__ */ React.createElement("button", { className: "btn btn-sm btn-gris btn-icon", onClick: () => setFilas((fs) => fs.filter((_, j) => j !== i)) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-times" })))), /* @__PURE__ */ React.createElement("button", { className: "btn btn-outline btn-sm", style: { marginTop: 5 }, onClick: () => setFilas((fs) => [...fs, { p: "", c: "", u: "Uni" }]) }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-plus" }), "Agregar fila")), /* @__PURE__ */ React.createElement("div", { className: "modal-footer" }, /* @__PURE__ */ React.createElement("button", { className: "btn btn-gris", onClick: onClose }, "Cancelar"), /* @__PURE__ */ React.createElement("button", { className: "btn btn-verde", onClick: guardar }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-arrow-up" }), "Registrar entrada r\xE1pida"))));
   }
-  function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
+  function SalidaRapidaModal({ miseAnPlace, setMise, setHistSalidaRapida, currentUser, moduleLabel = "Cocina", onSystemLog, onMiseHistoryEvent, producciones, setProducciones, onClose, toast, syncNeverasSalidaRapida }) {
     const [filas, setFilas] = useState([{ p: "", c: "" }, { p: "", c: "" }, { p: "", c: "" }]);
     const [error, setError] = useState("");
     const [activeProductRow, setActiveProductRow] = useState(0);
@@ -27054,6 +27321,7 @@
         return delta > 0 ? { ...m, existencia: Math.max(0, roundMiseQty(getMiseSafeNumber(m.existencia, 0) - delta)), updatedAt: fecha } : m;
       }));
       if (setHistSalidaRapida) setHistSalidaRapida((p) => [...p, ...registros]);
+      if (typeof onMiseHistoryEvent === "function") registros.forEach((row) => onMiseHistoryEvent(row, "salidaRapida", moduleLabel));
       if (typeof onSystemLog === "function") onSystemLog({
         id: `syslog-mise-${quickHashText([moduleLabel, "salida-rapida", ...registros.map((row) => row.id)].join("|"))}`,
         modulo: `Mise an Place ${moduleLabel}`,
