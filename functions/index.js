@@ -5,8 +5,10 @@ import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+import { getAuth } from "firebase-admin/auth";
 import crypto from "node:crypto";
 import webpush from "web-push";
+import { claimHostActivation, createHostActivation, enrollHostTerminal, handleHostFirestoreGateway } from "./host-gateway.js";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OLLAMA_CHAT_URL = "https://ollama.com/api/chat";
@@ -15,6 +17,7 @@ const OLLAMA_API_KEY = defineSecret("OLLAMA_API_KEY");
 const VAPID_PUBLIC_KEY = defineSecret("VAPID_PUBLIC_KEY");
 const VAPID_PRIVATE_KEY = defineSecret("VAPID_PRIVATE_KEY");
 const PUSH_ADMIN_KEY = defineSecret("PUSH_ADMIN_KEY");
+const WTF_HOST_SYNC_SECRET = defineSecret("WTF_HOST_SYNC_SECRET");
 const PUSH_SUBSCRIPTIONS_COLLECTION = "pwaPushSubscriptions";
 const PUSH_MESSAGES_COLLECTION = "pwaPushMessages";
 const AUTHORIZED_TERMINALS_COLLECTION = "authorizedTerminals";
@@ -51,7 +54,7 @@ function cors(req, res) {
   }
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Push-Admin-Key, X-WTF-Terminal-Id, X-WTF-Timestamp, X-WTF-Nonce, X-WTF-Signature");
 }
 
 function observedIp(req) {
@@ -66,6 +69,15 @@ function sanitizeTerminalText(value, max = 160) {
 function isAdminCaller(body) {
   const user = body && body.user && typeof body.user === "object" ? body.user : {};
   return String(user.role || "").toLowerCase() === "admin";
+}
+
+async function requireVerifiedTerminalAdmin(req) {
+  const authorization = String(req.headers.authorization || "");
+  if (!authorization.startsWith("Bearer ")) throw new Error("Se requiere una sesion Firebase Auth valida.");
+  const token = await getAuth().verifyIdToken(authorization.slice(7));
+  const email = String(token.email || "").trim().toLowerCase();
+  if (!["henryortiz1704@gmail.com", "wtfoodrdav.venezuela@gmail.com"].includes(email)) throw new Error("Solo el administrador principal puede administrar terminales.");
+  return token;
 }
 
 function hashTerminalSecret(secret) {
@@ -217,6 +229,16 @@ async function updateAuthorizedTerminal(body, req) {
   if (!snapshot.exists) throw new Error("Terminal no encontrada");
   const action = sanitizeTerminalText(body.terminalAction || body.operation || "", 60);
   const user = body.user && typeof body.user === "object" ? body.user : {};
+  if (action === "delete") {
+    await ref.delete();
+    await writeTerminalAudit("DELETE", terminalId, {
+      branchId: snapshot.data()?.branchId,
+      actor: sanitizeTerminalText(user.nombre || user.name || "", 160),
+      actorEmail: sanitizeTerminalText(user.email || "", 160),
+      detail: "Terminal eliminada por administrador"
+    }, req);
+    return { ok: true, deleted: true, terminalId };
+  }
   const patch = { updatedAt: FieldValue.serverTimestamp(), updatedBy: sanitizeTerminalText(user.nombre || user.name || "", 160), updatedByEmail: sanitizeTerminalText(user.email || "", 160) };
   if (body.name != null) patch.name = sanitizeTerminalText(body.name, 120);
   if (body.branchId != null) {
@@ -812,17 +834,43 @@ export const wtfAuthorizedTerminal = onRequest({ region: "us-central1", cors: fa
       return;
     }
     if (action === "list") {
+      await requireVerifiedTerminalAdmin(req);
       res.json(await listAuthorizedTerminals(req.body || {}));
       return;
     }
     if (action === "update") {
+      await requireVerifiedTerminalAdmin(req);
       res.json(await updateAuthorizedTerminal(req.body || {}, req));
       return;
+    }
+    if (action === "createHostActivation") {
+      return createHostActivation(req, res);
     }
     res.status(400).json({ ok: false, error: "Accion de terminal invalida" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error && error.message || "Error procesando terminal autorizada" });
   }
+});
+
+export const wtfHostFirestoreGateway = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [WTF_HOST_SYNC_SECRET], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Metodo no permitido" });
+  return handleHostFirestoreGateway(req, res, WTF_HOST_SYNC_SECRET);
+});
+
+export const wtfEnrollHostTerminal = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [WTF_HOST_SYNC_SECRET], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Metodo no permitido" });
+  return enrollHostTerminal(req, res, WTF_HOST_SYNC_SECRET, Boolean(req.body?.rotate));
+});
+
+export const wtfClaimHostActivation = onRequest({ region: "us-central1", cors: false, timeoutSeconds: 60, memory: "256MiB", secrets: [WTF_HOST_SYNC_SECRET], invoker: "public", serviceAccount: PUSH_SERVICE_ACCOUNT }, async (req, res) => {
+  cors(req, res);
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Metodo no permitido" });
+  return claimHostActivation(req, res, WTF_HOST_SYNC_SECRET);
 });
 
 export const wtfDispatchPushMessage = onDocumentCreated({ document: `${PUSH_MESSAGES_COLLECTION}/{messageId}`, region: "us-central1", timeoutSeconds: 60, memory: "256MiB", secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY] }, async (event) => {

@@ -293,7 +293,6 @@ $items = @(
   "scripts",
   "package.json",
   "package-lock.json",
-  ".env",
   ".env.example",
   "README.md",
   "API_LOCAL.md",
@@ -334,12 +333,15 @@ pause
 
 $ReadmeInstall = Join-Path $Payload "LEEME-INSTALACION.txt"
 @"
-WTF ICG Host - Instalador local
+WTF ICG Host - Instalador con activacion de un solo uso
 
-1. Extrae este paquete en la PC donde esta ICG FrontRest.
-2. Clic derecho sobre INSTALAR-WTF-ICG-HOST.cmd.
-3. Selecciona Ejecutar como administrador.
-4. El sistema quedara activo automaticamente al iniciar Windows.
+1. En la Web.App abre Finanzas > Control Horario y genera una activacion para la terminal activa.
+2. Ejecuta este instalador como administrador en la PC donde esta ICG FrontRest.
+3. En la primera pantalla introduce el TerminalID y el codigo temporal.
+4. El codigo expira en 10 minutos y se invalida despues de utilizarse.
+5. El instalador protege la identidad tecnica y continua automaticamente.
+6. No copies contrasenas ni edites el .env.
+7. El sistema quedara activo automaticamente al iniciar Windows.
 5. El icono de bandeja permite abrir opciones, reiniciar servicio o ver el panel.
 6. El panel no se abre solo; puedes abrirlo manualmente en:
 

@@ -252,11 +252,63 @@ function Optimize-WtfHostQueue {
   }
 }
 
+function Get-ExistingEnvValue {
+  param([string]$Path, [string]$Name)
+  if (!(Test-Path -LiteralPath $Path)) { return "" }
+  $line = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Where-Object { $_ -match "^\s*$([regex]::Escape($Name))=" } | Select-Object -First 1
+  if (!$line) { return "" }
+  return [string]($line -replace "^\s*$([regex]::Escape($Name))=", "")
+}
+
+function Protect-HostSecret {
+  param([string]$Secret)
+  if ([string]::IsNullOrWhiteSpace($Secret)) { throw "El servidor no devolvio una identidad tecnica valida." }
+  $secure = ConvertTo-SecureString -String $Secret -AsPlainText -Force
+  return ConvertFrom-SecureString -SecureString $secure
+}
+
+function Invoke-HostActivation {
+  param([string]$ExistingEnvPath, [string]$ActivationEndpoint)
+
+  $existingTerminal = Get-ExistingEnvValue -Path $ExistingEnvPath -Name "WTF_TERMINAL_ID"
+  $existingProtected = Get-ExistingEnvValue -Path $ExistingEnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED"
+  if ($existingTerminal -and $existingProtected) {
+    Write-Host "Se encontro una identidad tecnica protegida existente. Se conserva y no se solicita otra activacion." -ForegroundColor DarkGray
+    return [pscustomobject]@{ terminalId = $existingTerminal; protectedSecret = $existingProtected; endpoint = ""; reused = $true }
+  }
+
+  Write-Host ""
+  Write-Host "=== Activacion segura del WTF ICG Host ===" -ForegroundColor Cyan
+  Write-Host "El codigo debe generarse en Finanzas > Control Horario y solo puede utilizarse una vez." -ForegroundColor Yellow
+  $terminalId = Read-Host "TerminalID autorizado"
+  $activationCode = Read-Host "Codigo temporal de activacion"
+  if ([string]::IsNullOrWhiteSpace($terminalId) -or [string]::IsNullOrWhiteSpace($activationCode)) { throw "Debes indicar el TerminalID y el codigo temporal." }
+
+  $payload = @{
+    terminalId = $terminalId.Trim()
+    activationCode = $activationCode.Trim()
+    deviceId = "$env:COMPUTERNAME|$([Environment]::MachineName)|$([Environment]::OSVersion.Version)"
+    deviceInfo = @{ computerName = $env:COMPUTERNAME; user = [Environment]::UserName; os = [Environment]::OSVersion.VersionString }
+  } | ConvertTo-Json -Depth 6
+  try {
+    $result = Invoke-RestMethod -Uri $ActivationEndpoint -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 45
+  } catch {
+    throw "No se pudo activar el Host. Verifica el codigo temporal, su vigencia y la conexion. Detalle: $($_.Exception.Message)"
+  }
+  if (!$result.ok -or !$result.credential) { throw "La activacion fue rechazada por el servidor." }
+  $protected = Protect-HostSecret -Secret ([string]$result.credential)
+  return [pscustomobject]@{ terminalId = [string]$result.terminalId; protectedSecret = $protected; endpoint = [string]$result.endpoint; reused = $false }
+}
+
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 $SourceRoot = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $env:ProgramData "WTF ICG Host"
 $LogDir = Join-Path $DataDir "logs"
+
+$EnvPath = Join-Path $InstallDir ".env"
+$ActivationEndpoint = "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfClaimHostActivation"
+$Activation = Invoke-HostActivation -ExistingEnvPath $EnvPath -ActivationEndpoint $ActivationEndpoint
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "data\inbox"), (Join-Path $DataDir "data\outbox"), (Join-Path $DataDir "data\processed"), (Join-Path $DataDir "data\quarantine") | Out-Null
@@ -285,7 +337,6 @@ Optimize-WtfHostQueue -QueuePath (Join-Path $DataDir "data\queue.json")
 
 $HostExecutable = Resolve-HostExecutable $InstallDir
 $TrayExecutable = Resolve-TrayExecutable $InstallDir
-$EnvPath = Join-Path $InstallDir ".env"
 $PackagedEnvPath = Join-Path $SourceRoot ".env"
 $PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY"
 $PackagedFirebaseApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_API_KEY"
@@ -304,6 +355,11 @@ WTF_API_KEY=$PackagedApiKey
 WTF_FIREBASE_API_KEY=$PackagedFirebaseApiKey
 WTF_FIREBASE_AUTH_EMAIL=$PackagedFirebaseAuthEmail
 WTF_FIREBASE_AUTH_PASSWORD=$PackagedFirebaseAuthPassword
+WTF_HOST_IDENTITY_MODE=technical
+WTF_HOST_SYNC_ENDPOINT=https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway
+WTF_TERMINAL_ID=
+WTF_TERMINAL_SECRET_PROTECTED=
+WTF_TERMINAL_SECRET=
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
@@ -341,6 +397,11 @@ if ($PackagedFirebaseAuthPassword) {
 }
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
+Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value "technical"
+Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway"
+Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value ([string]$Activation.terminalId)
+Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value ([string]$Activation.protectedSecret)
+Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET" -Value ""
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
 Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
@@ -492,8 +553,10 @@ Add-Line "== Configuracion relevante =="
 `$envPath = Join-Path `$InstallDir ".env"
 if (Test-Path -LiteralPath `$envPath) {
   Get-Content -LiteralPath `$envPath | Where-Object {
-    `$_ -match "^(WTF_HOST_PORT|WTF_WEB_APP_URL|WTF_FIREBASE_PROJECT_ID|WTF_AUTO_APPLY_ICG_BACKUP|WTF_MODE|ICG_LIVE_DATABASE_NAME|ICG_SQL_DATA_PATH|ICG_AUDIT_DB_NAME|ICG_SQL_DATA_DIR|ICG_BACKUP_POLL_SECONDS|ICG_CONSUMPTION_LOOKBACK_DAYS|ICG_SQL_ENABLED|ICG_SQL_CONNECTION_STRING)="
-  } | ForEach-Object { Add-Line `$_ }
+  `$_ -match "^(WTF_HOST_PORT|WTF_WEB_APP_URL|WTF_FIREBASE_PROJECT_ID|WTF_HOST_IDENTITY_MODE|WTF_HOST_SYNC_ENDPOINT|WTF_TERMINAL_ID|WTF_TERMINAL_SECRET_PROTECTED|WTF_AUTO_APPLY_ICG_BACKUP|WTF_MODE|ICG_LIVE_DATABASE_NAME|ICG_SQL_DATA_PATH|ICG_AUDIT_DB_NAME|ICG_SQL_DATA_DIR|ICG_BACKUP_POLL_SECONDS|ICG_CONSUMPTION_LOOKBACK_DAYS|ICG_SQL_ENABLED|ICG_SQL_CONNECTION_STRING)="
+  } | ForEach-Object {
+    if (`$_ -match "^(WTF_TERMINAL_SECRET_PROTECTED|WTF_TERMINAL_SECRET)=") { Add-Line ((`$_ -split "=", 2)[0] + "=<configurado>") } else { Add-Line `$_ }
+  }
 } else {
   Add-Line "No se encontro .env"
 }

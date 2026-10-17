@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { IcgBackupConsumptionRow, IcgBackupSyncResult, ServiceConfig, SyncMovement } from "../core/types.js";
 import { decodeFirestoreAppState, decodeFirestoreValue, encodeCompressedAppState, encodeFirestoreValue } from "../core/firestore-state.js";
+import { technicalFirestoreFetch } from "../security/technical-host-client.js";
 
 type AnyRecord = Record<string, any>;
 
@@ -929,6 +930,10 @@ function shardDocumentUrl(config: ServiceConfig, key: string): string {
   return `${documentUrl(config)}/stateShards/${encodeURIComponent(key)}`;
 }
 
+function externalStateDocumentUrl(config: ServiceConfig, key: string): string {
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/${encodeURIComponent(key)}`;
+}
+
 function icgControlDocumentUrl(config: ServiceConfig): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.firebaseProjectId)}/databases/(default)/documents/${encodeURIComponent(config.firebaseCollection)}/icgControl`;
 }
@@ -959,6 +964,19 @@ async function firebaseAuthHeaders(config: ServiceConfig, headers: HeadersInit =
 }
 
 async function firestoreFetch(config: ServiceConfig, url: string, init: RequestInit = {}): Promise<Response> {
+  if (config.hostIdentityMode === "technical") {
+    const target = new URL(url);
+    const marker = "/documents/";
+    const index = target.pathname.indexOf(marker);
+    if (index < 0) throw new Error("La ruta Firestore del Host no es valida para el gateway tecnico.");
+    const resource = decodeURIComponent(target.pathname.slice(index + marker.length));
+    let fields: Record<string, unknown> | undefined;
+    if (typeof init.body === "string" && init.body.trim()) {
+      const payload = JSON.parse(init.body) as AnyRecord;
+      fields = payload.fields || {};
+    }
+    return technicalFirestoreFetch(config, resource, String(init.method || "GET"), fields, target.searchParams.get("currentDocument.exists") === "false");
+  }
   const headers = await firebaseAuthHeaders(config, init.headers || { "Content-Type": "application/json" });
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const target = new URL(url);
@@ -1021,21 +1039,20 @@ function splitAppStateIntoShards(appState: AnyRecord): { mainState: AnyRecord; s
 }
 
 async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
-  const res = await firestoreFetch(config, documentUrl(config));
-  if (!res.ok) throw new Error(`Firestore no permitio leer estado WTF (${res.status}).`);
-  const doc = await res.json() as AnyRecord;
-  const appState = decodeFirestoreAppState(doc.fields);
-  const shardKeys = decodeFirestoreValue(doc.fields?.appStateShardKeys);
-  if (!Array.isArray(shardKeys) || !shardKeys.length) return appState;
-  await Promise.all(shardKeys.map(async (key) => {
-    const shardKey = String(key || "").trim();
-    if (!shardKey) return;
-    const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shardKey));
-    if (!shardRes.ok) return;
-    const shardDoc = await shardRes.json() as AnyRecord;
-    const shardValue = decodeFirestoreAppState(shardDoc.fields);
-    if (shardValue !== undefined && shardValue !== null) appState[shardKey] = shardValue;
-  }));
+  const appState: AnyRecord = {};
+  const externalIcgRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"));
+  if (externalIcgRes.ok) {
+    const externalDoc = await externalIcgRes.json() as AnyRecord;
+    const externalValue = decodeFirestoreAppState(externalDoc.fields);
+    if (externalValue && typeof externalValue === "object") appState.icgFrontRestData = externalValue;
+  }
+  if (appState.icgFrontRestData) return appState;
+  const legacyIcgRes = await firestoreFetch(config, shardDocumentUrl(config, "icgFrontRestData"));
+  if (legacyIcgRes.ok) {
+    const legacyDoc = await legacyIcgRes.json() as AnyRecord;
+    const legacyValue = decodeFirestoreAppState(legacyDoc.fields);
+    if (legacyValue && typeof legacyValue === "object") appState.icgFrontRestData = legacyValue;
+  }
   return appState;
 }
 
@@ -1102,14 +1119,17 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       throw new Error(`Firestore no permitio guardar shard ${shard.key} (${shardRes.status}). ${text.slice(0, 300)}`);
     }
   }));
-  const res = await firestoreFetch(config, documentUrl(config), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Firestore no permitio guardar estado WTF (${res.status}). ${text.slice(0, 300)}`);
+  const icgPayload = shardPayloads.find((shard) => shard.key === "icgFrontRestData");
+  if (icgPayload) {
+    const externalRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(icgPayload.payload)
+    });
+    if (!externalRes.ok) {
+      const text = await externalRes.text().catch(() => "");
+      throw new Error(`Firestore no permitio guardar icgFrontRestData externo (${externalRes.status}). ${text.slice(0, 300)}`);
+    }
   }
 }
 
