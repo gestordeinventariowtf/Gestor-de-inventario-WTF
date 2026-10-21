@@ -116,7 +116,9 @@ async function validateRequest(req, secret) {
   if (!Number.isFinite(time) || Math.abs(Date.now() - time) > NONCE_WINDOW_MS) throw Object.assign(new Error("Solicitud tecnica vencida"), { statusCode: 401 });
   const rawBody = req.rawBody && Buffer.isBuffer(req.rawBody) ? req.rawBody.toString("utf8") : JSON.stringify(req.body || {});
   if (Buffer.byteLength(rawBody, "utf8") > MAX_BODY_BYTES) throw Object.assign(new Error("Solicitud tecnica demasiado grande"), { statusCode: 413 });
-  const pathname = new URL(req.originalUrl || req.url || "/", "https://internal.local").pathname;
+  // Cloud Functions puede exponer la ruta como "/" o como el nombre de la
+  // funcion. El cliente tecnico firma siempre esta ruta canonica estable.
+  const pathname = "/";
   const expected = hmac(deriveTerminalCredential(secret, terminalId), canonical(req.method, pathname, timestamp, nonce, rawBody));
   if (!timingSafeEqualHex(expected, signature)) throw Object.assign(new Error("Firma tecnica invalida"), { statusCode: 401 });
   const db = getFirestore();
@@ -244,6 +246,10 @@ export async function handleHostFirestoreGateway(req, res, masterSecret) {
     return res.status(405).json({ error: { status: "METHOD_NOT_ALLOWED", message: "Metodo no permitido" } });
   } catch (error) {
     const status = Number(error?.statusCode || 500);
+    console.error("wtfHostFirestoreGateway request rejected", {
+      status,
+      message: error?.message || "Error de gateway tecnico"
+    });
     return res.status(status).json({ error: { status: status === 500 ? "INTERNAL" : "REJECTED", message: error?.message || "Error de gateway tecnico" } });
   }
 }

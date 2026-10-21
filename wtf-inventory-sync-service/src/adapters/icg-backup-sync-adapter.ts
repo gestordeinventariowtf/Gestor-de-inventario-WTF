@@ -1108,7 +1108,9 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       lastIcgBackupSync: encodeFirestoreValue(result)
     }
   };
-  await Promise.all(shardPayloads.map(async (shard) => {
+  // Limitar las escrituras simultaneas evita saturar el gateway tecnico cuando
+  // el estado ICG contiene muchos shards y conserva reintentos individuales.
+  for (const shard of shardPayloads) {
     const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shard.key), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1118,7 +1120,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       const text = await shardRes.text().catch(() => "");
       throw new Error(`Firestore no permitio guardar shard ${shard.key} (${shardRes.status}). ${text.slice(0, 300)}`);
     }
-  }));
+  }
   const icgPayload = shardPayloads.find((shard) => shard.key === "icgFrontRestData");
   if (icgPayload) {
     const externalRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"), {
