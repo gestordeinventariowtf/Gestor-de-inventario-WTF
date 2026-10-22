@@ -134,11 +134,10 @@ const oldConsumptionTablePattern = new RegExp(["TIQUETS", "CONSUMO"].join("") + 
 assert.ok(!oldConsumptionTablePattern.test(recentConsumptionPreviewBody), "La cola del Host no debe usar fuentes antiguas de consumos ni tickets.");
 assert.ok(/GROUP BY[\s\S]*tl\.NUMLINEA,\s*tl\.CODARTICULO/i.test(recentConsumptionPreviewBody), "TIQUETSLIN debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
 assert.ok(/TRY_CONVERT\s*\(\s*datetime,\s*tl\.HORA/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar la fecha desde HORA.");
-assert.ok(/CAST\s*\(\s*tl\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE directamente.");
-assert.ok(/CAST\s*\(\s*tl\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO directamente.");
-assert.ok(!/TIQUETSCAB/i.test(recentConsumptionPreviewBody), "La lectura de ventas no debe depender de TIQUETSCAB.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.SERIE/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE con respaldo desde TIQUETSCAB.");
+assert.ok(/COALESCE\s*\(\s*NULLIF\s*\(\s*CAST\s*\(\s*tl\.NUMERO/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO con respaldo desde TIQUETSCAB.");
 assert.ok(/UPPER\s*\(\s*LTRIM\s*\(\s*RTRIM[\s\S]*=\s*'B'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe sincronizar solo tickets con N = B.");
-assert.ok(/TRY_CONVERT\s*\(\s*date\s*,\s*tl\.HORA\s*\)\s*>=\s*'20260914'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe incluir ventas desde el cierre 14/09/2026 en adelante.");
+assert.ok(/CONVERT\s*\(\s*date\s*,\s*c\.FECHA\s*\)\s*>=\s*'20260914'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe incluir ventas desde el cierre 14/09/2026 en adelante.");
 assert.ok(!/@UltimaFechaCierre|MAX\s*\(\s*CONVERT\s*\(\s*date\s*,\s*c\.FECHA\s*\)\s*\)/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN no debe limitarse solo al ultimo cierre.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 assert.ok(!/DATEADD\s*\(|GETDATE\s*\(\)\s*\)/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe filtrar ventas antiguas por fecha actual del servidor.");

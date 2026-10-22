@@ -1108,9 +1108,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       lastIcgBackupSync: encodeFirestoreValue(result)
     }
   };
-  // Limitar las escrituras simultaneas evita saturar el gateway tecnico cuando
-  // el estado ICG contiene muchos shards y conserva reintentos individuales.
-  for (const shard of shardPayloads) {
+  await Promise.all(shardPayloads.map(async (shard) => {
     const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shard.key), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1120,7 +1118,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       const text = await shardRes.text().catch(() => "");
       throw new Error(`Firestore no permitio guardar shard ${shard.key} (${shardRes.status}). ${text.slice(0, 300)}`);
     }
-  }
+  }));
   const icgPayload = shardPayloads.find((shard) => shard.key === "icgFrontRestData");
   if (icgPayload) {
     const externalRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"), {
@@ -1254,14 +1252,14 @@ IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
   WITH consumo AS (
     SELECT
-       ISNULL(CAST(tl.FO AS varchar(30)),'') AS FO,
-       ISNULL(CAST(tl.SERIE AS varchar(30)),'') AS SERIE,
-       ISNULL(CAST(tl.NUMERO AS varchar(30)),'') AS NUMERO,
-       ISNULL(CAST(tl.N AS varchar(30)),'') AS N,
+      ISNULL(CAST(c.FO AS varchar(30)),'') AS FO,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))) AS varchar(30)),'') AS SERIE,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))) AS varchar(30)),'') AS NUMERO,
+      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30)),'') AS N,
       ISNULL(CAST(tl.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
       ISNULL(CAST(tl.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
       CAST('' AS varchar(30)) AS CODALMACEN,
-       MIN(TRY_CONVERT(datetime, tl.HORA)) AS FECHAHORA,
+      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA))) AS FECHAHORA,
       SUM(ISNULL(tl.UNIDADES,0)) AS CONSUMO,
       SUM(ISNULL(tl.UNIDADES,0)) AS UNIDADES,
       MAX(ISNULL(CAST(tl.PRECIO AS varchar(30)),'')) AS PRECIO,
@@ -1272,11 +1270,16 @@ BEGIN
       MAX(ISNULL(NULLIF(tl.REFERENCIA,''), ISNULL(a.REFERENCIA,''))) AS REFERENCIA,
       MAX(ISNULL(CAST(a.USASTOCKS AS varchar(10)),'')) AS USASTOCKS
     FROM TIQUETSLIN tl
+    LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
-    WHERE UPPER(LTRIM(RTRIM(CAST(tl.N AS varchar(30))))) = 'B'
-      AND TRY_CONVERT(date,tl.HORA) >= '20260914'
+    WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
+      AND UPPER(LTRIM(RTRIM(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30))))) = 'B'
+      AND CONVERT(date,c.FECHA) >= '20260914'
     GROUP BY
-      tl.FO, tl.SERIE, tl.NUMERO, tl.N,
+      c.FO,
+      COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
+      COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))),
+      COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))),
       tl.NUMLINEA, tl.CODARTICULO
   )
   SELECT

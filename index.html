@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261022023711-276054f";</script>
+  <script>window.WTF_APP_VERSION = "20261017061922-6cf411a";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6425,76 +6425,6 @@
       window.localStorage.removeItem(getTerminalStorageKey());
     } catch (_) {}
   }
-  function requestSecureAdminPassword(message) {
-    return new Promise(function(resolve) {
-      const overlay = document.createElement("div");
-      overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px";
-      const dialog = document.createElement("div");
-      dialog.style.cssText = "width:min(94vw,420px);background:#fff;border-radius:12px;padding:20px;box-shadow:0 20px 60px rgba(15,23,42,.3);font-family:inherit";
-      const title = document.createElement("h3");
-      title.textContent = "Confirmacion administradora";
-      title.style.cssText = "margin:0 0 8px;color:#111827;font-size:18px";
-      const description = document.createElement("p");
-      description.textContent = message || "Introduce la clave administradora.";
-      description.style.cssText = "margin:0 0 14px;color:#4b5563;font-size:13px";
-      const field = document.createElement("div");
-      field.style.cssText = "display:flex;gap:8px;align-items:center";
-      const input = document.createElement("input");
-      input.type = "password";
-      input.autocomplete = "current-password";
-      input.className = "form-control";
-      input.placeholder = "Clave administradora";
-      input.style.flex = "1";
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "btn btn-outline btn-icon";
-      toggle.title = "Mostrar clave";
-      toggle.setAttribute("aria-label", "Mostrar u ocultar clave");
-      toggle.innerHTML = '<i class="fas fa-eye"></i>';
-      let visible = false;
-      toggle.addEventListener("click", function() {
-        visible = !visible;
-        input.type = visible ? "text" : "password";
-        toggle.title = visible ? "Ocultar clave" : "Mostrar clave";
-        toggle.innerHTML = visible ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
-        input.focus();
-      });
-      field.appendChild(input);
-      field.appendChild(toggle);
-      const actions = document.createElement("div");
-      actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.className = "btn btn-gris";
-      cancel.textContent = "Cancelar";
-      const confirm = document.createElement("button");
-      confirm.type = "button";
-      confirm.className = "btn btn-rojo";
-      confirm.textContent = "Continuar";
-      const close = function(value) {
-        overlay.remove();
-        resolve(value);
-      };
-      cancel.addEventListener("click", function() { close(null); });
-      confirm.addEventListener("click", function() { close(input.value); });
-      input.addEventListener("keydown", function(event) {
-        if (event.key === "Enter") confirm.click();
-        if (event.key === "Escape") cancel.click();
-      });
-      actions.appendChild(cancel);
-      actions.appendChild(confirm);
-      dialog.appendChild(title);
-      dialog.appendChild(description);
-      dialog.appendChild(field);
-      dialog.appendChild(actions);
-      overlay.appendChild(dialog);
-      overlay.addEventListener("click", function(event) {
-        if (event.target === overlay) cancel.click();
-      });
-      document.body.appendChild(overlay);
-      input.focus();
-    });
-  }
   async function callTerminalEndpoint(payload) {
     const cfg = getControlHorarioConfig();
     if (!cfg.endpoint) throw new Error("No hay endpoint de terminal autorizada configurado.");
@@ -6613,32 +6543,6 @@
       }, {
         enableHighAccuracy: true,
         timeout: 18e3,
-        maximumAge: 0
-      });
-    });
-  }
-  function readGpsBusinessLocationForSession() {
-    if (!navigator.geolocation) return Promise.reject(new Error("Este dispositivo o navegador no permite validar ubicacion."));
-    return new Promise(function(resolve, reject) {
-      navigator.geolocation.getCurrentPosition(function(position) {
-        const coords = position && position.coords ? position.coords : {};
-        const latitude = Number(coords.latitude);
-        const longitude = Number(coords.longitude);
-        const distance = getDistanceMeters(latitude, longitude, WTF_BUSINESS_LOCATION.lat, WTF_BUSINESS_LOCATION.lng);
-        const accuracy = Number(coords.accuracy || 0);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(distance)) {
-          reject(new Error("No se pudo leer una ubicacion valida del dispositivo."));
-          return;
-        }
-        resolve({
-          withinRange: distance <= WTF_BUSINESS_LOCATION.radiusMeters,
-          distanceMeters: Math.round(distance),
-          accuracyMeters: Math.round(accuracy),
-          precise: accuracy > 0 && accuracy <= WTF_BUSINESS_LOCATION.maxAccuracyMeters
-        });
-      }, reject, {
-        enableHighAccuracy: true,
-        timeout: 12e3,
         maximumAge: 0
       });
     });
@@ -8483,8 +8387,24 @@
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
+    const tickets = icgRows(normalizedData, "TiquetsCab").filter(function(row) {
+      return row && !(row.FechaAnulacion || row.Anulado || row.Cancelado);
+    });
     const lines = icgRows(normalizedData, "TiquetsLin");
+    const payments = icgRows(normalizedData, "TiquetsPag");
     const map = {};
+    tickets.forEach(function(row, index) {
+      const ticketKey = getIcgTicketKey(row) || `ticket-${index}`;
+      map[ticketKey] = Object.assign({}, row, {
+        ticketKey,
+        TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
+        FechaTicket: icgDateKey(row.Fecha || row.FechaCierre || row.createdAt) || "",
+        HoraTicket: row.HoraFin || row.HoraIni || row.Hora || "",
+        Lineas: [],
+        PagosDetalle: [],
+        TotalPagado: 0
+      });
+    });
     lines.forEach(function(row, index) {
       const ticketKey = getIcgTicketKey(row) || `ticket-line-${index}`;
       if (!map[ticketKey]) {
@@ -8501,6 +8421,13 @@
       if (ticketKey && map[ticketKey]) {
         map[ticketKey].Lineas.push(row);
         row._fechaTicket = row._fechaTicket || map[ticketKey].Fecha || map[ticketKey].FECHA || map[ticketKey].FechaTicket;
+      }
+    });
+    payments.forEach(function(row) {
+      const ticketKey = getIcgTicketKey(row);
+      if (ticketKey && map[ticketKey]) {
+        map[ticketKey].PagosDetalle.push(row);
+        map[ticketKey].TotalPagado += sumIcgFields(row, ["Importe", "Entregado"]);
       }
     });
     return Object.values(map).map(function(ticket) {
@@ -12898,11 +12825,6 @@
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
-    const geofenceTimerRef = useRef(null);
-    const geofenceCheckInFlightRef = useRef(false);
-    const geofenceOutsideReadingsRef = useRef(0);
-    const geofenceOutsideSinceRef = useRef(0);
-    const geofenceClosingRef = useRef(false);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -14279,24 +14201,7 @@
       }
       setFirebaseAuthUser(null);
     }
-    async function closeSessionForGeofence(locationResult) {
-      if (geofenceClosingRef.current) return;
-      geofenceClosingRef.current = true;
-      const sessionUser = currentUser;
-      if (!sessionUser) return;
-      const distance = locationResult && Number(locationResult.distanceMeters) || 0;
-      const accuracy = locationResult && Number(locationResult.accuracyMeters) || 0;
-      addSystemLog({
-        modulo: "Seguridad",
-        accion: "Cierre por salida de rango",
-        detalle: `La sesion se cerro despues de confirmar una ubicacion fuera del rango autorizado (${distance} m; precision ${accuracy} m).`,
-        origen: "geofence"
-      }, sessionUser);
-      try { await flushSystemLogQueue(); } catch (error) { console.warn("No se pudo confirmar el cierre por geolocalizacion:", error); }
-      toast("La sesion se cerro porque el dispositivo salio del rango autorizado.", "error", 9e3);
-      await cerrarSesion({ skipStandardLog: true });
-    }
-    async function cerrarSesion(options) {
+    async function cerrarSesion() {
       const sessionUser = currentUser;
       const token = accessTokenRef.current;
       if (token && window.google && window.google.accounts && window.google.accounts.oauth2 && typeof window.google.accounts.oauth2.revoke === "function") {
@@ -14307,7 +14212,7 @@
           console.warn(err);
         }
       }
-      if (sessionUser && !(options && options.skipStandardLog)) {
+      if (sessionUser) {
         addSystemLog({
           modulo: "Sistema",
           accion: "Cierre de sesion",
@@ -14794,32 +14699,6 @@
       };
     }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
-      if ((page !== "icg" && page !== "icgHost") || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
-      let active = true;
-      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData);
-      const applyRemoteIcgSnapshot = function(snapshot) {
-        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
-        const data = snapshot.data() || {};
-        const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
-        if (!value || typeof value !== "object") return;
-        // Ventas ICG y Consumo Mise reciben las filas nuevas directamente del
-        // documento externo que actualiza el Host, sin esperar otro cambio en
-        // estadoGeneral.
-        setIcgFrontRestData(ensureIcgFrontRestData(value));
-        setFirebaseMessage("Ventas ICG actualizadas desde Firebase");
-      };
-      ref.get({ source: "server" }).then(applyRemoteIcgSnapshot).catch(function(error) {
-        if (active) console.warn("No se pudo leer icgFrontRestData desde servidor:", error);
-      });
-      const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteIcgSnapshot, function(error) {
-        if (active) console.warn("No se pudo escuchar icgFrontRestData:", error);
-      });
-      return function() {
-        active = false;
-        if (typeof unsubscribe === "function") unsubscribe();
-      };
-    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
-    useEffect(() => {
       if (page !== "mise" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current) return;
       const unsubscribers = [];
       let active = true;
@@ -14945,82 +14824,6 @@
         window.removeEventListener("wtf:pwa-foreground-sync", handlePwaSync);
       };
     }, []);
-    useEffect(() => {
-      if (geofenceTimerRef.current) {
-        window.clearInterval(geofenceTimerRef.current);
-        geofenceTimerRef.current = null;
-      }
-      geofenceCheckInFlightRef.current = false;
-      geofenceOutsideReadingsRef.current = 0;
-      geofenceOutsideSinceRef.current = 0;
-      geofenceClosingRef.current = false;
-      if (!currentUser || !firebaseAuthReady || !firebaseAuthEmail || isAdminUser(currentUser)) return;
-      let accessValidation = {};
-      try { accessValidation = JSON.parse(sessionStorage.getItem("wtf_last_access_validation") || "{}"); } catch (_) {}
-      if (accessValidation && accessValidation.reason === "authorized-terminal") return;
-      let active = true;
-      let lastCheckAt = 0;
-      async function checkSessionLocation(reason) {
-        if (!active || geofenceCheckInFlightRef.current || geofenceClosingRef.current) return;
-        if (document.hidden || navigator.onLine === false) return;
-        const now = Date.now();
-        if (reason === "interval" && now - lastCheckAt < 30000) return;
-        lastCheckAt = now;
-        geofenceCheckInFlightRef.current = true;
-        try {
-          const result = await readGpsBusinessLocationForSession();
-          if (!active || !result.precise) {
-            geofenceOutsideReadingsRef.current = 0;
-            geofenceOutsideSinceRef.current = 0;
-            return;
-          }
-          if (result.withinRange) {
-            geofenceOutsideReadingsRef.current = 0;
-            geofenceOutsideSinceRef.current = 0;
-            return;
-          }
-          if (!geofenceOutsideSinceRef.current) geofenceOutsideSinceRef.current = Date.now();
-          geofenceOutsideReadingsRef.current += 1;
-          const outsideForMs = Date.now() - geofenceOutsideSinceRef.current;
-          if (geofenceOutsideReadingsRef.current >= 3 && outsideForMs >= 120000) {
-            await closeSessionForGeofence(result);
-          }
-        } catch (_) {
-          // A temporary GPS, permission, or network failure does not close the session.
-        } finally {
-          geofenceCheckInFlightRef.current = false;
-        }
-      }
-      function checkOnResume(event) {
-        const eventReason = event && event.detail && event.detail.reason || "resume";
-        window.setTimeout(() => checkSessionLocation(eventReason), 250);
-      }
-      function checkOnVisibility() {
-        if (!document.hidden) checkOnResume({ detail: { reason: "visibility" } });
-      }
-      function checkOnOnline() { checkOnResume({ detail: { reason: "online" } }); }
-      document.addEventListener("visibilitychange", checkOnVisibility);
-      window.addEventListener("pageshow", checkOnResume);
-      window.addEventListener("focus", checkOnResume);
-      window.addEventListener("online", checkOnOnline);
-      window.addEventListener("wtf:pwa-resume", checkOnResume);
-      window.addEventListener("wtf:pwa-foreground-sync", checkOnResume);
-      checkSessionLocation("session-start");
-      geofenceTimerRef.current = window.setInterval(() => checkSessionLocation("interval"), 45000);
-      return function() {
-        active = false;
-        document.removeEventListener("visibilitychange", checkOnVisibility);
-        window.removeEventListener("pageshow", checkOnResume);
-        window.removeEventListener("focus", checkOnResume);
-        window.removeEventListener("online", checkOnOnline);
-        window.removeEventListener("wtf:pwa-resume", checkOnResume);
-        window.removeEventListener("wtf:pwa-foreground-sync", checkOnResume);
-        if (geofenceTimerRef.current) {
-          window.clearInterval(geofenceTimerRef.current);
-          geofenceTimerRef.current = null;
-        }
-      };
-    }, [currentUser, firebaseAuthReady, firebaseAuthEmail]);
     useEffect(() => {
       const handleOnline = () => flushSystemLogQueue();
       window.addEventListener("online", handleOnline);
@@ -21527,7 +21330,7 @@
     async function updateTerminal(row, action, patch) {
       if (!isAdmin) return toast("Solo administradores pueden administrar terminales.", "error");
       if (action === "delete") {
-        const password = await requestSecureAdminPassword("Confirma la clave administradora para eliminar esta terminal:");
+        const password = prompt("Confirma la clave administradora para eliminar esta terminal:");
         if (password == null) return;
         if (!isValidVisibleAdminPassword(usuarios, password)) return toast("La clave administradora no es valida.", "error", 6000);
         const confirmed = window.confirm(`Se eliminara la terminal ${row.name || row.terminalId}. Esta accion no se puede deshacer. Deseas continuar?`);
