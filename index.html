@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261021180527-f89ebba";</script>
+  <script>window.WTF_APP_VERSION = "20261022023711-276054f";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -8483,24 +8483,8 @@
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
-    const tickets = icgRows(normalizedData, "TiquetsCab").filter(function(row) {
-      return row && !(row.FechaAnulacion || row.Anulado || row.Cancelado);
-    });
     const lines = icgRows(normalizedData, "TiquetsLin");
-    const payments = icgRows(normalizedData, "TiquetsPag");
     const map = {};
-    tickets.forEach(function(row, index) {
-      const ticketKey = getIcgTicketKey(row) || `ticket-${index}`;
-      map[ticketKey] = Object.assign({}, row, {
-        ticketKey,
-        TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
-        FechaTicket: icgDateKey(row.Fecha || row.FechaCierre || row.createdAt) || "",
-        HoraTicket: row.HoraFin || row.HoraIni || row.Hora || "",
-        Lineas: [],
-        PagosDetalle: [],
-        TotalPagado: 0
-      });
-    });
     lines.forEach(function(row, index) {
       const ticketKey = getIcgTicketKey(row) || `ticket-line-${index}`;
       if (!map[ticketKey]) {
@@ -8517,13 +8501,6 @@
       if (ticketKey && map[ticketKey]) {
         map[ticketKey].Lineas.push(row);
         row._fechaTicket = row._fechaTicket || map[ticketKey].Fecha || map[ticketKey].FECHA || map[ticketKey].FechaTicket;
-      }
-    });
-    payments.forEach(function(row) {
-      const ticketKey = getIcgTicketKey(row);
-      if (ticketKey && map[ticketKey]) {
-        map[ticketKey].PagosDetalle.push(row);
-        map[ticketKey].TotalPagado += sumIcgFields(row, ["Importe", "Entregado"]);
       }
     });
     return Object.values(map).map(function(ticket) {
@@ -14814,6 +14791,32 @@
         unsubscribers.forEach(function(unsubscribe) {
           try { unsubscribe(); } catch (_) {}
         });
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
+    useEffect(() => {
+      if ((page !== "icg" && page !== "icgHost") || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      let active = true;
+      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS.icgFrontRestData);
+      const applyRemoteIcgSnapshot = function(snapshot) {
+        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        const data = snapshot.data() || {};
+        const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+        if (!value || typeof value !== "object") return;
+        // Ventas ICG y Consumo Mise reciben las filas nuevas directamente del
+        // documento externo que actualiza el Host, sin esperar otro cambio en
+        // estadoGeneral.
+        setIcgFrontRestData(ensureIcgFrontRestData(value));
+        setFirebaseMessage("Ventas ICG actualizadas desde Firebase");
+      };
+      ref.get({ source: "server" }).then(applyRemoteIcgSnapshot).catch(function(error) {
+        if (active) console.warn("No se pudo leer icgFrontRestData desde servidor:", error);
+      });
+      const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteIcgSnapshot, function(error) {
+        if (active) console.warn("No se pudo escuchar icgFrontRestData:", error);
+      });
+      return function() {
+        active = false;
+        if (typeof unsubscribe === "function") unsubscribe();
       };
     }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
