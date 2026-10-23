@@ -1166,6 +1166,28 @@ function parseSqlRows(output: string): AnyRecord[] {
   return rowsOut;
 }
 
+async function readSqlTableColumns(config: ServiceConfig, databaseName: string, tableName: string): Promise<Set<string>> {
+  const safeTableName = quoteSql(tableName);
+  const rows = parseSqlRows(await runSql(config, databaseName, `
+SELECT c.name AS ColumnName
+FROM sys.columns c
+JOIN sys.tables t ON t.object_id = c.object_id
+WHERE t.name = N'${safeTableName}';`));
+  return new Set(rows.map((row) => String(row.ColumnName || "").trim().toUpperCase()).filter(Boolean));
+}
+
+function sqlColumnExpression(columns: Set<string>, alias: string, columnName: string, fallback: string): string {
+  return columns.has(columnName.toUpperCase()) ? `${alias}.[${columnName}]` : fallback;
+}
+
+function sqlDateExpression(columns: Set<string>, alias: string): string {
+  const candidates = ["FECHA", "FECHAHORA", "HORA"]
+    .filter((columnName) => columns.has(columnName))
+    .map((columnName) => `TRY_CONVERT(datetime, ${alias}.[${columnName}])`);
+  if (candidates.length === 1) return candidates[0];
+  return candidates.length ? `COALESCE(${candidates.join(", ")})` : "CAST(NULL AS datetime)";
+}
+
 function normalizeIcgClosureRows(rows: AnyRecord[], sourceName: string): AnyRecord[] {
   return (Array.isArray(rows) ? rows : []).map((row) => {
     const fecha = String(row.FechaCierre || row.Fecha || "").slice(0, 10);
@@ -1199,17 +1221,18 @@ function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyR
   return Array.from(map.values()).sort((a, b) => String(b.FechaCierre || "").localeCompare(String(a.FechaCierre || "")));
 }
 
-async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
+async function readBackupDailyClosures(config: ServiceConfig, databaseName: string, tiquetsLinColumns: Set<string>): Promise<AnyRecord[]> {
+  const lineDate = sqlDateExpression(tiquetsLinColumns, "tl");
   const sql = `
 WITH lineas AS (
   SELECT
-    CONVERT(date,COALESCE(TRY_CONVERT(datetime,tl.FECHA), TRY_CONVERT(datetime,tl.HORA))) AS FechaCierre,
+    CONVERT(date,${lineDate}) AS FechaCierre,
     CONCAT(ISNULL(CAST(tl.FO AS varchar(30)),''),'|',ISNULL(CAST(tl.SERIE AS varchar(30)),''),'|',ISNULL(CAST(tl.NUMERO AS varchar(30)),''),'|',ISNULL(CAST(tl.N AS varchar(30)),'')) AS TicketKey,
     ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0) AS Unidades,
     COALESCE(TRY_CONVERT(decimal(18,4),tl.PRECIOIVA) * ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0), TRY_CONVERT(decimal(18,4),tl.PRECIO) * ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0), 0) AS TotalLinea
   FROM TIQUETSLIN tl
   WHERE UPPER(LTRIM(RTRIM(CAST(tl.N AS varchar(30))))) = 'B'
-    AND CONVERT(date,COALESCE(TRY_CONVERT(datetime,tl.FECHA), TRY_CONVERT(datetime,tl.HORA))) >= '20260914'
+    AND CONVERT(date,${lineDate}) >= '20260914'
 ),
 daily AS (
 SELECT
@@ -1231,7 +1254,9 @@ ORDER BY FechaCierre DESC;`;
   return normalizeIcgClosureRows(parseSqlRows(await runSql(config, databaseName, sql)), databaseName);
 }
 
-async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string): Promise<IcgBackupConsumptionRow[]> {
+async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseName: string, tiquetsLinColumns: Set<string>): Promise<IcgBackupConsumptionRow[]> {
+  const lineDate = sqlDateExpression(tiquetsLinColumns, "tl");
+  const codAlmacen = sqlColumnExpression(tiquetsLinColumns, "tl", "CODALMACEN", "CAST('' AS varchar(30))");
   const sql = `
 IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
@@ -1243,8 +1268,8 @@ BEGIN
       ISNULL(CAST(tl.N AS varchar(30)),'') AS N,
       ISNULL(CAST(tl.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
       ISNULL(CAST(tl.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
-      ISNULL(CAST(tl.CODALMACEN AS varchar(30)),'') AS CODALMACEN,
-      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, tl.FECHA))) AS FECHAHORA,
+      ISNULL(CAST(${codAlmacen} AS varchar(30)),'') AS CODALMACEN,
+      MIN(${lineDate}) AS FECHAHORA,
       SUM(ISNULL(tl.UNIDADES,0)) AS CONSUMO,
       SUM(ISNULL(tl.UNIDADES,0)) AS UNIDADES,
       MAX(ISNULL(CAST(tl.PRECIO AS varchar(30)),'')) AS PRECIO,
@@ -1257,7 +1282,7 @@ BEGIN
     FROM TIQUETSLIN tl
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
     WHERE UPPER(LTRIM(RTRIM(CAST(tl.N AS varchar(30))))) = 'B'
-      AND CONVERT(date,COALESCE(TRY_CONVERT(datetime, tl.FECHA), TRY_CONVERT(datetime, tl.HORA))) >= '20260914'
+      AND CONVERT(date,${lineDate}) >= '20260914'
     GROUP BY
       tl.FO,
       tl.SERIE,
@@ -1400,6 +1425,10 @@ export async function readLatestBackupConsumption(config: ServiceConfig): Promis
 }> {
   const databaseName = sourceDatabaseName(config);
   await assertLiveIcgDatabaseIsAvailable(config, databaseName);
+  const tiquetsLinColumns = await readSqlTableColumns(config, databaseName, "TIQUETSLIN");
+  if (!tiquetsLinColumns.size) {
+    throw new Error(`No se pudieron leer las columnas de TIQUETSLIN en la base ${databaseName}.`);
+  }
   const latest = parseSqlRows(await runSql(config, databaseName, "SELECT CONVERT(varchar(10), CONVERT(date, GETDATE()), 120) AS Fecha;"))[0]?.Fecha;
   let closures: AnyRecord[] = [];
   const countSql = "SELECT t.name AS tableName, CAST(SUM(p.rows) AS int) AS rowsCount FROM sys.tables t JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) WHERE t.name IN ('ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA','TIQUETSLIN') GROUP BY t.name;";
@@ -1475,12 +1504,12 @@ END`;
   const salePrices = await runSql(config, databaseName, salePricesSql)
     .then((raw) => parseSqlRows(raw).filter((row) => ["1", "2"].includes(normalizar(row.IDTARIFAV || row.IDTarifaV || "")) && parseNumber(row.VALOR || row.Valor) > 0))
     .catch(() => []);
-  closures = await readBackupDailyClosures(config, databaseName).catch(() => []);
+  closures = await readBackupDailyClosures(config, databaseName, tiquetsLinColumns).catch(() => []);
   let previewConsumptionRows: IcgBackupConsumptionRow[] = [];
   let previewReadOk = true;
   let previewReadError = "";
   try {
-    previewConsumptionRows = await readRecentIcgConsumptionPreview(config, databaseName);
+    previewConsumptionRows = await readRecentIcgConsumptionPreview(config, databaseName, tiquetsLinColumns);
   } catch (error) {
     previewReadOk = false;
     previewReadError = error instanceof Error ? error.message : String(error);

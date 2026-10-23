@@ -134,17 +134,17 @@ assert.ok(!/TIQUETSCAB/i.test(recentConsumptionPreviewBody), "La vista previa de
 const oldConsumptionTablePattern = new RegExp(["TIQUETS", "CONSUMO"].join("") + "|TICKETLIN|TIQUETLIN", "i");
 assert.ok(!oldConsumptionTablePattern.test(recentConsumptionPreviewBody), "La cola del Host no debe usar fuentes antiguas de consumos ni tickets.");
 assert.ok(/GROUP BY[\s\S]*tl\.NUMLINEA,\s*tl\.CODARTICULO/i.test(recentConsumptionPreviewBody), "TIQUETSLIN debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
-assert.ok(/TRY_CONVERT\s*\(\s*datetime,\s*tl\.HORA/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar la fecha desde HORA.");
+assert.ok(recentConsumptionPreviewBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "La lectura de TIQUETSLIN debe alimentar la fecha mediante el adaptador de columnas reales.");
 assert.ok(/CAST\s*\(\s*tl\.SERIE\s+AS\s+varchar/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE desde la propia línea.");
 assert.ok(/CAST\s*\(\s*tl\.NUMERO\s+AS\s+varchar/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO desde la propia línea.");
 assert.ok(/UPPER\s*\(\s*LTRIM\s*\(\s*RTRIM[\s\S]*=\s*'B'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe sincronizar solo tickets con N = B.");
-assert.ok(/CONVERT\s*\(\s*date\s*,\s*COALESCE[\s\S]*tl\.FECHA[\s\S]*>=\s*'20260914'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe incluir ventas desde el cierre 14/09/2026 en adelante.");
+assert.ok(recentConsumptionPreviewBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "La lectura de TIQUETSLIN debe adaptar la fecha a las columnas reales de la base.");
 assert.ok(!/@UltimaFechaCierre|MAX\s*\(\s*CONVERT\s*\(\s*date\s*,\s*c\.FECHA\s*\)\s*\)/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN no debe limitarse solo al ultimo cierre.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 assert.ok(!/DATEADD\s*\(|GETDATE\s*\(\)\s*\)/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe filtrar ventas antiguas por fecha actual del servidor.");
 assert.ok(/FROM\s+TIQUETSLIN/i.test(dailyClosuresBody), "Cierres diarios debe leer las líneas desde TIQUETSLIN.");
 assert.ok(!/TIQUETSCAB/i.test(dailyClosuresBody), "Cierres diarios no debe depender de TIQUETSCAB.");
-assert.ok(/CONVERT\s*\(\s*date\s*,\s*COALESCE[\s\S]*tl\.FECHA[\s\S]*>=\s*'20260914'/i.test(dailyClosuresBody), "Cierres diarios debe incluir líneas desde el 14/09/2026 en adelante.");
+assert.ok(dailyClosuresBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "Cierres diarios debe adaptar la fecha a las columnas reales de la base.");
 assert.ok(!/SELECT\s+TOP\s+1/i.test(dailyClosuresBody), "Cierres diarios no debe limitarse al ultimo cierre.");
 
 const catalogSyncBody = adapterSource.slice(
@@ -180,7 +180,7 @@ assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La 
 assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSLIN por movimiento.");
 assert.ok(applyBackupBody.includes("const pricedRowsToApply = attachSalePricesToConsumptionRows(rowsToApply, salePrices)"), "Los descuentos aplicados deben heredar Precio Restaurante y Precio APPS Delivery desde PRECIOSVENTA.");
 assert.ok(applyBackupBody.includes("PrecioRestaurante: line.precioRestaurante") && applyBackupBody.includes("PrecioAppsDelivery: line.precioAppsDelivery"), "ConsumoMiseVentas debe guardar los precios de venta en cada movimiento exportado.");
-assert.ok(catalogReaderBody.includes("readBackupDailyClosures(config, databaseName)"), "Actualizar Articulos ICG debe leer cierres diarios desde la base local activa.");
+assert.ok(catalogReaderBody.includes("readBackupDailyClosures(config, databaseName, tiquetsLinColumns)"), "Actualizar Articulos ICG debe leer cierres diarios desde la base local activa y su esquema real.");
 assert.ok(catalogSyncBody.includes("const visibleClosures = filterIcgDeletedRows(icg, \"CierresDiarios\", data.closures)") && catalogSyncBody.includes("rows: visibleClosures"), "Actualizar Articulos ICG debe reemplazar CierresDiarios con los cierres leidos desde SQL respetando marcas de borrado.");
 assert.ok(!/SELECT\s+TOP\s+1\s+\*/i.test(dailyClosuresBody), "CierresDiarios debe traer todos los cierres desde el 14/09/2026 en adelante.");
 assert.ok(/ORDER\s+BY\s+FechaCierre\s+DESC/i.test(dailyClosuresBody), "Los cierres deben mantenerse ordenados por FechaCierre descendente.");
