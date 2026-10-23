@@ -1200,45 +1200,30 @@ function mergeClosureRows(existingRows: AnyRecord[], newRows: AnyRecord[]): AnyR
 }
 
 async function readBackupDailyClosures(config: ServiceConfig, databaseName: string): Promise<AnyRecord[]> {
-  const paymentsExists = parseSqlRows(await runSql(config, databaseName, "SELECT CASE WHEN OBJECT_ID('TIQUETSPAG','U') IS NULL THEN 0 ELSE 1 END AS Existe;"))[0]?.Existe === "1";
-  const paymentsJoin = paymentsExists
-    ? "LEFT JOIN (SELECT FO,SERIE,NUMERO,N,SUM(IMPORTE) AS PAGOS FROM TIQUETSPAG GROUP BY FO,SERIE,NUMERO,N) p ON p.FO=c.FO AND p.SERIE=c.SERIE AND p.NUMERO=c.NUMERO AND p.N=c.N"
-    : "LEFT JOIN (SELECT CAST(NULL AS varchar(20)) AS FO, CAST(NULL AS varchar(20)) AS SERIE, CAST(NULL AS int) AS NUMERO, CAST(NULL AS int) AS N, CAST(0 AS decimal(18,4)) AS PAGOS WHERE 1=0) p ON 1=0";
   const sql = `
-WITH cab AS (
+WITH lineas AS (
   SELECT
-    CONVERT(date,c.FECHA) AS FechaCierre,
-    c.FO,
-    c.SERIE,
-    c.NUMERO,
-    c.N,
-    ISNULL(c.TOTALBRUTO,0) AS TOTALBRUTO,
-    ISNULL(c.TOTALNETO,0) AS TOTALNETO,
-    ISNULL(c.PROPINA,0) AS PROPINA
-  FROM TIQUETSCAB c
-  WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-    AND CONVERT(date,c.FECHA) >= '20260914'
-),
-lineas AS (
-  SELECT SERIE,NUMERO,N,COUNT(NUMLINEA) AS Lineas
-  FROM TIQUETSLIN
-  GROUP BY SERIE,NUMERO,N
+    CONVERT(date,COALESCE(TRY_CONVERT(datetime,tl.FECHA), TRY_CONVERT(datetime,tl.HORA))) AS FechaCierre,
+    CONCAT(ISNULL(CAST(tl.FO AS varchar(30)),''),'|',ISNULL(CAST(tl.SERIE AS varchar(30)),''),'|',ISNULL(CAST(tl.NUMERO AS varchar(30)),''),'|',ISNULL(CAST(tl.N AS varchar(30)),'')) AS TicketKey,
+    ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0) AS Unidades,
+    COALESCE(TRY_CONVERT(decimal(18,4),tl.PRECIOIVA) * ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0), TRY_CONVERT(decimal(18,4),tl.PRECIO) * ISNULL(TRY_CONVERT(decimal(18,4),tl.UNIDADES),0), 0) AS TotalLinea
+  FROM TIQUETSLIN tl
+  WHERE UPPER(LTRIM(RTRIM(CAST(tl.N AS varchar(30))))) = 'B'
+    AND CONVERT(date,COALESCE(TRY_CONVERT(datetime,tl.FECHA), TRY_CONVERT(datetime,tl.HORA))) >= '20260914'
 ),
 daily AS (
 SELECT
-  CONVERT(varchar(10), c.FechaCierre, 120) AS FechaCierre,
-  CAST(COUNT(*) AS int) AS Tickets,
-  CAST(SUM(ISNULL(l.Lineas,0)) AS int) AS Lineas,
-  CAST(SUM(ISNULL(c.TOTALBRUTO,0)) AS decimal(18,2)) AS VentaBruta,
-  CAST(SUM(ISNULL(c.TOTALNETO,0)) AS decimal(18,2)) AS VentaNeta,
-  CAST(SUM(ISNULL(p.PAGOS,0)) AS decimal(18,2)) AS Pagos,
-  CAST(SUM(ISNULL(c.PROPINA,0)) AS decimal(18,2)) AS Propina,
+  CONVERT(varchar(10), FechaCierre, 120) AS FechaCierre,
+  CAST(COUNT(DISTINCT TicketKey) AS int) AS Tickets,
+  CAST(COUNT(*) AS int) AS Lineas,
+  CAST(SUM(TotalLinea) AS decimal(18,2)) AS VentaBruta,
+  CAST(SUM(TotalLinea) AS decimal(18,2)) AS VentaNeta,
+  CAST(SUM(TotalLinea) AS decimal(18,2)) AS Pagos,
+  CAST(0 AS decimal(18,2)) AS Propina,
   'Calculado desde Base de Datos ICG Local' AS Estado,
-  'Generado sin CMS desde SQL/backup local' AS Observacion
-FROM cab c
-LEFT JOIN lineas l ON l.SERIE=c.SERIE AND l.NUMERO=c.NUMERO AND l.N=c.N
-${paymentsJoin}
-GROUP BY c.FechaCierre
+  'Generado exclusivamente desde TIQUETSLIN de DBFREST' AS Observacion
+FROM lineas
+GROUP BY FechaCierre
 )
 SELECT *
 FROM daily
@@ -1252,14 +1237,14 @@ IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
   WITH consumo AS (
     SELECT
-      ISNULL(CAST(c.FO AS varchar(30)),'') AS FO,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))) AS varchar(30)),'') AS SERIE,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))) AS varchar(30)),'') AS NUMERO,
-      ISNULL(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30)),'') AS N,
+      ISNULL(CAST(tl.FO AS varchar(30)),'') AS FO,
+      ISNULL(CAST(tl.SERIE AS varchar(30)),'') AS SERIE,
+      ISNULL(CAST(tl.NUMERO AS varchar(30)),'') AS NUMERO,
+      ISNULL(CAST(tl.N AS varchar(30)),'') AS N,
       ISNULL(CAST(tl.NUMLINEA AS varchar(30)),'') AS NUMLINEA,
       ISNULL(CAST(tl.CODARTICULO AS varchar(30)),'') AS CODARTICULO,
-      CAST('' AS varchar(30)) AS CODALMACEN,
-      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, c.HORAFIN), TRY_CONVERT(datetime, c.FECHA))) AS FECHAHORA,
+      ISNULL(CAST(tl.CODALMACEN AS varchar(30)),'') AS CODALMACEN,
+      MIN(COALESCE(TRY_CONVERT(datetime, tl.HORA), TRY_CONVERT(datetime, tl.FECHA))) AS FECHAHORA,
       SUM(ISNULL(tl.UNIDADES,0)) AS CONSUMO,
       SUM(ISNULL(tl.UNIDADES,0)) AS UNIDADES,
       MAX(ISNULL(CAST(tl.PRECIO AS varchar(30)),'')) AS PRECIO,
@@ -1270,16 +1255,14 @@ BEGIN
       MAX(ISNULL(NULLIF(tl.REFERENCIA,''), ISNULL(a.REFERENCIA,''))) AS REFERENCIA,
       MAX(ISNULL(CAST(a.USASTOCKS AS varchar(10)),'')) AS USASTOCKS
     FROM TIQUETSLIN tl
-    LEFT JOIN TIQUETSCAB c ON c.SERIE=tl.SERIE AND c.NUMERO=tl.NUMERO AND c.N=tl.N
     LEFT JOIN ARTICULOS a ON CAST(a.CODARTICULO AS varchar(30)) = CAST(tl.CODARTICULO AS varchar(30))
-    WHERE (c.FECHAANULACION IS NULL OR c.FECHAANULACION <= '19000101')
-      AND UPPER(LTRIM(RTRIM(CAST(COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))) AS varchar(30))))) = 'B'
-      AND CONVERT(date,c.FECHA) >= '20260914'
+    WHERE UPPER(LTRIM(RTRIM(CAST(tl.N AS varchar(30))))) = 'B'
+      AND CONVERT(date,COALESCE(TRY_CONVERT(datetime, tl.FECHA), TRY_CONVERT(datetime, tl.HORA))) >= '20260914'
     GROUP BY
-      c.FO,
-      COALESCE(NULLIF(CAST(tl.SERIE AS varchar(30)),''), CAST(c.SERIE AS varchar(30))),
-      COALESCE(NULLIF(CAST(tl.NUMERO AS varchar(30)),''), CAST(c.NUMERO AS varchar(30))),
-      COALESCE(NULLIF(CAST(tl.N AS varchar(30)),''), CAST(c.N AS varchar(30))),
+      tl.FO,
+      tl.SERIE,
+      tl.NUMERO,
+      tl.N,
       tl.NUMLINEA, tl.CODARTICULO
   )
   SELECT
@@ -1360,7 +1343,7 @@ END`;
 }
 
 function sourceDatabaseName(config: ServiceConfig): string {
-  return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
+  return String(config.icgLiveDatabaseName || "").trim() || "DBFREST";
 }
 
 async function assertLiveIcgDatabaseIsAvailable(config: ServiceConfig, databaseName: string): Promise<void> {

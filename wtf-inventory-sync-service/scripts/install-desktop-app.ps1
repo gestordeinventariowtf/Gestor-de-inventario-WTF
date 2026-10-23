@@ -2,7 +2,11 @@ param(
   [string]$InstallDir = "",
   [string]$TaskName = "WTF ICG Host",
   [int]$Port = 8787,
-  [switch]$StartNow
+  [switch]$StartNow,
+  [string]$WebAppUrl = "https://gestor-de-inventario-wtf-29056.web.app",
+  [string]$IcgLiveDatabaseName = "DBFREST",
+  [string]$IcgSqlDataDir = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA",
+  [string]$IcgBackupPath = "C:\ICG\BACKUP\DBFREST.BAK_1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +19,7 @@ function Assert-Admin {
     if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
     $argsList += @("-TaskName", "`"$TaskName`"", "-Port", "$Port")
     if ($StartNow) { $argsList += "-StartNow" }
+    $argsList += @("-WebAppUrl", "`"$WebAppUrl`"", "-IcgLiveDatabaseName", "`"$IcgLiveDatabaseName`"", "-IcgSqlDataDir", "`"$IcgSqlDataDir`"", "-IcgBackupPath", "`"$IcgBackupPath`"")
     Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -WindowStyle Hidden
     exit 0
   }
@@ -342,11 +347,11 @@ $PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY
 $PackagedFirebaseApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_API_KEY"
 $PackagedFirebaseAuthEmail = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_EMAIL"
 $PackagedFirebaseAuthPassword = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD"
-Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName "FRS_WTFOODVZL" -AuditDatabaseName "WTF_AUDIT_FRS_WTFOODVZL" -SqlDataDir "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName $IcgLiveDatabaseName -AuditDatabaseName "WTF_AUDIT_$IcgLiveDatabaseName" -SqlDataDir $IcgSqlDataDir
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
-WTF_WEB_APP_URL=https://gestor-de-inventario-wtf-prod-2026.web.app
+WTF_WEB_APP_URL=$WebAppUrl
 WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
@@ -369,16 +374,16 @@ ICG_EXPORT_DIR=$DataDir\data\inbox
 ICG_IMPORT_DIR=$DataDir\data\outbox
 WTF_PROCESSED_DIR=$DataDir\data\processed
 WTF_QUARANTINE_DIR=$DataDir\data\quarantine
-ICG_BACKUP_PATH=C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1
+ICG_BACKUP_PATH=$IcgBackupPath
 ICG_SQL_SERVER=localhost
-ICG_LIVE_DATABASE_NAME=FRS_WTFOODVZL
-ICG_SQL_DATA_PATH=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA
+ICG_LIVE_DATABASE_NAME=$IcgLiveDatabaseName
+ICG_SQL_DATA_PATH=$IcgSqlDataDir
 ICG_AUDIT_DB_NAME=
-ICG_SQL_DATA_DIR=C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA
+ICG_SQL_DATA_DIR=$IcgSqlDataDir
 ICG_BACKUP_POLL_SECONDS=30
 ICG_CONSUMPTION_LOOKBACK_DAYS=30
 ICG_SQL_ENABLED=true
-ICG_SQL_CONNECTION_STRING=Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True
+ICG_SQL_CONNECTION_STRING=Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
 }
 
@@ -397,36 +402,37 @@ if ($PackagedFirebaseAuthPassword) {
 }
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
+Set-EnvValue -Path $EnvPath -Name "WTF_WEB_APP_URL" -Value $WebAppUrl
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value "technical"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway"
 Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value ([string]$Activation.terminalId)
 Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value ([string]$Activation.protectedSecret)
 Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET" -Value ""
-Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
+Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value $IcgBackupPath
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
-Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value "FRS_WTFOODVZL"
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value $IcgLiveDatabaseName
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value $IcgSqlDataDir
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value ""
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value $IcgSqlDataDir
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_CONSUMPTION_LOOKBACK_DAYS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value "Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True"
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
 @"
 `$ErrorActionPreference = "Stop"
 Set-Location "$InstallDir"
 `$env:WTF_DATA_DIR = "$DataDir\data"
-`$env:ICG_BACKUP_PATH = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
+`$env:ICG_BACKUP_PATH = "$IcgBackupPath"
 `$env:ICG_SQL_SERVER = "localhost"
-`$env:ICG_LIVE_DATABASE_NAME = "FRS_WTFOODVZL"
-`$env:ICG_SQL_DATA_PATH = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+`$env:ICG_LIVE_DATABASE_NAME = "$IcgLiveDatabaseName"
+`$env:ICG_SQL_DATA_PATH = "$IcgSqlDataDir"
 `$env:ICG_AUDIT_DB_NAME = ""
-`$env:ICG_SQL_DATA_DIR = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+`$env:ICG_SQL_DATA_DIR = "$IcgSqlDataDir"
 `$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:ICG_CONSUMPTION_LOOKBACK_DAYS = "30"
-`$env:ICG_SQL_CONNECTION_STRING = "Server=localhost;Database=FRS_WTFOODVZL;Trusted_Connection=True;TrustServerCertificate=True"
+`$env:ICG_SQL_CONNECTION_STRING = "Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "false"
 `$env:ICG_SQL_ENABLED = "true"
 `$env:ICG_EXPORT_DIR = "$DataDir\data\inbox"

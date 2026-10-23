@@ -1,7 +1,11 @@
 param(
   [string]$OutputDir = ".\release",
   [string]$PackageName = "WTF-ICG-Host-Setup",
-  [switch]$BuildSelfExtractingExe
+  [switch]$BuildSelfExtractingExe,
+  [string]$WebAppUrl = "https://gestor-de-inventario-wtf-29056.web.app",
+  [string]$IcgLiveDatabaseName = "DBFREST",
+  [string]$IcgSqlDataDir = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA",
+  [string]$IcgBackupPath = "C:\ICG\BACKUP\DBFREST.BAK_1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -326,7 +330,7 @@ echo.
 echo Instalando WTF ICG Host...
 echo Windows solicitara permiso de Administrador si hace falta.
 echo.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-desktop-app.ps1" -StartNow
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-desktop-app.ps1" -StartNow -WebAppUrl "$WebAppUrl" -IcgLiveDatabaseName "$IcgLiveDatabaseName" -IcgSqlDataDir "$IcgSqlDataDir" -IcgBackupPath "$IcgBackupPath"
 echo.
 pause
 "@ | Set-Content -LiteralPath $SetupCmd -Encoding ASCII
