@@ -123,7 +123,7 @@ export class LocalStore {
       movements: data.movements.length,
       pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
       approved: data.movements.filter((row) => row.estado === "aprobado").length,
-      synced: data.movements.filter((row) => row.estado === "sincronizado").length,
+      synced: data.movements.filter((row) => row.estado === "sincronizado" || row.estado === "aplicado").length,
       errors: data.movements.filter((row) => row.estado === "error").length,
       mappings: data.mappings.length,
       audit: data.audit.length

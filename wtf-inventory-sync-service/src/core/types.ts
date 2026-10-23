@@ -5,6 +5,7 @@ export type MovementState =
   | "pendiente_revision"
   | "aprobado"
   | "procesando"
+  | "aplicado"
   | "sincronizado"
   | "rechazado"
   | "error"

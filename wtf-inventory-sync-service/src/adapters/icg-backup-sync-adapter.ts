@@ -1751,8 +1751,9 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     esperando_conexion: 2,
     sincronizado: 3,
     pendiente_revision: 4,
+    aplicado: 6,
     rechazado: 5,
-    error: 6
+    error: 7
   };
   function rememberIcgQueueMovement(line: IcgBackupConsumptionRow, estado: SyncMovement["estado"], mensaje: string): void {
     const queueMovementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || fecha;
@@ -1846,7 +1847,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
     const pendingImportKey = quickHashText(["icg-bak", movementId, ticketIdentity, line.numLinea, line.codArticulo, line.referencia, line.codAlmacen].join("|"));
     if (!matchedLinks.length && (appliedKeys.has(pendingImportKey) || appliedConsumptionKeys.has(pendingImportKey) || appliedConsumptionAuditKeys.has(pendingAuditKey))) {
       result.skipped += 1;
-      rememberIcgQueueMovement(line, "sincronizado", "Consumo ICG ya procesado anteriormente.");
+      rememberIcgQueueMovement(line, "aplicado", "Consumo ICG ya procesado anteriormente.");
       continue;
     }
     if (!matchedLinks.length) {
@@ -1899,7 +1900,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       if (appliedKeys.has(importKey) || appliedConsumptionKeys.has(importKey) || appliedConsumptionAuditKeys.has(auditKey) || appliedConsumptionPhysicalKeys.has(physicalKey) || appliedMovementTargets.has(movementTargetKey) || legacyRemaining + 1e-9 >= cantidad) {
         if (!appliedKeys.has(importKey) && legacyRemaining) legacyAppliedRemaining.set(legacyKey, Number((legacyRemaining - cantidad).toFixed(4)));
         result.skipped += 1;
-        rememberIcgQueueMovement(line, "sincronizado", "Consumo ICG ya procesado anteriormente.");
+        rememberIcgQueueMovement(line, "aplicado", "Consumo ICG ya procesado anteriormente.");
         continue;
       }
       if (!producto) {
@@ -1964,7 +1965,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
             rememberConsumptionRow(consumoRow);
           } else {
             result.skipped += 1;
-            rememberIcgQueueMovement(line, "sincronizado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.");
+            rememberIcgQueueMovement(line, "aplicado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.");
           }
           appliedConsumptionPhysicalKeys.add(physicalKey);
           continue;
@@ -1980,7 +1981,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
         appliedConsumptionPhysicalKeys.add(physicalKey);
         appliedMovementTargets.add(movementTargetKey);
         result.applied += 1;
-        rememberIcgQueueMovement(line, "sincronizado", "Devolucion ICG registrada como decomiso automatico en WTF Web.");
+        rememberIcgQueueMovement(line, "aplicado", "Devolucion ICG registrada como decomiso automatico en WTF Web.");
         rememberConsumptionRow(consumoRow);
 
         const historyKey = target === "barMiseAnPlace" || target === "miseAnPlace" ? "histDecomisoCocina" : target.includes("bar") ? "barRegDecomiso" : "regDecomiso";
@@ -2042,7 +2043,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
           rememberConsumptionRow(consumoRow);
         } else {
           result.skipped += 1;
-          rememberIcgQueueMovement(line, "sincronizado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.");
+          rememberIcgQueueMovement(line, "aplicado", "Movimiento ICG ya existe en ledger Firestore. No se descuenta nuevamente.");
         }
         appliedConsumptionPhysicalKeys.add(physicalKey);
         continue;
@@ -2057,7 +2058,7 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
       appliedConsumptionPhysicalKeys.add(physicalKey);
       appliedMovementTargets.add(movementTargetKey);
       result.applied += 1;
-      rememberIcgQueueMovement(line, "sincronizado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.");
+      rememberIcgQueueMovement(line, "aplicado", "Descuento aplicado en WTF Web desde Base de Datos ICG Local.");
       rememberConsumptionRow(consumoRow);
 
       const historyKey = target === "barMiseAnPlace" ? "barHistSalidaRapida" : target === "miseAnPlace" ? "histSalidaRapida" : target.includes("bar") ? "barRegSalidas" : "regSalidas";
@@ -2171,7 +2172,7 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
       const movementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || data.fecha || now.slice(0, 10);
       const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, movementDate), line.codAlmacen || ""].join("|"));
-      return createBackupMovement(line, movementDate, importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
+      return createBackupMovement(line, movementDate, importKey, "pendiente", "Linea recibida desde ICG. Pendiente de aplicar salida o descuento en WTF Web.");
     })
   };
   await writeAppState(config, appState, result);

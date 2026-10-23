@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261023045333-c3e30ce";</script>
+  <script>window.WTF_APP_VERSION = "20261023054316-5b4fdec";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6023,6 +6023,67 @@
       || message.includes("missing or insufficient permissions")
       || message.includes("no tiene permisos");
   }
+  function getFirebaseIcgRowKey(row, datasetKey, index) {
+    if (!row || typeof row !== "object") return `${datasetKey || "icg"}-row-${index}`;
+    if (datasetKey === "CierresDiarios") return `closure|${icgDateKey(row.FechaCierre || row.Fecha || row.fecha || "") || index}`;
+    const physical = icgCellText(row.PhysicalIcgKey || row.physicalIcgKey || "").trim();
+    if (physical) return `physical|${canonicalizeIcgPhysicalKey(physical)}`;
+    const movement = icgCellText(row.MovimientoICGId || row.movimientoIcgId || "").trim();
+    if (movement) return `movement|${movement}|${icgCellText(row.NumLinea || row.NUMLINEA || "")}`;
+    const ticket = getIcgTicketKey(row);
+    const line = icgCellText(row.NumLinea || row.NUMLINEA || "").trim();
+    const code = icgCellText(row.CodArticulo || row.CODARTICULO || row.Codigo || "").trim();
+    if (ticket || line || code) return `line|${ticket}|${line}|${code}`;
+    return `${datasetKey || "icg"}-row-${index}`;
+  }
+  function mergeFirebaseIcgRow(remoteRow, localRow) {
+    if (!remoteRow) return localRow;
+    if (!localRow) return remoteRow;
+    const remoteClosed = isIcgConsumptionFinalized(remoteRow) || remoteRow.statusLocked === true;
+    const localClosed = isIcgConsumptionFinalized(localRow) || localRow.statusLocked === true;
+    if (localClosed && !remoteClosed) return Object.assign({}, remoteRow, localRow);
+    if (remoteClosed && !localClosed) return Object.assign({}, localRow, remoteRow);
+    const remoteTime = String(remoteRow.updatedAt || remoteRow._updatedAt || remoteRow.decisionUpdatedAt || "");
+    const localTime = String(localRow.updatedAt || localRow._updatedAt || localRow.decisionUpdatedAt || "");
+    const newer = localTime >= remoteTime ? localRow : remoteRow;
+    const older = newer === localRow ? remoteRow : localRow;
+    return Object.assign({}, older, newer);
+  }
+  function mergeFirebaseIcgClosureRow(remoteRow, localRow) {
+    const merged = mergeFirebaseIcgRow(remoteRow, localRow) || {};
+    const remoteTickets = parseIcgNumber(remoteRow && remoteRow.Tickets);
+    const localTickets = parseIcgNumber(localRow && localRow.Tickets);
+    const remoteLines = parseIcgNumber(remoteRow && remoteRow.Lineas);
+    const localLines = parseIcgNumber(localRow && localRow.Lineas);
+    return Object.assign({}, merged, {
+      Tickets: Math.max(remoteTickets, localTickets),
+      Lineas: Math.max(remoteLines, localLines)
+    });
+  }
+  function mergeFirebaseIcgDataset(remoteDataset, localDataset, datasetKey) {
+    const remoteRows = remoteDataset && Array.isArray(remoteDataset.rows) ? remoteDataset.rows : [];
+    const localRows = localDataset && Array.isArray(localDataset.rows) ? localDataset.rows : [];
+    const merged = new Map();
+    remoteRows.forEach(function(row, index) { merged.set(getFirebaseIcgRowKey(row, datasetKey, index), row); });
+    localRows.forEach(function(row, index) {
+      const key = getFirebaseIcgRowKey(row, datasetKey, index);
+      const mergeRow = datasetKey === "CierresDiarios" ? mergeFirebaseIcgClosureRow : mergeFirebaseIcgRow;
+      merged.set(key, mergeRow(merged.get(key), row));
+    });
+    return Object.assign({}, remoteDataset || {}, localDataset || {}, {
+      rows: Array.from(merged.values()),
+      columns: Array.from(new Set([].concat(remoteDataset && remoteDataset.columns || [], localDataset && localDataset.columns || [])))
+    });
+  }
+  function mergeFirebaseIcgExternalState(remoteValue, localValue) {
+    const remote = ensureIcgFrontRestData(remoteValue || {});
+    const local = ensureIcgFrontRestData(localValue || {});
+    const datasets = Object.assign({}, remote.datasets || {}, local.datasets || {});
+    ["TiquetsLin", "ConsumoMiseVentas", "CierresDiarios"].forEach(function(key) {
+      datasets[key] = mergeFirebaseIcgDataset(remote.datasets && remote.datasets[key], local.datasets && local.datasets[key], key);
+    });
+    return ensureIcgFrontRestData(Object.assign({}, remote, local, { datasets }));
+  }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
     const shards = Array.isArray(writeDoc.shards) ? writeDoc.shards : [];
@@ -6039,7 +6100,42 @@
       }));
     }
     if (externalDocs.length && docRef.parent) {
-      await Promise.all(externalDocs.map(async function(externalDoc) {
+      const externalDocsToWrite = [];
+      for (const externalDoc of externalDocs) {
+        if (externalDoc.key !== "icgFrontRestData") {
+          externalDocsToWrite.push(externalDoc);
+          continue;
+        }
+        try {
+          const remoteSnapshot = await docRef.parent.doc(externalDoc.id).get({ source: "server" });
+          const remoteData = remoteSnapshot.exists ? remoteSnapshot.data() || {} : {};
+          const remoteValue = remoteData.appStateCompressed ? decodeFirebaseCompressedState(remoteData.appStateCompressed) : remoteData.appState;
+          const localValue = externalDoc.doc.appStateCompressed ? decodeFirebaseCompressedState(externalDoc.doc.appStateCompressed) : externalDoc.doc.appState;
+          if (remoteSnapshot.exists && !remoteValue) throw new Error("El documento remoto de ICG existe pero no pudo decodificarse");
+          if (!localValue) throw new Error("La copia local de ICG no pudo decodificarse");
+          const mergedValue = mergeFirebaseIcgExternalState(remoteValue, localValue);
+          const mergedCompressed = encodeFirebaseAppState(mergedValue);
+          const mergedSignature = quickHashText(JSON.stringify(mergedValue));
+          externalDoc.doc.appStateJsonBytes = JSON.stringify(mergedValue).length;
+          externalDoc.doc.appStateCompressedBytes = mergedCompressed ? mergedCompressed.length : 0;
+          externalDoc.doc.syncMeta = Object.assign({}, externalDoc.doc.syncMeta || {}, { signature: mergedSignature });
+          if (mergedCompressed) {
+            externalDoc.doc.appStateCompressed = mergedCompressed;
+            externalDoc.doc.appState = window.firebase.firestore.FieldValue.delete();
+          } else {
+            externalDoc.doc.appState = mergedValue;
+            externalDoc.doc.appStateCompressed = window.firebase.firestore.FieldValue.delete();
+          }
+          writeDoc.externalDocSignatures[externalDoc.key] = mergedSignature;
+          if (writeDoc.syncIndexDoc && writeDoc.syncIndexDoc.modules && writeDoc.syncIndexDoc.modules[externalDoc.key]) {
+            writeDoc.syncIndexDoc.modules[externalDoc.key].signature = mergedSignature;
+          }
+          externalDocsToWrite.push(externalDoc);
+        } catch (error) {
+          console.warn("Se omitio la escritura de ICG porque no se pudo leer la version remota:", error);
+        }
+      }
+      await Promise.all(externalDocsToWrite.map(async function(externalDoc) {
         await docRef.parent.doc(externalDoc.id).set(externalDoc.doc, { merge: true });
       }));
     }
@@ -7465,7 +7561,10 @@
   }
   function isIcgConsumptionFinalized(row) {
     const status = normalizar(row && row.Estado || "");
-    return status === "aplicado" || status === "decomiso aplicado" || status === "sincronizado" || status === "legado ignorado";
+    if (status === "aplicado" || status === "decomiso aplicado" || status === "legado ignorado") return true;
+    if (status !== "sincronizado") return false;
+    const message = normalizar(row && (row.Mensaje || row.mensaje || row.MotivoRevision || ""));
+    return message && !message.includes("vista previa") && (message.includes("aplicado") || message.includes("procesado") || message.includes("ledger") || message.includes("decomiso"));
   }
   function isIcgHistoricalNoApplyStatus(status) {
     const normalizedStatus = normalizar(status);
@@ -8482,10 +8581,32 @@
     };
     const explicit = icgRows(data, "CierresDiarios");
     if (explicit.length) {
+      const lineCounts = {};
+      const uniqueLines = new Set();
+      icgRows(data, "TiquetsLin").forEach(function(line, index) {
+        if (!isBillableTiquetsLinRow(line)) return;
+        const dateKey = icgDateKey(line.Fecha || line.HORA || line._fechaTicket || line._sourceDate) || "";
+        if (!dateKey) return;
+        const rowKey = getFirebaseIcgRowKey(line, "TiquetsLin", index);
+        const uniqueKey = `${dateKey}|${rowKey}`;
+        if (uniqueLines.has(uniqueKey)) return;
+        uniqueLines.add(uniqueKey);
+        if (!lineCounts[dateKey]) lineCounts[dateKey] = { tickets: new Set(), lines: 0 };
+        lineCounts[dateKey].lines += 1;
+        lineCounts[dateKey].tickets.add(getIcgTicketKey(line) || rowKey);
+      });
       return sortRecentFirst(explicit).map(function(row) {
         const pagos = parseIcgNumber(row && row.Pagos);
         const ventaNeta = pagos || parseIcgNumber(row && row.VentaNeta);
-        return Object.assign({}, row, { VentaNeta: Number(ventaNeta.toFixed(2)) });
+        const dateKey = icgDateKey(row.FechaCierre || row.Fecha || row.fecha || row.createdAt) || "";
+        const counts = lineCounts[dateKey];
+        const remoteTickets = parseIcgNumber(row && row.Tickets);
+        const remoteLines = parseIcgNumber(row && row.Lineas);
+        return Object.assign({}, row, {
+          Tickets: counts ? Math.max(remoteTickets, counts.tickets.size) : remoteTickets,
+          Lineas: counts ? Math.max(remoteLines, counts.lines) : remoteLines,
+          VentaNeta: Number(ventaNeta.toFixed(2))
+        });
       });
     }
     const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
@@ -24496,7 +24617,7 @@
             if (group.children.length <= 1) {
               const row = group.children[0] || source;
               const blocked = getIcgConsumptionStatusLabel(row.Estado) === "Sin Existencia / No Aplicar" || row.Estado === "Producto WTF no encontrado" || row.Estado === "Sin vinculo";
-              const statusClass = row.Estado === "Pendiente" ? "pill-verde" : row.Estado === "Aplicado" ? "pill-azul" : "pill-rojo";
+              const statusClass = row.Estado === "Pendiente" || row.Estado === "Recibido" ? "pill-naranja" : row.Estado === "Aplicado" ? "pill-verde" : "pill-rojo";
               return [/* @__PURE__ */ React.createElement("tr", { key: row.ImportKey || row.IcgAuditKey || `single-${group.key}`, className: blocked ? "tr-out-stock" : "" },
                 /* @__PURE__ */ React.createElement("td", null, row.Fecha || "-"),
                 /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, fontWeight: 800 } }, getIcgVisibleTicket(row) || "-"),
@@ -24515,7 +24636,7 @@
             }
             const statuses = new Set(group.children.map(function(row) { return row.Estado || "-"; }));
             const groupStatus = statuses.size === 1 ? group.children[0].Estado : "Mixto";
-            const groupStatusClass = groupStatus === "Pendiente" ? "pill-verde" : groupStatus === "Aplicado" ? "pill-azul" : groupStatus === "Mixto" ? "pill-naranja" : "pill-rojo";
+            const groupStatusClass = groupStatus === "Pendiente" || groupStatus === "Recibido" ? "pill-naranja" : groupStatus === "Aplicado" ? "pill-verde" : groupStatus === "Mixto" ? "pill-naranja" : "pill-rojo";
             const groupedCellStyle = { display: "grid", gap: 5, alignItems: "center" };
             const groupedItemStyle = { minHeight: 20, display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px solid #e5e7eb", paddingBottom: 4 };
             const groupedTextItemStyle = Object.assign({}, groupedItemStyle, { justifyContent: "flex-start", textAlign: "left", fontWeight: 700 });

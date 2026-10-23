@@ -42,7 +42,7 @@ export function startDashboard(
           movements: data.movements.length,
           pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
           approved: data.movements.filter((row) => row.estado === "aprobado").length,
-          synced: data.movements.filter((row) => row.estado === "sincronizado").length,
+          synced: data.movements.filter((row) => row.estado === "sincronizado" || row.estado === "aplicado").length,
           errors: data.movements.filter((row) => row.estado === "error").length,
           mappings: data.mappings.length,
           audit: data.audit.length
@@ -385,7 +385,7 @@ function renderDashboard(config: ServiceConfig): string {
       return esc(raw.replace('T',' ').replace('.000Z',''));
     }
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-    function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
+    function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'||s==='aplicado'?'ok':'warn'}
     async function refreshAll(){
       if(window.btnSync) btnSync.disabled=true;
       msg.textContent=' Actualizando catalogos, referencias, stocks y precios desde ICG Local...';
