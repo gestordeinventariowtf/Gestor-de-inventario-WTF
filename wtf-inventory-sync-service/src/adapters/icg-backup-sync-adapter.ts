@@ -1067,8 +1067,68 @@ async function readIcgControlPause(config: ServiceConfig): Promise<{ paused: boo
   return { paused, reason };
 }
 
+function mergeIcgRowsBeforeHostWrite(remoteRows: AnyRecord[], localRows: AnyRecord[], keySelector: (row: AnyRecord) => string): AnyRecord[] {
+  const byKey = new Map<string, AnyRecord>();
+  const add = (row: AnyRecord): void => {
+    const key = keySelector(row);
+    if (!key) return;
+    byKey.set(key, Object.assign({}, byKey.get(key) || {}, row));
+  };
+  (Array.isArray(remoteRows) ? remoteRows : []).forEach(add);
+  (Array.isArray(localRows) ? localRows : []).forEach(add);
+  return Array.from(byKey.values());
+}
+
+async function mergeRemoteIcgStateBeforeHostWrite(config: ServiceConfig, appState: AnyRecord): Promise<AnyRecord> {
+  try {
+    const remoteRes = await firestoreFetch(config, externalStateDocumentUrl(config, "icgFrontRestData"));
+    if (!remoteRes.ok) return appState;
+    const remoteDoc = await remoteRes.json() as AnyRecord;
+    const remoteValue = decodeFirestoreAppState(remoteDoc.fields);
+    if (!remoteValue || typeof remoteValue !== "object") return appState;
+    const localIcg = ensureIcgData(appState);
+    const remoteIcg = ensureIcgData({ icgFrontRestData: remoteValue });
+    const localTickets = localIcg.datasets.TiquetsLin || { rows: [] };
+    const remoteTickets = remoteIcg.datasets.TiquetsLin || { rows: [] };
+    const localConsumption = localIcg.datasets.ConsumoMiseVentas || { rows: [] };
+    const remoteConsumption = remoteIcg.datasets.ConsumoMiseVentas || { rows: [] };
+    const localClosures = localIcg.datasets.CierresDiarios || { rows: [] };
+    const remoteClosures = remoteIcg.datasets.CierresDiarios || { rows: [] };
+    const ticketKey = (row: AnyRecord): string => {
+      const physical = firstText(row, ["PhysicalIcgKey", "physicalIcgKey"]);
+      return physical || consumptionSourceRowKey(row);
+    };
+    const consumptionKey = (row: AnyRecord): string => {
+      const physical = firstText(row, ["PhysicalIcgKey", "physicalIcgKey"]);
+      return physical || firstText(row, ["ImportKey", "IcgAuditKey", "MovimientoICGId"]);
+    };
+    const closureKey = (row: AnyRecord): string => String(row.FechaCierre || row.Fecha || row.fecha || "").slice(0, 10).trim();
+    localIcg.datasets.TiquetsLin = Object.assign({}, remoteTickets, localTickets, {
+      rows: mergeIcgRowsBeforeHostWrite(remoteTickets.rows, localTickets.rows, ticketKey)
+    });
+    localIcg.datasets.ConsumoMiseVentas = Object.assign({}, remoteConsumption, localConsumption, {
+      rows: mergeIcgRowsBeforeHostWrite(remoteConsumption.rows, localConsumption.rows, consumptionKey)
+    });
+    const mergedClosures = mergeIcgRowsBeforeHostWrite(remoteClosures.rows, localClosures.rows, closureKey);
+    localIcg.datasets.CierresDiarios = Object.assign({}, remoteClosures, localClosures, {
+      rows: mergedClosures.map((row) => {
+        const remote = (remoteClosures.rows || []).find((candidate: AnyRecord) => closureKey(candidate) === closureKey(row));
+        const local = (localClosures.rows || []).find((candidate: AnyRecord) => closureKey(candidate) === closureKey(row));
+        return Object.assign({}, row, {
+          Tickets: Math.max(parseNumber(remote?.Tickets), parseNumber(local?.Tickets), parseNumber(row.Tickets)),
+          Lineas: Math.max(parseNumber(remote?.Lineas), parseNumber(local?.Lineas), parseNumber(row.Lineas))
+        });
+      })
+    });
+    return appState;
+  } catch {
+    return appState;
+  }
+}
+
 async function writeAppState(config: ServiceConfig, appState: AnyRecord, result: IcgBackupSyncResult): Promise<void> {
-  const splitState = splitAppStateIntoShards(appState);
+  const stateToWrite = await mergeRemoteIcgStateBeforeHostWrite(config, appState);
+  const splitState = splitAppStateIntoShards(stateToWrite);
   const packed = encodeCompressedAppState(splitState.mainState);
   const shardPayloads = splitState.shards.map((shard) => {
     const packedShard = encodeCompressedAppState(shard.value as AnyRecord);
@@ -1091,7 +1151,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
     fields: {
       appStateCompressed: encodeFirestoreValue(packed.compressed),
       appStateFormat: encodeFirestoreValue("pako-base64-json-v1"),
-      appStateJsonBytes: encodeFirestoreValue(Buffer.byteLength(JSON.stringify(appState || {}), "utf8")),
+      appStateJsonBytes: encodeFirestoreValue(Buffer.byteLength(JSON.stringify(stateToWrite || {}), "utf8")),
       appStateMainJsonBytes: encodeFirestoreValue(packed.jsonBytes),
       appStateCompressedBytes: encodeFirestoreValue(packed.compressedBytes),
       appStateShardVersion: encodeFirestoreValue(1),
@@ -1100,7 +1160,7 @@ async function writeAppState(config: ServiceConfig, appState: AnyRecord, result:
       syncMeta: encodeFirestoreValue({
         clientId: "wtf-icg-host-backup",
         clientTime: Date.now(),
-        signature: quickHashText(JSON.stringify(appState)),
+      signature: quickHashText(JSON.stringify(stateToWrite)),
         reason: "icg-backup-consumption-sync"
       }),
       updatedBy: encodeFirestoreValue("icg-backup-consumption-sync"),

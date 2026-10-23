@@ -160,6 +160,8 @@ assert.ok(catalogSyncBody.includes("Pendiente de aplicar salida o descuento"), "
 assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
 assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos disponibles"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
+assert.ok(adapterSource.includes("mergeRemoteIcgStateBeforeHostWrite"), "El Host debe fusionar el estado ICG remoto antes de guardar para evitar sobrescribir tickets de otra sesion.");
+assert.ok(adapterSource.includes("mergeIcgRowsBeforeHostWrite"), "El Host debe conservar y fusionar las lineas ICG por una llave estable.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
 assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSLIN falla.");
 assert.ok(catalogReaderBody.includes("attachSalePricesToConsumptionRows(previewConsumptionRows, salePrices)"), "La cola informativa del Host debe cargar Precio Restaurante y Precio APPS Delivery internamente.");
