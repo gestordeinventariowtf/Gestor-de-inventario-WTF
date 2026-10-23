@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261017061922-6cf411a";</script>
+  <script>window.WTF_APP_VERSION = "20261023040048-0ffde96";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6377,6 +6377,32 @@
     if (error.code === 2) return "No se pudo obtener tu ubicacion. Verifica que el GPS o la ubicacion del dispositivo este activa.";
     if (error.code === 3) return "La ubicacion tardo demasiado en responder. Intentalo de nuevo con buena senal.";
     return error.message || "No se pudo validar la ubicacion.";
+  }
+  function readGpsBusinessLocationForSession() {
+    if (!navigator.geolocation) return Promise.reject(new Error("Este dispositivo o navegador no permite validar ubicacion."));
+    return new Promise(function(resolve, reject) {
+      navigator.geolocation.getCurrentPosition(function(position) {
+        const coords = position && position.coords ? position.coords : {};
+        const latitude = Number(coords.latitude);
+        const longitude = Number(coords.longitude);
+        const distance = getDistanceMeters(latitude, longitude, WTF_BUSINESS_LOCATION.lat, WTF_BUSINESS_LOCATION.lng);
+        const accuracy = Number(coords.accuracy || 0);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(distance)) {
+          reject(new Error("No se pudo leer una ubicacion valida del dispositivo."));
+          return;
+        }
+        resolve({
+          withinRange: distance <= WTF_BUSINESS_LOCATION.radiusMeters,
+          distanceMeters: Math.round(distance),
+          accuracyMeters: Math.round(accuracy),
+          precise: accuracy > 0 && accuracy <= WTF_BUSINESS_LOCATION.maxAccuracyMeters
+        });
+      }, reject, {
+        enableHighAccuracy: true,
+        timeout: 12e3,
+        maximumAge: 0
+      });
+    });
   }
   function getControlHorarioConfig() {
     const cfg = window.WTF_FIREBASE_CONFIG || {};
@@ -12825,6 +12851,11 @@
     const firebaseCooldownUntilRef = useRef(firebaseCooldownUntil);
     const accessTokenRef = useRef("");
     const accessTokenExpiryRef = useRef(0);
+    const geofenceTimerRef = useRef(null);
+    const geofenceCheckInFlightRef = useRef(false);
+    const geofenceOutsideReadingsRef = useRef(0);
+    const geofenceOutsideSinceRef = useRef(0);
+    const geofenceClosingRef = useRef(false);
     useEffect(() => {
       function isNumberInput(target) {
         return target && target.tagName === "INPUT" && target.type === "number";
@@ -14201,7 +14232,24 @@
       }
       setFirebaseAuthUser(null);
     }
-    async function cerrarSesion() {
+    async function closeSessionForGeofence(locationResult) {
+      if (geofenceClosingRef.current) return;
+      const sessionUser = currentUser;
+      if (!sessionUser) return;
+      geofenceClosingRef.current = true;
+      const distance = locationResult && Number(locationResult.distanceMeters) || 0;
+      const accuracy = locationResult && Number(locationResult.accuracyMeters) || 0;
+      addSystemLog({
+        modulo: "Seguridad",
+        accion: "Cierre por salida de rango",
+        detalle: `La sesion se cerro despues de confirmar una ubicacion fuera del rango autorizado (${distance} m; precision ${accuracy} m).`,
+        origen: "geofence"
+      }, sessionUser);
+      try { await flushSystemLogQueue(); } catch (error) { console.warn("No se pudo confirmar el cierre por geolocalizacion:", error); }
+      toast("La sesion se cerro porque el dispositivo permanecio fuera del rango autorizado.", "error", 9e3);
+      await cerrarSesion({ skipStandardLog: true });
+    }
+    async function cerrarSesion(options) {
       const sessionUser = currentUser;
       const token = accessTokenRef.current;
       if (token && window.google && window.google.accounts && window.google.accounts.oauth2 && typeof window.google.accounts.oauth2.revoke === "function") {
@@ -14212,7 +14260,7 @@
           console.warn(err);
         }
       }
-      if (sessionUser) {
+      if (sessionUser && !(options && options.skipStandardLog)) {
         addSystemLog({
           modulo: "Sistema",
           accion: "Cierre de sesion",
@@ -14832,6 +14880,80 @@
         clearSystemLogsFlushRetry();
       };
     }, []);
+    useEffect(() => {
+      if (geofenceTimerRef.current) {
+        window.clearInterval(geofenceTimerRef.current);
+        geofenceTimerRef.current = null;
+      }
+      geofenceCheckInFlightRef.current = false;
+      geofenceOutsideReadingsRef.current = 0;
+      geofenceOutsideSinceRef.current = 0;
+      geofenceClosingRef.current = false;
+      if (!currentUser || !firebaseAuthReady || !firebaseAuthEmail || isAdminUser(currentUser)) return;
+      let accessValidation = {};
+      try { accessValidation = JSON.parse(sessionStorage.getItem("wtf_last_access_validation") || "{}"); } catch (_) {}
+      if (accessValidation && accessValidation.reason === "authorized-terminal") return;
+      let active = true;
+      let lastCheckAt = 0;
+      async function checkSessionLocation(reason) {
+        if (!active || geofenceCheckInFlightRef.current || geofenceClosingRef.current) return;
+        if (document.hidden || navigator.onLine === false) return;
+        const now = Date.now();
+        if (reason === "interval" && now - lastCheckAt < 30000) return;
+        lastCheckAt = now;
+        geofenceCheckInFlightRef.current = true;
+        try {
+          const result = await readGpsBusinessLocationForSession();
+          if (!active || !result.precise) {
+            geofenceOutsideReadingsRef.current = 0;
+            geofenceOutsideSinceRef.current = 0;
+            return;
+          }
+          if (result.withinRange) {
+            geofenceOutsideReadingsRef.current = 0;
+            geofenceOutsideSinceRef.current = 0;
+            return;
+          }
+          if (!geofenceOutsideSinceRef.current) geofenceOutsideSinceRef.current = Date.now();
+          geofenceOutsideReadingsRef.current += 1;
+          const outsideForMs = Date.now() - geofenceOutsideSinceRef.current;
+          if (geofenceOutsideReadingsRef.current >= 3 && outsideForMs >= 120000) await closeSessionForGeofence(result);
+        } catch (_) {
+          // Fallas temporales de GPS, permisos o red no cierran la sesion.
+        } finally {
+          geofenceCheckInFlightRef.current = false;
+        }
+      }
+      function checkOnResume(event) {
+        const eventReason = event && event.detail && event.detail.reason || "resume";
+        window.setTimeout(() => checkSessionLocation(eventReason), 250);
+      }
+      function checkOnVisibility() {
+        if (!document.hidden) checkOnResume({ detail: { reason: "visibility" } });
+      }
+      function checkOnOnline() { checkOnResume({ detail: { reason: "online" } }); }
+      document.addEventListener("visibilitychange", checkOnVisibility);
+      window.addEventListener("pageshow", checkOnResume);
+      window.addEventListener("focus", checkOnResume);
+      window.addEventListener("online", checkOnOnline);
+      window.addEventListener("wtf:pwa-resume", checkOnResume);
+      window.addEventListener("wtf:pwa-foreground-sync", checkOnResume);
+      checkSessionLocation("session-start");
+      geofenceTimerRef.current = window.setInterval(() => checkSessionLocation("interval"), 45000);
+      return function() {
+        active = false;
+        document.removeEventListener("visibilitychange", checkOnVisibility);
+        window.removeEventListener("pageshow", checkOnResume);
+        window.removeEventListener("focus", checkOnResume);
+        window.removeEventListener("online", checkOnOnline);
+        window.removeEventListener("wtf:pwa-resume", checkOnResume);
+        window.removeEventListener("wtf:pwa-foreground-sync", checkOnResume);
+        if (geofenceTimerRef.current) {
+          window.clearInterval(geofenceTimerRef.current);
+          geofenceTimerRef.current = null;
+        }
+      };
+    }, [currentUser, firebaseAuthReady, firebaseAuthEmail]);
     useEffect(() => {
       if (modulo) sessionStorage.setItem("wtf_modulo", modulo);
       else sessionStorage.removeItem("wtf_modulo");
