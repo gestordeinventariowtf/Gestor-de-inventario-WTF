@@ -30,6 +30,7 @@ const DATASET_COLUMNS: Record<string, string[]> = {
 };
 
 const CIERRES_DIARIOS_COLUMNS = ["Archivo", "FechaCierre", "Tickets", "Lineas", "VentaBruta", "VentaNeta", "Pagos", "Propina", "Estado", "Observacion"];
+const ICG_SALES_RESET_DATASET_KEYS = ["TiquetsLin", "ConsumoMiseVentas", "CierresDiarios"];
 const FIREBASE_APP_STATE_SHARD_KEYS = [
   "regProduccion",
   "icgFrontRestData",
@@ -1088,6 +1089,16 @@ async function mergeRemoteIcgStateBeforeHostWrite(config: ServiceConfig, appStat
     if (!remoteValue || typeof remoteValue !== "object") return appState;
     const localIcg = ensureIcgData(appState);
     const remoteIcg = ensureIcgData({ icgFrontRestData: remoteValue });
+    const remoteSalesResetAt = firstText(remoteIcg, ["icgSalesResetAt"]);
+    const localSalesResetAt = firstText(localIcg, ["icgSalesResetAt"]);
+    if (remoteSalesResetAt && remoteSalesResetAt !== localSalesResetAt) {
+      ICG_SALES_RESET_DATASET_KEYS.forEach((key) => {
+        const dataset = localIcg.datasets[key] || { key, rows: [] };
+        localIcg.datasets[key] = Object.assign({}, dataset, { rows: [] });
+      });
+      localIcg.icgSalesResetAt = remoteSalesResetAt;
+      return appState;
+    }
     const localTickets = localIcg.datasets.TiquetsLin || { rows: [] };
     const remoteTickets = remoteIcg.datasets.TiquetsLin || { rows: [] };
     const localConsumption = localIcg.datasets.ConsumoMiseVentas || { rows: [] };
