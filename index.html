@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261024063942-4a77d02";</script>
+  <script>window.WTF_APP_VERSION = "20261024065300-2af5e29";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -8696,27 +8696,18 @@
     });
   }
   function buildIcgDailyClosures(data) {
-    const tickets = buildIcgSalesTickets(data);
-    const groups = {};
-    tickets.forEach(function(row) {
-      const sourceFile = String(row.Archivo || row._sourceFile || "DBFREST").trim() || "DBFREST";
-      const closureDate = icgDateKey(row.FechaTicket || row.Fecha || row.FechaCierre || row.createdAt) || "Sin fecha";
-      const key = `${sourceFile}|${closureDate}`;
-      if (!groups[key]) {
-        groups[key] = { Archivo: sourceFile, FechaCierre: closureDate, Tickets: 0, Lineas: 0, VentaBruta: 0, VentaNeta: 0, Pagos: 0, Propina: 0, Estado: "Calculado desde Base de Datos ICG Local", Observacion: "Fuente: TIQUETSLIN de la base de datos local." };
-      }
-      groups[key].Tickets += 1;
-      groups[key].Lineas += (row.Lineas || []).length;
-      groups[key].VentaBruta += parseIcgNumber(row.TotalBrutoCalculado);
-      groups[key].VentaNeta += parseIcgNumber(row.TotalNetoCalculado);
-    });
-    return Object.keys(groups).sort().reverse().map(function(key) {
-      const row = groups[key];
+    const explicit = icgRows(data, "CierresDiarios");
+    return explicit.slice().sort(function(a, b) {
+      return icgDateKey(b && (b.FechaCierre || b.Fecha || b.createdAt)).localeCompare(icgDateKey(a && (a.FechaCierre || a.Fecha || a.createdAt)));
+    }).map(function(row) {
       return Object.assign({}, row, {
-        VentaBruta: Number(row.VentaBruta.toFixed(2)),
-        VentaNeta: Number(row.VentaNeta.toFixed(2)),
-        Pagos: 0,
-        Propina: Number(row.Propina.toFixed(2))
+        Archivo: row.Archivo || row._sourceFile || "",
+        FechaCierre: row.FechaCierre || row.Fecha || "",
+        Tickets: parseIcgNumber(row.Tickets),
+        Lineas: parseIcgNumber(row.Lineas),
+        VentaBruta: Number(parseIcgNumber(row.VentaBruta).toFixed(2)),
+        VentaNeta: Number(parseIcgNumber(row.VentaNeta).toFixed(2)),
+        Propina: Number(parseIcgNumber(row.Propina).toFixed(2))
       });
     });
   }
@@ -23930,13 +23921,9 @@
     const ticketRows = useMemo(() => buildIcgSalesTickets(normalized), [data]);
     const selectedClosureTickets = useMemo(function() {
       if (!selectedClosureDetail) return [];
-      const closureDate = icgDateKey(selectedClosureDetail.FechaCierre || selectedClosureDetail.Fecha || "");
-      const closureFile = String(selectedClosureDetail.Archivo || "").trim();
-      return ticketRows.filter(function(ticket) {
-        const ticketFile = String(ticket.Archivo || ticket._sourceFile || "").trim();
-        return icgDateKey(ticket.FechaTicket || ticket.Fecha || "") === closureDate && (!closureFile || !ticketFile || ticketFile === closureFile);
-      });
-    }, [selectedClosureDetail, ticketRows]);
+      const embedded = selectedClosureDetail.tickets || selectedClosureDetail.TicketsDetalle || selectedClosureDetail.ticketsDetalle;
+      return Array.isArray(embedded) ? embedded : [];
+    }, [selectedClosureDetail]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
     const bridgeRows = mergeIcgBridgeRows(
       icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
@@ -24747,8 +24734,8 @@
     }
     function renderDailyClosures() {
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
-        (totals.TiquetsCab || 0) === 0 && closureRows.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Todavia no hay cierres leidos desde la Base de Datos ICG Local. Actualizar Articulos ICG solo completa catalogos, referencias, stocks y precios; los cierres y ventas se sincronizan desde su flujo operativo correspondiente."),
-        closureRows.length > 0 && (totals.TiquetsCab || 0) === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Estos cierres vienen de una auditoria/importacion agregada. Si el estado dice Sin tickets, el archivo fue leido pero no trae ventas."),
+        (totals.CierresDiarios || 0) === 0 && closureRows.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Todavia no hay cierres cargados directamente desde la tabla CierresDiarios de la Base de Datos ICG Local."),
+        closureRows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Estos cierres se leen directamente desde la tabla CierresDiarios. No se recalculan desde tickets, lineas ni pagos."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderLabMetric("Cierres", closureRows.length, "#4338ca"),
           renderLabMetric("Venta neta", formatIcgMoney(ventaNetaCierreActual), "#15803d"),
@@ -24761,7 +24748,7 @@
             return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.Archivo || "cierre"}-${row.FechaCierre || index}` },
               /* @__PURE__ */ React.createElement("td", null, row.FechaCierre || row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.Archivo || "-"),
-              /* @__PURE__ */ React.createElement("td", null, parseIcgNumber(row.Tickets) > 0 ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => { setSelectedClosureDetail(row); setExpandedClosureTickets({}); }, title: "Ver tickets de este cierre" }, row.Tickets || 0) : row.Tickets || 0),
+              /* @__PURE__ */ React.createElement("td", null, Array.isArray(row.tickets || row.TicketsDetalle || row.ticketsDetalle) ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => { setSelectedClosureDetail(row); setExpandedClosureTickets({}); }, title: "Ver tickets de este cierre" }, row.Tickets || 0) : row.Tickets || 0),
               /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: "#15803d" } }, formatIcgMoney(row.VentaNeta)),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${parseIcgNumber(row.Tickets) > 0 ? "pill-verde" : "pill-gris"}` }, row.Estado || "-"))
             );
@@ -24924,7 +24911,7 @@
                   ))
                 ))
               );
-            }), selectedClosureTickets.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este cierre todavia no tiene tickets detallados cargados. Actualizar Articulos ICG no trae ventas ni consumos; usa el flujo operativo de ventas/cierres correspondiente.")))
+            }), selectedClosureTickets.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "CierresDiarios contiene el resumen del cierre, pero no incluye el detalle individual de tickets.")))
           ))
         )
       )),
