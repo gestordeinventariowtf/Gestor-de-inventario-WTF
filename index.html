@@ -21,7 +21,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261024071310-31dde93";</script>
+  <script>window.WTF_APP_VERSION = "20261027221625-c95b024";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5862,6 +5862,19 @@
     if (currentPage === "recuento") return new Set(["regRecuento", "barRegRecuento"]);
     return new Set();
   }
+  function getFirebaseExternalKeysForGlobalSync() {
+    return new Set(Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).filter(function(key) {
+      // Logs de Sistema tiene su propio ledger y listener de metadatos.
+      return key !== "systemLogs";
+    }));
+  }
+  function getFirebasePageSpecificListenerKeys(page) {
+    const currentPage = String(page || "");
+    if (currentPage === "recuento") return new Set(["regRecuento", "barRegRecuento"]);
+    if (currentPage === "registros") return new Set(["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"]);
+    if (currentPage === "mise") return new Set(["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"]);
+    return new Set();
+  }
   function shouldDeferFirebaseExternalKey(key, activePage, fallbackState) {
     if (!shouldLazyLoadFirebaseModule(key)) return false;
     if (!Object.prototype.hasOwnProperty.call(fallbackState || {}, key)) return false;
@@ -6687,77 +6700,6 @@
     const input = String(password || "");
     if (!input) return false;
     return getVisibleAdminUsers(users).some((user) => validateUserPassword(user, input));
-  }
-  function requestSecureAdminPassword(message) {
-    return new Promise(function(resolve) {
-      const overlay = document.createElement("div");
-      overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px";
-      const dialog = document.createElement("div");
-      dialog.style.cssText = "width:min(94vw,420px);background:#fff;border-radius:12px;padding:20px;box-shadow:0 20px 60px rgba(15,23,42,.3);font-family:inherit";
-      const title = document.createElement("h3");
-      title.textContent = "Confirmacion administradora";
-      title.style.cssText = "margin:0 0 8px;color:#111827;font-size:18px";
-      const description = document.createElement("p");
-      description.textContent = message || "Introduce la clave administradora.";
-      description.style.cssText = "margin:0 0 14px;color:#4b5563;font-size:13px";
-      const field = document.createElement("div");
-      field.style.cssText = "display:flex;gap:8px;align-items:center";
-      const input = document.createElement("input");
-      input.type = "password";
-      input.autocomplete = "current-password";
-      input.className = "form-control";
-      input.placeholder = "Clave administradora";
-      input.style.flex = "1";
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "btn btn-outline btn-icon";
-      toggle.title = "Mostrar clave";
-      toggle.setAttribute("aria-label", "Mostrar u ocultar clave");
-      toggle.innerHTML = '<i class="fas fa-eye"></i>';
-      let visible = false;
-      toggle.addEventListener("click", function() {
-        visible = !visible;
-        input.type = visible ? "text" : "password";
-        toggle.title = visible ? "Ocultar clave" : "Mostrar clave";
-        toggle.innerHTML = visible ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
-        input.focus();
-      });
-      field.appendChild(input);
-      field.appendChild(toggle);
-      const actions = document.createElement("div");
-      actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.className = "btn btn-gris";
-      cancel.textContent = "Cancelar";
-      const confirm = document.createElement("button");
-      confirm.type = "button";
-      confirm.className = "btn btn-rojo";
-      confirm.textContent = "Continuar";
-      const close = function(value) {
-        input.value = "";
-        overlay.remove();
-        resolve(value);
-      };
-      cancel.addEventListener("click", function() { close(null); });
-      confirm.addEventListener("click", function() { close(input.value); });
-      input.addEventListener("keydown", function(event) {
-        if (event.key === "Enter") confirm.click();
-        if (event.key === "Escape") cancel.click();
-      });
-      actions.appendChild(cancel);
-      actions.appendChild(confirm);
-      dialog.appendChild(title);
-      dialog.appendChild(description);
-      dialog.appendChild(field);
-      dialog.appendChild(actions);
-      overlay.appendChild(dialog);
-      overlay.addEventListener("click", function(event) {
-        if (event.target === overlay) cancel.click();
-      });
-      document.body.appendChild(overlay);
-      input.focus();
-    });
   }
   function findActiveUserByPassword(users, password) {
     const input = String(password || "");
@@ -8499,34 +8441,6 @@
     const key = [fo, serie, numero || factura, n].filter(Boolean).join("-");
     return key || String(row._id || row.ID || "").trim();
   }
-  function getIcgSalesTicketKey(row, fallbackIndex) {
-    if (!row) return "";
-    const fo = icgCellText(row.FO || row.Fo || row.fo || "").trim();
-    const serie = icgCellText(row.Serie || row.SERIE || row.serie || "").trim();
-    const numero = icgCellText(row.Numero || row.NUMERO || row.numero || row.NumFactura || row.Factura || "").trim();
-    const ticket = icgCellText(row.TicketICG || row.Ticket || row.TicketKey || "").trim();
-    const base = [fo, serie, numero].filter(Boolean).join("|") || ticket;
-    if (base) return `sales-ticket:${normalizar(base)}`;
-    const existing = icgCellText(row._id || row.ID || "").trim();
-    if (existing) return `sales-ticket:${normalizar(existing)}`;
-    return `sales-ticket:${quickHashText([row.Fecha || row.FECHA || row.HORA || "", row.CodArticulo || row.CODARTICULO || "", row.NumLinea || row.NUMLINEA || "", row.Total || row.TOTAL || ""].join("|"))}`;
-  }
-  function getIcgSalesLineKey(row, ticketKey, fallbackIndex) {
-    if (!row) return "";
-    const explicit = icgCellText(row.PhysicalIcgKey || row.physicalIcgKey || row.MovimientoICGId || row.movimientoIcgId || "").trim();
-    if (explicit) return `${ticketKey}|explicit:${normalizar(explicit)}`;
-    return `${ticketKey}|line:${quickHashText([
-      getIcgLineNumber(row),
-      row.N || row.n || "",
-      getIcgLineCode(row),
-      getIcgLineReference(row),
-      getIcgLineDescription(row),
-      getIcgLineUnits(row),
-      firstIcgNumber(row, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO"]),
-      firstIcgNumber(row, ["Total", "TOTAL"]),
-      getIcgLineMoment(row),
-    ].join("|"))}`;
-  }
   function getIcgTicketDisplay(row) {
     if (!row) return "";
     const serie = icgCellText(row.Serie || row.SERIE || row.serie || "").trim();
@@ -8649,30 +8563,47 @@
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
-    // TiquetsLin es la única fuente de Ventas ICG y del detalle de cada ticket.
+    // El detalle operativo debe venir de las líneas confirmadas por TIQUETSLIN.
+    // No hidratarlo con encabezados antiguos de TiquetsCab.
+    const tickets = [];
     const lines = icgRows(normalizedData, "TiquetsLin");
+    const payments = [];
     const map = {};
+    icgRows(normalizedData, "TiquetsCab").forEach(function(row, index) {
+      const ticketKey = getIcgTicketKey(row) || `ticket-${index}`;
+      map[ticketKey] = Object.assign({}, row, {
+        ticketKey,
+        TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
+        FechaTicket: icgDateKey(row.Fecha || row.FechaCierre || row.createdAt) || "",
+        HoraTicket: row.HoraFin || row.HoraIni || row.Hora || "",
+        Lineas: [],
+        PagosDetalle: [],
+        TotalPagado: 0
+      });
+    });
     lines.forEach(function(row, index) {
-      const ticketKey = getIcgSalesTicketKey(row, index) || `ticket-line-${index}`;
+      const ticketKey = getIcgTicketKey(row) || `ticket-line-${index}`;
       if (!map[ticketKey]) {
         map[ticketKey] = Object.assign({}, row, {
           ticketKey,
           TicketDisplay: getIcgTicketDisplay(row) || ticketKey,
-          Archivo: row.Archivo || row._sourceFile || normalizedData.sourceName || "DBFREST",
           FechaTicket: icgDateKey(row.Fecha || row.FECHA || row.HORA || row._sourceDate || row.createdAt) || "",
           HoraTicket: row.HoraFin || row.HoraIni || row.Hora || row.HORA || "",
           Lineas: [],
-          _lineKeys: new Set()
+          PagosDetalle: [],
+          TotalPagado: 0
         });
       }
       if (ticketKey && map[ticketKey]) {
-        const ticket = map[ticketKey];
-        const lineKey = getIcgSalesLineKey(row, ticketKey, index);
-        if (!ticket._lineKeys.has(lineKey)) {
-          ticket._lineKeys.add(lineKey);
-          ticket.Lineas.push(row);
-        }
-        row._fechaTicket = row._fechaTicket || ticket.FechaTicket;
+        map[ticketKey].Lineas.push(row);
+        row._fechaTicket = row._fechaTicket || map[ticketKey].Fecha || map[ticketKey].FECHA || map[ticketKey].FechaTicket;
+      }
+    });
+    payments.forEach(function(row) {
+      const ticketKey = getIcgTicketKey(row);
+      if (ticketKey && map[ticketKey]) {
+        map[ticketKey].PagosDetalle.push(row);
+        map[ticketKey].TotalPagado += sumIcgFields(row, ["Importe", "Entregado"]);
       }
     });
     return Object.values(map).map(function(ticket) {
@@ -8681,33 +8612,85 @@
         const totalPrice = firstIcgNumber(line, ["PrecioIva", "PRECIOIVA", "Precio", "PRECIO"]);
         return sum + (firstIcgNumber(line, ["Total", "TOTAL"]) || totalPrice * units);
       }, 0);
-      const totalNeto = firstIcgNumber(ticket, ["TotalNeto", "TOTALNETO", "Total", "TOTAL"]) || lineTotal;
-      const totalBruto = firstIcgNumber(ticket, ["TotalBruto", "TOTALBRUTO", "Subtotal"]) || totalNeto;
-      const result = Object.assign({}, ticket, {
+      const totalNeto = parseIcgNumber(ticket.TotalPagado) || firstIcgNumber(ticket, ["TotalNeto", "Total"]) || lineTotal;
+      const totalBruto = firstIcgNumber(ticket, ["TotalBruto", "Subtotal"]) || totalNeto;
+      return Object.assign({}, ticket, {
         TotalNetoCalculado: Number(totalNeto.toFixed(2)),
         TotalBrutoCalculado: Number(totalBruto.toFixed(2)),
         LineasVendidas: ticket.Lineas.length,
         TicketNotificacionId: quickHashText([ticket.FechaTicket, ticket.ticketKey, totalNeto, ticket.Lineas.length].join("|"))
       });
-      delete result._lineKeys;
-      return result;
     }).sort(function(a, b) {
       return String(b.FechaTicket || "").localeCompare(String(a.FechaTicket || "")) || String(b.HoraTicket || "").localeCompare(String(a.HoraTicket || ""));
     });
   }
   function buildIcgDailyClosures(data) {
+    const sortRecentFirst = function(rows) {
+      return (Array.isArray(rows) ? rows : []).sort(function(a, b) {
+        return icgDateKey(b.FechaCierre || b.Fecha || b.createdAt).localeCompare(icgDateKey(a.FechaCierre || a.Fecha || a.createdAt));
+      });
+    };
     const explicit = icgRows(data, "CierresDiarios");
-    return explicit.slice().sort(function(a, b) {
-      return icgDateKey(b && (b.FechaCierre || b.Fecha || b.createdAt)).localeCompare(icgDateKey(a && (a.FechaCierre || a.Fecha || a.createdAt)));
-    }).map(function(row) {
+    if (explicit.length) {
+      const lineCounts = {};
+      const uniqueLines = new Set();
+      icgRows(data, "TiquetsLin").forEach(function(line, index) {
+        if (!isBillableTiquetsLinRow(line)) return;
+        const dateKey = icgDateKey(line.Fecha || line.HORA || line._fechaTicket || line._sourceDate) || "";
+        if (!dateKey) return;
+        const rowKey = getFirebaseIcgRowKey(line, "TiquetsLin", index);
+        const uniqueKey = `${dateKey}|${rowKey}`;
+        if (uniqueLines.has(uniqueKey)) return;
+        uniqueLines.add(uniqueKey);
+        if (!lineCounts[dateKey]) lineCounts[dateKey] = { tickets: new Set(), lines: 0 };
+        lineCounts[dateKey].lines += 1;
+        lineCounts[dateKey].tickets.add(getIcgTicketKey(line) || rowKey);
+      });
+      return sortRecentFirst(explicit).map(function(row) {
+        const pagos = parseIcgNumber(row && row.Pagos);
+        const ventaNeta = pagos || parseIcgNumber(row && row.VentaNeta);
+        const dateKey = icgDateKey(row.FechaCierre || row.Fecha || row.fecha || row.createdAt) || "";
+        const counts = lineCounts[dateKey];
+        const remoteTickets = parseIcgNumber(row && row.Tickets);
+        const remoteLines = parseIcgNumber(row && row.Lineas);
+        return Object.assign({}, row, {
+          Tickets: counts ? counts.tickets.size : remoteTickets,
+          Lineas: counts ? counts.lines : remoteLines,
+          VentaNeta: Number(ventaNeta.toFixed(2))
+        });
+      });
+    }
+    const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
+      return !(row.FechaAnulacion || row.Anulado || row.Cancelado);
+    });
+    const lineas = icgRows(data, "TiquetsLin");
+    const pagos = icgRows(data, "TiquetsPag");
+    const groups = {};
+    tickets.forEach(function(row) {
+      const key = icgDateKey(row.Fecha || row.FechaCierre || row.createdAt) || "Sin fecha";
+      if (!groups[key]) {
+        groups[key] = { Archivo: row._sourceFile || "", FechaCierre: key, Tickets: 0, Lineas: 0, VentaBruta: 0, VentaNeta: 0, Pagos: 0, Propina: 0, Estado: "Calculado desde tickets", Observacion: "" };
+      }
+      groups[key].Tickets += 1;
+      groups[key].VentaBruta += sumIcgFields(row, ["TotalBruto", "Subtotal"]);
+      groups[key].VentaNeta += sumIcgFields(row, ["TotalNeto"]);
+      groups[key].Propina += sumIcgFields(row, ["Propina"]);
+    });
+    lineas.forEach(function(row) {
+      const key = icgDateKey(row.Fecha || row.HORA || row._fechaTicket || row._sourceDate) || "";
+      if (key && groups[key]) groups[key].Lineas += 1;
+    });
+    pagos.forEach(function(row) {
+      const key = icgDateKey(row.Fecha || row._fechaTicket || row._sourceDate) || "";
+      if (key && groups[key]) groups[key].Pagos += sumIcgFields(row, ["Importe", "Importe2"]);
+    });
+    return Object.keys(groups).sort().reverse().map(function(key) {
+      const row = groups[key];
       return Object.assign({}, row, {
-        Archivo: row.Archivo || row._sourceFile || "",
-        FechaCierre: row.FechaCierre || row.Fecha || "",
-        Tickets: parseIcgNumber(row.Tickets),
-        Lineas: parseIcgNumber(row.Lineas),
-        VentaBruta: Number(parseIcgNumber(row.VentaBruta).toFixed(2)),
-        VentaNeta: Number(parseIcgNumber(row.VentaNeta).toFixed(2)),
-        Propina: Number(parseIcgNumber(row.Propina).toFixed(2))
+        VentaBruta: Number(row.VentaBruta.toFixed(2)),
+        VentaNeta: Number((row.Pagos || row.VentaNeta).toFixed(2)),
+        Pagos: Number(row.Pagos.toFixed(2)),
+        Propina: Number(row.Propina.toFixed(2))
       });
     });
   }
@@ -11042,7 +11025,7 @@
   }
   function getIcgFinancialSalesRows(icgFrontRestData) {
     const normalized = ensureIcgFrontRestData(icgFrontRestData);
-    const source = buildIcgDailyClosures(normalized);
+    const source = icgRows(normalized, "CierresDiarios").length ? icgRows(normalized, "CierresDiarios") : icgRows(normalized, "TiquetsCab");
     return source.map(function(row, index) {
       const fecha = row.Fecha || row.FECHA || row.FechaCierre || row.fecha || row.Data || row.DATA || "";
       const gross = parseCostNumber(row.VentaBruta ?? row.Bruto ?? row.Total ?? row.Importe ?? row.Ventas ?? row.VENTA ?? row.TotalVenta);
@@ -13332,8 +13315,8 @@
     }
     const firebaseSyncIndexSignatureRef = useRef("");
     const firebaseModuleRefreshInFlightRef = useRef(false);
-    function activeFirebaseModulesAreFresh(remoteSignatures) {
-      const activeKeys = Array.from(getFirebaseExternalKeysForPage(page));
+    function activeFirebaseModulesAreFresh(remoteSignatures, keysOverride) {
+      const activeKeys = Array.from(keysOverride || getFirebaseExternalKeysForPage(page));
       if (!activeKeys.length) return true;
       const signatures = remoteSignatures && typeof remoteSignatures === "object" ? remoteSignatures : {};
       return activeKeys.every(function(key) {
@@ -13341,9 +13324,9 @@
         return !remoteSignature || firebaseExternalDocSignaturesRef.current[key] === remoteSignature;
       });
     }
-    async function refreshActiveFirebaseModules(syncIndexData, reason) {
+    async function refreshActiveFirebaseModules(syncIndexData, reason, keysOverride, forceServer) {
       if (!firebaseDocRef.current || firebaseModuleRefreshInFlightRef.current) return;
-      const activeKeys = Array.from(getFirebaseExternalKeysForPage(page));
+      const activeKeys = Array.from(keysOverride || getFirebaseExternalKeysForPage(page));
       if (!activeKeys.length) return;
       firebaseModuleRefreshInFlightRef.current = true;
       try {
@@ -13352,7 +13335,7 @@
         const results = await Promise.all(activeKeys.map(async function(key) {
           const moduleInfo = modules[key] || {};
           const expectedSignature = String(moduleInfo.signature || firebaseExternalDocSignaturesRef.current[key] || "");
-          const forceServerReadForActiveModule = (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1) || (page === "mise" && ["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"].indexOf(key) !== -1) || (page === "recuento" && (key === "regRecuento" || key === "barRegRecuento"));
+          const forceServerReadForActiveModule = Boolean(forceServer) || (page === "produccion" && (key === "regProduccion" || key === "barRegProduccion")) || (page === "registros" && ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].indexOf(key) !== -1) || (page === "mise" && ["histEntradaRapida", "histSalidaRapida", "histDecomisoCocina", "barHistEntradaRapida", "barHistSalidaRapida"].indexOf(key) !== -1) || (page === "recuento" && (key === "regRecuento" || key === "barRegRecuento"));
           if (!forceServerReadForActiveModule && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
@@ -14025,7 +14008,12 @@
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
         const remoteExternalSignaturesQuick = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
         const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
-        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite && activeFirebaseModulesAreFresh(remoteExternalSignaturesQuick)) {
+        const mustRefreshAllExternalModules = reason === "manual-sync" || reason === "foreground-interval" || reason === "pwa" || reason === "pwa-resume" || reason === "pwa-foreground-sync";
+        const externalModulesAreFresh = activeFirebaseModulesAreFresh(
+          remoteExternalSignaturesQuick,
+          mustRefreshAllExternalModules ? getFirebaseExternalKeysForGlobalSync() : null
+        );
+        if (remoteMetaSignature && remoteMetaSignature === lastRemoteMetaSignatureRef.current && !hasPendingLocalWrite && externalModulesAreFresh) {
           if (data && data.syncMeta) acceptRemoteSyncRevision(data.syncMeta.revision);
           setFirebaseStatus("connected");
           setFirebaseMessage(reason === "foreground-interval" ? "Sincronizado en primer plano" : "Sincronizado al volver");
@@ -14866,8 +14854,8 @@
         const signature = quickHashText(JSON.stringify({ revision: data.revision || 0, modules }));
         if (signature === firebaseSyncIndexSignatureRef.current) return;
         firebaseSyncIndexSignatureRef.current = signature;
-        refreshActiveFirebaseModules(data, "sync-index").catch(function(error) {
-          console.warn("No se pudo actualizar el modulo desde syncIndex:", error);
+        refreshActiveFirebaseModules(data, "sync-index", getFirebaseExternalKeysForGlobalSync(), true).catch(function(error) {
+          console.warn("No se pudo actualizar la sincronizacion global desde syncIndex:", error);
         });
       }, function(error) {
         console.warn("No se pudo escuchar syncIndex:", error);
@@ -14878,6 +14866,56 @@
         if (typeof unsubscribe === "function") unsubscribe();
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, page]);
+    useEffect(() => {
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      let active = true;
+      const unsubscribers = [];
+      const globalKeys = Array.from(getFirebaseExternalKeysForGlobalSync());
+      const pageSpecificKeys = getFirebasePageSpecificListenerKeys(page);
+      const listenerKeys = globalKeys.filter(function(key) {
+        return !pageSpecificKeys.has(key);
+      });
+      const applyGlobalExternalSnapshot = function(key, snapshot) {
+        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        const data = snapshot.data() || {};
+        const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+        if (typeof value === "undefined" || value === null) return;
+        const remoteSignature = String(data.syncMeta && data.syncMeta.signature || "");
+        if (remoteSignature && firebaseExternalDocSignaturesRef.current[key] === remoteSignature) return;
+        if (remoteSignature) {
+          firebaseExternalDocSignaturesRef.current[key] = remoteSignature;
+          firebaseExternalDocSignaturesCache[key] = remoteSignature;
+          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+        }
+        const current = getCurrentAppState();
+        if (serializeAppState(current[key]) === serializeAppState(value)) return;
+        applyRemoteState({ [key]: value });
+        setFirebaseMessage("Datos remotos actualizados desde Firebase");
+      };
+      listenerKeys.forEach(function(key) {
+        const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
+        const ref = firebaseDocRef.current.parent.doc(docId);
+        if (!ref || typeof ref.onSnapshot !== "function") return;
+        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
+          applyGlobalExternalSnapshot(key, snapshot);
+        }, function(error) {
+          if (active) console.warn("No se pudo escuchar el modulo externo desde Firebase:", key, error);
+        });
+        if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
+      });
+      // La primera hidratacion global siempre viene del servidor. El listener
+      // queda activo para recibir cambios posteriores sin depender de la pagina.
+      const bootstrapKeys = pageSpecificKeys.size ? listenerKeys : globalKeys;
+      refreshActiveFirebaseModules({}, "global-bootstrap", new Set(bootstrapKeys), true).catch(function(error) {
+        if (active) console.warn("No se pudo hidratar la sincronizacion global desde Firebase:", error);
+      });
+      return function() {
+        active = false;
+        unsubscribers.forEach(function(unsubscribe) {
+          try { unsubscribe(); } catch (_) {}
+        });
+      };
+    }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
     useEffect(() => {
       if (page !== "recuento" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       let active = true;
@@ -15049,7 +15087,7 @@
       function handlePwaSync(event) {
         const now = Date.now();
         const reason = event && event.detail && event.detail.reason || "pwa";
-        if (reason === "foreground-interval" && now - lastPullAt < 115000) return;
+        if (reason === "foreground-interval" && now - lastPullAt < 4000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
         flushSystemLogQueue();
@@ -21642,7 +21680,7 @@
     async function updateTerminal(row, action, patch) {
       if (!isAdmin) return toast("Solo administradores pueden administrar terminales.", "error");
       if (action === "delete") {
-        const password = await requestSecureAdminPassword("Confirma la clave administradora para eliminar esta terminal.");
+        const password = prompt("Confirma la clave administradora para eliminar esta terminal:");
         if (password == null) return;
         if (!isValidVisibleAdminPassword(usuarios, password)) return toast("La clave administradora no es valida.", "error", 6000);
         const confirmed = window.confirm(`Se eliminara la terminal ${row.name || row.terminalId}. Esta accion no se puede deshacer. Deseas continuar?`);
@@ -23921,9 +23959,11 @@
     const ticketRows = useMemo(() => buildIcgSalesTickets(normalized), [data]);
     const selectedClosureTickets = useMemo(function() {
       if (!selectedClosureDetail) return [];
-      const embedded = selectedClosureDetail.tickets || selectedClosureDetail.TicketsDetalle || selectedClosureDetail.ticketsDetalle;
-      return Array.isArray(embedded) ? embedded : [];
-    }, [selectedClosureDetail]);
+      const closureDate = icgDateKey(selectedClosureDetail.FechaCierre || selectedClosureDetail.Fecha || "");
+      return ticketRows.filter(function(ticket) {
+        return icgDateKey(ticket.FechaTicket || ticket.Fecha || "") === closureDate;
+      });
+    }, [selectedClosureDetail, ticketRows.length, data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
     const bridgeRows = mergeIcgBridgeRows(
       icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
@@ -24734,8 +24774,8 @@
     }
     function renderDailyClosures() {
       return /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 12 } },
-        (totals.CierresDiarios || 0) === 0 && closureRows.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Todavia no hay cierres cargados directamente desde la tabla CierresDiarios de la Base de Datos ICG Local."),
-        closureRows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Estos cierres se leen directamente desde la tabla CierresDiarios. No se recalculan desde tickets, lineas ni pagos."),
+        (totals.TiquetsCab || 0) === 0 && closureRows.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-warn", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-triangle-exclamation" }), "Todavia no hay cierres leidos desde la Base de Datos ICG Local. Actualizar Articulos ICG solo completa catalogos, referencias, stocks y precios; los cierres y ventas se sincronizan desde su flujo operativo correspondiente."),
+        closureRows.length > 0 && (totals.TiquetsCab || 0) === 0 && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info", style: { marginBottom: 0 } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-circle-info" }), "Estos cierres vienen de una auditoria/importacion agregada. Si el estado dice Sin tickets, el archivo fue leido pero no trae ventas."),
         /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 8 } },
           renderLabMetric("Cierres", closureRows.length, "#4338ca"),
           renderLabMetric("Venta neta", formatIcgMoney(ventaNetaCierreActual), "#15803d"),
@@ -24748,7 +24788,7 @@
             return /* @__PURE__ */ React.createElement("tr", { key: row._id || `${row.Archivo || "cierre"}-${row.FechaCierre || index}` },
               /* @__PURE__ */ React.createElement("td", null, row.FechaCierre || row.Fecha || "-"),
               /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12, color: "var(--gris)" } }, row.Archivo || "-"),
-              /* @__PURE__ */ React.createElement("td", null, Array.isArray(row.tickets || row.TicketsDetalle || row.ticketsDetalle) ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => { setSelectedClosureDetail(row); setExpandedClosureTickets({}); }, title: "Ver tickets de este cierre" }, row.Tickets || 0) : row.Tickets || 0),
+              /* @__PURE__ */ React.createElement("td", null, parseIcgNumber(row.Tickets) > 0 ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "btn btn-sm btn-outline", onClick: () => { setSelectedClosureDetail(row); setExpandedClosureTickets({}); }, title: "Ver tickets de este cierre" }, row.Tickets || 0) : row.Tickets || 0),
               /* @__PURE__ */ React.createElement("td", { style: { fontWeight: 700, color: "#15803d" } }, formatIcgMoney(row.VentaNeta)),
               /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: `pill ${parseIcgNumber(row.Tickets) > 0 ? "pill-verde" : "pill-gris"}` }, row.Estado || "-"))
             );
@@ -24911,7 +24951,7 @@
                   ))
                 ))
               );
-            }), selectedClosureTickets.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "CierresDiarios contiene el resumen del cierre, pero no incluye el detalle individual de tickets.")))
+            }), selectedClosureTickets.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: "5", style: { textAlign: "center", padding: 22, color: "var(--gris)" } }, "Este cierre todavia no tiene tickets detallados cargados. Actualizar Articulos ICG no trae ventas ni consumos; usa el flujo operativo de ventas/cierres correspondiente.")))
           ))
         )
       )),
