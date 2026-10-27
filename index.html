@@ -20,8 +20,31 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script>
+    // Some browsers or network filters block gstatic without blocking the app itself.
+    // Keep gstatic as the primary source and load only missing compat modules from the
+    // same Firebase release through jsDelivr, before the application initializes.
+    (function ensureFirebaseSdkFallback() {
+      var fallbackBase = "https://cdn.jsdelivr.net/npm/firebase@10.12.2/compat/";
+      var modules = [
+        ["firebase", "firebase-app.js"],
+        ["auth", "firebase-auth.js"],
+        ["firestore", "firebase-firestore.js"],
+        ["storage", "firebase-storage.js"]
+      ];
+      modules.forEach(function(module) {
+        var property = module[0];
+        var available = property === "firebase"
+          ? !!window.firebase
+          : !!(window.firebase && typeof window.firebase[property] === "function");
+        if (!available) {
+          document.write('<script src="' + fallbackBase + module[1] + '"><\\/script>');
+        }
+      });
+    })();
+  </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261027221625-c95b024";</script>
+  <script>window.WTF_APP_VERSION = "20261027224801-69bc457";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
