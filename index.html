@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261029161140-08cec91";</script>
+  <script>window.WTF_APP_VERSION = "20261029192453-c41deb7";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -21700,10 +21700,84 @@
         setTerminalBusy(false);
       }
     }
+    function requestSecureAdminPassword(message) {
+      return new Promise(function(resolve) {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px";
+        const dialog = document.createElement("div");
+        dialog.style.cssText = "width:min(94vw,420px);background:#fff;border-radius:12px;padding:20px;box-shadow:0 20px 60px rgba(15,23,42,.3);font-family:inherit";
+        const title = document.createElement("h3");
+        title.textContent = "Confirmacion administradora";
+        title.style.cssText = "margin:0 0 8px;color:#111827;font-size:18px";
+        const description = document.createElement("p");
+        description.textContent = message || "Introduce la clave administradora.";
+        description.style.cssText = "margin:0 0 14px;color:#4b5563;font-size:13px";
+        const field = document.createElement("div");
+        field.style.cssText = "display:flex;gap:8px;align-items:center";
+        const input = document.createElement("input");
+        input.type = "password";
+        input.autocomplete = "current-password";
+        input.className = "form-control";
+        input.placeholder = "Clave administradora";
+        input.style.flex = "1";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "btn btn-outline btn-icon";
+        toggle.title = "Mostrar clave";
+        toggle.setAttribute("aria-label", "Mostrar u ocultar clave");
+        toggle.innerHTML = '<i class="fas fa-eye"></i>';
+        let visible = false;
+        toggle.addEventListener("click", function() {
+          visible = !visible;
+          input.type = visible ? "text" : "password";
+          toggle.title = visible ? "Ocultar clave" : "Mostrar clave";
+          toggle.innerHTML = visible ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+          input.focus();
+        });
+        field.appendChild(input);
+        field.appendChild(toggle);
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "btn btn-gris";
+        cancel.textContent = "Cancelar";
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.className = "btn btn-rojo";
+        confirm.textContent = "Continuar";
+        let closed = false;
+        const close = function(value) {
+          if (closed) return;
+          closed = true;
+          input.value = "";
+          overlay.remove();
+          resolve(value);
+        };
+        cancel.addEventListener("click", function() { close(null); });
+        confirm.addEventListener("click", function() { close(input.value); });
+        input.addEventListener("keydown", function(event) {
+          if (event.key === "Enter") confirm.click();
+          if (event.key === "Escape") cancel.click();
+        });
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        dialog.appendChild(title);
+        dialog.appendChild(description);
+        dialog.appendChild(field);
+        dialog.appendChild(actions);
+        overlay.appendChild(dialog);
+        overlay.addEventListener("click", function(event) {
+          if (event.target === overlay) cancel.click();
+        });
+        document.body.appendChild(overlay);
+        input.focus();
+      });
+    }
     async function updateTerminal(row, action, patch) {
       if (!isAdmin) return toast("Solo administradores pueden administrar terminales.", "error");
       if (action === "delete") {
-        const password = prompt("Confirma la clave administradora para eliminar esta terminal:");
+        const password = await requestSecureAdminPassword("Introduce la clave administradora para continuar.");
         if (password == null) return;
         if (!isValidVisibleAdminPassword(usuarios, password)) return toast("La clave administradora no es valida.", "error", 6000);
         const confirmed = window.confirm(`Se eliminara la terminal ${row.name || row.terminalId}. Esta accion no se puede deshacer. Deseas continuar?`);
