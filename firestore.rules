@@ -151,6 +151,36 @@ service cloud.firestore {
       allow delete: if isAuthorizedAdmin();
     }
 
+    match /wtfSistema/registrosEventos/events/{eventId} {
+      allow read: if isAuthorizedUser();
+      allow create: if isAuthorizedUser()
+        && request.resource.data.id == eventId
+        && request.resource.data.eventId == eventId
+        && request.resource.data.modulo in ['cocina', 'bar']
+        && request.resource.data.historyType in ['entradas', 'salidas', 'decomiso']
+        && request.resource.data.email is string
+        && request.resource.data.email.lower() == request.auth.token.email.lower()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.deviceId is string
+        && request.resource.data.deleted == false;
+      allow update: if isAuthorizedAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.eventId == resource.data.eventId;
+      allow delete: if isAuthorizedAdmin();
+    }
+
+    match /wtfSistema/registrosMeta/{metaId} {
+      allow read: if isAuthorizedUser();
+      allow create, update: if isAuthorizedUser();
+      allow delete: if isAuthorizedAdmin();
+    }
+
+    match /wtfSistema/registrosMeta/modules/{moduleId} {
+      allow read: if isAuthorizedUser();
+      allow create, update: if isAuthorizedUser();
+      allow delete: if isAuthorizedAdmin();
+    }
+
     match /wtfSistema/{externalStateDoc} {
       allow read, create, update: if signedIn() && isExternalStateDocument(externalStateDoc);
       allow delete: if isAuthorizedAdmin() && isExternalStateDocument(externalStateDoc);

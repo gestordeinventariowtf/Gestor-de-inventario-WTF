@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261029234401-e604145";</script>
+  <script>window.WTF_APP_VERSION = "20261030051407-97d4066";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2589,6 +2589,7 @@
     };
   }
   const FIREBASE_COOLDOWN_STORAGE_KEY = "wtf_firebase_cooldown_until";
+  const FIREBASE_PENDING_WRITE_STORAGE_KEY = "wtf_firebase_pending_write_v1";
   const FIREBASE_COOLDOWN_MS = 10 * 60 * 1000;
   function getFirebaseErrorText(error) {
     return String(error && (error.code || error.message || error.name) || error || "").toLowerCase();
@@ -5886,6 +5887,43 @@
     "barHistEntradaRapida",
     "barHistSalidaRapida"
   ]);
+  const REGISTROS_EVENT_COLLECTION = "registrosEventos";
+  const REGISTROS_META_COLLECTION = "registrosMeta";
+  const REGISTROS_PAGE_SIZE = 100;
+  const REGISTROS_PENDING_KEY = "wtf_registros_pending_events_v1";
+  const REGISTROS_MIGRATION_VERSION = 1;
+  const REGISTROS_HISTORY_TYPES = ["entradas", "salidas", "decomiso"];
+  const REGISTROS_MODULES = ["cocina", "bar"];
+  function registrosModuleName(value) {
+    return String(value || "cocina").toLowerCase() === "bar" ? "bar" : "cocina";
+  }
+  function registrosStableId(row, moduleName, historyType) {
+    const source = row || {};
+    const explicit = String(source.eventId || source.movementId || source.operationId || source.physicalIcgKey || source.id || source._id || "").trim();
+    if (explicit) return `registro-${registrosModuleName(moduleName)}-${historyType}-${explicit}`;
+    return `registro-${quickHashText(JSON.stringify([
+      registrosModuleName(moduleName), historyType, source.productId || source.producto || source.nombre,
+      source.cantidad, source.fecha || source.fechaCliente, source.usuario || source.email,
+      source.motivo, source.origen, source.movimientoIcgId, source.physicalIcgKey
+    ]))}`;
+  }
+  function sanitizeRegistrosLegacyData(row) {
+    const result = {};
+    if (!row || typeof row !== "object" || Array.isArray(row)) return result;
+    Object.keys(row).forEach(function(key) {
+      if (/(password|token|secret|credential|apikey|api_key)/i.test(key)) return;
+      result[key] = row[key];
+    });
+    return result;
+  }
+  function registrosEventToRow(event) {
+    if (!event || event.deleted) return null;
+    const legacy = event.legacyData && typeof event.legacyData === "object" ? event.legacyData : {};
+    return Object.assign({}, legacy, event, {
+      id: legacy.id || event.movementId || event.id || event.eventId,
+      _registroEventId: event.eventId || event.id
+    });
+  }
   function miseHistorySourceKey(moduleName, historyType) {
     const moduleKey = String(moduleName || "cocina").toLowerCase() === "bar" ? "bar" : "cocina";
     return (MISE_HISTORY_SOURCE_KEYS[moduleKey] || MISE_HISTORY_SOURCE_KEYS.cocina)[historyType] || "";
@@ -13070,6 +13108,16 @@
     const [barProductionHolds, setBarProductionHolds] = useState(() => normalizeProductionHolds(load(BAR_KEYS.productionHolds, []), initialProductionHoldDeletedKeys.barProductionHolds));
     const [barHistEntradaRapida, setBarHistEntradaRapida] = useState(() => normalizeMovementRows(load(BAR_KEYS.histEntradaRapida, []), initialMovementDeletedKeys.barHistEntradaRapida));
     const [barHistSalidaRapida, setBarHistSalidaRapida] = useState(() => repairIcgMiseQuickExitUsers(normalizeMovementRows(load(BAR_KEYS.histSalidaRapida, []), initialMovementDeletedKeys.barHistSalidaRapida)));
+    const [registrosLedger, setRegistrosLedger] = useState(() => ({ cocina: { entradas: [], salidas: [], decomiso: [] }, bar: { entradas: [], salidas: [], decomiso: [] } }));
+    const [registrosLedgerLoadingState, setRegistrosLedgerLoadingState] = useState(() => ({ cocina: false, bar: false }));
+    const registrosLedgerRef = useRef(registrosLedger);
+    const registrosLedgerCursorRef = useRef({ cocina: null, bar: null });
+    const registrosLedgerHasMoreRef = useRef({ cocina: true, bar: true });
+    const registrosLedgerLoadingRef = useRef({ cocina: false, bar: false });
+    const registrosLedgerQueuedLoadRef = useRef({ cocina: false, bar: false });
+    const registrosLedgerReadyRef = useRef({ cocina: {}, bar: {} });
+    const registrosLedgerMigrationRef = useRef(false);
+    const registrosLedgerFlushRef = useRef(false);
     const icgInventoryImpactSessionKeysRef = useRef(new Set());
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
@@ -13102,13 +13150,15 @@
     const [lastSyncedAt, setLastSyncedAt] = useState("");
     const firebaseDocRef = useRef(null);
     const icgControlDocRef = useRef(null);
+    const firestorePersistenceConfiguredRef = useRef(false);
     const authorizedUsersHydratedRef = useRef("");
     const firebaseBootstrappedRef = useRef(false);
     const syncTimerRef = useRef(null);
     const lastRemoteSignatureRef = useRef("");
     const lastRemoteMetaSignatureRef = useRef("");
-    const pendingLocalSignatureRef = useRef("");
-    const pendingLocalAtRef = useRef(0);
+    const pendingFirebaseWrite = load(FIREBASE_PENDING_WRITE_STORAGE_KEY, {});
+    const pendingLocalSignatureRef = useRef(String(pendingFirebaseWrite && pendingFirebaseWrite.signature || ""));
+    const pendingLocalAtRef = useRef(Number(pendingFirebaseWrite && pendingFirebaseWrite.queuedAt || 0));
     const localChangeAtRef = useRef(Number(load("wtf_sync_local_change_at", 0)) || 0);
     const syncRevisionRef = useRef(Number(load("wtf_sync_revision", 0)) || 0);
     const sessionStartedAtRef = useRef(Date.now());
@@ -13247,6 +13297,212 @@
     function getCurrentAppState() {
       return cloneData(stateSnapshotRef.current || {});
     }
+    function getRegistrosLedgerRefs() {
+      if (!firebaseDocRef.current || !firebaseDocRef.current.firestore) return null;
+      const root = firebaseDocRef.current.firestore.collection(firebaseCfg.collection || "wtfSistema");
+      return {
+        events: root.doc(REGISTROS_EVENT_COLLECTION).collection("events"),
+        meta: root.doc(REGISTROS_META_COLLECTION)
+      };
+    }
+    function readRegistrosPendingQueue() {
+      const rows = load(REGISTROS_PENDING_KEY, []);
+      return (Array.isArray(rows) ? rows : []).filter(function(item) {
+        return item && item.event && item.event.eventId;
+      });
+    }
+    function writeRegistrosPendingQueue(rows) {
+      save(REGISTROS_PENDING_KEY, Array.isArray(rows) ? rows : []);
+    }
+    function addRegistrosLedgerEvents(events) {
+      const incoming = Array.isArray(events) ? events : [];
+      if (!incoming.length) return;
+      const current = registrosLedgerRef.current || { cocina: { entradas: [], salidas: [], decomiso: [] }, bar: { entradas: [], salidas: [], decomiso: [] } };
+      const next = { cocina: Object.assign({}, current.cocina), bar: Object.assign({}, current.bar) };
+      incoming.forEach(function(event) {
+        const moduleName = registrosModuleName(event.modulo || event.module);
+        const type = REGISTROS_HISTORY_TYPES.indexOf(event.historyType) >= 0 ? event.historyType : "entradas";
+        const row = registrosEventToRow(event);
+        if (!row) return;
+        const existing = Array.isArray(next[moduleName][type]) ? next[moduleName][type] : [];
+        const eventId = event.eventId || event.id;
+        next[moduleName][type] = existing.some((item) => (item && (item._registroEventId || item.id)) === eventId)
+          ? existing.map((item) => (item && (item._registroEventId || item.id)) === eventId ? row : item)
+          : existing.concat(row);
+        registrosLedgerReadyRef.current[moduleName][type] = true;
+      });
+      registrosLedgerRef.current = next;
+      setRegistrosLedger(next);
+    }
+    function createRegistrosLedgerEvent(row, historyType, moduleName) {
+      const moduleKey = registrosModuleName(moduleName);
+      const eventId = registrosStableId(row, moduleKey, historyType);
+      return Object.assign({}, row || {}, {
+        eventId,
+        id: eventId,
+        modulo: moduleKey,
+        module: moduleKey,
+        historyType,
+        source: row && row.source || "web",
+        schemaVersion: 1,
+        deleted: false,
+        fechaCliente: row && (row.fechaCliente || row.fecha) || new Date().toISOString(),
+        deviceId: load("wtf_device_id", "web-device") || "web-device",
+        sessionId: load("wtf_session_id", "") || "",
+        legacyData: sanitizeRegistrosLegacyData(row)
+      });
+    }
+    async function flushRegistrosLedgerQueue() {
+      if (registrosLedgerFlushRef.current || !firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail) return;
+      const queueAtStart = readRegistrosPendingQueue();
+      if (!queueAtStart.length) return;
+      registrosLedgerFlushRef.current = true;
+      const confirmedEvents = [];
+      const remaining = [];
+      try {
+        const refs = getRegistrosLedgerRefs();
+        for (const item of queueAtStart) {
+          const event = item && item.event;
+          if (!event || !event.eventId) continue;
+          try {
+            const payload = Object.assign({}, event, {
+              email: firebaseAuthEmail,
+              usuario: event.usuario || firebaseAuthEmail,
+              createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+              updatedBy: firebaseAuthEmail
+            });
+            await createFirestoreDocIdempotent(refs.events.doc(event.eventId), payload);
+            confirmedEvents.push(payload);
+          } catch (error) {
+            if (String(error && error.code || "").toLowerCase().includes("already-exists")) confirmedEvents.push(event);
+            else remaining.push(Object.assign({}, item, { status: "error", attempts: Number(item.attempts || 0) + 1, lastAttemptAt: Date.now(), lastError: String(error && error.message || error) }));
+          }
+        }
+        if (confirmedEvents.length) {
+          addRegistrosLedgerEvents(confirmedEvents);
+          const byModule = {};
+          confirmedEvents.forEach((event) => { const moduleName = registrosModuleName(event.modulo || event.module); byModule[moduleName] = (byModule[moduleName] || 0) + 1; });
+          await Promise.all(Object.keys(byModule).map((moduleName) => refs.meta.collection("modules").doc(moduleName).set({
+            revision: window.firebase.firestore.FieldValue.increment(byModule[moduleName]),
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: firebaseAuthEmail,
+            deviceId: load("wtf_device_id", "web-device") || "web-device",
+            schemaVersion: 1
+          }, { merge: true })));
+        }
+      } finally {
+        const latest = readRegistrosPendingQueue();
+        const confirmedIds = new Set(confirmedEvents.map((event) => event.eventId));
+        const mergedPending = new Map();
+        latest.filter((item) => item && item.event && !confirmedIds.has(item.event.eventId)).forEach((item) => mergedPending.set(item.event.eventId, item));
+        remaining.filter((item) => item && item.event && !confirmedIds.has(item.event.eventId)).forEach((item) => mergedPending.set(item.event.eventId, item));
+        writeRegistrosPendingQueue(Array.from(mergedPending.values()));
+        registrosLedgerFlushRef.current = false;
+      }
+    }
+    function queueRegistrosLedgerEvent(row, historyType, moduleName) {
+      const event = createRegistrosLedgerEvent(row, historyType, moduleName);
+      const queue = readRegistrosPendingQueue();
+      if (!queue.some((item) => item && item.event && item.event.eventId === event.eventId)) {
+        queue.push({ event, status: "pending", attempts: 0, lastAttemptAt: 0, lastError: "" });
+        writeRegistrosPendingQueue(queue);
+      }
+      addRegistrosLedgerEvents([event]);
+      flushRegistrosLedgerQueue().catch((error) => console.warn("No se pudo enviar el evento de Registros:", error));
+    }
+    async function loadRegistrosLedgerPage(moduleName, reset, userInitiated) {
+      const moduleKey = registrosModuleName(moduleName);
+      if (!firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail) return;
+      if (registrosLedgerLoadingRef.current[moduleKey]) {
+        if (userInitiated) registrosLedgerQueuedLoadRef.current[moduleKey] = true;
+        return;
+      }
+      if (reset) {
+        registrosLedgerCursorRef.current[moduleKey] = null;
+        registrosLedgerHasMoreRef.current[moduleKey] = true;
+        registrosLedgerReadyRef.current[moduleKey] = {};
+        const cleared = Object.assign({}, registrosLedgerRef.current, { [moduleKey]: { entradas: [], salidas: [], decomiso: [] } });
+        registrosLedgerRef.current = cleared;
+        setRegistrosLedger(cleared);
+      }
+      if (!registrosLedgerHasMoreRef.current[moduleKey]) return;
+      registrosLedgerLoadingRef.current[moduleKey] = true;
+      if (userInitiated) setRegistrosLedgerLoadingState(function(prev) { return Object.assign({}, prev, { [moduleKey]: true }); });
+      try {
+        const refs = getRegistrosLedgerRefs();
+        // Igual que Logs de Sistema: el cursor pertenece a la coleccion
+        // ordenada, y el modulo se filtra despues de recibir la pagina.
+        let query = refs.events.orderBy("createdAt", "desc").limit(REGISTROS_PAGE_SIZE);
+        if (registrosLedgerCursorRef.current[moduleKey]) query = query.startAfter(registrosLedgerCursorRef.current[moduleKey]);
+        let snapshot;
+        snapshot = await query.get({ source: "server" });
+        const events = snapshot.docs.map((doc) => Object.assign({ eventId: doc.id }, doc.data())).filter((event) => registrosModuleName(event.modulo || event.module) === moduleKey);
+        addRegistrosLedgerEvents(events);
+        if (snapshot.docs.length) registrosLedgerCursorRef.current[moduleKey] = snapshot.docs[snapshot.docs.length - 1];
+        registrosLedgerHasMoreRef.current[moduleKey] = snapshot.docs.length === REGISTROS_PAGE_SIZE;
+      } catch (error) {
+        console.warn("No se pudo leer el ledger incremental de Registros:", error);
+      } finally {
+        registrosLedgerLoadingRef.current[moduleKey] = false;
+        if (userInitiated) setRegistrosLedgerLoadingState(function(prev) { return Object.assign({}, prev, { [moduleKey]: false }); });
+        setRegistrosLedger(registrosLedgerRef.current);
+        if (registrosLedgerQueuedLoadRef.current[moduleKey]) {
+          registrosLedgerQueuedLoadRef.current[moduleKey] = false;
+          window.setTimeout(function() { loadRegistrosLedgerPage(moduleKey, false, true).catch(function(error) { console.warn("No se pudo cargar la pagina encolada de Registros:", error); }); }, 0);
+        }
+      }
+    }
+    async function migrateRegistrosLedgerOnce() {
+      if (registrosLedgerMigrationRef.current || !firebaseDocRef.current || !firebaseAuthReady || !firebaseAuthEmail || !canManageAdministration(currentUser)) return;
+      registrosLedgerMigrationRef.current = true;
+      const refs = getRegistrosLedgerRefs();
+      try {
+        const metaRef = refs.meta.collection("modules").doc("migration");
+        const metaSnapshot = await metaRef.get({ source: "server" });
+        const meta = metaSnapshot.exists ? metaSnapshot.data() || {} : {};
+        if (meta.status === "completed" && Number(meta.migrationVersion || 0) >= REGISTROS_MIGRATION_VERSION) return;
+        await metaRef.set({ migrationName: "registros-events", migrationVersion: REGISTROS_MIGRATION_VERSION, status: "running", startedAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedBy: firebaseAuthEmail }, { merge: true });
+        const sources = [
+          { module: "cocina", type: "entradas", key: "regEntradas" }, { module: "cocina", type: "salidas", key: "regSalidas" }, { module: "cocina", type: "decomiso", key: "regDecomiso" },
+          { module: "bar", type: "entradas", key: "barRegEntradas" }, { module: "bar", type: "salidas", key: "barRegSalidas" }, { module: "bar", type: "decomiso", key: "barRegDecomiso" }
+        ];
+        let total = 0, migrated = 0, alreadyExists = 0, errors = 0;
+        const moduleCounts = { cocina: 0, bar: 0 };
+        for (const source of sources) {
+          const remoteValue = await readFirebaseExternalStateDoc(firebaseDocRef.current, source.key, "", { source: "server", bypassCache: true });
+          for (const row of (Array.isArray(remoteValue) ? remoteValue : [])) {
+          total += 1;
+          moduleCounts[source.module] += 1;
+          const event = createRegistrosLedgerEvent(row, source.type, source.module);
+          try {
+            await createFirestoreDocIdempotent(refs.events.doc(event.eventId), Object.assign({}, event, { email: firebaseAuthEmail, createdAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(), updatedBy: firebaseAuthEmail, source: "migration" }));
+            migrated += 1;
+          } catch (error) {
+            if (String(error && error.code || "").toLowerCase().includes("already-exists")) alreadyExists += 1; else errors += 1;
+          }
+          }
+        }
+        await metaRef.set({ status: errors ? "partial" : "completed", completedAt: window.firebase.firestore.FieldValue.serverTimestamp(), totalSourceRows: total, migratedCount: migrated, alreadyExistsCount: alreadyExists, errorCount: errors, sourceDocuments: ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"], updatedBy: firebaseAuthEmail }, { merge: true });
+        await Promise.all(REGISTROS_MODULES.map((moduleName) => refs.meta.collection("modules").doc(moduleName).set({
+          revision: moduleCounts[moduleName],
+          totalApproximate: moduleCounts[moduleName],
+          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+          newestEventAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: firebaseAuthEmail,
+          deviceId: load("wtf_device_id", "web-device") || "web-device",
+          schemaVersion: 1,
+          migrationVersion: REGISTROS_MIGRATION_VERSION
+        }, { merge: true })));
+        await loadRegistrosLedgerPage("cocina", true);
+        await loadRegistrosLedgerPage("bar", true);
+      } catch (error) {
+        await refs.meta.collection("modules").doc("migration").set({ status: "failed", lastError: String(error && error.message || error), updatedBy: firebaseAuthEmail }, { merge: true }).catch(() => {});
+      } finally {
+        registrosLedgerMigrationRef.current = false;
+      }
+    }
     const miseHistoryFlushRef = useRef({ cocina: false, bar: false });
     const miseHistoryMigrationRef = useRef(false);
     const miseHistoryLoadedRef = useRef({ cocina: false, bar: false });
@@ -13285,6 +13541,7 @@
       if (!queue.length) return;
       miseHistoryFlushRef.current[moduleName] = true;
       const remaining = [];
+      const confirmedEventIds = new Set();
       let confirmed = 0;
       let newlyCreated = 0;
       try {
@@ -13302,8 +13559,12 @@
             await createFirestoreDocIdempotent(eventsRef.doc(event.eventId), remoteEvent);
             confirmed += 1;
             newlyCreated += 1;
+            confirmedEventIds.add(event.eventId);
           } catch (error) {
-            if (String(error && error.code || "").toLowerCase().includes("already-exists")) confirmed += 1;
+            if (String(error && error.code || "").toLowerCase().includes("already-exists")) {
+              confirmed += 1;
+              confirmedEventIds.add(event.eventId);
+            }
             else remaining.push(Object.assign({}, item, { status: "error", attempts: Number(item.attempts || 0) + 1, lastAttemptAt: Date.now(), lastError: String(error && error.message || error) }));
           }
         }
@@ -13319,7 +13580,15 @@
           }, { merge: true });
         }
       } finally {
-        writeMiseHistoryPending(moduleName, remaining);
+        const latestQueue = readMiseHistoryPending(moduleName);
+        const mergedPending = new Map();
+        latestQueue.filter(function(item) {
+          return item && item.event && !confirmedEventIds.has(item.event.eventId);
+        }).forEach(function(item) { mergedPending.set(item.event.eventId, item); });
+        remaining.filter(function(item) {
+          return item && item.event && !confirmedEventIds.has(item.event.eventId);
+        }).forEach(function(item) { mergedPending.set(item.event.eventId, item); });
+        writeMiseHistoryPending(moduleName, Array.from(mergedPending.values()));
         miseHistoryFlushRef.current[moduleName] = false;
       }
     }
@@ -13866,6 +14135,21 @@
         })
       };
     }
+    function hasPersistedFirebaseWritePending() {
+      const pending = load(FIREBASE_PENDING_WRITE_STORAGE_KEY, null);
+      return Boolean(pending && Number(pending.queuedAt || 0) > 0);
+    }
+    function rememberFirebaseWritePending(signature, reason) {
+      const queuedAt = Date.now();
+      pendingLocalAtRef.current = queuedAt;
+      pendingLocalSignatureRef.current = signature || `pending-${queuedAt}`;
+      save(FIREBASE_PENDING_WRITE_STORAGE_KEY, { signature: pendingLocalSignatureRef.current, reason: reason || "web-client", queuedAt });
+    }
+    function clearFirebaseWritePending() {
+      pendingLocalSignatureRef.current = "";
+      pendingLocalAtRef.current = 0;
+      removeLocalKey(FIREBASE_PENDING_WRITE_STORAGE_KEY);
+    }
     function scheduleFirebaseWrite(appState, signature, delay = 500, reason = "web-client") {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail) {
@@ -13878,8 +14162,6 @@
         setFirebaseMessage(formatFirebaseCooldownMessage(firebaseCooldownUntilRef.current));
         return;
       }
-      pendingLocalAtRef.current = Date.now();
-      pendingLocalSignatureRef.current = signature || `pending-${pendingLocalAtRef.current}`;
       hasSessionLocalChangeRef.current = true;
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = window.setTimeout(async function() {
@@ -13895,11 +14177,11 @@
           const snapshotState = appState || getCurrentAppState();
           const writeDoc = createFirebaseWriteDoc(snapshotState, reason);
           if (writeDoc.signature === lastRemoteSignatureRef.current) {
-            pendingLocalSignatureRef.current = "";
-            pendingLocalAtRef.current = 0;
+            clearFirebaseWritePending();
             hasSessionLocalChangeRef.current = false;
             return;
           }
+          rememberFirebaseWritePending(writeDoc.signature, reason);
           pendingLocalAtRef.current = markLocalSyncChange();
           writeDoc.doc.syncMeta = getSyncMeta(writeDoc.signature, reason);
           (writeDoc.externalDocs || []).forEach(function(externalDoc) {
@@ -13916,6 +14198,7 @@
           setFirebaseStatus("connected");
           setFirebaseMessage("Cambios sincronizados");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+          clearFirebaseWritePending();
         } catch (error) {
           console.error("Firebase write error:", error);
           if (activateFirebaseCooldown(error, "wtfSistema/estadoGeneral escritura")) return;
@@ -14119,7 +14402,7 @@
         const data = snapshot.data();
         const remoteMetaSignature = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
         const remoteExternalSignaturesQuick = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
-        const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+        const hasPendingLocalWrite = hasPersistedFirebaseWritePending() || (pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4);
         const mustRefreshAllExternalModules = reason === "manual-sync" || reason === "foreground-interval" || reason === "pwa" || reason === "pwa-resume" || reason === "pwa-foreground-sync";
         const externalModulesAreFresh = activeFirebaseModulesAreFresh(
           remoteExternalSignaturesQuick,
@@ -14195,6 +14478,14 @@
       }
     }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
+    function retryOfflineSynchronization(reason) {
+      const syncReason = reason || "offline-reconnect";
+      if (hasPersistedFirebaseWritePending()) scheduleFirebaseWrite(null, "", 0, syncReason);
+      flushSystemLogQueue();
+      ["cocina", "bar"].forEach(function(moduleName) {
+        flushMiseHistoryQueue(moduleName).catch(function(error) { console.warn("No se pudo reintentar Mise:", moduleName, error); });
+      });
+    }
     useEffect(() => save("wtf_correos", correos), [correos]);
     useEffect(() => saveSoon(KEYS.systemLogs, systemLogs), [systemLogs]);
     useEffect(() => save(KEYS.appSecurity, normalizeAppSecurity(appSecurity)), [appSecurity]);
@@ -14800,8 +15091,24 @@
           return;
         }
         const app = window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(firebaseCfg.firebaseConfig);
-        const docRef = app.firestore().collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
-        const icgDocRef = app.firestore().collection(firebaseCfg.collection).doc("icgControl");
+        const db = app.firestore();
+        if (!firestorePersistenceConfiguredRef.current && typeof db.enablePersistence === "function") {
+          firestorePersistenceConfiguredRef.current = true;
+          try {
+            const persistencePromise = db.enablePersistence({ synchronizeTabs: true });
+            if (persistencePromise && typeof persistencePromise.catch === "function") {
+              persistencePromise.catch(function(error) {
+                const code = String(error && error.code || "").toLowerCase();
+                if (code !== "failed-precondition" && code !== "unimplemented") console.warn("No se pudo activar la persistencia local de Firestore:", error);
+              });
+            }
+          } catch (error) {
+            const code = String(error && error.code || "").toLowerCase();
+            if (code !== "failed-precondition" && code !== "unimplemented") console.warn("No se pudo activar la persistencia local de Firestore:", error);
+          }
+        }
+        const docRef = db.collection(firebaseCfg.collection).doc(firebaseCfg.documentId);
+        const icgDocRef = db.collection(firebaseCfg.collection).doc("icgControl");
         firebaseDocRef.current = docRef;
         icgControlDocRef.current = icgDocRef;
         setFirebaseStatus("connecting");
@@ -14837,7 +15144,7 @@
           const data = snapshot.data();
           const remoteMetaSignatureQuick = data && data.syncMeta ? String(data.syncMeta.signature || "") : "";
           const remoteExternalSignaturesQuick = data && data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
-          const hasPendingLocalWriteQuick = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+          const hasPendingLocalWriteQuick = hasPersistedFirebaseWritePending() || (pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4);
           if (
             firebaseBootstrappedRef.current &&
             remoteMetaSignatureQuick &&
@@ -14880,7 +15187,7 @@
             }
             const remoteSignature = serializeAppState(remoteState);
             const currentSignature = serializeAppState(getCurrentAppState());
-            const hasPendingLocalWrite = pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4;
+            const hasPendingLocalWrite = hasPersistedFirebaseWritePending() || (pendingLocalSignatureRef.current && Date.now() - pendingLocalAtRef.current < 12e4);
             const remoteSyncMeta = data.syncMeta || {};
             const remoteClientTime = Number(remoteSyncMeta.clientTime || 0);
             const remoteRevision = Number(remoteSyncMeta.revision || 0);
@@ -15071,7 +15378,7 @@
       if (page !== "registros" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       let active = true;
       const unsubscribers = [];
-      ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].forEach(function(key) {
+      const startLegacyListeners = function() { ["regEntradas", "regSalidas", "regDecomiso", "barRegEntradas", "barRegSalidas", "barRegDecomiso"].forEach(function(key) {
         const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
         const ref = firebaseDocRef.current.parent.doc(docId);
         if (!ref || typeof ref.onSnapshot !== "function") return;
@@ -15090,7 +15397,8 @@
           if (active) console.warn("No se pudo escuchar el historial remoto de Registros:", key, error);
         });
         if (typeof unsubscribe === "function") unsubscribers.push(unsubscribe);
-      });
+      }); };
+      startLegacyListeners();
       return function() {
         active = false;
         unsubscribers.forEach(function(unsubscribe) {
@@ -15194,7 +15502,7 @@
         systemLogsCacheRecoveryRef.current = firebaseAuthEmail;
         recoverSystemLogsFromLocalCache(firebaseAuthEmail);
       }
-      const timer = window.setTimeout(() => flushSystemLogQueue(), 0);
+      const timer = window.setTimeout(() => retryOfflineSynchronization("auth-ready"), 0);
       return function() { window.clearTimeout(timer); };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
     useEffect(() => {
@@ -15214,7 +15522,7 @@
         if (reason === "foreground-interval" && now - lastPullAt < 4000) return;
         if (reason !== "foreground-interval" && now - lastPullAt < 4000) return;
         lastPullAt = now;
-        flushSystemLogQueue();
+        retryOfflineSynchronization(reason);
         if (pullLatestFirebaseSnapshotRef.current) pullLatestFirebaseSnapshotRef.current(reason);
       }
       window.addEventListener("wtf:pwa-resume", handlePwaSync);
@@ -15225,10 +15533,19 @@
       };
     }, []);
     useEffect(() => {
-      const handleOnline = () => flushSystemLogQueue();
+      const handleOnline = () => retryOfflineSynchronization("online");
+      const handleResume = () => {
+        if (!document.hidden) retryOfflineSynchronization("foreground");
+      };
       window.addEventListener("online", handleOnline);
+      window.addEventListener("pageshow", handleResume);
+      window.addEventListener("focus", handleResume);
+      document.addEventListener("visibilitychange", handleResume);
       return function() {
         window.removeEventListener("online", handleOnline);
+        window.removeEventListener("pageshow", handleResume);
+        window.removeEventListener("focus", handleResume);
+        document.removeEventListener("visibilitychange", handleResume);
         clearSystemLogsFlushRetry();
       };
     }, []);
@@ -15836,7 +16153,10 @@
       });
     }
     function logInventoryMovementEvent(row, tipo) {
-      if (!row || typeof addSystemLog !== "function") return;
+      if (!row) return;
+      const historyType = tipo === "entrada" ? "entradas" : tipo === "salida" ? "salidas" : "decomiso";
+      const moduleName = normalizar(row.modulo || row.origen || row.storageKey || "").includes("bar") ? "bar" : "cocina";
+      if (typeof addSystemLog !== "function") return;
       const action = tipo === "entrada" ? "Entrada de inventario" : tipo === "salida" ? "Salida de inventario" : "Decomiso de inventario";
       const stableId = `syslog-movement-${quickHashText([row.id || row._id || "", tipo, row.storageKey || "", row.producto || ""].join("|"))}`;
       addSystemLog({
