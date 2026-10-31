@@ -13,11 +13,22 @@ function numberAtLeast(value: string | undefined, fallback: number, min: number)
   return Number.isFinite(parsed) ? Math.max(min, parsed) : fallback;
 }
 
+const DEFAULT_ICG_SQL_DATA_PATH = "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA";
+const DEFAULT_ICG_AUDIT_DATA_DIR = "C:\\ICG\\BACKUP\\WTF_AUDIT_SQL";
+
+function absoluteWindowsPath(value: string | undefined, fallback: string): string {
+  const raw = String(value || "").trim().replace(/\//g, "\\");
+  // A business installation must never resolve the SQL data folder relative
+  // to the temporary installer directory or the current working directory.
+  if (!/^[A-Za-z]:\\/.test(raw) && !/^\\\\/.test(raw)) return fallback;
+  return raw.replace(/[\\]+$/, "");
+}
+
 export function getConfig(): ServiceConfig {
   const dataDir = path.resolve(process.env.WTF_DATA_DIR || "./data");
   return {
     port: Number(process.env.WTF_HOST_PORT || 8787),
-    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-de-inventario-wtf-prod-2026.web.app",
+    webAppUrl: process.env.WTF_WEB_APP_URL || "https://gestor-de-inventario-wtf-29056.web.app",
     firebaseProjectId: process.env.WTF_FIREBASE_PROJECT_ID || "gestor-de-inventario-wtf-29056",
     firebaseCollection: process.env.WTF_FIREBASE_COLLECTION || "wtfSistema",
     firebaseDocumentId: process.env.WTF_FIREBASE_DOCUMENT_ID || "estadoGeneral",
@@ -43,11 +54,12 @@ export function getConfig(): ServiceConfig {
     sqlConnectionString: process.env.ICG_SQL_CONNECTION_STRING || "",
     sqlServer: process.env.ICG_SQL_SERVER || "localhost",
     icgLiveDatabaseName: String(process.env.ICG_LIVE_DATABASE_NAME || "").trim() || "FRS_WTFOODVZL",
-    icgSqlDataPath: path.resolve(process.env.ICG_SQL_DATA_PATH || "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA"),
+    icgSqlDataPath: absoluteWindowsPath(process.env.ICG_SQL_DATA_PATH, DEFAULT_ICG_SQL_DATA_PATH),
     icgBackupPath: path.resolve(process.env.ICG_BACKUP_PATH || "C:\\ICG\\BACKUP\\FRS_WTFOODVZL.BAK_1"),
-    icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "",
-    icgSqlDataDir: path.resolve(process.env.ICG_SQL_DATA_DIR || "C:\\ICG\\Microsoft SQL Server\\MSSQL12.MSSQLSERVER\\MSSQL\\DATA"),
+    icgAuditDbName: process.env.ICG_AUDIT_DB_NAME || "WTF_AUDIT_FRS_WTFOODVZL",
+    icgSqlDataDir: absoluteWindowsPath(process.env.ICG_SQL_DATA_DIR, DEFAULT_ICG_AUDIT_DATA_DIR),
     icgBackupPollSeconds: numberAtLeast(process.env.ICG_BACKUP_POLL_SECONDS, 30, 30),
-    icgConsumptionLookbackDays: numberAtLeast(process.env.ICG_CONSUMPTION_LOOKBACK_DAYS, 30, 1)
+    icgConsumptionLookbackDays: numberAtLeast(process.env.ICG_CONSUMPTION_LOOKBACK_DAYS, 30, 1),
+    icgConsumptionFromDate: String(process.env.ICG_CONSUMPTION_FROM_DATE || "").trim()
   };
 }

@@ -46,7 +46,9 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
   backupSyncStartedAt = now;
   try {
     const result = await syncIcgBackupConsumption(config);
-    if (Array.isArray(result.movements) && !result.preserveLocalIcgQueue) {
+    // Una lectura correcta sin líneas nuevas no significa que la cola histórica
+    // deba borrarse. Solo reemplazar la vista cuando llegaron movimientos reales.
+    if (Array.isArray(result.movements) && result.movements.length > 0 && !result.preserveLocalIcgQueue) {
       await store.replaceIcgPreviewMovements(result.movements);
     }
     await store.appendAudit({ accion: "icg_catalog_sync", ...result });

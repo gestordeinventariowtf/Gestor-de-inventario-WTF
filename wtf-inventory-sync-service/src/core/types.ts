@@ -5,7 +5,6 @@ export type MovementState =
   | "pendiente_revision"
   | "aprobado"
   | "procesando"
-  | "aplicado"
   | "sincronizado"
   | "rechazado"
   | "error"
@@ -82,6 +81,7 @@ export interface ServiceConfig {
   icgSqlDataDir: string;
   icgBackupPollSeconds: number;
   icgConsumptionLookbackDays: number;
+  icgConsumptionFromDate: string;
 }
 
 export interface StoreData {
@@ -99,6 +99,7 @@ export interface ImportResult {
 }
 
 export interface IcgBackupConsumptionRow {
+  lineId?: string;
   movimientoIcgId?: string;
   fecha: string;
   fechaHora?: string;
@@ -140,6 +141,7 @@ export interface IcgBackupSyncResult {
   tableCounts?: Record<string, number>;
   movements?: SyncMovement[];
   preserveLocalIcgQueue?: boolean;
+  preserveRemoteIcgSales?: boolean;
   previewReadOk?: boolean;
   previewReadError?: string;
 }

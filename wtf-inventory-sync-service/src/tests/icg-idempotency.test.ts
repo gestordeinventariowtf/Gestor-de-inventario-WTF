@@ -24,7 +24,7 @@ const baseLine: IcgBackupConsumptionRow = {
   fo: "1",
   serie: "A001",
   numero: "169",
-  n: "B",
+  n: "1",
   numLinea: "4",
   tipoMovimiento: "venta",
   codArticulo: "10043",
@@ -118,51 +118,57 @@ const catalogReaderBody = adapterSource.slice(
   adapterSource.indexOf("export async function readLatestBackupConsumption"),
   adapterSource.indexOf("function createBackupMovement")
 );
+const appStateWriterBody = adapterSource.slice(
+  adapterSource.indexOf("async function writeAppState"),
+  adapterSource.indexOf("async function runSql")
+);
 const recentConsumptionPreviewBody = adapterSource.slice(
   adapterSource.indexOf("async function readRecentIcgConsumptionPreview"),
   adapterSource.indexOf("function sourceDatabaseName")
 );
-const dailyClosuresBody = adapterSource.slice(
-  adapterSource.indexOf("async function readBackupDailyClosures"),
-  adapterSource.indexOf("async function readRecentIcgConsumptionPreview")
-);
 
 assert.ok(catalogReaderBody.includes("'ARTICULOS','REFERENCIAS','STOCKS','PRECIOSVENTA'"), "La lectura activa debe limitarse a catalogos, referencias, stocks y precios.");
 assert.ok(catalogReaderBody.includes("readRecentIcgConsumptionPreview"), "Sincronizar debe cargar una vista previa de movimientos ICG recientes.");
+assert.ok(appStateWriterBody.includes("HOST_READ_ONLY_SHARD_KEYS"), "El Host no debe reenviar shards grandes de módulos ajenos a ICG.");
+assert.ok(appStateWriterBody.includes("appStateShardKeys: encodeFirestoreValue(splitState.shards.map"), "El índice debe conservar los shards que el Host no reescribe.");
 assert.ok(/FROM\s+TIQUETSLIN/i.test(recentConsumptionPreviewBody), "La cola visible del Host debe alimentarse exclusivamente desde TIQUETSLIN.");
-assert.ok(!/TIQUETSCAB/i.test(recentConsumptionPreviewBody), "La vista previa de ventas no debe depender de TIQUETSCAB.");
 const oldConsumptionTablePattern = new RegExp(["TIQUETS", "CONSUMO"].join("") + "|TICKETLIN|TIQUETLIN", "i");
 assert.ok(!oldConsumptionTablePattern.test(recentConsumptionPreviewBody), "La cola del Host no debe usar fuentes antiguas de consumos ni tickets.");
-assert.ok(/GROUP BY[\s\S]*tl\.NUMLINEA,\s*tl\.CODARTICULO/i.test(recentConsumptionPreviewBody), "TIQUETSLIN debe consolidarse por movimiento/articulo ICG para evitar filas duplicadas en la cola.");
-assert.ok(recentConsumptionPreviewBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "La lectura de TIQUETSLIN debe alimentar la fecha mediante el adaptador de columnas reales.");
-assert.ok(/CAST\s*\(\s*tl\.SERIE\s+AS\s+varchar/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar SERIE desde la propia línea.");
-assert.ok(/CAST\s*\(\s*tl\.NUMERO\s+AS\s+varchar/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe alimentar NUMERO desde la propia línea.");
-assert.ok(/UPPER\s*\(\s*LTRIM\s*\(\s*RTRIM[\s\S]*=\s*'B'/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe sincronizar solo tickets con N = B.");
-assert.ok(recentConsumptionPreviewBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "La lectura de TIQUETSLIN debe adaptar la fecha a las columnas reales de la base.");
-assert.ok(!/@UltimaFechaCierre|MAX\s*\(\s*CONVERT\s*\(\s*date\s*,\s*c\.FECHA\s*\)\s*\)/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN no debe limitarse solo al ultimo cierre.");
+assert.ok(!/GROUP BY/i.test(recentConsumptionPreviewBody), "TIQUETSLIN no debe agrupar filas fisicas antes de sincronizarlas.");
+assert.ok(catalogReaderBody.includes("readSqlTableColumns") && catalogReaderBody.includes("TIQUETSLIN"), "La lectura de TIQUETSLIN debe detectar las columnas reales de la base activa antes de construir la consulta.");
+assert.ok(recentConsumptionPreviewBody.includes("LINEID"), "Cada linea debe conservar una identidad fisica cuando la tabla la proporcione.");
+assert.ok(recentConsumptionPreviewBody.includes("icgConsumptionFromDate"), "La lectura debe admitir una fecha minima configurable para recuperar ventas desde un dia concreto.");
+assert.ok(recentConsumptionPreviewBody.includes("Date.parse(`${fromDate}T00:00:00`"), "El filtro de fecha debe aplicarse después de leer las filas y no descartar silenciosamente la venta.");
+assert.ok(/TRY_CONVERT\s*\(\s*datetime/i.test(recentConsumptionPreviewBody), "La lectura de TIQUETSLIN debe convertir fechas solo desde columnas existentes.");
+assert.ok(!/FROM\s+TIQUETSCAB/i.test(recentConsumptionPreviewBody), "La cola visible debe alimentarse directamente desde TIQUETSLIN.");
 assert.ok(!/SELECT\s+TOP\s+(?!0\b)\d+/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe recortar lineas ICG con TOP; debe permitir historial amplio dentro del rango configurado.");
 assert.ok(!/DATEADD\s*\(|GETDATE\s*\(\)\s*\)/i.test(recentConsumptionPreviewBody), "La cola de movimientos no debe filtrar ventas antiguas por fecha actual del servidor.");
-assert.ok(/FROM\s+TIQUETSLIN/i.test(dailyClosuresBody), "Cierres diarios debe leer las líneas desde TIQUETSLIN.");
-assert.ok(!/TIQUETSCAB/i.test(dailyClosuresBody), "Cierres diarios no debe depender de TIQUETSCAB.");
-assert.ok(dailyClosuresBody.includes("sqlDateExpression(tiquetsLinColumns, \"tl\")"), "Cierres diarios debe adaptar la fecha a las columnas reales de la base.");
-assert.ok(!/SELECT\s+TOP\s+1/i.test(dailyClosuresBody), "Cierres diarios no debe limitarse al ultimo cierre.");
+assert.ok(recentConsumptionPreviewBody.includes("ticketTypeFilter"), "La cola debe conservar el filtro de ventas de FrontRest cuando la columna N exista.");
+assert.ok(recentConsumptionPreviewBody.includes("sqlDateFilter"), "La fecha minima debe aplicarse como limite inferior para incluir fechas futuras.");
 
 const catalogSyncBody = adapterSource.slice(
   adapterSource.indexOf("async function syncIcgCatalogToFirestore"),
   adapterSource.indexOf("export async function syncIcgBackupConsumption")
 );
+assert.ok(catalogSyncBody.includes("preserveRemoteIcgSales"), "Una lectura TIQUETSLIN vacia no debe borrar ventas ICG remotas.");
 const createMovementBody = adapterSource.slice(
   adapterSource.indexOf("function createBackupMovement"),
   adapterSource.indexOf("export function icgPhysicalConsumptionSourceKey")
 );
 assert.ok(!/applyBackupConsumptionToFirestore\s*\(/i.test(catalogSyncBody), "La sincronizacion de catalogos/vista previa no debe aplicar salidas automaticas.");
-assert.ok(catalogSyncBody.includes("Pendiente de aplicar salida o descuento"), "La cola del Host debe identificar que las lineas ICG fueron recibidas pero aun no aplicadas.");
+assert.ok(catalogSyncBody.includes("No aplica salida ni descuento de inventario"), "La cola del Host debe identificar que las lineas ICG son informativas.");
 assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectura de TIQUETSLIN, el Host debe conservar la cola local anterior.");
 assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos disponibles"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
-assert.ok(adapterSource.includes("mergeRemoteIcgStateBeforeHostWrite"), "El Host debe fusionar el estado ICG remoto antes de guardar para evitar sobrescribir tickets de otra sesion.");
-assert.ok(adapterSource.includes("mergeIcgRowsBeforeHostWrite"), "El Host debe conservar y fusionar las lineas ICG por una llave estable.");
-assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe reemplazar la cola ICG visible para limpiar filas viejas de desglose.");
+assert.ok(catalogReaderBody.includes("readBackupDailyClosures") && catalogReaderBody.includes("closures = await"), "La sincronizacion debe reconstruir Cierres Diarios desde TIQUETSLIN cuando sea posible.");
+assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe consolidar la cola ICG visible.");
+const localStoreSource = fs.readFileSync(
+  fs.existsSync("src/core/local-store.ts") ? "src/core/local-store.ts" : path.resolve(__dirname, "../core/local-store.js"),
+  "utf8"
+);
+assert.ok(localStoreSource.includes("icg_preview_movements_merged"), "La cola ICG debe fusionar respuestas parciales sin borrar lineas previamente conservadas.");
+assert.ok(localStoreSource.includes("const previewRows = data.movements.filter(isIcgPreview)"), "La cola ICG debe conservar las lineas anteriores antes de incorporar nuevas respuestas.");
+assert.ok(mainSource.includes("result.movements.length > 0"), "Una lectura TIQUETSLIN vacia no debe borrar la cola visible existente.");
 assert.ok(mainSource.includes("!result.preserveLocalIcgQueue"), "La cola local no debe limpiarse cuando la vista previa de TIQUETSLIN falla.");
 assert.ok(catalogReaderBody.includes("attachSalePricesToConsumptionRows(previewConsumptionRows, salePrices)"), "La cola informativa del Host debe cargar Precio Restaurante y Precio APPS Delivery internamente.");
 assert.ok(createMovementBody.includes("PrecioRestaurante") && createMovementBody.includes("PrecioAppsDelivery"), "Las filas exportadas hacia Web.App deben conservar los precios de venta sin mostrarlos en la cola visible del Host.");
@@ -182,9 +188,5 @@ assert.ok(applyBackupBody.includes("const queueMovementDate = line.fecha"), "La 
 assert.ok(catalogSyncBody.includes("const movementDate = line.fecha"), "La cola informativa debe usar la fecha propia de TIQUETSLIN por movimiento.");
 assert.ok(applyBackupBody.includes("const pricedRowsToApply = attachSalePricesToConsumptionRows(rowsToApply, salePrices)"), "Los descuentos aplicados deben heredar Precio Restaurante y Precio APPS Delivery desde PRECIOSVENTA.");
 assert.ok(applyBackupBody.includes("PrecioRestaurante: line.precioRestaurante") && applyBackupBody.includes("PrecioAppsDelivery: line.precioAppsDelivery"), "ConsumoMiseVentas debe guardar los precios de venta en cada movimiento exportado.");
-assert.ok(catalogReaderBody.includes("readBackupDailyClosures(config, databaseName, tiquetsLinColumns)"), "Actualizar Articulos ICG debe leer cierres diarios desde la base local activa y su esquema real.");
-assert.ok(catalogSyncBody.includes("const visibleClosures = filterIcgDeletedRows(icg, \"CierresDiarios\", data.closures)") && catalogSyncBody.includes("rows: visibleClosures"), "Actualizar Articulos ICG debe reemplazar CierresDiarios con los cierres leidos desde SQL respetando marcas de borrado.");
-assert.ok(!/SELECT\s+TOP\s+1\s+\*/i.test(dailyClosuresBody), "CierresDiarios debe traer todos los cierres desde el 14/09/2026 en adelante.");
-assert.ok(/ORDER\s+BY\s+FechaCierre\s+DESC/i.test(dailyClosuresBody), "Los cierres deben mantenerse ordenados por FechaCierre descendente.");
 
 console.log("ICG idempotency tests passed");

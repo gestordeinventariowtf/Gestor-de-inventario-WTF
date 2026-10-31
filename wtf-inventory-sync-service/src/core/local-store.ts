@@ -20,17 +20,12 @@ export class LocalStore {
 
   async read(): Promise<StoreData> {
     await this.init();
-    let parsed: Partial<StoreData>;
-    try {
-      const text = await fs.readFile(this.filePath, "utf8");
-      parsed = JSON.parse(text) as Partial<StoreData>;
-    } catch (error) {
-      return this.recoverCorruptStore(error);
-    }
+    const text = await fs.readFile(this.filePath, "utf8");
+    const parsed = JSON.parse(text) as Partial<StoreData>;
     return {
       movements: Array.isArray(parsed.movements) ? parsed.movements : [],
       mappings: Array.isArray(parsed.mappings) ? parsed.mappings : [],
-      audit: Array.isArray(parsed.audit) ? this.sanitizeAudit(parsed.audit) : []
+      audit: Array.isArray(parsed.audit) ? parsed.audit : []
     };
   }
 
@@ -58,16 +53,45 @@ export class LocalStore {
 
   async replaceIcgPreviewMovements(movements: SyncMovement[]): Promise<void> {
     const data = await this.read();
-    const nextMovements = Array.isArray(movements) ? movements : [];
+    const incoming = Array.isArray(movements) ? movements : [];
     const isIcgPreview = (row: SyncMovement) =>
       row.origen === "ICG FrontRest" &&
       row.destino === "Sistema Web" &&
       (String(row.id || "").startsWith("icg-local-") || String(row.idempotencyKey || "").startsWith("icg-local-"));
-    data.movements = nextMovements.concat(data.movements.filter((row) => !isIcgPreview(row)));
+    const previewRows = data.movements.filter(isIcgPreview);
+    const byKey = new Map<string, SyncMovement>();
+    const keyFor = (row: SyncMovement): string => String(row.idempotencyKey || row.id || "").trim();
+
+    // Esta operación recibe una vista parcial de TIQUETSLIN. Nunca debe tratar
+    // una respuesta parcial como una orden de borrar la cola local completa.
+    previewRows.forEach((row) => {
+      const key = keyFor(row);
+      if (key) byKey.set(key, row);
+    });
+    incoming.forEach((row) => {
+      const key = keyFor(row);
+      if (!key) return;
+      const previous = byKey.get(key);
+      byKey.set(key, previous ? {
+        ...previous,
+        ...row,
+        // Un estado local confirmado o bloqueado no debe degradarse por una
+        // lectura informativa posterior del Host.
+        estado: previous.estado === "sincronizado"
+          ? previous.estado
+          : row.estado,
+        intentos: previous.intentos,
+        ultimoIntento: previous.ultimoIntento
+      } : row);
+    });
+    const mergedPreview = Array.from(byKey.values());
+    data.movements = mergedPreview.concat(data.movements.filter((row) => !isIcgPreview(row)));
     data.audit.unshift({
       fecha: new Date().toISOString(),
-      accion: "icg_preview_movements_replaced",
-      total: nextMovements.length
+      accion: "icg_preview_movements_merged",
+      incoming: incoming.length,
+      preserved: previewRows.length,
+      total: mergedPreview.length
     });
     await this.write(data);
   }
@@ -112,8 +136,7 @@ export class LocalStore {
 
   async appendAudit(entry: Record<string, unknown>): Promise<void> {
     const data = await this.read();
-    data.audit.unshift(this.sanitizeAuditEntry({ fecha: new Date().toISOString(), ...entry }));
-    data.audit = data.audit.slice(0, 1000);
+    data.audit.unshift({ fecha: new Date().toISOString(), ...entry });
     await this.write(data);
   }
 
@@ -123,46 +146,10 @@ export class LocalStore {
       movements: data.movements.length,
       pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
       approved: data.movements.filter((row) => row.estado === "aprobado").length,
-      synced: data.movements.filter((row) => row.estado === "sincronizado" || row.estado === "aplicado").length,
+      synced: data.movements.filter((row) => row.estado === "sincronizado").length,
       errors: data.movements.filter((row) => row.estado === "error").length,
       mappings: data.mappings.length,
       audit: data.audit.length
     };
-  }
-
-  private sanitizeAudit(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-    return entries.slice(0, 1000).map((entry) => this.sanitizeAuditEntry(entry));
-  }
-
-  private sanitizeAuditEntry(entry: Record<string, unknown>): Record<string, unknown> {
-    const sanitized: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(entry || {})) {
-      if (key === "movements" || key === "rows" || key === "rawRows") {
-        if (Array.isArray(value)) sanitized[`${key}Count`] = value.length;
-        continue;
-      }
-      sanitized[key] = value;
-    }
-    return sanitized;
-  }
-
-  private async recoverCorruptStore(error: unknown): Promise<StoreData> {
-    const message = error instanceof Error ? error.message : String(error);
-    const backupPath = `${this.filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    try {
-      await fs.copyFile(this.filePath, backupPath);
-    } catch {}
-    const recovered: StoreData = {
-      movements: [],
-      mappings: [],
-      audit: [{
-        fecha: new Date().toISOString(),
-        accion: "queue_corrupt_recovered",
-        mensaje: message,
-        backupPath
-      }]
-    };
-    await this.write(recovered);
-    return recovered;
   }
 }

@@ -38,25 +38,12 @@ export function startDashboard(
       if (url.pathname === "/api/state") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const data = await store.read();
-        const stats = {
-          movements: data.movements.length,
-          pending: data.movements.filter((row) => row.estado === "pendiente" || row.estado === "pendiente_revision").length,
-          approved: data.movements.filter((row) => row.estado === "aprobado").length,
-          synced: data.movements.filter((row) => row.estado === "sincronizado" || row.estado === "aplicado").length,
-          errors: data.movements.filter((row) => row.estado === "error").length,
-          mappings: data.mappings.length,
-          audit: data.audit.length
-        };
-        return json(res, { movements: data.movements, mappings: data.mappings, stats, config: publicConfig(config) });
+        return json(res, { ...data, stats: await store.stats(), config: publicConfig(config) });
       }
       if (url.pathname === "/api/refresh-all" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const backup = await onSyncIcgBackup();
         return json(res, { ok: true, backup });
-      }
-      if (url.pathname === "/api/sync-icg-local" && req.method === "POST") {
-        const result = await onSyncIcgBackup();
-        return json(res, { ok: true, result });
       }
       if (url.pathname === "/api/sync-icg-backup" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
@@ -370,8 +357,7 @@ function renderDashboard(config: ServiceConfig): string {
         msg.textContent=' No se pudo cargar el estado del Host: '+(error&&error.message?error.message:error);
       }
     }
-    function displayMovementState(value){const state=String(value||'').trim().toLowerCase(); if(state==='aplicado'||state==='sincronizado') return 'Sincronizado'; if(state==='pendiente_revision') return 'Pendiente de revision'; if(state==='esperando_conexion') return 'Esperando conexion'; if(state==='procesando') return 'Procesando'; if(state==='aprobado') return 'Aprobado'; if(state==='rechazado') return 'Rechazado'; if(state==='error') return 'Error'; return value||'Pendiente';}
-    function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(displayMovementState(r.estado))+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
     function formatMovementDate(r){
       const raw=String((r&&r.fecha)||'').trim();
       if(!raw) return '';
@@ -386,7 +372,7 @@ function renderDashboard(config: ServiceConfig): string {
       return esc(raw.replace('T',' ').replace('.000Z',''));
     }
     function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-    function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'||s==='aplicado'?'ok':'warn'}
+    function cls(s){return s==='error'?'error':s==='aprobado'||s==='sincronizado'?'ok':'warn'}
     async function refreshAll(){
       if(window.btnSync) btnSync.disabled=true;
       msg.textContent=' Actualizando catalogos, referencias, stocks y precios desde ICG Local...';
@@ -421,8 +407,9 @@ function renderDashboard(config: ServiceConfig): string {
     function renderConfig(cfg){
       cfgWebApp.textContent=cfg.webAppUrl||'';
       cfgFirebase.textContent=((cfg.firebaseProjectId||'')+' / '+(cfg.firebaseCollection||'')+' / '+(cfg.firebaseDocumentId||'')).trim();
+      const liveDbName=cfg.icgLiveDatabaseName||'FRS_WTFOODVZL';
       const liveSqlPath=cfg.icgSqlDataPath||'C:\\\\ICG\\\\Microsoft SQL Server\\\\MSSQL12.MSSQLSERVER\\\\MSSQL\\\\DATA';
-      cfgIcgDb.textContent=liveSqlPath;
+      cfgIcgDb.textContent=liveDbName+' - SQL Server local - '+liveSqlPath;
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);
@@ -485,9 +472,8 @@ function json(res: http.ServerResponse, body: unknown, status = 200): void {
 function applyCors(res: http.ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-WTF-API-Key,x-wtf-api-key,Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-WTF-API-Key");
   res.setHeader("Access-Control-Allow-Private-Network", "true");
-  res.setHeader("Access-Control-Max-Age", "86400");
 }
 
 async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

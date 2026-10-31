@@ -1,12 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
 const execFileAsync = promisify(execFile);
-
-function encoded(script: string): string {
-  return Buffer.from(script, "utf16le").toString("base64");
-}
-
+function encoded(script: string): string { return Buffer.from(script, "utf16le").toString("base64"); }
 export async function unprotectWindowsSecret(protectedValue: string): Promise<string> {
   if (!protectedValue) return "";
   if (process.platform !== "win32") throw new Error("La credencial protegida del Host solo puede abrirse en Windows.");

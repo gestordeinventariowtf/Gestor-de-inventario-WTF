@@ -33,14 +33,19 @@ namespace WtfIcgHostTray
         private readonly string installDir;
         private readonly string serviceExe;
         private readonly string panelUrl;
+        private readonly string logPath;
         private Process serviceProcess;
         private ToolStripMenuItem statusItem;
         private ToolStripMenuItem startupItem;
+
         public TrayContext()
         {
             installDir = ResolveInstallDir();
             serviceExe = ResolveServiceExe(installDir);
             panelUrl = "http://127.0.0.1:8787";
+            logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WTF ICG Host", "logs", "tray.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath));
+            WriteLog("Tray iniciado. Instalacion=" + installDir + " Servicio=" + serviceExe);
 
             tray = new NotifyIcon
             {
@@ -82,6 +87,7 @@ namespace WtfIcgHostTray
             if (IsHostRunning()) return;
             if (!File.Exists(serviceExe))
             {
+                WriteLog("No se encontro el ejecutable del servicio: " + serviceExe);
                 tray.ShowBalloonTip(5000, AppName, "No se encontro wtf-icg-host.exe en la instalacion.", ToolTipIcon.Error);
                 return;
             }
@@ -92,10 +98,33 @@ namespace WtfIcgHostTray
                 WorkingDirectory = installDir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
-            serviceProcess = Process.Start(startInfo);
-            tray.ShowBalloonTip(2500, AppName, "Servicio local activo en segundo plano.", ToolTipIcon.Info);
+            try
+            {
+                serviceProcess = Process.Start(startInfo);
+                if (serviceProcess == null) throw new InvalidOperationException("Windows no pudo crear el proceso del servicio.");
+                serviceProcess.OutputDataReceived += (sender, args) => { if (args.Data != null) WriteLog(args.Data); };
+                serviceProcess.ErrorDataReceived += (sender, args) => { if (args.Data != null) WriteLog("ERROR: " + args.Data); };
+                serviceProcess.EnableRaisingEvents = true;
+                serviceProcess.Exited += (sender, args) => WriteLog("El proceso del servicio termino con codigo " + serviceProcess.ExitCode);
+                serviceProcess.BeginOutputReadLine();
+                serviceProcess.BeginErrorReadLine();
+                WriteLog("Servicio iniciado. PID=" + serviceProcess.Id);
+                tray.ShowBalloonTip(2500, AppName, "Servicio local activo en segundo plano.", ToolTipIcon.Info);
+            }
+            catch (Exception ex)
+            {
+                WriteLog("No se pudo iniciar el servicio: " + ex);
+                tray.ShowBalloonTip(5000, AppName, "No se pudo iniciar el servicio local. Revise tray.log.", ToolTipIcon.Error);
+            }
+        }
+
+        private void WriteLog(string message)
+        {
+            try { File.AppendAllText(logPath, DateTime.Now.ToString("s") + " " + message + Environment.NewLine); } catch { }
         }
 
         private string ResolveInstallDir()
@@ -164,7 +193,6 @@ namespace WtfIcgHostTray
 
         private void OpenPanel()
         {
-            StartHost();
             Process.Start(new ProcessStartInfo { FileName = panelUrl, UseShellExecute = true });
         }
 
