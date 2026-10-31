@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261030051407-97d4066";</script>
+  <script>window.WTF_APP_VERSION = "20261031052140-1845ef0";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2530,6 +2530,7 @@
     financial: "wtf_financial_admin"
   };
   const INVENTORY_DELETED_KEYS_STORAGE = "wtf_inventory_deleted_keys";
+  const INVENTORY_COD_REGISTRY_STORAGE = "wtf_inventory_codarticulo_registry_v1";
   const INVENTORY_MOVED_KEYS_STORAGE = "wtf_inventory_moved_keys";
   const MISE_DELETED_KEYS_STORAGE = "wtf_mise_deleted_keys";
   const RECIPE_DELETED_KEYS_STORAGE = "wtf_recipe_deleted_keys";
@@ -3057,6 +3058,34 @@
     if (!raw) return "";
     return /^\d+$/.test(raw) ? String(Number(raw)) : normalizar(raw);
   }
+  function normalizeInventoryCodArticuloRegistry(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const result = {};
+    Object.keys(source).forEach(function(key) {
+      const code = String(key || "").trim();
+      if (!code) return;
+      const raw = source[key];
+      const record = raw && typeof raw === "object" ? Object.assign({}, raw) : {};
+      record.codArticulo = String(record.codArticulo || code).trim();
+      record.reservedAt = Number(record.reservedAt || 0) || 0;
+      record.deleted = record.deleted === true;
+      if (record.deletedAt) record.deletedAt = String(record.deletedAt);
+      result[code] = record;
+    });
+    return result;
+  }
+  function mergeInventoryCodArticuloRegistry(remoteRegistry, localRegistry) {
+    const result = normalizeInventoryCodArticuloRegistry(remoteRegistry);
+    const local = normalizeInventoryCodArticuloRegistry(localRegistry);
+    Object.keys(local).forEach(function(code) {
+      const remote = result[code];
+      const candidate = local[code];
+      const remoteAt = Number(remote && (remote.updatedAtMs || remote.reservedAt) || 0);
+      const candidateAt = Number(candidate && (candidate.updatedAtMs || candidate.reservedAt) || 0);
+      if (!remote || candidateAt >= remoteAt) result[code] = Object.assign({}, remote || {}, candidate);
+    });
+    return result;
+  }
   function collectInventoryCodArticuloRows(sources) {
     const rows = [];
     (Array.isArray(sources) ? sources : []).forEach(function(source) {
@@ -3076,11 +3105,21 @@
     });
     return rows;
   }
-  function getNextInventoryCodArticulo(sources) {
+  function getNextInventoryCodArticulo(sources, registry) {
     let maxCode = Number(load("wtf_last_inventory_cod_articulo", 0)) || 0;
     collectInventoryCodArticuloRows(sources).forEach(function(row) {
       const code = String(row.codArticulo || "").trim();
       if (/^\d+$/.test(code)) maxCode = Math.max(maxCode, Number(code));
+    });
+    Object.keys(normalizeInventoryCodArticuloRegistry(registry)).forEach(function(code) {
+      if (/^\d+$/.test(code)) maxCode = Math.max(maxCode, Number(code));
+    });
+    const deleted = normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {}));
+    Object.keys(deleted).forEach(function(stateKey) {
+      Object.keys(deleted[stateKey] || {}).forEach(function(key) {
+        const match = String(key).match(/^prod-code\|(\d+)$/);
+        if (match) maxCode = Math.max(maxCode, Number(match[1]));
+      });
     });
     return String(maxCode + 1);
   }
@@ -3093,29 +3132,43 @@
   }
   function repairInventoryCodArticuloCollections(collections) {
     const entries = Array.isArray(collections) ? collections : [];
-    let nextCode = 1;
+    const usedCodes = new Set();
+    let maxCode = Number(load("wtf_last_inventory_cod_articulo", 0)) || 0;
     let changed = false;
     const data = {};
     entries.forEach(function(entry) {
       const key = entry.key;
       data[key] = (Array.isArray(entry.rows) ? entry.rows : []).map(function(row) {
         if (!row || row.tipo !== "producto") return row;
-        const expectedCode = String(nextCode++);
-        if (String(getInventoryCodArticulo(row, "")).trim() === expectedCode) return row;
+        let code = String(getInventoryCodArticulo(row, "")).trim();
+        const numericCode = /^\d+$/.test(code) ? Number(code) : 0;
+        if (numericCode) maxCode = Math.max(maxCode, numericCode);
+        if (code && !usedCodes.has(normalizeCodArticuloValue(code))) {
+          usedCodes.add(normalizeCodArticuloValue(code));
+          return row;
+        }
+        do { maxCode += 1; code = String(maxCode); } while (usedCodes.has(normalizeCodArticuloValue(code)));
+        usedCodes.add(normalizeCodArticuloValue(code));
         changed = true;
-        return Object.assign({}, row, { codArticulo: expectedCode });
+        return Object.assign({}, row, { codArticulo: code, codArticuloAsignadoAt: new Date().toISOString() });
       });
     });
-    rememberInventoryCodArticulo(String(Math.max(0, nextCode - 1)));
+    rememberInventoryCodArticulo(String(Math.max(0, maxCode)));
     return { changed, data };
   }
   function findInventoryCodArticuloUsage(sources, codArticulo, currentSourceKey, currentRowId) {
     const normalized = normalizeCodArticuloValue(codArticulo);
     if (!normalized) return null;
-    return collectInventoryCodArticuloRows(sources).find(function(row) {
+    const active = collectInventoryCodArticuloRows(sources).find(function(row) {
       if (row.normalized !== normalized) return false;
       return !(row.sourceKey === currentSourceKey && String(row.rowId) === String(currentRowId));
     }) || null;
+    if (active) return active;
+    const deleted = normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {}));
+    const deletedState = Object.keys(deleted).find(function(stateKey) {
+      return Number(deleted[stateKey] && deleted[stateKey][`prod-code|${normalized}`] || 0) > 0;
+    });
+    return deletedState ? { sourceLabel: `${deletedState} (código reservado por baja)`, nombre: "Producto eliminado", codArticulo: codArticulo } : null;
   }
   function nextInventoryRowId(rows) {
     return Math.max(0, ...rows.map((row) => Number(row.id) || 0)) + 1;
@@ -4669,7 +4722,8 @@
     return name ? ["prod-name", name].join("|") : "";
   }
   function getInventoryDeletedKeysForRow(row) {
-    return [getInventoryMergeKey(row), getInventoryDeletedNameKey(row)].filter(Boolean);
+    const code = getInventoryCodArticulo(row, "");
+    return [getInventoryMergeKey(row), getInventoryDeletedNameKey(row), code ? ["prod-code", normalizeCodArticuloValue(code)].join("|") : ""].filter(Boolean);
   }
   function getInventoryMovedKey(row) {
     return getInventoryDeletedNameKey(row);
@@ -4949,10 +5003,11 @@
   }
   function pruneInventoryDeletedKeys(deletedKeys, stateKey) {
     const source = normalizeInventoryDeletedKeys(deletedKeys)[stateKey] || {};
-    const minTs = Date.now() - 90 * 24 * 60 * 60 * 1e3;
     const result = {};
     Object.keys(source).forEach(function(key) {
-      if (Number(source[key] || 0) >= minTs) result[key] = source[key];
+      // Las bajas de inventario son tombstones permanentes. No se purgan por
+      // tiempo porque un documento/caché antiguo podría reconstruir el producto.
+      if (Number(source[key] || 0) > 0) result[key] = source[key];
     });
     return result;
   }
@@ -5630,6 +5685,7 @@
       if (MOVEMENT_DELETED_STATE_KEYS.includes(key)) next.movementDeletedKeys[key] = pruneMovementDeletedKeys(next.movementDeletedKeys, key);
     });
     next.inventoryDeletedKeys = mergeInventoryDeletedKeys(remoteState && remoteState.inventoryDeletedKeys, includeLocalDeletedKeys ? localState && localState.inventoryDeletedKeys : null);
+    next.inventoryCodArticuloRegistry = mergeInventoryCodArticuloRegistry(remoteState && remoteState.inventoryCodArticuloRegistry, includeLocalDeletedKeys ? localState && localState.inventoryCodArticuloRegistry : null);
     next.inventoryMovedKeys = inferInventoryMovedKeys(
       Object.assign({}, localState || {}, remoteState || {}),
       mergeInventoryMovedKeys(remoteState && remoteState.inventoryMovedKeys, includeLocalDeletedKeys ? localState && localState.inventoryMovedKeys : null)
@@ -5677,7 +5733,7 @@
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
     next.assetManagementData = ensureAssetManagementData(mergeGenericPersistedData(localState && localState.assetManagementData, remoteState && remoteState.assetManagementData));
-    next.icgFrontRestData = ensureIcgFrontRestData(mergeGenericPersistedData(localState && localState.icgFrontRestData, remoteState && remoteState.icgFrontRestData));
+    next.icgFrontRestData = mergeFirebaseIcgExternalState(remoteState && remoteState.icgFrontRestData, localState && localState.icgFrontRestData);
     next.neveras = mergeGenericPersistedRows(localState && localState.neveras, remoteState && remoteState.neveras);
     next.correos = mergeGenericPersistedRows(localState && localState.correos, remoteState && remoteState.correos);
     next.googleConfig = normalizeGoogleConfig(mergeGenericPersistedData(localState && localState.googleConfig, remoteState && remoteState.googleConfig));
@@ -5745,6 +5801,7 @@
       productionHolds: normalizeProductionHolds(state.productionHolds || [], productionHoldDeletedKeys.productionHolds),
       recetasProduccionBaseVersion: state.recetasProduccionBaseVersion || "",
       inventoryDeletedKeys: deletedKeys,
+      inventoryCodArticuloRegistry: normalizeInventoryCodArticuloRegistry(state.inventoryCodArticuloRegistry),
       inventoryMovedKeys: normalizeInventoryMovedKeys(state.inventoryMovedKeys),
       miseDeletedKeys,
       recipeDeletedKeys,
@@ -6237,22 +6294,28 @@
   function mergeFirebaseIcgExternalState(remoteValue, localValue) {
     const remote = ensureIcgFrontRestData(remoteValue || {});
     const local = ensureIcgFrontRestData(localValue || {});
-    const remoteResetAt = String(remote.icgSyncResetAt || "");
-    const localResetAt = String(local.icgSyncResetAt || "");
-    if (remoteResetAt && remoteResetAt !== localResetAt) {
-      const resetDatasets = Object.assign({}, remote.datasets || {});
-      ICG_CLEANUP_DATASET_KEYS.forEach(function(key) {
-        const dataset = Object.assign({}, resetDatasets[key] || {});
-        dataset.rows = [];
-        resetDatasets[key] = dataset;
-      });
-      return ensureIcgFrontRestData(Object.assign({}, remote, { datasets: resetDatasets }));
-    }
+    const remoteResetAt = String(remote.icgDatasetResetAt || "");
+    const remoteResetTables = Array.isArray(remote.icgDatasetResetTables) ? remote.icgDatasetResetTables.map(String) : [];
     const datasets = Object.assign({}, remote.datasets || {}, local.datasets || {});
     ICG_CLEANUP_DATASET_KEYS.forEach(function(key) {
-      datasets[key] = mergeFirebaseIcgDataset(remote.datasets && remote.datasets[key], local.datasets && local.datasets[key], key);
+      if (remoteResetAt && remoteResetTables.includes(key)) {
+        const remoteDataset = Object.assign({}, remote.datasets && remote.datasets[key] || {});
+        remoteDataset.rows = [];
+        datasets[key] = remoteDataset;
+      } else if (key === "VinculosMiseICG" && remote.datasets && Object.prototype.hasOwnProperty.call(remote.datasets, key)) {
+        // Los vínculos migrados a Firestore son la fuente única. La copia local
+        // no puede reintroducir vínculos antiguos ni incompletos.
+        datasets[key] = Object.assign({}, remote.datasets[key], {
+          rows: Array.isArray(remote.datasets[key].rows) ? remote.datasets[key].rows : []
+        });
+      } else {
+        datasets[key] = mergeFirebaseIcgDataset(remote.datasets && remote.datasets[key], local.datasets && local.datasets[key], key);
+      }
     });
-    return ensureIcgFrontRestData(Object.assign({}, remote, local, { datasets }));
+    return ensureIcgFrontRestData(Object.assign({}, remote, local, {
+      datasets,
+      ...(remoteResetAt ? { icgDatasetResetAt: remoteResetAt, icgDatasetResetTables: remoteResetTables } : {})
+    }));
   }
   async function writeFirebaseAppStateDoc(docRef, writeDoc) {
     if (!docRef || !writeDoc) return;
@@ -8364,7 +8427,7 @@
     });
     return true;
   }
-  function saveIcgLinksForWtfProduct(setIcgFrontRestData, moduleLabel, productName, rawLinks, icgArticles, defaultUnit, method, previousProductName) {
+  function saveIcgLinksForWtfProduct(setIcgFrontRestData, moduleLabel, productName, rawLinks, icgArticles, defaultUnit, method, previousProductName, productCodArticulo) {
     if (!setIcgFrontRestData || !String(productName || "").trim()) return;
     const cleanLinks = cleanIcgLinkRows(rawLinks, icgArticles, defaultUnit);
     setIcgFrontRestData(function(prev) {
@@ -8375,10 +8438,12 @@
       const targetModule = normalizeIcgWtfTarget(moduleLabel);
       const productKey = normalizar(productName);
       const previousProductKey = normalizar(previousProductName || "");
+      const productCodeKey = normalizar(productCodArticulo || "");
       const keptRows = existingRows.filter(function(row) {
         const sameModule = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === targetModule;
         const rowProductKey = normalizar(row.ProductoMise || row.ProductoWTF);
-        const sameProduct = rowProductKey === productKey || Boolean(previousProductKey && rowProductKey === previousProductKey);
+        const rowProductCode = normalizar(row.CodArticuloWTF || row.codArticuloWTF || "");
+        const sameProduct = productCodeKey && rowProductCode ? rowProductCode === productCodeKey : rowProductKey === productKey || Boolean(previousProductKey && rowProductKey === previousProductKey);
         return !(sameModule && sameProduct);
       });
       const nextRows = cleanLinks.map(function(link) {
@@ -8387,6 +8452,7 @@
           ModuloWTF: moduleLabel,
           ProductoWTF: productName,
           ProductoMise: productName,
+          CodArticuloWTF: String(productCodArticulo || "").trim(),
           CodArticulo: link.CodArticulo,
           Referencia: link.Referencia,
           ProductoICG: link.ProductoICG,
@@ -8709,13 +8775,13 @@
   }
   function buildIcgSalesTickets(data) {
     const normalizedData = ensureIcgFrontRestData(data);
-    // El detalle operativo debe venir de las líneas confirmadas por TIQUETSLIN.
-    // No hidratarlo con encabezados antiguos de TiquetsCab.
-    const tickets = [];
+    const tickets = icgRows(normalizedData, "TiquetsCab").filter(function(row) {
+      return row && !(row.FechaAnulacion || row.Anulado || row.Cancelado);
+    });
     const lines = icgRows(normalizedData, "TiquetsLin");
-    const payments = [];
+    const payments = icgRows(normalizedData, "TiquetsPag");
     const map = {};
-    icgRows(normalizedData, "TiquetsCab").forEach(function(row, index) {
+    tickets.forEach(function(row, index) {
       const ticketKey = getIcgTicketKey(row) || `ticket-${index}`;
       map[ticketKey] = Object.assign({}, row, {
         ticketKey,
@@ -8778,32 +8844,10 @@
     };
     const explicit = icgRows(data, "CierresDiarios");
     if (explicit.length) {
-      const lineCounts = {};
-      const uniqueLines = new Set();
-      icgRows(data, "TiquetsLin").forEach(function(line, index) {
-        if (!isBillableTiquetsLinRow(line)) return;
-        const dateKey = icgDateKey(line.Fecha || line.HORA || line._fechaTicket || line._sourceDate) || "";
-        if (!dateKey) return;
-        const rowKey = getFirebaseIcgRowKey(line, "TiquetsLin", index);
-        const uniqueKey = `${dateKey}|${rowKey}`;
-        if (uniqueLines.has(uniqueKey)) return;
-        uniqueLines.add(uniqueKey);
-        if (!lineCounts[dateKey]) lineCounts[dateKey] = { tickets: new Set(), lines: 0 };
-        lineCounts[dateKey].lines += 1;
-        lineCounts[dateKey].tickets.add(getIcgTicketKey(line) || rowKey);
-      });
       return sortRecentFirst(explicit).map(function(row) {
         const pagos = parseIcgNumber(row && row.Pagos);
         const ventaNeta = pagos || parseIcgNumber(row && row.VentaNeta);
-        const dateKey = icgDateKey(row.FechaCierre || row.Fecha || row.fecha || row.createdAt) || "";
-        const counts = lineCounts[dateKey];
-        const remoteTickets = parseIcgNumber(row && row.Tickets);
-        const remoteLines = parseIcgNumber(row && row.Lineas);
-        return Object.assign({}, row, {
-          Tickets: counts ? counts.tickets.size : remoteTickets,
-          Lineas: counts ? counts.lines : remoteLines,
-          VentaNeta: Number(ventaNeta.toFixed(2))
-        });
+        return Object.assign({}, row, { VentaNeta: Number(ventaNeta.toFixed(2)) });
       });
     }
     const tickets = icgRows(data, "TiquetsCab").filter(function(row) {
@@ -8935,9 +8979,10 @@
   function getIcgBridgeIdentity(row) {
     if (!row) return "";
     const targetKey = normalizeIcgWtfTarget(row.targetKey || row.ModuloWTF || row.DestinoWTF || row.Destino || row.Modulo);
+    const wtfProductIdentity = normalizar(row.CodArticuloWTF || row.codArticuloWTF || "") || normalizar(row.ProductoWTF || row.ProductoMise || "");
     return [
       targetKey,
-      normalizar(row.ProductoWTF || row.ProductoMise || ""),
+      wtfProductIdentity,
       normalizar(row.CodArticulo || row.Codigo || ""),
       normalizar(row.Referencia || ""),
       normalizar(row.ProductoICG || row.Descripcion || "")
@@ -8967,6 +9012,7 @@
           ModuloWTF: ICG_WTF_TARGET_LABELS[targetKey] || targetKey,
           ProductoWTF: productName,
           ProductoMise: productName,
+          CodArticuloWTF: String(item.codArticulo || item.CodArticulo || "").trim(),
           CodArticulo: parsed.CodArticulo,
           Referencia: parsed.Referencia,
           ProductoICG: parsed.ProductoICG,
@@ -13055,6 +13101,7 @@
     const [selfAccessModal, setSelfAccessModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
     const initialInventoryDeletedKeys = useMemo(() => normalizeInventoryDeletedKeys(load(INVENTORY_DELETED_KEYS_STORAGE, {})), []);
+    const initialInventoryCodArticuloRegistry = useMemo(() => normalizeInventoryCodArticuloRegistry(load(INVENTORY_COD_REGISTRY_STORAGE, {})), []);
     const initialInventoryMovedKeys = useMemo(() => normalizeInventoryMovedKeys(load(INVENTORY_MOVED_KEYS_STORAGE, {})), []);
     const initialMiseDeletedKeys = useMemo(() => normalizeMiseDeletedKeys(load(MISE_DELETED_KEYS_STORAGE, {})), []);
     const initialRecipeDeletedKeys = useMemo(() => normalizeRecipeDeletedKeys(load(RECIPE_DELETED_KEYS_STORAGE, {})), []);
@@ -13120,6 +13167,7 @@
     const registrosLedgerFlushRef = useRef(false);
     const icgInventoryImpactSessionKeysRef = useRef(new Set());
     const [inventoryDeletedKeys, setInventoryDeletedKeys] = useState(() => initialInventoryDeletedKeys);
+    const [inventoryCodArticuloRegistry, setInventoryCodArticuloRegistry] = useState(() => initialInventoryCodArticuloRegistry);
     const [miseDeletedKeys, setMiseDeletedKeys] = useState(() => initialMiseDeletedKeys);
     const [recipeDeletedKeys, setRecipeDeletedKeys] = useState(() => initialRecipeDeletedKeys);
     const [productionHistoryDeletedKeys, setProductionHistoryDeletedKeys] = useState(() => initialProductionHistoryDeletedKeys);
@@ -13261,6 +13309,7 @@
       productionHolds,
       recetasProduccionBaseVersion,
       inventoryDeletedKeys,
+      inventoryCodArticuloRegistry,
       inventoryMovedKeys,
       miseDeletedKeys,
       recipeDeletedKeys,
@@ -14248,6 +14297,7 @@
       if (Array.isArray(nextState.productionHolds)) setProductionHolds(normalizeProductionHolds(nextState.productionHolds, nextState.productionHoldDeletedKeys && nextState.productionHoldDeletedKeys.productionHolds));
       setRecetasProduccionBaseVersion(nextState.recetasProduccionBaseVersion || "");
       if (nextState.inventoryDeletedKeys && typeof nextState.inventoryDeletedKeys === "object") setInventoryDeletedKeys(normalizeInventoryDeletedKeys(nextState.inventoryDeletedKeys));
+      if (nextState.inventoryCodArticuloRegistry && typeof nextState.inventoryCodArticuloRegistry === "object") setInventoryCodArticuloRegistry(normalizeInventoryCodArticuloRegistry(nextState.inventoryCodArticuloRegistry));
       if (nextState.inventoryMovedKeys && typeof nextState.inventoryMovedKeys === "object") setInventoryMovedKeys(normalizeInventoryMovedKeys(nextState.inventoryMovedKeys));
       if (nextState.miseDeletedKeys && typeof nextState.miseDeletedKeys === "object") setMiseDeletedKeys(normalizeMiseDeletedKeys(nextState.miseDeletedKeys));
       if (nextState.recipeDeletedKeys && typeof nextState.recipeDeletedKeys === "object") setRecipeDeletedKeys(normalizeRecipeDeletedKeys(nextState.recipeDeletedKeys));
@@ -14528,6 +14578,7 @@
     useEffect(() => save(KEYS.recetasProduccion, normalizeRecipeRows(recetasProduccion).filter(function(row) { return !isRecipeRowDeleted(row, recipeDeletedKeys.recetasProduccion); })), [recetasProduccion, recipeDeletedKeys]);
     useEffect(() => save(KEYS.productionHolds, normalizeProductionHolds(productionHolds, productionHoldDeletedKeys.productionHolds)), [productionHolds, productionHoldDeletedKeys]);
     useEffect(() => save(INVENTORY_DELETED_KEYS_STORAGE, normalizeInventoryDeletedKeys(inventoryDeletedKeys)), [inventoryDeletedKeys]);
+    useEffect(() => save(INVENTORY_COD_REGISTRY_STORAGE, normalizeInventoryCodArticuloRegistry(inventoryCodArticuloRegistry)), [inventoryCodArticuloRegistry]);
     useEffect(() => save(INVENTORY_MOVED_KEYS_STORAGE, normalizeInventoryMovedKeys(inventoryMovedKeys)), [inventoryMovedKeys]);
     useEffect(() => {
       const inferred = inferInventoryMovedKeys({ inventario, cuartoFrioInventario, barInventario, barCuartoFrioInventario }, inventoryMovedKeys);
@@ -16783,6 +16834,25 @@
     function markInventoryRowDeleted(stateKey, row) {
       const deletedKeys = getInventoryDeletedKeysForRow(row);
       if (!stateKey || !deletedKeys.length) return;
+      const code = getInventoryCodArticulo(row, "");
+      if (code) {
+        setInventoryCodArticuloRegistry(function(prev) {
+          const next = normalizeInventoryCodArticuloRegistry(prev);
+          const current = next[code] || {};
+          next[code] = Object.assign({}, current, {
+            codArticulo: code,
+            stateKey,
+            productId: row && row.id,
+            productName: row && row.nombre || "",
+            deleted: true,
+            deletedAt: new Date().toISOString(),
+            deletedBy: getUserDisplayLabel(currentUser),
+            updatedAtMs: Date.now(),
+            reservedAt: Number(current.reservedAt || 0) || Date.now()
+          });
+          return next;
+        });
+      }
       setInventoryDeletedKeys(function(prev) {
         const normalized = normalizeInventoryDeletedKeys(prev);
         const nextRows = Object.assign({}, normalized[stateKey] || {});
@@ -16792,6 +16862,24 @@
         return Object.assign({}, normalized, {
           [stateKey]: nextRows
         });
+      });
+    }
+    function rememberInventoryCodArticuloForState(code, stateKey, row) {
+      const value = String(code || "").trim();
+      if (!value) return;
+      setInventoryCodArticuloRegistry(function(prev) {
+        const next = normalizeInventoryCodArticuloRegistry(prev);
+        const current = next[value] || {};
+        next[value] = Object.assign({}, current, {
+          codArticulo: value,
+          stateKey: stateKey || current.stateKey || "",
+          productId: row && row.id != null ? row.id : current.productId,
+          productName: row && row.nombre || current.productName || "",
+          deleted: false,
+          reservedAt: Number(current.reservedAt || 0) || Date.now(),
+          updatedAtMs: Date.now()
+        });
+        return next;
       });
     }
     function markMiseRowDeleted(stateKey, row) {
@@ -24509,10 +24597,7 @@
       });
     }, [selectedClosureDetail, ticketRows.length, data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
-    const bridgeRows = mergeIcgBridgeRows(
-      icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
-      buildIcgBridgeRowsFromTargets(inventoryTargets)
-    );
+    const bridgeRows = icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow);
     const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
     const appliedPhysicalIcgKeys = new Set([...(Array.isArray(normalized.appliedPhysicalIcgKeys) ? normalized.appliedPhysicalIcgKeys : []), ...loadIcgLocalAppliedPhysicalKeys()].map(canonicalizeIcgPhysicalKey).filter(Boolean));
@@ -24765,7 +24850,10 @@
         };
       }).filter((item) => item.score >= 35 && item.icg).sort((a, b) => b.score - a.score);
     }, [miseAnPlace, data, bridgeRows.length, icgProductsForBridge.length]);
-    const table = normalized.datasets[activeTable] || normalized.datasets.TiquetsCab;
+    // VinculosMiseICG también puede existir dentro de los productos de Inventario,
+    // Cuarto Frío y Mise. Mostrar la unión evita que la tabla o Puente Mise oculten
+    // vínculos válidos solo porque aún no fueron materializados en el dataset.
+    const table = (activeTable === "VinculosMiseICG" ? normalizedWithBridgeRows.datasets[activeTable] : normalized.datasets[activeTable]) || normalized.datasets.TiquetsCab;
     const columns = (table.columns || []).filter(function(col) {
       return !(activeTable === "Articulos" && col === "PrecioVentaSinImpuestos");
     });
@@ -25554,10 +25642,7 @@
     const toast = useToast();
     const normalizedIcg = ensureIcgFrontRestData(icgData);
     const [tab, setTab] = useState("dashboard");
-    const hostBridgeRows = mergeIcgBridgeRows(
-      icgRows(normalizedIcg, "VinculosMiseICG"),
-      buildIcgBridgeRowsFromTargets(inventoryTargets)
-    );
+    const hostBridgeRows = icgRows(normalizedIcg, "VinculosMiseICG");
     const normalizedHostIcg = withMergedIcgBridgeRows(normalizedIcg, hostBridgeRows);
     const icgSalesRows = buildIcgSalesConsumption(normalizedHostIcg);
     const activeBridgeRows = hostBridgeRows.filter(isIcgLinkActive);
@@ -25890,7 +25975,7 @@
     const [editingSeparatorId, setEditingSeparatorId] = useState(null);
     const nextId = () => Math.max(0, ...inventario.map((r) => r.id)) + 1;
     const codArticuloSources = Array.isArray(codeSources) && codeSources.length ? codeSources : [{ key: sourceKey, label: pageLabel, inventario }];
-    const suggestedCodArticulo = useMemo(() => getNextInventoryCodArticulo(codArticuloSources), [codArticuloSources]);
+    const suggestedCodArticulo = useMemo(() => getNextInventoryCodArticulo(codArticuloSources, load(INVENTORY_COD_REGISTRY_STORAGE, {})), [codArticuloSources]);
     const newCodUsage = useMemo(() => findInventoryCodArticuloUsage(codArticuloSources, newProd.codArticulo, "", ""), [codArticuloSources, newProd.codArticulo]);
     const editCodUsage = useMemo(() => findInventoryCodArticuloUsage(codArticuloSources, editData.codArticulo, sourceKey, editingId), [codArticuloSources, editData.codArticulo, sourceKey, editingId]);
     const inventarioLimpio = useMemo(() => normalizeInventoryRowsForDisplay(inventario), [inventario]);
@@ -26014,7 +26099,7 @@
           Notas: row.Notas || ""
         };
       });
-      return bridgeRows.length ? bridgeRows : localRows.length ? localRows : [createBlankIcgLink(item && item.medida || "kg")];
+      return bridgeRows.length ? bridgeRows : [createBlankIcgLink(item && item.medida || "kg")];
     }
     function setEditDataIcgLinks(updater) {
       setEditData(function(prev) {
@@ -26078,13 +26163,16 @@
     function saveEdit() {
       const now = new Date().toISOString();
       const linkedMise = hasMiseLinkOptions ? findMiseForInventoryProduct(editData, miseAnPlace) : null;
-      const codArticulo = String(editData.codArticulo || "").trim() || getNextInventoryCodArticulo(codArticuloSources);
+      const codArticulo = String(editData.codArticulo || "").trim() || getNextInventoryCodArticulo(codArticuloSources, load(INVENTORY_COD_REGISTRY_STORAGE, {}));
       const duplicate = findInventoryCodArticuloUsage(codArticuloSources, codArticulo, sourceKey, editingId);
       if (duplicate) {
         toast(formatCodArticuloUsage(duplicate), "error");
         return;
       }
       rememberInventoryCodArticulo(codArticulo);
+      const registry = normalizeInventoryCodArticuloRegistry(load(INVENTORY_COD_REGISTRY_STORAGE, {}));
+      registry[codArticulo] = Object.assign({}, registry[codArticulo] || {}, { codArticulo, stateKey: inventoryStateKey || sourceKey, productId: editingId, productName: editData.nombre || "", deleted: false, reservedAt: Number(registry[codArticulo] && registry[codArticulo].reservedAt || 0) || Date.now(), updatedAtMs: Date.now() });
+      save(INVENTORY_COD_REGISTRY_STORAGE, registry);
       const cleanIcgLinks = cleanIcgLinkRows(editData.icgLinks, icgArticleRows, normalizeProductionUnitLabel(editData.medida || "Kg"));
       const payload = {
         ...editData,
@@ -26098,7 +26186,7 @@
       };
       delete payload.originalNombre;
       setInventario((p) => p.map((r) => r.id === editingId ? { ...r, ...payload } : r));
-      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, payload.nombre, cleanIcgLinks, icgArticleRows, payload.medida || "Kg", `Seleccion manual desde ${pageLabel}`, editData.originalNombre);
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, payload.nombre, cleanIcgLinks, icgArticleRows, payload.medida || "Kg", `Seleccion manual desde ${pageLabel}`, editData.originalNombre, codArticulo);
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `${pageLabel} ${moduleLabel}`,
@@ -26193,13 +26281,16 @@
         toast("Ingrese el nombre", "error");
         return;
       }
-      const codArticulo = String(newProd.codArticulo || "").trim() || getNextInventoryCodArticulo(codArticuloSources);
+      const codArticulo = String(newProd.codArticulo || "").trim() || getNextInventoryCodArticulo(codArticuloSources, load(INVENTORY_COD_REGISTRY_STORAGE, {}));
       const duplicate = findInventoryCodArticuloUsage(codArticuloSources, codArticulo, "", "");
       if (duplicate) {
         toast(formatCodArticuloUsage(duplicate), "error");
         return;
       }
       rememberInventoryCodArticulo(codArticulo);
+      const registry = normalizeInventoryCodArticuloRegistry(load(INVENTORY_COD_REGISTRY_STORAGE, {}));
+      registry[codArticulo] = Object.assign({}, registry[codArticulo] || {}, { codArticulo, stateKey: inventoryStateKey || sourceKey, productName: newProd.nombre.trim(), deleted: false, reservedAt: Number(registry[codArticulo] && registry[codArticulo].reservedAt || 0) || Date.now(), updatedAtMs: Date.now() });
+      save(INVENTORY_COD_REGISTRY_STORAGE, registry);
       const cleanIcgLinks = cleanIcgLinkRows(newProd.icgLinks, icgArticleRows, normalizeProductionUnitLabel(newProd.medida || "Kg"));
       setInventario((prev) => {
         const next = [...prev];
@@ -26216,7 +26307,7 @@
         next.splice(insertIndex, 0, newRow);
         return next;
       });
-      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, normalizeProductionUnitLabel(newProd.medida || "Kg"), `Seleccion manual desde ${pageLabel}`);
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, inventoryIcgModuleLabel, newProd.nombre.trim(), cleanIcgLinks, icgArticleRows, normalizeProductionUnitLabel(newProd.medida || "Kg"), `Seleccion manual desde ${pageLabel}`, "", codArticulo);
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `${pageLabel} ${moduleLabel}`,
@@ -26225,7 +26316,7 @@
           detalle: `Producto agregado en ${pageLabel} ${moduleLabel}. CodArticulo: ${codArticulo}.`
         }, currentUser);
       }
-      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources), nombre: "", medida: "Kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("Kg")] });
+      setNewProd({ separadorId: String(targetSeparatorId), codArticulo: getNextInventoryCodArticulo(codArticuloSources, load(INVENTORY_COD_REGISTRY_STORAGE, {})), nombre: "", medida: "Kg", suplidor: "", costoCompra: "", costoCompraPaquete: "", stockLunesJueves: 0, stockViernesDomingo: 0, unidadEmpaque: "", unidadesPorEmpaque: "", unidadInternaEmpaque: "Uni", cantidadPorUnidadInterna: "", unidadPorUnidadInterna: "", miseProducto: "", autoTransferirAMise: false, icgLinks: [createBlankIcgLink("Kg")] });
       setModalAdd(false);
       toast("Producto agregado");
     }
@@ -27658,10 +27749,7 @@
     const normalizedIcgData = ensureIcgFrontRestData(icgFrontRestData);
     const miseIcgModuleLabel = moduleLabel === "Bar" ? "Mise an Place Bar" : "Mise an Place Cocina";
     const icgArticleRows = getIcgArticleRowsForLinks(normalizedIcgData);
-    const icgBridgeRows = mergeIcgBridgeRows(
-      icgRows(normalizedIcgData, "VinculosMiseICG"),
-      buildIcgBridgeRowsFromWtfSources({ moduleLabel, miseAnPlace })
-    );
+    const icgBridgeRows = icgRows(normalizedIcgData, "VinculosMiseICG");
     function setNewMiseIcgLinks(updater) {
       setNewProd(function(prev) {
         const current = Array.isArray(prev.icgLinks) && prev.icgLinks.length ? prev.icgLinks : [createBlankIcgLink("Uni")];
@@ -27714,7 +27802,7 @@
         return;
       }
       setMise((p) => [...p, { id, codArticulo: String(id).padStart(3, "0"), producto: newProd.producto.trim(), existencia: newProd.esKitMise === true ? 0 : getMiseSafeNumber(newProd.existencia, 0), medida: normalizarMedidaMise(newProd.medida || "Uni"), unidadEmpaque: newProd.unidadEmpaque || "Paq", unidadesPorEmpaque: newProd.unidadesPorEmpaque || "", unidadInternaEmpaque: newProd.unidadInternaEmpaque || "Uni", cantidadPorUnidadInterna: newProd.cantidadPorUnidadInterna || "", unidadPorUnidadInterna: newProd.unidadPorUnidadInterna || "", stockMinimoLunesJueves: getMiseSafeNumber(newProd.stockMinimoLunesJueves, 0), stockMinimoViernesDomingo: getMiseSafeNumber(newProd.stockMinimoViernesDomingo, 0), usarEnProduccion: newProd.usarEnProduccion === true, esKitMise: newProd.esKitMise === true, tipoMise: newProd.esKitMise === true ? "kit" : "producto", kitComponentes, icgLinks: cleanIcgLinks, createdAt: now, updatedAt: now }]);
-      saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise");
+      saveIcgLinksForWtfProduct(setIcgFrontRestData, miseIcgModuleLabel, newProd.producto.trim(), cleanIcgLinks, icgArticleRows, "Uni", "Seleccion manual desde Mise", "", String(id).padStart(3, "0"));
       if (typeof onSystemLog === "function") {
         onSystemLog({
           modulo: `Mise an Place ${moduleLabel}`,
@@ -27831,10 +27919,12 @@
         const targetModule = normalizeIcgWtfTarget(miseIcgModuleLabel);
         const productName = normalizar(item.producto);
         const previousName = normalizar(previousProductName);
+        const productCode = normalizar(item.codArticulo || item.CodArticulo || "");
         const keptRows = existingRows.filter(function(row) {
           const sameModule = normalizeIcgWtfTarget(row.ModuloWTF || row.DestinoWTF || row.Modulo) === targetModule;
-          const sameProduct = normalizar(row.ProductoMise || row.ProductoWTF) === productName;
-          const samePreviousProduct = previousName && normalizar(row.ProductoMise || row.ProductoWTF) === previousName;
+          const rowProductCode = normalizar(row.CodArticuloWTF || row.codArticuloWTF || "");
+          const sameProduct = productCode && rowProductCode ? rowProductCode === productCode : normalizar(row.ProductoMise || row.ProductoWTF) === productName;
+          const samePreviousProduct = !productCode && previousName && normalizar(row.ProductoMise || row.ProductoWTF) === previousName;
           return !(sameModule && (sameProduct || samePreviousProduct));
         });
         const nextRows = cleanLinks.map(function(link) {
@@ -27843,6 +27933,7 @@
             ModuloWTF: miseIcgModuleLabel,
             ProductoWTF: item.producto,
             ProductoMise: item.producto,
+            CodArticuloWTF: String(item.codArticulo || item.CodArticulo || "").trim(),
             CodArticulo: link.CodArticulo,
             Referencia: link.Referencia,
             ProductoICG: link.ProductoICG,
