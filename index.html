@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261031052405-570535e";</script>
+  <script>window.WTF_APP_VERSION = "20261031054918-f2cd91d";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6067,8 +6067,9 @@
   }
   function getFirebaseExternalKeysForGlobalSync() {
     return new Set(Object.keys(FIREBASE_EXTERNAL_STATE_DOCS).filter(function(key) {
-      // Logs de Sistema tiene su propio ledger y listener de metadatos.
-      return key !== "systemLogs";
+      // ICG y Logs de Sistema se cargan solamente al abrir sus modulos.
+      // No deben activar lecturas globales ni ser rehidratados desde estadoGeneral.
+      return key !== "systemLogs" && key !== "icgFrontRestData";
     }));
   }
   function getFirebasePageSpecificListenerKeys(page) {
@@ -6210,7 +6211,10 @@
     const externalSignatures = data.appStateExternalSignatures && typeof data.appStateExternalSignatures === "object" ? data.appStateExternalSignatures : {};
     if (docRef && externalKeys.length) {
       await Promise.all(externalKeys.map(async function(key) {
-        if (key === "systemLogs") return;
+        if (key === "systemLogs" || key === "icgFrontRestData") {
+          state[key] = fallbackState[key];
+          return;
+        }
         const expectedSignature = String(externalSignatures[key] || "");
         if (
           decodeOptions.externalReadSource !== "server" &&
@@ -13225,6 +13229,8 @@
     const systemLogsFlushRequestedAgainRef = useRef(false);
     const systemLogsFlushRetryTimerRef = useRef(null);
     const systemLogsCacheRecoveryRef = useRef("");
+    const skipAutomaticFirebaseWriteRef = useRef(false);
+    const firebaseRemoteStateReadyRef = useRef(false);
     const syncClientIdRef = useRef(load("wtf_sync_client_id", "") || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const stateSnapshotRef = useRef(null);
     const pullLatestFirebaseSnapshotRef = useRef(null);
@@ -14039,6 +14045,12 @@
           delete firebaseState[key];
           return;
         }
+        if (key === "icgFrontRestData" && page !== "icg" && page !== "icgHost") {
+          // ICG se escribe exclusivamente desde sus modulos. Una mutacion de
+          // otro modulo no puede republicar una copia local antigua de ICG.
+          delete firebaseState[key];
+          return;
+        }
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
@@ -14275,6 +14287,7 @@
       if (nextState.operationalDataRestoredAt) {
         save(OPERATIONAL_DATA_RESTORED_AT_STORAGE, nextState.operationalDataRestoredAt);
       }
+      skipAutomaticFirebaseWriteRef.current = true;
       applyingRemoteRef.current = true;
       if (Array.isArray(nextState.inventario)) setInventario(function(prev) {
         const deleted = nextState.inventoryDeletedKeys && nextState.inventoryDeletedKeys.inventario;
@@ -15221,6 +15234,7 @@
             externalReadSource: firebaseBootstrappedRef.current ? "" : "server"
           });
           if (remoteState) {
+            firebaseRemoteStateReadyRef.current = true;
             if (remoteState.dataVersion !== DATA_VERSION) {
               const migratedState = Object.assign({}, remoteState, { dataVersion: DATA_VERSION });
               applyRemoteState(migratedState);
@@ -15269,8 +15283,10 @@
               hasSessionLocalChangeRef.current = false;
               setFirebaseMessage("Sincronizado en tiempo real");
             } else if (remoteIsOlderThanLocal || remoteIsStalePendingEcho) {
-              setFirebaseMessage("Protegiendo cambios locales...");
-              scheduleFirebaseWrite(getCurrentAppState(), currentSignature, 250, "web-client-repair");
+              // Una lectura remota antigua nunca se repara republicando la
+              // copia local. El cambio local debe confirmarse por su flujo
+              // explicito de escritura o permanecer pendiente.
+              setFirebaseMessage("Esperando confirmacion de cambios locales pendientes");
             } else if (remoteSignature !== currentSignature && !hasPendingLocalWrite) {
               acceptRemoteSyncRevision(remoteRevision);
               lastRemoteSignatureRef.current = remoteSignature;
@@ -15290,16 +15306,12 @@
             }
             return;
           }
+          // Un documento remoto inexistente no autoriza a publicar la copia
+          // local. La caché queda solo como vista temporal hasta que exista
+          // una escritura explícita confirmada por el flujo de la aplicación.
           firebaseBootstrappedRef.current = true;
-          const initialState = getCurrentAppState();
-          const bootstrapDoc = createFirebaseWriteDoc(initialState, "web-bootstrap");
-          lastRemoteSignatureRef.current = bootstrapDoc.signature;
-          await writeFirebaseAppStateDoc(docRef, bootstrapDoc);
-          firebaseExternalDocSignaturesRef.current = Object.assign({}, firebaseExternalDocSignaturesRef.current || {}, bootstrapDoc.externalDocSignatures || {});
-          Object.assign(firebaseExternalDocSignaturesCache, firebaseExternalDocSignaturesRef.current);
-          saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
           setFirebaseStatus("connected");
-          setFirebaseMessage("Firebase inicializado");
+          setFirebaseMessage("Firebase listo; no existe estado remoto para restaurar desde caché");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
           } catch (error) {
             console.error("Firebase snapshot processing error:", error);
@@ -15398,6 +15410,36 @@
         });
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
+    useEffect(() => {
+      if ((page !== "icg" && page !== "icgHost") || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      const key = "icgFrontRestData";
+      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS[key] || key);
+      let active = true;
+      const applyRemoteIcgSnapshot = function(snapshot) {
+        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        const data = snapshot.data() || {};
+        const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+        if (!value || typeof value !== "object") return;
+        const remoteSignature = String(data.syncMeta && data.syncMeta.signature || quickHashText(JSON.stringify(value)));
+        if (firebaseExternalDocSignaturesRef.current[key] === remoteSignature && serializeAppState(getCurrentAppState().icgFrontRestData) === serializeAppState(value)) return;
+        firebaseExternalDocSignaturesRef.current[key] = remoteSignature;
+        firebaseExternalDocSignaturesCache[key] = remoteSignature;
+        saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+        skipAutomaticFirebaseWriteRef.current = true;
+        applyRemoteState({ icgFrontRestData: ensureIcgFrontRestData(value) });
+        setFirebaseMessage("ICG actualizado desde Firebase");
+      };
+      ref.get({ source: "server" }).then(applyRemoteIcgSnapshot).catch(function(error) {
+        if (active) console.warn("No se pudo leer ICG desde el servidor:", error);
+      });
+      const unsubscribe = typeof ref.onSnapshot === "function" ? ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteIcgSnapshot, function(error) {
+        if (active) console.warn("No se pudo escuchar ICG desde Firebase:", error);
+      }) : null;
+      return function() {
+        active = false;
+        if (typeof unsubscribe === "function") unsubscribe();
+      };
+    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
     useEffect(() => {
       if (page !== "recuento" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       let active = true;
@@ -15557,8 +15599,12 @@
       return function() { window.clearTimeout(timer); };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
     useEffect(() => {
-      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current || !firebaseRemoteStateReadyRef.current) return;
       if (applyingRemoteRef.current) return;
+      if (skipAutomaticFirebaseWriteRef.current) {
+        skipAutomaticFirebaseWriteRef.current = false;
+        return;
+      }
       const mobileSyncDelay = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ? 6500 : 2600;
       scheduleFirebaseWrite(null, "", mobileSyncDelay, "web-client");
       return function() {
