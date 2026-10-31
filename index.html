@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261031054918-f2cd91d";</script>
+  <script>window.WTF_APP_VERSION = "20261031060334-7efa47c";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -13797,7 +13797,21 @@
         firebaseModuleRefreshInFlightRef.current = false;
       }
     }
+    function shouldSkipSystemLog(payload) {
+      const action = normalizar(payload && (payload.accion || payload.action) || "");
+      return [
+        "entrada de inventario",
+        "salida de inventario",
+        "decomiso de inventario",
+        "carga directa de produccion",
+        "carga rapida aplicada a mise an place",
+        "entrada rapida mise an place",
+        "salida rapida mise an place",
+        "decomiso mise an place"
+      ].includes(action);
+    }
     function addSystemLog(payload, userOverride) {
+      if (shouldSkipSystemLog(payload)) return null;
       const entry = compactSystemLogEntry(buildSystemLogEntry(userOverride || currentUser, payload));
       const event = sanitizeSystemLogEvent(entry, userOverride || currentUser);
       setSystemLogs(function(prev) {
@@ -27485,8 +27499,8 @@
     const [productListQuery, setProductListQuery] = useState("");
     const productInputRef = useRef(null);
     const cfg = {
-      entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada", verb: "Guardar entrada" },
-      salida: { color: "azul", icon: "fa-arrow-right-from-bracket", label: "Salida", verb: "Guardar salida" },
+      entrada: { color: "verde", icon: "fa-arrow-right-to-bracket", label: "Entrada de inventario", verb: "Registrar entrada", effect: "AUMENTA EXISTENCIA", hint: "Esta operación sumará la cantidad a la existencia actual." },
+      salida: { color: "naranja", icon: "fa-arrow-right-from-bracket", label: "Salida de inventario", verb: "Registrar salida", effect: "DISMINUYE EXISTENCIA", hint: "Esta operación restará la cantidad de la existencia actual." },
       decomiso: { color: "rojo", icon: "fa-trash-can", label: "Decomiso", verb: "Registrar decomiso" }
     }[tipo];
     const prodInfo = useMemo(() => productos.find((p) => normalizar(p.nombre) === normalizar(producto)), [productos, producto]);
@@ -27664,13 +27678,14 @@
       /* @__PURE__ */ React.createElement("div", { className: "card" },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" },
           /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label),
-          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, sourcePills.map(function(source) {
+          /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" } }, cfg.effect && /* @__PURE__ */ React.createElement("span", { className: `pill pill-${cfg.color}`, style: { fontWeight: 900, letterSpacing: ".03em" } }, cfg.effect), sourcePills.map(function(source) {
             const sourceKey = String(source.storageKey || "");
             const sourceClass = sourceKey.includes("Bar") ? "pill-naranja" : sourceKey.toLowerCase().includes("frio") ? "pill-azul" : "pill-verde";
             return /* @__PURE__ */ React.createElement("span", { key: source.storageKey || source.label, className: `pill ${sourceClass}` }, source.label);
           }), specialAccess && /* @__PURE__ */ React.createElement("span", { className: "pill pill-rojo", style: { letterSpacing: ".02em" } }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-link", style: { marginRight: 5 } }), "COCINA Y BAR (INVENTARIO Y CUARTO FRIO)"))
         ),
         /* @__PURE__ */ React.createElement("div", { className: "card-body" },
+          cfg.hint && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${tipo === "entrada" ? "#bbf7d0" : "#fde68a"}`, background: tipo === "entrada" ? "#f0fdf4" : "#fffbeb", color: tipo === "entrada" ? "#166534" : "#92400e", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, fontWeight: 800 } }, /* @__PURE__ */ React.createElement("i", { className: `fas ${tipo === "entrada" ? "fa-circle-plus" : "fa-circle-minus"}`, style: { marginRight: 7 } }), cfg.effect, " · ", cfg.hint),
           movementDraftTarget && movementDraftTarget.tipo === tipo && /* @__PURE__ */ React.createElement("div", { className: "alert alert-info" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-brain" }), "La IA lleno este formulario. Revisa producto, ubicacion y cantidad antes de confirmar."),
           error && /* @__PURE__ */ React.createElement("div", { className: "alert alert-error" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-exclamation-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, error)),
           success && /* @__PURE__ */ React.createElement("div", { className: "alert alert-ok" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle" }), /* @__PURE__ */ React.createElement("pre", { style: { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13 } }, success)),
