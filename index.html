@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261031060334-7efa47c";</script>
+  <script>window.WTF_APP_VERSION = "20261031062149-deb1ce9";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -27503,6 +27503,11 @@
       salida: { color: "naranja", icon: "fa-arrow-right-from-bracket", label: "Salida de inventario", verb: "Registrar salida", effect: "DISMINUYE EXISTENCIA", hint: "Esta operación restará la cantidad de la existencia actual." },
       decomiso: { color: "rojo", icon: "fa-trash-can", label: "Decomiso", verb: "Registrar decomiso" }
     }[tipo];
+    const moduleBackground = tipo === "entrada"
+      ? { background: "rgba(34, 197, 94, 0.09)", border: "1px solid rgba(22, 101, 52, 0.24)" }
+      : tipo === "salida"
+        ? { background: "rgba(245, 158, 11, 0.11)", border: "1px solid rgba(180, 83, 9, 0.28)" }
+        : { background: "transparent", border: "1px solid transparent" };
     const prodInfo = useMemo(() => productos.find((p) => normalizar(p.nombre) === normalizar(producto)), [productos, producto]);
     const productLocations = Array.isArray(prodInfo && prodInfo.locations) ? prodInfo.locations : prodInfo ? [prodInfo] : [];
     const selectedLocation = productLocations.find(function(loc) { return loc.storageKey === selectedStorageKey; }) || (productLocations.length === 1 ? productLocations[0] : null);
@@ -27674,7 +27679,7 @@
     function keepSaveButtonClickable(event) {
       if (event && event.button === 0) event.preventDefault();
     }
-    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: bulkRows.length ? 920 : 560 } },
+    return /* @__PURE__ */ React.createElement("div", { style: { maxWidth: bulkRows.length ? 1120 : 740, padding: "36px", borderRadius: 20, boxSizing: "border-box", ...moduleBackground } },
       /* @__PURE__ */ React.createElement("div", { className: "card" },
         /* @__PURE__ */ React.createElement("div", { className: "card-header" },
           /* @__PURE__ */ React.createElement("h2", null, /* @__PURE__ */ React.createElement("i", { className: `fas ${cfg.icon}`, style: { marginRight: 7, color: `var(--${cfg.color})` } }), "Formulario de ", cfg.label),
