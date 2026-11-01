@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261101072728-6dc5331";</script>
+  <script>window.WTF_APP_VERSION = "20261101074653-3ec630c";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -6166,8 +6166,28 @@
       return null;
     }
   }
+  async function readFirebaseIcgShard(docRef, options) {
+    if (!docRef || typeof docRef.collection !== "function") return null;
+    try {
+      const readOptions = options && options.source ? { source: options.source } : undefined;
+      const snapshot = readOptions
+        ? await docRef.collection("stateShards").doc("icgFrontRestData").get(readOptions)
+        : await docRef.collection("stateShards").doc("icgFrontRestData").get();
+      if (!snapshot.exists) return null;
+      const data = snapshot.data() || {};
+      if (data.appStateCompressed) return decodeFirebaseCompressedState(data.appStateCompressed);
+      return typeof data.appState !== "undefined" ? data.appState : null;
+    } catch (error) {
+      console.error("No se pudo leer el shard remoto de ICG:", error);
+      return null;
+    }
+  }
   async function readFirebaseExternalStateDoc(docRef, key, expectedSignature, options) {
     if (!docRef || !docRef.parent || !key) return null;
+    // ICG se mantiene en un shard dedicado. El documento externo histórico
+    // puede existir con una copia incompleta y nunca debe pisar TIQUETSLIN,
+    // CierresDiarios ni ConsumoMiseVentas confirmados por el Host.
+    if (key === "icgFrontRestData") return readFirebaseIcgShard(docRef, options);
     const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
     try {
       const readOptions = options && options.source ? { source: options.source } : undefined;
@@ -6222,7 +6242,10 @@
     if (docRef && shardKeys.length) {
       await Promise.all(shardKeys.map(async function(key) {
         try {
-          const shardSnapshot = await docRef.collection("stateShards").doc(key).get();
+          const shardOptions = decodeOptions.externalReadSource === "server" ? { source: "server" } : undefined;
+          const shardSnapshot = shardOptions
+            ? await docRef.collection("stateShards").doc(key).get(shardOptions)
+            : await docRef.collection("stateShards").doc(key).get();
           if (!shardSnapshot.exists) return;
           const shardData = shardSnapshot.data() || {};
           const shardValue = shardData.appStateCompressed ? decodeFirebaseCompressedState(shardData.appStateCompressed) : shardData.appState;
@@ -13810,7 +13833,9 @@
           if (!forceServerReadForActiveModule && expectedSignature && firebaseExternalDocSignaturesRef.current[key] === expectedSignature && Object.prototype.hasOwnProperty.call(current, key)) {
             return { key, value: current[key] };
           }
-          const value = await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server", bypassCache: forceServerReadForActiveModule });
+          const value = key === "icgFrontRestData"
+            ? await readFirebaseIcgShard(firebaseDocRef.current, { source: "server" })
+            : await readFirebaseExternalStateDoc(firebaseDocRef.current, key, expectedSignature, { source: "server", bypassCache: forceServerReadForActiveModule });
           return { key, value };
         }));
         const next = Object.assign({}, current);
@@ -14611,16 +14636,12 @@
     async function refreshIcgFrontRestFromServer(reason) {
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseDocRef.current.parent || !firebaseAuthReady || !firebaseAuthEmail) return;
       const key = "icgFrontRestData";
-      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS[key] || key);
-      const snapshot = await ref.get({ source: "server" });
-      if (!snapshot || !snapshot.exists) {
+      const value = await readFirebaseIcgShard(firebaseDocRef.current, { source: "server" });
+      if (!value || typeof value !== "object") {
         icgFrontRestRemoteReadyRef.current = true;
         return;
       }
-      const data = snapshot.data() || {};
-      const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
-      if (!value || typeof value !== "object") return;
-      const remoteSignature = String(data.syncMeta && data.syncMeta.signature || quickHashText(JSON.stringify(value)));
+      const remoteSignature = quickHashText(JSON.stringify(value));
       icgFrontRestRemoteReadyRef.current = true;
       saveIcgFrontRestRemoteCache(value, remoteSignature);
       firebaseExternalDocSignaturesRef.current[key] = remoteSignature;
@@ -15462,7 +15483,10 @@
       const globalKeys = Array.from(getFirebaseExternalKeysForGlobalSync());
       const pageSpecificKeys = getFirebasePageSpecificListenerKeys(page);
       const listenerKeys = globalKeys.filter(function(key) {
-        return !pageSpecificKeys.has(key);
+        // ICG tiene un listener dedicado al shard autoritativo más abajo.
+        // No escuchar también el documento externo legado, porque puede
+        // reintroducir una copia vieja o incompleta del catálogo.
+        return !pageSpecificKeys.has(key) && key !== "icgFrontRestData";
       });
       const applyGlobalExternalSnapshot = function(key, snapshot) {
         if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
@@ -15510,7 +15534,7 @@
       // módulo no lo desmonta ni provoca una nueva lectura inicial de ICG.
       if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       const key = "icgFrontRestData";
-      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS[key] || key);
+      const ref = firebaseDocRef.current.collection("stateShards").doc(key);
       let active = true;
       const applyRemoteIcgSnapshot = function(snapshot) {
         if (!active || !snapshot || (snapshot.metadata && snapshot.metadata.fromCache)) return;
