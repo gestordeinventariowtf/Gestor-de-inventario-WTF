@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261101074653-3ec630c";</script>
+  <script>window.WTF_APP_VERSION = "20261101161430-abaf84e";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -5925,6 +5925,7 @@
   const FIREBASE_APP_STATE_SHARD_KEYS = [
     "recetasProduccion",
     "barRecetasProduccion",
+    "icgFrontRestData",
     "assetManagementData",
     "employeeCenterData",
     "financialData"
@@ -14120,17 +14121,11 @@
           delete firebaseState[key];
           return;
         }
-        if (key === "icgFrontRestData" && page !== "icg" && page !== "icgHost") {
-          // ICG se escribe exclusivamente desde sus modulos. Una mutacion de
-          // otro modulo no puede republicar una copia local antigua de ICG.
-          delete firebaseState[key];
-          return;
-        }
-        if (key === "icgFrontRestData" && (!icgFrontRestRemoteReadyRef.current || !icgFrontRestLocalMutationRef.current)) {
-          // ICG solo se publica después de una modificación explícita. La
-          // hidratación remota, la navegación y la caché nunca pueden volver
-          // a publicar una copia antigua o vacía.
-          delete firebaseState[key];
+        if (key === "icgFrontRestData") {
+          // ICG se guarda en el mismo shard que lee el Host y el listener
+          // remoto. El documento externo legado no debe recibir ediciones de
+          // CierresDiarios, TIQUETSLIN ni ConsumoMiseVentas.
+          if (page !== "icg" && page !== "icgHost") delete firebaseState[key];
           return;
         }
         const externalValue = firebaseState[key];

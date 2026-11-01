@@ -69,7 +69,7 @@ internal sealed class ConfigForm : Form
         root = installRoot;
         envPath = Path.Combine(root, ".env");
         Text = "WTF ICG Host | Configurador";
-        Width = 760; Height = 610; MinimumSize = new Size(700, 560);
+        Width = 1040; Height = 700; MinimumSize = new Size(900, 620);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(243, 244, 246);
         Font = new Font("Segoe UI", 9F);
@@ -120,11 +120,21 @@ internal sealed class ConfigForm : Form
 
     private static void AddRow(TableLayoutPanel table, int row, string label, Control input, string hint)
     {
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
+        table.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         var labelPanel = new Panel { Dock = DockStyle.Fill };
         labelPanel.Controls.Add(new Label { Text = label, AutoSize = true, Top = 4, Left = 0, Font = new Font("Segoe UI", 9F, FontStyle.Bold) });
         table.Controls.Add(labelPanel, 0, row);
-        input.Dock = DockStyle.Top; input.Height = 25; table.Controls.Add(input, 1, row);
+        input.Dock = DockStyle.Fill; input.Margin = new Padding(0, 2, 0, 2);
+        var textBox = input as TextBox;
+        if (textBox != null)
+        {
+            textBox.AutoSize = false;
+            textBox.Height = 29;
+            textBox.Multiline = false;
+            textBox.WordWrap = false;
+            textBox.ScrollBars = ScrollBars.Horizontal;
+        }
+        table.Controls.Add(input, 1, row);
         input.Tag = hint;
     }
 

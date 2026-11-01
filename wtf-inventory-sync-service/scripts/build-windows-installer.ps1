@@ -5,7 +5,7 @@ param(
   [string]$WebAppUrl = "https://gestor-de-inventario-wtf-29056.web.app",
   [string]$IcgLiveDatabaseName = "",
   [string]$IcgSqlDataDir = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA",
-  [string]$IcgBackupPath = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1"
+  [string]$IcgBackupPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -491,9 +491,9 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-set "DB_NAME=$IcgLiveDatabaseName"
-set /p "DB_INPUT=Nombre de la base SQL (obligatorio, no hay una base preseleccionada): "
-if not "%DB_INPUT%"=="" set "DB_NAME=%DB_INPUT%"
+  set "DB_NAME="
+  set /p "DB_INPUT=Nombre exacto de la base SQL (obligatorio): "
+  if not "%DB_INPUT%"=="" set "DB_NAME=%DB_INPUT%"
 if "%DB_NAME%"=="" (
   echo.
   echo Debes escribir el nombre exacto de la base SQL antes de continuar.
@@ -503,7 +503,8 @@ if "%DB_NAME%"=="" (
 set "SQL_DATA_DIR=$IcgSqlDataDir"
 set /p "SQL_PATH_INPUT=Ruta de datos SQL [$IcgSqlDataDir]: "
 if not "%SQL_PATH_INPUT%"=="" set "SQL_DATA_DIR=%SQL_PATH_INPUT%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-desktop-app.ps1" -ActivationFile "%~dp0activation.json" -StartNow -WebAppUrl "$WebAppUrl" -IcgLiveDatabaseName "%DB_NAME%" -IcgSqlDataDir "%SQL_DATA_DIR%" -IcgBackupPath "$IcgBackupPath"
+  set "BACKUP_PATH=C:\ICG\BACKUP\%DB_NAME%.BAK_1"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-desktop-app.ps1" -ActivationFile "%~dp0activation.json" -StartNow -WebAppUrl "$WebAppUrl" -IcgLiveDatabaseName "%DB_NAME%" -IcgSqlDataDir "%SQL_DATA_DIR%" -IcgBackupPath "%BACKUP_PATH%"
 echo.
 pause
 "@ | Set-Content -LiteralPath $SetupCmd -Encoding ASCII
