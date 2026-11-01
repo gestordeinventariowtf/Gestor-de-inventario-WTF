@@ -45,7 +45,10 @@ export function startDashboard(
         const backup = await onSyncIcgBackup();
         return json(res, { ok: true, backup });
       }
-      if (url.pathname === "/api/sync-icg-backup" && req.method === "POST") {
+      // Mantener ambos nombres durante la transicion: versiones de la Web.App
+      // llaman a /api/sync-icg-local y las versiones actuales a /api/sync-icg-backup.
+      // Ambos ejecutan el mismo flujo seguro sobre la base ICG configurada.
+      if ((url.pathname === "/api/sync-icg-local" || url.pathname === "/api/sync-icg-backup") && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
         const result = await onSyncIcgBackup();
         return json(res, { ok: true, result });
@@ -67,6 +70,14 @@ export function startDashboard(
         if (!ALLOWED_STATES.has(estado)) return json(res, { ok: false, error: "Estado no permitido" }, 400);
         const updated = await store.updateMovementStates(ids, estado, String(body.mensaje || ""));
         return json(res, { ok: true, updated });
+      }
+      if (url.pathname === "/api/movement-cancel" && req.method === "POST") {
+        if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
+        const body = await readJson(req);
+        const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean) : [];
+        if (!ids.length) return json(res, { ok: false, error: "No hay movimientos seleccionados" }, 400);
+        const cancelled = await store.cancelMovements(ids, String(body.reason || "Cancelado por el administrador"), String(body.cancelledBy || "Administrador local"));
+        return json(res, { ok: true, cancelled });
       }
       if (url.pathname === "/api/restart-host" && req.method === "POST") {
         if (!authorize(req, config)) return json(res, { ok: false, error: "No autorizado" }, 401);
@@ -117,7 +128,11 @@ function publicConfig(config: ServiceConfig): Record<string, unknown> {
     firebaseCollection: config.firebaseCollection,
     firebaseDocumentId: config.firebaseDocumentId,
     sqlEnabled: config.sqlEnabled,
-    apiKeyConfigured: Boolean(config.apiKey)
+    apiKeyConfigured: Boolean(config.apiKey),
+    hostIdentityMode: config.hostIdentityMode,
+    hostSyncEndpoint: config.hostSyncEndpoint,
+    terminalConfigured: Boolean(config.terminalId && config.terminalSecretProtected),
+    sqlConnectionConfigured: Boolean(config.sqlConnectionString)
   };
 }
 
@@ -251,12 +266,14 @@ function renderDashboard(config: ServiceConfig): string {
       <section class="card">
         <div class="actions">
           <button id="btnSync" class="primary" onclick="refreshAll()">Sincronizar</button>
+          <button id="btnManualSync" onclick="refreshAll()" style="display:none">Enviar movimientos a Web.App</button>
+          <button id="btnCancelSelected" onclick="cancelSelected()" class="danger">Cancelar seleccionados</button>
         </div>
-        <p class="muted">Sincronizar revisa la Base de Datos ICG Local, busca cierres o ventas nuevas y alimenta la cola de movimientos para la web.</p>
+        <p id="syncHelp" class="muted">Sincronizar revisa la Base de Datos ICG Local, busca cierres o ventas nuevas y alimenta la cola de movimientos para la web.</p>
       </section>
       <section class="card">
         <h2>Cola de movimientos</h2>
-        <div class="table-wrap"><table><thead><tr><th>Cierre / fecha</th><th>Ruta</th><th>Articulo ICG</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th><input id="selectAll" type="checkbox" onchange="toggleAll(this.checked)" title="Seleccionar todos"></th><th>Cierre / fecha</th><th>Ruta</th><th>Articulo ICG</th><th>Cantidad</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody id="rows"></tbody></table></div>
       </section>
     </section>
     <section id="sectionConfiguracion" class="panel-section">
@@ -351,13 +368,16 @@ function renderDashboard(config: ServiceConfig): string {
         pending.textContent=rows.filter(r=>r.estado==='pendiente_revision'||r.estado==='pendiente').length;
         errors.textContent=rows.filter(r=>r.estado==='error').length;
         mappings.textContent=(data.mappings||[]).length;
-        document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="6">Sin movimientos.</td></tr>';
+        document.getElementById('rows').innerHTML=rows.map(renderQueueRow).join('') || '<tr><td colspan="7">Sin movimientos.</td></tr>';
         renderConfig(currentConfig);
       }catch(error){
         msg.textContent=' No se pudo cargar el estado del Host: '+(error&&error.message?error.message:error);
       }
     }
-    function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function renderQueueRow(r){const raw=r.raw||{}; const icgName=raw.productoIcg||raw.ProductoICG||raw.DESCRIPCION||r.productoIcg||r.ProductoICG||r.nombreProducto||''; const ticket=[raw.fo||raw.FO,raw.serie||raw.SERIE,raw.numero||raw.NUMERO,raw.n||raw.N,raw.numLinea||raw.NUMLINEA].filter(Boolean).join('-'); return '<tr><td><input class="movement-check" type="checkbox" value="'+esc(r.id)+'"></td><td>'+formatMovementDate(r)+'</td><td>'+esc(r.origen)+' -> '+esc(r.destino)+'<br><small>'+esc(r.almacen||'')+'</small></td><td><strong>'+esc(icgName)+'</strong><br><small>Cod: '+esc(r.codigoProducto)+' / Ref: '+esc(r.referencia||'')+(ticket?' / Ticket: '+esc(ticket):'')+'</small></td><td>'+esc(raw.consumo??r.cantidad)+' '+esc(r.unidad)+'</td><td><span class="pill '+cls(r.estado)+'">'+esc(r.estado)+'</span></td><td>'+esc(r.mensaje||'')+'</td></tr>'}
+    function toggleAll(checked){document.querySelectorAll('.movement-check').forEach((box)=>box.checked=checked)}
+    function selectedMovementIds(){return Array.from(document.querySelectorAll('.movement-check:checked')).map((box)=>box.value).filter(Boolean)}
+    async function cancelSelected(){const ids=selectedMovementIds(); if(!ids.length){msg.textContent=' Selecciona al menos un movimiento.'; return;} if(!confirm('Se marcaran '+ids.length+' movimiento(s) como cancelado(s) y no volveran a entrar en la cola ni a subir en futuras sincronizaciones. Los datos de SQL Server no se borraran. ¿Continuar?')) return; const reason=prompt('Motivo de cancelacion:', 'Movimiento cancelado por el administrador')||'Movimiento cancelado por el administrador'; try{const res=await authorizedFetch('/api/movement-cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,reason,cancelledBy:'Administrador local'})}); const data=await res.json(); if(!res.ok||!data.ok) throw new Error(data.error||'No se pudo cancelar'); msg.textContent=' '+data.cancelled+' movimiento(s) cancelado(s).'; await load();}catch(error){msg.textContent=' Error al cancelar: '+(error&&error.message?error.message:error)}}
     function formatMovementDate(r){
       const raw=String((r&&r.fecha)||'').trim();
       if(!raw) return '';
@@ -412,6 +432,8 @@ function renderDashboard(config: ServiceConfig): string {
       cfgIcgDb.textContent=liveDbName+' - SQL Server local - '+liveSqlPath;
       cfgPoll.textContent='Cada '+(cfg.icgBackupPollSeconds||0)+' segundos';
       cfgMode.textContent=cfg.mode||'';
+      btnManualSync.style.display=cfg.mode==='manual'?'inline-block':'none';
+      syncHelp.textContent=cfg.mode==='manual'?'Modo manual: usa "Enviar movimientos a Web.App" cuando quieras enviar la cola y revisar TIQUETSLIN.':'Modo automático: el Host revisa la base local según el intervalo configurado.';
       cfgPort.textContent='http://127.0.0.1:'+(cfg.port||8787);
       cfgProcessed.textContent=cfg.processedDir||'';
       cfgApiKey.textContent=cfg.apiKeyConfigured?'Clave local configurada':'Sin clave local';

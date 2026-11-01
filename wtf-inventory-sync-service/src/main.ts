@@ -8,44 +8,17 @@ import type { IcgBackupSyncResult } from "./core/types.js";
 const config = getConfig();
 const store = new LocalStore(config.dataDir);
 const logger = new Logger("./logs");
-let backupSyncInFlight = false;
-let backupSyncStartedAt = 0;
-const BACKUP_SYNC_STALE_MS = 5 * 60 * 1000;
+let backupSyncInFlight: Promise<IcgBackupSyncResult> | null = null;
 
 function icgSourceDatabaseName(): string {
   return String(config.icgLiveDatabaseName || "").trim() || "FRS_WTFOODVZL";
 }
 
 async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
-  const now = Date.now();
-  if (backupSyncInFlight) {
-    const elapsedMs = backupSyncStartedAt ? now - backupSyncStartedAt : 0;
-    if (elapsedMs >= BACKUP_SYNC_STALE_MS) {
-      await logger.error("Candado de sincronizacion ICG vencido; se libera para permitir un nuevo intento", {
-        elapsedMs,
-        staleAfterMs: BACKUP_SYNC_STALE_MS
-      });
-      backupSyncInFlight = false;
-      backupSyncStartedAt = 0;
-    } else {
-      return {
-        ok: true,
-        backupPath: config.icgBackupPath,
-        databaseName: icgSourceDatabaseName(),
-        totalLines: 0,
-        matched: 0,
-        applied: 0,
-        skipped: 0,
-        pending: 0,
-        errors: [],
-        message: "La actualizacion de catalogos ICG ya esta en curso."
-      };
-    }
-  }
-  backupSyncInFlight = true;
-  backupSyncStartedAt = now;
-  try {
-    const result = await syncIcgBackupConsumption(config);
+  if (backupSyncInFlight) return backupSyncInFlight;
+  backupSyncInFlight = (async () => {
+    try {
+    const result = await syncIcgBackupConsumption(config, await store.cancelledKeys());
     // Una lectura correcta sin líneas nuevas no significa que la cola histórica
     // deba borrarse. Solo reemplazar la vista cuando llegaron movimientos reales.
     if (Array.isArray(result.movements) && result.movements.length > 0 && !result.preserveLocalIcgQueue) {
@@ -71,10 +44,11 @@ async function syncIcgBackup(): Promise<IcgBackupSyncResult> {
     await store.appendAudit({ accion: "icg_catalog_sync_error", ...result });
     await logger.error("Fallo en actualizacion de catalogos SQL ICG", result);
     return result;
-  } finally {
-    backupSyncInFlight = false;
-    backupSyncStartedAt = 0;
-  }
+    } finally {
+      backupSyncInFlight = null;
+    }
+  })();
+  return backupSyncInFlight;
 }
 
 async function main(): Promise<void> {
@@ -95,6 +69,10 @@ async function main(): Promise<void> {
 }
 
 function windowlessBackupPoll(): void {
+  if (config.mode !== "automatico") {
+    void logger.write("icg.log", "Modo manual activo: no se inicia sincronizacion programada", { mode: config.mode });
+    return;
+  }
   setInterval(() => {
     syncIcgBackup().catch((error) => logger.error("Fallo en actualizacion programada de catalogos SQL ICG", error instanceof Error ? error.message : error));
   }, config.icgBackupPollSeconds * 1000);

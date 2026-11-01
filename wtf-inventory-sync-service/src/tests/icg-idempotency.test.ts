@@ -161,6 +161,9 @@ assert.ok(catalogSyncBody.includes("preserveLocalIcgQueue"), "Si falla la lectur
 assert.ok(catalogSyncBody.includes("TIQUETSLIN leido correctamente, sin movimientos disponibles"), "Una lectura correcta sin filas debe informarse distinto a un error de lectura.");
 assert.ok(catalogSyncBody.includes("No se pudo leer TIQUETSLIN"), "Un error de lectura debe quedar visible en el resultado de sincronizacion.");
 assert.ok(catalogReaderBody.includes("readBackupDailyClosures") && catalogReaderBody.includes("closures = await"), "La sincronizacion debe reconstruir Cierres Diarios desde TIQUETSLIN cuando sea posible.");
+assert.ok(adapterSource.includes('"icgFrontRestData"') && adapterSource.includes("effectiveShardKeys"), "El Host debe leer el shard ICG aunque appStateShardKeys este incompleto.");
+assert.ok(catalogSyncBody.includes("data.closures.length") && catalogSyncBody.includes("mergeClosureRows"), "La sincronizacion normal debe guardar Cierres Diarios calculados desde TIQUETSLIN.");
+assert.ok(catalogSyncBody.includes("cierre(s) calculado(s) desde TIQUETSLIN"), "El resultado del Host debe informar los cierres calculados desde TIQUETSLIN.");
 assert.ok(mainSource.includes("replaceIcgPreviewMovements"), "Cada sincronizacion debe consolidar la cola ICG visible.");
 const localStoreSource = fs.readFileSync(
   fs.existsSync("src/core/local-store.ts") ? "src/core/local-store.ts" : path.resolve(__dirname, "../core/local-store.js"),

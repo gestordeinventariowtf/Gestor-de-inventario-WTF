@@ -88,6 +88,15 @@ export interface StoreData {
   movements: SyncMovement[];
   mappings: ProductMapping[];
   audit: Array<Record<string, unknown>>;
+  cancelledMovements: CancelledMovement[];
+}
+
+export interface CancelledMovement {
+  id: string;
+  keys: string[];
+  cancelledAt: string;
+  cancelledBy: string;
+  reason: string;
 }
 
 export interface ImportResult {
@@ -100,6 +109,7 @@ export interface ImportResult {
 
 export interface IcgBackupConsumptionRow {
   lineId?: string;
+  guidLinea?: string;
   movimientoIcgId?: string;
   fecha: string;
   fechaHora?: string;

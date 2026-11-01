@@ -2,11 +2,12 @@ param(
   [string]$InstallDir = "",
   [string]$TaskName = "WTF ICG Host",
   [int]$Port = 8787,
-  [switch]$StartNow,
+  [string]$ActivationFile = "",
   [string]$WebAppUrl = "https://gestor-de-inventario-wtf-29056.web.app",
-  [string]$IcgLiveDatabaseName = "DBFREST",
+  [string]$IcgLiveDatabaseName = "FRS_WTFOODVZL",
   [string]$IcgSqlDataDir = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA",
-  [string]$IcgBackupPath = "C:\ICG\BACKUP\DBFREST.BAK_1"
+  [string]$IcgBackupPath = "C:\ICG\BACKUP\FRS_WTFOODVZL.BAK_1",
+  [switch]$StartNow
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,8 +19,9 @@ function Assert-Admin {
     $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
     if ($InstallDir) { $argsList += @("-InstallDir", "`"$InstallDir`"") }
     $argsList += @("-TaskName", "`"$TaskName`"", "-Port", "$Port")
-    if ($StartNow) { $argsList += "-StartNow" }
+    if ($ActivationFile) { $argsList += @("-ActivationFile", "`"$ActivationFile`"") }
     $argsList += @("-WebAppUrl", "`"$WebAppUrl`"", "-IcgLiveDatabaseName", "`"$IcgLiveDatabaseName`"", "-IcgSqlDataDir", "`"$IcgSqlDataDir`"", "-IcgBackupPath", "`"$IcgBackupPath`"")
+    if ($StartNow) { $argsList += "-StartNow" }
     Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -WindowStyle Hidden
     exit 0
   }
@@ -83,49 +85,6 @@ function Set-EnvValue {
   }
   if (!$found) { $next += $line }
   $next | Set-Content -LiteralPath $Path -Encoding UTF8
-}
-
-function Backup-EnvConfig {
-  param(
-    [string]$EnvPath,
-    [string]$DataRoot,
-    [string]$LiveDatabaseName,
-    [string]$AuditDatabaseName,
-    [string]$SqlDataDir
-  )
-  $backupDir = Join-Path $DataRoot "env-backups"
-  New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-  $stamp = Get-Date -Format "yyyyMMddHHmmss"
-  if (Test-Path -LiteralPath $EnvPath) {
-    Copy-Item -LiteralPath $EnvPath -Destination (Join-Path $backupDir (".env.backup-" + $stamp)) -Force
-  }
-  $auditReferencePath = Join-Path $backupDir (".env.audit-reference-" + $stamp)
-  @"
-# Respaldo informativo de configuracion audit ICG.
-# Este archivo NO activa auditoria ni crea bases MDF/LDF.
-# Se conserva solo como referencia historica, igual que las pruebas con DBFREST.
-ICG_LIVE_DATABASE_NAME=$LiveDatabaseName
-ICG_AUDIT_DB_NAME=$AuditDatabaseName
-ICG_SQL_DATA_DIR=$SqlDataDir
-ICG_SQL_DATA_PATH=$SqlDataDir
-"@ | Set-Content -LiteralPath $auditReferencePath -Encoding UTF8
-}
-
-function Get-PackagedEnvValue {
-  param(
-    [string]$Path,
-    [string]$Name
-  )
-  if (!(Test-Path $Path)) {
-    return ""
-  }
-  $line = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Where-Object {
-    $_ -match "^\s*$([regex]::Escape($Name))="
-  } | Select-Object -First 1
-  if (!$line) {
-    return ""
-  }
-  return [string]($line -replace "^\s*$([regex]::Escape($Name))=", "")
 }
 
 function Stop-WtfIcgHostProcesses {
@@ -199,121 +158,28 @@ start "" "$DataPath"
 "@ | Set-Content -LiteralPath $openDataCmd -Encoding ASCII
 }
 
-function Optimize-WtfHostQueue {
-  param([string]$QueuePath)
-  if (!(Test-Path -LiteralPath $QueuePath)) {
-    return
-  }
-  try {
-    $item = Get-Item -LiteralPath $QueuePath -ErrorAction Stop
-    if ($item.Length -lt 1048576) {
-      return
-    }
-    $backupPath = $QueuePath + ".backup-optimizacion-" + (Get-Date -Format "yyyyMMddHHmmss")
-    Copy-Item -LiteralPath $QueuePath -Destination $backupPath -Force
-    $data = Get-Content -LiteralPath $QueuePath -Raw -ErrorAction Stop | ConvertFrom-Json
-    $audit = @()
-    if ($data.audit) {
-      $audit = @($data.audit | Select-Object -First 1000 | ForEach-Object {
-        $entry = [ordered]@{}
-        foreach ($prop in $_.PSObject.Properties) {
-          if ($prop.Name -in @("movements", "rows", "rawRows")) {
-            if ($prop.Value -is [System.Array]) {
-              $entry[$prop.Name + "Count"] = $prop.Value.Count
-            }
-          } else {
-            $entry[$prop.Name] = $prop.Value
-          }
-        }
-        [pscustomobject]$entry
-      })
-    }
-    $clean = [ordered]@{
-      movements = @($data.movements)
-      mappings = @($data.mappings)
-      audit = $audit
-    }
-    $clean | ConvertTo-Json -Depth 80 | Set-Content -LiteralPath $QueuePath -Encoding UTF8
-  } catch {
-    $optLog = Join-Path (Split-Path -Parent $QueuePath) "queue-optimizacion-error.log"
-    $backupPath = $QueuePath + ".corrupt-" + (Get-Date -Format "yyyyMMddHHmmss")
-    try {
-      Copy-Item -LiteralPath $QueuePath -Destination $backupPath -Force
-      $clean = [ordered]@{
-        movements = @()
-        mappings = @()
-        audit = @([ordered]@{
-          fecha = (Get-Date -Format "s")
-          accion = "queue_corrupt_recovered_by_installer"
-          mensaje = $_.Exception.Message
-          backupPath = $backupPath
-        })
-      }
-      $clean | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $QueuePath -Encoding UTF8
-      ("queue.json estaba corrupto. Se respaldo y se creo una cola limpia: " + $backupPath) | Set-Content -LiteralPath $optLog -Encoding UTF8
-    } catch {
-      ("No se pudo optimizar ni recuperar queue.json: " + $_.Exception.Message) | Set-Content -LiteralPath $optLog -Encoding UTF8
-    }
-  }
-}
-
-function Get-ExistingEnvValue {
-  param([string]$Path, [string]$Name)
-  if (!(Test-Path -LiteralPath $Path)) { return "" }
-  $line = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Where-Object { $_ -match "^\s*$([regex]::Escape($Name))=" } | Select-Object -First 1
-  if (!$line) { return "" }
-  return [string]($line -replace "^\s*$([regex]::Escape($Name))=", "")
-}
-
-function Protect-HostSecret {
-  param([string]$Secret)
-  if ([string]::IsNullOrWhiteSpace($Secret)) { throw "El servidor no devolvio una identidad tecnica valida." }
-  $secure = ConvertTo-SecureString -String $Secret -AsPlainText -Force
-  return ConvertFrom-SecureString -SecureString $secure
-}
-
-function Invoke-HostActivation {
-  param([string]$ExistingEnvPath, [string]$ActivationEndpoint)
-
-  $existingTerminal = Get-ExistingEnvValue -Path $ExistingEnvPath -Name "WTF_TERMINAL_ID"
-  $existingProtected = Get-ExistingEnvValue -Path $ExistingEnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED"
-  if ($existingTerminal -and $existingProtected) {
-    Write-Host "Se encontro una identidad tecnica protegida existente. Se conserva y no se solicita otra activacion." -ForegroundColor DarkGray
-    return [pscustomobject]@{ terminalId = $existingTerminal; protectedSecret = $existingProtected; endpoint = ""; reused = $true }
-  }
-
-  Write-Host ""
-  Write-Host "=== Activacion segura del WTF ICG Host ===" -ForegroundColor Cyan
-  Write-Host "El codigo debe generarse en Finanzas > Control Horario y solo puede utilizarse una vez." -ForegroundColor Yellow
-  $terminalId = Read-Host "TerminalID autorizado"
-  $activationCode = Read-Host "Codigo temporal de activacion"
-  if ([string]::IsNullOrWhiteSpace($terminalId) -or [string]::IsNullOrWhiteSpace($activationCode)) { throw "Debes indicar el TerminalID y el codigo temporal." }
-
-  $payload = @{
-    terminalId = $terminalId.Trim()
-    activationCode = $activationCode.Trim()
-    deviceId = "$env:COMPUTERNAME|$([Environment]::MachineName)|$([Environment]::OSVersion.Version)"
-    deviceInfo = @{ computerName = $env:COMPUTERNAME; user = [Environment]::UserName; os = [Environment]::OSVersion.VersionString }
-  } | ConvertTo-Json -Depth 6
-  try {
-    $result = Invoke-RestMethod -Uri $ActivationEndpoint -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 45
-  } catch {
-    throw "No se pudo activar el Host. Verifica el codigo temporal, su vigencia y la conexion. Detalle: $($_.Exception.Message)"
-  }
-  if (!$result.ok -or !$result.credential) { throw "La activacion fue rechazada por el servidor." }
-  $protected = Protect-HostSecret -Secret ([string]$result.credential)
-  return [pscustomobject]@{ terminalId = [string]$result.terminalId; protectedSecret = $protected; endpoint = [string]$result.endpoint; reused = $false }
-}
-
 Assert-Admin
 $InstallDir = Resolve-InstallDir $InstallDir
 $SourceRoot = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $env:ProgramData "WTF ICG Host"
 $LogDir = Join-Path $DataDir "logs"
+$AuditSqlDataDir = "C:\ICG\BACKUP\WTF_AUDIT_SQL"
 
-$EnvPath = Join-Path $InstallDir ".env"
-$ActivationEndpoint = "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfClaimHostActivation"
-$Activation = Invoke-HostActivation -ExistingEnvPath $EnvPath -ActivationEndpoint $ActivationEndpoint
+if ($IcgSqlDataDir -notmatch '^[A-Za-z]:\\|^\\\\') {
+  $IcgSqlDataDir = "C:\ICG\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\DATA"
+}
+
+$activation = $null
+if ($ActivationFile -and (Test-Path -LiteralPath $ActivationFile)) {
+  try {
+    $activation = Get-Content -LiteralPath $ActivationFile -Raw -ErrorAction Stop | ConvertFrom-Json
+    if (-not $activation.terminalId -or -not $activation.credentialProtected) {
+      throw "La activacion no contiene una identidad tecnica valida."
+    }
+  } catch {
+    throw "No se pudo leer la activacion tecnica: $($_.Exception.Message)"
+  }
+}
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $DataDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "data\inbox"), (Join-Path $DataDir "data\outbox"), (Join-Path $DataDir "data\processed"), (Join-Path $DataDir "data\quarantine") | Out-Null
@@ -338,16 +204,12 @@ Get-ChildItem -Path $SourceRoot -Force | Where-Object {
 }
 
 Ensure-DataAccessLinks -InstalledRoot $InstallDir -OperationalDataRoot $DataDir
-Optimize-WtfHostQueue -QueuePath (Join-Path $DataDir "data\queue.json")
 
 $HostExecutable = Resolve-HostExecutable $InstallDir
 $TrayExecutable = Resolve-TrayExecutable $InstallDir
-$PackagedEnvPath = Join-Path $SourceRoot ".env"
-$PackagedApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_API_KEY"
-$PackagedFirebaseApiKey = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_API_KEY"
-$PackagedFirebaseAuthEmail = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_EMAIL"
-$PackagedFirebaseAuthPassword = Get-PackagedEnvValue -Path $PackagedEnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD"
-Backup-EnvConfig -EnvPath $EnvPath -DataRoot $DataDir -LiveDatabaseName $IcgLiveDatabaseName -AuditDatabaseName "WTF_AUDIT_$IcgLiveDatabaseName" -SqlDataDir $IcgSqlDataDir
+$ConfiguratorExecutable = Join-Path $InstallDir "app\WTF ICG Host Configurador.exe"
+$QueueManagerExecutable = Join-Path $InstallDir "app\WTF ICG Host Gestor de Cola.exe"
+$EnvPath = Join-Path $InstallDir ".env"
 if (!(Test-Path $EnvPath)) {
   @"
 WTF_HOST_PORT=$Port
@@ -356,15 +218,7 @@ WTF_FIREBASE_PROJECT_ID=gestor-de-inventario-wtf-29056
 WTF_FIREBASE_COLLECTION=wtfSistema
 WTF_FIREBASE_DOCUMENT_ID=estadoGeneral
 WTF_AUTO_APPLY_ICG_BACKUP=false
-WTF_API_KEY=$PackagedApiKey
-WTF_FIREBASE_API_KEY=$PackagedFirebaseApiKey
-WTF_FIREBASE_AUTH_EMAIL=$PackagedFirebaseAuthEmail
-WTF_FIREBASE_AUTH_PASSWORD=$PackagedFirebaseAuthPassword
-WTF_HOST_IDENTITY_MODE=technical
-WTF_HOST_SYNC_ENDPOINT=https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway
-WTF_TERMINAL_ID=
-WTF_TERMINAL_SECRET_PROTECTED=
-WTF_TERMINAL_SECRET=
+WTF_API_KEY=
 WTF_BRANCH=principal
 WTF_DEFAULT_WAREHOUSE=1
 WTF_MODE=automatico
@@ -379,45 +233,51 @@ ICG_SQL_SERVER=localhost
 ICG_LIVE_DATABASE_NAME=$IcgLiveDatabaseName
 ICG_SQL_DATA_PATH=$IcgSqlDataDir
 ICG_AUDIT_DB_NAME=
-ICG_SQL_DATA_DIR=$IcgSqlDataDir
+ICG_SQL_DATA_DIR=$AuditSqlDataDir
 ICG_BACKUP_POLL_SECONDS=30
 ICG_CONSUMPTION_LOOKBACK_DAYS=30
+ICG_CONSUMPTION_FROM_DATE=2026-10-29
 ICG_SQL_ENABLED=true
 ICG_SQL_CONNECTION_STRING=Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True
+WTF_HOST_IDENTITY_MODE=technical
+WTF_HOST_SYNC_ENDPOINT=https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway
+WTF_TERMINAL_ID=
+WTF_TERMINAL_SECRET_PROTECTED=
 "@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
 }
 
 Set-EnvValue -Path $EnvPath -Name "WTF_AUTO_APPLY_ICG_BACKUP" -Value "false"
-if ($PackagedApiKey) {
-  Set-EnvValue -Path $EnvPath -Name "WTF_API_KEY" -Value $PackagedApiKey
-}
-if ($PackagedFirebaseApiKey) {
-  Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_API_KEY" -Value $PackagedFirebaseApiKey
-}
-if ($PackagedFirebaseAuthEmail) {
-  Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_EMAIL" -Value $PackagedFirebaseAuthEmail
-}
-if ($PackagedFirebaseAuthPassword) {
-  Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_AUTH_PASSWORD" -Value $PackagedFirebaseAuthPassword
-}
 Set-EnvValue -Path $EnvPath -Name "WTF_MODE" -Value "automatico"
 Set-EnvValue -Path $EnvPath -Name "WTF_HOST_PORT" -Value "$Port"
 Set-EnvValue -Path $EnvPath -Name "WTF_WEB_APP_URL" -Value $WebAppUrl
-Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value "technical"
-Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway"
-Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value ([string]$Activation.terminalId)
-Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value ([string]$Activation.protectedSecret)
-Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET" -Value ""
+Set-EnvValue -Path $EnvPath -Name "WTF_FIREBASE_PROJECT_ID" -Value "gestor-de-inventario-wtf-29056"
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_PATH" -Value $IcgBackupPath
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_SERVER" -Value "localhost"
 Set-EnvValue -Path $EnvPath -Name "ICG_LIVE_DATABASE_NAME" -Value $IcgLiveDatabaseName
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_PATH" -Value $IcgSqlDataDir
 Set-EnvValue -Path $EnvPath -Name "ICG_AUDIT_DB_NAME" -Value ""
-Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value $IcgSqlDataDir
+Set-EnvValue -Path $EnvPath -Name "ICG_SQL_DATA_DIR" -Value $AuditSqlDataDir
 Set-EnvValue -Path $EnvPath -Name "ICG_BACKUP_POLL_SECONDS" -Value "30"
 Set-EnvValue -Path $EnvPath -Name "ICG_CONSUMPTION_LOOKBACK_DAYS" -Value "30"
+Set-EnvValue -Path $EnvPath -Name "ICG_CONSUMPTION_FROM_DATE" -Value "2026-10-29"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_ENABLED" -Value "true"
 Set-EnvValue -Path $EnvPath -Name "ICG_SQL_CONNECTION_STRING" -Value "Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True"
+Set-EnvValue -Path $EnvPath -Name "WTF_HOST_IDENTITY_MODE" -Value "technical"
+Set-EnvValue -Path $EnvPath -Name "WTF_HOST_SYNC_ENDPOINT" -Value "https://us-central1-gestor-de-inventario-wtf-29056.cloudfunctions.net/wtfHostFirestoreGateway"
+if ($activation) {
+  Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_ID" -Value ([string]$activation.terminalId)
+  Set-EnvValue -Path $EnvPath -Name "WTF_TERMINAL_SECRET_PROTECTED" -Value ([string]$activation.credentialProtected)
+  Remove-Item -LiteralPath $ActivationFile -Force -ErrorAction SilentlyContinue
+}
+
+# El configurador vive en la raiz de la instalacion para que el usuario pueda
+# cambiar la base de pruebas o la del negocio sin generar otro instalador.
+if (Test-Path -LiteralPath $ConfiguratorExecutable) {
+  Copy-Item -LiteralPath $ConfiguratorExecutable -Destination (Join-Path $InstallDir "WTF ICG Host Configurador.exe") -Force
+}
+if (Test-Path -LiteralPath $QueueManagerExecutable) {
+  Copy-Item -LiteralPath $QueueManagerExecutable -Destination (Join-Path $InstallDir "WTF ICG Host Gestor de Cola.exe") -Force
+}
 
 $RunScript = Join-Path $InstallDir "run-host.ps1"
 @"
@@ -429,9 +289,10 @@ Set-Location "$InstallDir"
 `$env:ICG_LIVE_DATABASE_NAME = "$IcgLiveDatabaseName"
 `$env:ICG_SQL_DATA_PATH = "$IcgSqlDataDir"
 `$env:ICG_AUDIT_DB_NAME = ""
-`$env:ICG_SQL_DATA_DIR = "$IcgSqlDataDir"
+`$env:ICG_SQL_DATA_DIR = "$AuditSqlDataDir"
 `$env:ICG_BACKUP_POLL_SECONDS = "30"
 `$env:ICG_CONSUMPTION_LOOKBACK_DAYS = "30"
+`$env:ICG_CONSUMPTION_FROM_DATE = "2026-10-29"
 `$env:ICG_SQL_CONNECTION_STRING = "Server=localhost;Database=$IcgLiveDatabaseName;Trusted_Connection=True;TrustServerCertificate=True"
 `$env:WTF_AUTO_APPLY_ICG_BACKUP = "false"
 `$env:ICG_SQL_ENABLED = "true"
@@ -448,26 +309,10 @@ if (`$hostExecutable.Contains("|")) {
 }
 "@ | Set-Content -LiteralPath $RunScript -Encoding UTF8
 
-$OpenDashboardWait = Join-Path $InstallDir "Abrir Panel WTF ICG Host.ps1"
-@"
-`$ErrorActionPreference = "SilentlyContinue"
-`$PanelUrl = "http://127.0.0.1:$Port"
-`$TrayExecutable = "$TrayExecutable"
-`$RunScript = "$RunScript"
-
-if (`$TrayExecutable -and (Test-Path -LiteralPath `$TrayExecutable)) {
-  Start-Process -FilePath `$TrayExecutable -WindowStyle Hidden | Out-Null
-} elseif (Test-Path -LiteralPath `$RunScript) {
-  Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""`$RunScript""" -WindowStyle Hidden | Out-Null
-}
-
-Start-Process `$PanelUrl
-"@ | Set-Content -LiteralPath $OpenDashboardWait -Encoding UTF8
-
 $OpenDashboard = Join-Path $InstallDir "Abrir Panel WTF ICG Host.cmd"
 @"
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$OpenDashboardWait"
+start "" "http://127.0.0.1:$Port"
 "@ | Set-Content -LiteralPath $OpenDashboard -Encoding ASCII
 
 $StartHost = Join-Path $InstallDir "Iniciar WTF ICG Host.cmd"
@@ -482,111 +327,6 @@ start "" "$TrayExecutable"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$RunScript"
 "@ | Set-Content -LiteralPath $StartHost -Encoding ASCII
 }
-
-$DiagnosticScript = Join-Path $InstallDir "Diagnostico WTF ICG Host.ps1"
-@"
-`$ErrorActionPreference = "SilentlyContinue"
-`$InstallDir = "$InstallDir"
-`$DataDir = "$DataDir"
-`$LogDir = "$LogDir"
-`$Port = $Port
-`$PanelUrl = "http://127.0.0.1:$Port"
-`$HealthUrl = "`$PanelUrl/api/health"
-`$OutputPath = Join-Path `$LogDir "diagnostico-host.txt"
-New-Item -ItemType Directory -Force -Path `$LogDir | Out-Null
-
-function Add-Line {
-  param([string]`$Text)
-  `$Text | Add-Content -LiteralPath `$OutputPath -Encoding UTF8
-}
-
-if (Test-Path -LiteralPath `$OutputPath) {
-  Remove-Item -LiteralPath `$OutputPath -Force
-}
-
-Add-Line "=== WTF ICG Host - Diagnostico ==="
-Add-Line ("Fecha: " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
-Add-Line ("Instalacion: " + `$InstallDir)
-Add-Line ("Datos: " + `$DataDir)
-Add-Line ("Panel: " + `$PanelUrl)
-Add-Line ""
-
-Add-Line "== Archivos principales =="
-foreach (`$file in @(
-  (Join-Path `$InstallDir "app\wtf-icg-host.exe"),
-  (Join-Path `$InstallDir "app\wtf-icg-host-tray.exe"),
-  (Join-Path `$InstallDir "run-host.ps1"),
-  (Join-Path `$InstallDir ".env")
-)) {
-  `$item = Get-Item -LiteralPath `$file -ErrorAction SilentlyContinue
-  if (`$item) {
-    Add-Line ("OK " + `$item.FullName + " | " + `$item.Length + " bytes | " + `$item.LastWriteTime)
-  } else {
-    Add-Line ("FALTA " + `$file)
-  }
-}
-Add-Line ""
-
-Add-Line "== Puerto local =="
-`$connections = Get-NetTCPConnection -LocalPort `$Port -State Listen -ErrorAction SilentlyContinue
-if (`$connections) {
-  foreach (`$connection in `$connections) {
-    `$proc = Get-Process -Id `$connection.OwningProcess -ErrorAction SilentlyContinue
-    `$procName = "desconocido"
-    `$procPath = ""
-    if (`$proc) {
-      `$procName = `$proc.ProcessName
-      `$procPath = [string]`$proc.Path
-    }
-    Add-Line ("Puerto " + `$Port + " ocupado por PID " + `$connection.OwningProcess + " " + `$procName + " " + `$procPath)
-  }
-} else {
-  Add-Line ("Puerto " + `$Port + " sin listener activo en este momento.")
-}
-Add-Line ""
-
-Add-Line "== Respuesta del panel =="
-try {
-  `$response = Invoke-WebRequest -Uri `$HealthUrl -UseBasicParsing -TimeoutSec 5
-  Add-Line ("Panel responde HTTP " + `$response.StatusCode)
-  Add-Line (`$response.Content)
-} catch {
-  Add-Line ("Panel NO responde: " + `$_.Exception.Message)
-}
-Add-Line ""
-
-Add-Line "== Configuracion relevante =="
-`$envPath = Join-Path `$InstallDir ".env"
-if (Test-Path -LiteralPath `$envPath) {
-  Get-Content -LiteralPath `$envPath | Where-Object {
-  `$_ -match "^(WTF_HOST_PORT|WTF_WEB_APP_URL|WTF_FIREBASE_PROJECT_ID|WTF_HOST_IDENTITY_MODE|WTF_HOST_SYNC_ENDPOINT|WTF_TERMINAL_ID|WTF_TERMINAL_SECRET_PROTECTED|WTF_AUTO_APPLY_ICG_BACKUP|WTF_MODE|ICG_LIVE_DATABASE_NAME|ICG_SQL_DATA_PATH|ICG_AUDIT_DB_NAME|ICG_SQL_DATA_DIR|ICG_BACKUP_POLL_SECONDS|ICG_CONSUMPTION_LOOKBACK_DAYS|ICG_SQL_ENABLED|ICG_SQL_CONNECTION_STRING)="
-  } | ForEach-Object {
-    if (`$_ -match "^(WTF_TERMINAL_SECRET_PROTECTED|WTF_TERMINAL_SECRET)=") { Add-Line ((`$_ -split "=", 2)[0] + "=<configurado>") } else { Add-Line `$_ }
-  }
-} else {
-  Add-Line "No se encontro .env"
-}
-Add-Line ""
-
-Add-Line "== Ultimos logs =="
-foreach (`$log in @((Join-Path `$LogDir "host-runtime.log"), (Join-Path `$LogDir "application.log"), (Join-Path `$LogDir "icg.log"))) {
-  Add-Line ("--- " + `$log + " ---")
-  if (Test-Path -LiteralPath `$log) {
-    Get-Content -LiteralPath `$log -Tail 80 | ForEach-Object { Add-Line `$_ }
-  } else {
-    Add-Line "No existe."
-  }
-}
-
-Write-Host "Diagnostico generado en: `$OutputPath"
-"@ | Set-Content -LiteralPath $DiagnosticScript -Encoding UTF8
-
-$DiagnosticCmd = Join-Path $InstallDir "Diagnostico WTF ICG Host.cmd"
-@"
-@echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$DiagnosticScript"
-pause
-"@ | Set-Content -LiteralPath $DiagnosticCmd -Encoding ASCII
 
 $Uninstall = Join-Path $InstallDir "Desinstalar WTF ICG Host.cmd"
 @"
@@ -632,7 +372,16 @@ start "" $StartupCommand
 
 if ($StartNow) {
   if ($TrayExecutable) {
-    Start-Process -FilePath $TrayExecutable
+    $serviceProcess = Start-Process -FilePath $HostExecutable -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru
+    Start-Sleep -Milliseconds 800
+    $trayProcess = Start-Process -FilePath $TrayExecutable -WorkingDirectory (Split-Path -Parent $TrayExecutable) -WindowStyle Hidden -PassThru
+    Start-Sleep -Milliseconds 1200
+    try {
+      $health = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 5
+      if ($health.StatusCode -ne 200) { Write-Warning "El panel local respondio con HTTP $($health.StatusCode)." }
+    } catch {
+      Write-Warning "El servicio se inicio, pero el panel local aun no responde. Revise C:\ProgramData\WTF ICG Host\logs\tray.log y host-runtime.log."
+    }
   } else {
     Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $RunScript) -WindowStyle Hidden
   }
@@ -642,5 +391,6 @@ Write-Host ""
 Write-Host "WTF ICG Host instalado correctamente." -ForegroundColor Green
 Write-Host "Inicio automatico registrado en Windows: $StartupTarget"
 Write-Host "Panel local: http://127.0.0.1:$Port"
+Write-Host "Configurador: $(Join-Path $InstallDir 'WTF ICG Host Configurador.exe')"
 Write-Host "Carpeta de entrada: $(Join-Path $DataDir "data\inbox")"
 Write-Host "Carpeta de salida:  $(Join-Path $DataDir "data\outbox")"

@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 
 const DATASET_COLUMNS: Record<string, string[]> = {
   TiquetsCab: ["FO", "SERIE", "NUMERO", "N", "NUMFACTURA", "FECHA", "HORAINI", "HORAFIN", "CAJA", "TOTALBRUTO", "TOTALNETO", "SUBTOTAL", "PROPINA", "FECHAANULACION"],
-  TiquetsLin: ["MovimientoICGId", "PhysicalIcgKey", "LINEID", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "UNIDADES", "CONSUMO", "PRECIO", "PRECIOIVA", "TIPOIVA", "PrecioRestaurante", "PrecioAppsDelivery", "CODVENDEDOR", "CODALMACEN", "FECHA", "HORA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "Ticket"],
+  TiquetsLin: ["MovimientoICGId", "PhysicalIcgKey", "LINEID", "GUIDLINEA", "FO", "SERIE", "NUMERO", "N", "NUMLINEA", "CODARTICULO", "UNIDADES", "CONSUMO", "PRECIO", "PRECIOIVA", "TIPOIVA", "PrecioRestaurante", "PrecioAppsDelivery", "CODVENDEDOR", "CODALMACEN", "FECHA", "HORA", "FECHAHORA", "DESCRIPCION", "REFERENCIA", "USASTOCKS", "Ticket"],
   Articulos: ["CodArticulo", "Referencia", "Descripcion", "Dpto", "Seccion", "Unidades", "PrecioRestaurante", "PrecioAppsDelivery", "UnidadMedida", "SeCompra", "SeVende", "UsaStocks", "StockMinimo", "CosteMedio", "UltimoCoste", "Suspendido", "Descatalogado", "FechaModificado"],
   Referencias: ["REFERENCIA", "CODIGO", "TIPOREF", "CODPROVEEDOR"],
   Kits: ["CODARTICULO", "LINEAKIT", "CODARTKIT", "REFERENCIA", "DESCRIPCIOKIT", "REFERENCIAKIT", "UNIDADES", "PRECIOUNIDAD", "TOTALLINEA"],
@@ -552,7 +552,7 @@ function mergeLookupRowsIntoIcgData(icg: AnyRecord, key: string, rows: AnyRecord
 
 function consumptionSourceRowKey(row: AnyRecord): string {
   return [
-    firstText(row, ["LINEID", "LineId", "lineId", "ID", "Id"]),
+    firstText(row, ["GUIDLINEA", "GuidLinea", "GUID", "guid", "LINEID", "LineId", "lineId", "ID", "Id"]),
     firstText(row, ["FO", "fo"]),
     firstText(row, ["SERIE", "Serie", "serie"]),
     firstText(row, ["NUMERO", "Numero", "numero"]),
@@ -568,6 +568,7 @@ function consumptionRowFromBackupLine(line: Partial<IcgBackupConsumptionRow>, fe
   const sourcePhysicalKey = ["icg-consumo-source-v1", tiquetsLinPrimaryKey(line), line.codAlmacen || ""].map((part) => normalizar(part)).join("|");
   return {
     LINEID: lineId(line),
+    GUIDLINEA: line.guidLinea || lineId(line),
     MovimientoICGId: movementIcgIdFromLine(line, fecha),
     PhysicalIcgKey: sourcePhysicalKey,
     FO: lineFo(line),
@@ -925,8 +926,15 @@ async function readAppState(config: ServiceConfig): Promise<AnyRecord> {
   const doc = await res.json() as AnyRecord;
   const appState = decodeFirestoreAppState(doc.fields);
   const shardKeys = decodeFirestoreValue(doc.fields?.appStateShardKeys);
-  if (!Array.isArray(shardKeys) || !shardKeys.length) return appState;
-  await Promise.all(shardKeys.map(async (key) => {
+  // El indice appStateShardKeys puede quedar atrasado despues de un deploy o
+  // de una escritura antigua. ICG tiene su propio shard autoritativo; leerlo
+  // como fallback evita que un estado principal sin la clave cargue un ICG
+  // vacio y luego lo vuelva a guardar sobre Firestore.
+  const effectiveShardKeys = Array.from(new Set([
+    ...(Array.isArray(shardKeys) ? shardKeys : []),
+    "icgFrontRestData"
+  ]));
+  await Promise.all(effectiveShardKeys.map(async (key) => {
     const shardKey = String(key || "").trim();
     if (!shardKey) return;
     const shardRes = await firestoreFetch(config, shardDocumentUrl(config, shardKey));
@@ -1029,7 +1037,12 @@ function quoteSql(value: string): string {
 }
 
 function parseSqlRows(output: string): AnyRecord[] {
-  const lines = output.split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim() && !/^\(\d+ filas? afectadas\)$/i.test(line.trim()));
+  // No usar trimEnd aqui: sqlcmd separa columnas con tabuladores y una fila
+  // puede terminar con varios campos vacios. Eliminar esos tabuladores hace
+  // que parts.length sea menor que headers.length y descarta una fila valida.
+  const lines = output.split(/\r?\n/)
+    .map((line) => line.replace(/\r$/, ""))
+    .filter((line) => line.trim() && !/^\(\d+ filas? afectadas\)$/i.test(line.trim()));
   if (lines.length < 2) return [];
   const headers = lines[0].split("\t").map((h) => h.trim());
   const rowsOut: AnyRecord[] = [];
@@ -1179,12 +1192,13 @@ async function readRecentIcgConsumptionPreview(config: ServiceConfig, databaseNa
   const sqlDateFilter = fromDate && hasDate
     ? `AND CONVERT(date,${lineDate}) >= '${fromDate.replace(/-/g, "")}'`
     : "";
-  const lineKeyExpr = textExpr("ID", "Id", "ROWID", "RowId");
+  const lineKeyExpr = textExpr("GUIDLINEA", "GuidLinea", "GUID", "guid", "ID", "Id", "ROWID", "RowId");
   const sql = `
 IF OBJECT_ID('TIQUETSLIN','U') IS NOT NULL
 BEGIN
   SELECT
     ${lineKeyExpr} AS LINEID,
+    ${textExpr("GUIDLINEA", "GuidLinea", "GUID", "guid")} AS GUIDLINEA,
     ${textExpr("FO")} AS FO,
     ${textExpr("SERIE")} AS SERIE,
     ${textExpr("NUMERO")} AS NUMERO,
@@ -1213,14 +1227,33 @@ BEGIN
 END
 ELSE
 BEGIN
-  SELECT TOP 0 CAST('' AS varchar(30)) AS LINEID, CAST('' AS varchar(30)) AS FO, CAST('' AS varchar(30)) AS SERIE, CAST('' AS varchar(30)) AS NUMERO, CAST('' AS varchar(30)) AS N, CAST('' AS varchar(30)) AS NUMLINEA, CAST('' AS varchar(30)) AS CODARTICULO, CAST('' AS varchar(30)) AS UNIDADES, CAST('' AS varchar(30)) AS CONSUMO, CAST('' AS varchar(30)) AS CODALMACEN, CAST('' AS varchar(30)) AS CODMACRO, CAST('' AS varchar(30)) AS FECHA, CAST('' AS varchar(30)) AS HORA, CAST('' AS varchar(30)) AS FECHAHORA, CAST('' AS varchar(30)) AS PRECIO, CAST('' AS varchar(30)) AS PRECIOIVA, CAST('' AS varchar(30)) AS TIPOIVA, CAST('' AS varchar(30)) AS CODVENDEDOR, CAST('' AS varchar(120)) AS DESCRIPCION, CAST('' AS varchar(60)) AS REFERENCIA, CAST('' AS varchar(10)) AS USASTOCKS;
+  SELECT TOP 0 CAST('' AS varchar(30)) AS LINEID, CAST('' AS varchar(80)) AS GUIDLINEA, CAST('' AS varchar(30)) AS FO, CAST('' AS varchar(30)) AS SERIE, CAST('' AS varchar(30)) AS NUMERO, CAST('' AS varchar(30)) AS N, CAST('' AS varchar(30)) AS NUMLINEA, CAST('' AS varchar(30)) AS CODARTICULO, CAST('' AS varchar(30)) AS UNIDADES, CAST('' AS varchar(30)) AS CONSUMO, CAST('' AS varchar(30)) AS CODALMACEN, CAST('' AS varchar(30)) AS CODMACRO, CAST('' AS varchar(30)) AS FECHA, CAST('' AS varchar(30)) AS HORA, CAST('' AS varchar(30)) AS FECHAHORA, CAST('' AS varchar(30)) AS PRECIO, CAST('' AS varchar(30)) AS PRECIOIVA, CAST('' AS varchar(30)) AS TIPOIVA, CAST('' AS varchar(30)) AS CODVENDEDOR, CAST('' AS varchar(120)) AS DESCRIPCION, CAST('' AS varchar(60)) AS REFERENCIA, CAST('' AS varchar(10)) AS USASTOCKS;
 END`;
-  const parsedRows = parseSqlRows(await runSql(config, databaseName, sql)).map((row) => {
+  const rawSqlOutput = await runSql(config, databaseName, sql);
+  let parsedRows: AnyRecord[] = parseSqlRows(rawSqlOutput);
+  // Algunas instalaciones de ICG almacenan HORA como datetime y otras exponen
+  // una combinacion de columnas de fecha. Si la consulta dinamica no devuelve
+  // filas, repetir solo la lectura de TIQUETSLIN con un limite datetime directo
+  // evita que una conversion de fecha descarte ventas validas silenciosamente.
+  if (!parsedRows.length && fromDate && hasDate) {
+    const directDateSource = column("HORA", "FECHAHORA", "FECHA");
+    const directDateFilter = directDateSource
+      ? `AND TRY_CONVERT(datetime, ${directDateSource}) >= '${fromDate}T00:00:00'`
+      : sqlDateFilter;
+    const fallbackSql = sql
+      .replace(sqlDateFilter, directDateFilter)
+      .replace(/ORDER BY[\s\S]*?;\s*END/i, ";\nEND");
+    parsedRows = parseSqlRows(await runSql(config, databaseName, fallbackSql));
+  }
+  const parsedBeforeNormalization = parsedRows.length;
+  const rawSample = parsedRows[0];
+  parsedRows = parsedRows.map((row) => {
     const consumo = parseNumber(row.CONSUMO);
     const tipoMovimiento: IcgBackupConsumptionRow["tipoMovimiento"] = consumo < 0 ? "devolucion" : "venta";
     const fechaHora = firstText(row, ["HORA", "Hora", "FECHAHORA", "FechaHora"]);
     return {
       lineId: firstText(row, ["LINEID", "LineId", "lineId"]),
+      guidLinea: firstText(row, ["GUIDLINEA", "GuidLinea", "GUID", "guid"]),
       fecha: firstText(row, ["FECHA", "Fecha"]),
       fechaHora,
       fo: firstText(row, ["FO", "fo"]),
@@ -1242,7 +1275,7 @@ END`;
       lineas: 1
     };
   }).filter((row) => row.codArticulo && row.consumo !== 0);
-  if (!fromDate) return parsedRows;
+  if (!fromDate) return parsedRows as IcgBackupConsumptionRow[];
   const boundary = Date.parse(`${fromDate}T00:00:00`);
   return parsedRows.filter((row) => {
     const raw = String(row.fecha || row.fechaHora || "").trim().replace(" ", "T");
@@ -1250,7 +1283,7 @@ END`;
     // Si ICG no expone una fecha interpretable en la línea, no descartarla
     // silenciosamente: queda para revisión y conserva la venta.
     return !Number.isFinite(parsed) || !Number.isFinite(boundary) || parsed >= boundary;
-  });
+  }) as IcgBackupConsumptionRow[];
 }
 
 function sourceDatabaseName(config: ServiceConfig): string {
@@ -1491,6 +1524,17 @@ function createBackupMovement(
 
 export function icgPhysicalConsumptionSourceKey(line: Partial<IcgBackupConsumptionRow>): string {
   return icgStableConsumptionIdentity(line);
+}
+
+function isCancelledIcgLine(line: Partial<IcgBackupConsumptionRow>, cancelledKeys: ReadonlySet<string>): boolean {
+  const values = [
+    line.lineId,
+    line.movimientoIcgId,
+    icgStableConsumptionIdentity(line),
+    [line.fo, line.serie, line.numero, line.n, line.numLinea].filter(Boolean).join("|"),
+    [line.fo, line.serie, line.numero, line.n, line.numLinea, line.codArticulo].filter(Boolean).join("|")
+  ];
+  return values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).some((value) => cancelledKeys.has(value));
 }
 
 export async function applyBackupConsumptionToFirestore(config: ServiceConfig, rowsToApply: IcgBackupConsumptionRow[], fecha: string, tableCounts: Record<string, number>, articles: AnyRecord[] = [], closures: AnyRecord[] = [], salePrices: AnyRecord[] = [], tiquetsLinRows: AnyRecord[] = []): Promise<IcgBackupSyncResult> {
@@ -2001,16 +2045,33 @@ export async function applyBackupConsumptionToFirestore(config: ServiceConfig, r
   return result;
 }
 
-async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<ReturnType<typeof readLatestBackupConsumption>>): Promise<IcgBackupSyncResult> {
+async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<ReturnType<typeof readLatestBackupConsumption>>, cancelledKeys: ReadonlySet<string> = new Set()): Promise<IcgBackupSyncResult> {
   const appState = await readAppState(config);
   const icg = ensureIcgData(appState);
+  const activeTiquetsLinRows = data.tiquetsLinRows.filter((line) => !isCancelledIcgLine(line, cancelledKeys));
+  const activePreviewRows = data.rows.filter((line) => !isCancelledIcgLine(line, cancelledKeys));
   mergeBackupArticlesIntoIcgData(icg, data.articles);
   mergeLookupRowsIntoIcgData(icg, "Referencias", data.references, ["REFERENCIA", "CODIGO"], "Codigos / referencias");
   mergeLookupRowsIntoIcgData(icg, "Stocks", data.stocks, ["CODARTICULO", "CODALMACEN"], "Stocks");
   mergeBackupSalePricesIntoIcgData(icg, data.salePrices);
   if (data.previewReadOk !== false) {
-    mergeBackupTiquetsLinIntoIcgData(icg, data.tiquetsLinRows, data.fecha || new Date().toISOString().slice(0, 10));
-    mergePreviewConsumptionIntoIcgData(icg, appState, data.rows, data.fecha || new Date().toISOString().slice(0, 10), config);
+    mergeBackupTiquetsLinIntoIcgData(icg, activeTiquetsLinRows, data.fecha || new Date().toISOString().slice(0, 10));
+    mergePreviewConsumptionIntoIcgData(icg, appState, activePreviewRows, data.fecha || new Date().toISOString().slice(0, 10), config);
+    // CierresDiarios se reconstruye desde las lineas fisicas de TIQUETSLIN.
+    // Debe guardarse aunque no haya lineas nuevas para la cola visible: el
+    // cierre puede existir aunque todos sus movimientos ya sean idempotentes.
+    if (data.closures.length) {
+      const currentClosures = icg.datasets.CierresDiarios || {
+        key: "CierresDiarios",
+        label: "Cierres diarios",
+        columns: CIERRES_DIARIOS_COLUMNS,
+        rows: []
+      };
+      icg.datasets.CierresDiarios = Object.assign({}, currentClosures, {
+        columns: Array.from(new Set([...(currentClosures.columns || []), ...CIERRES_DIARIOS_COLUMNS])),
+        rows: mergeClosureRows(currentClosures.rows || [], data.closures)
+      });
+    }
   }
   const now = new Date().toISOString();
   icg.sourceName = sourceDatabaseName(config);
@@ -2027,19 +2088,19 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
     sourceMode: "live-sql",
     databaseName: sourceDatabaseName(config),
     fecha: data.fecha || now.slice(0, 10),
-    totalLines: data.rows.length,
+    totalLines: activePreviewRows.length,
     matched: 0,
     applied: 0,
-    skipped: data.rows.length,
+    skipped: activePreviewRows.length,
     pending: 0,
     errors: data.previewReadOk === false && data.previewReadError ? [data.previewReadError] : [],
-    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. ${previewMessage} No se aplicaron salidas ni descuentos automaticos.`,
+    message: `Catalogos ICG actualizados desde ${sourceDatabaseName(config)}: ${data.articles.length} articulos, ${data.references.length} referencias, ${data.stocks.length} stocks y ${data.salePrices.length} precios. ${previewMessage} ${data.tiquetsLinRows.length - activeTiquetsLinRows.length} linea(s) cancelada(s) fueron excluidas. ${data.closures.length} cierre(s) calculado(s) desde TIQUETSLIN. No se aplicaron salidas ni descuentos automaticos.`,
     tableCounts: data.tableCounts,
     preserveLocalIcgQueue: data.previewReadOk === false,
     preserveRemoteIcgSales: false,
     previewReadOk: data.previewReadOk,
     previewReadError: data.previewReadError,
-    movements: data.previewReadOk === false ? undefined : data.rows.map((line) => {
+    movements: data.previewReadOk === false ? undefined : activePreviewRows.map((line) => {
       const movementDate = line.fecha || String(line.fechaHora || "").slice(0, 10) || data.fecha || now.slice(0, 10);
       const importKey = quickHashText(["icg-preview", movementIcgIdFromLine(line, movementDate), line.codAlmacen || ""].join("|"));
       return createBackupMovement(line, movementDate, importKey, "sincronizado", "Vista previa ICG local. No aplica salida ni descuento de inventario.");
@@ -2049,7 +2110,7 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   const hasRemoteSalesHistory = ["TiquetsLin", "ConsumoMiseVentas", "CierresDiarios"].some((key) =>
     Array.isArray(currentIcgRows[key]?.rows) && currentIcgRows[key].rows.length > 0
   );
-  if (data.previewReadOk !== false && data.tiquetsLinRows.length === 0 && hasRemoteSalesHistory) {
+  if (data.previewReadOk !== false && activeTiquetsLinRows.length === 0 && data.closures.length === 0 && hasRemoteSalesHistory) {
     // Una respuesta vacía no es una orden de limpieza. No escribir el estado
     // completo evita que una lectura incompleta pise ventas ya confirmadas.
     result.preserveRemoteIcgSales = true;
@@ -2062,8 +2123,8 @@ async function syncIcgCatalogToFirestore(config: ServiceConfig, data: Awaited<Re
   return result;
 }
 
-export async function syncIcgBackupConsumption(config: ServiceConfig): Promise<IcgBackupSyncResult> {
+export async function syncIcgBackupConsumption(config: ServiceConfig, cancelledKeys: ReadonlySet<string> = new Set()): Promise<IcgBackupSyncResult> {
   const activeConfig = Object.assign({}, config, { icgLiveDatabaseName: sourceDatabaseName(config) });
   const data = await readLatestBackupConsumption(activeConfig);
-  return syncIcgCatalogToFirestore(activeConfig, data);
+  return syncIcgCatalogToFirestore(activeConfig, data, cancelledKeys);
 }

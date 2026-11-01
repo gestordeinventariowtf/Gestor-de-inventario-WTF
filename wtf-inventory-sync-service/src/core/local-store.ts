@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ProductMapping, StoreData, SyncMovement } from "./types.js";
+import type { CancelledMovement, ProductMapping, StoreData, SyncMovement } from "./types.js";
 
 export class LocalStore {
   private filePath: string;
@@ -14,7 +14,7 @@ export class LocalStore {
     try {
       await fs.access(this.filePath);
     } catch {
-      await this.write({ movements: [], mappings: [], audit: [] });
+      await this.write({ movements: [], mappings: [], audit: [], cancelledMovements: [] });
     }
   }
 
@@ -22,10 +22,13 @@ export class LocalStore {
     await this.init();
     const text = await fs.readFile(this.filePath, "utf8");
     const parsed = JSON.parse(text) as Partial<StoreData>;
+    const movements = Array.isArray(parsed.movements) ? parsed.movements.slice() : [];
+    movements.sort((a, b) => this.compareMovementsNewestFirst(a, b));
     return {
-      movements: Array.isArray(parsed.movements) ? parsed.movements : [],
+      movements,
       mappings: Array.isArray(parsed.mappings) ? parsed.mappings : [],
-      audit: Array.isArray(parsed.audit) ? parsed.audit : []
+      audit: Array.isArray(parsed.audit) ? parsed.audit : [],
+      cancelledMovements: Array.isArray(parsed.cancelledMovements) ? parsed.cancelledMovements : []
     };
   }
 
@@ -36,6 +39,9 @@ export class LocalStore {
 
   async upsertMovement(movement: SyncMovement): Promise<{ inserted: boolean; movement: SyncMovement }> {
     const data = await this.read();
+    if (this.isCancelled(data.cancelledMovements, movement)) {
+      return { inserted: false, movement: { ...movement, estado: "rechazado", mensaje: "Movimiento cancelado localmente por el administrador." } };
+    }
     const existing = data.movements.find((row) => row.idempotencyKey === movement.idempotencyKey);
     if (existing) return { inserted: false, movement: existing };
     data.movements.unshift(movement);
@@ -85,7 +91,8 @@ export class LocalStore {
       } : row);
     });
     const mergedPreview = Array.from(byKey.values());
-    data.movements = mergedPreview.concat(data.movements.filter((row) => !isIcgPreview(row)));
+    const activeIncoming = mergedPreview.filter((row) => !this.isCancelled(data.cancelledMovements, row));
+    data.movements = activeIncoming.concat(data.movements.filter((row) => !isIcgPreview(row)));
     data.audit.unshift({
       fecha: new Date().toISOString(),
       accion: "icg_preview_movements_merged",
@@ -127,6 +134,36 @@ export class LocalStore {
     return count;
   }
 
+  async cancelMovements(ids: string[], reason: string, cancelledBy: string): Promise<number> {
+    const idSet = new Set(ids.map(String));
+    const data = await this.read();
+    const now = new Date().toISOString();
+    const existingKeys = new Set(data.cancelledMovements.flatMap((row) => row.keys || []));
+    let count = 0;
+    for (const movement of data.movements) {
+      if (!idSet.has(String(movement.id))) continue;
+      const keys = this.movementKeys(movement);
+      keys.forEach((key) => existingKeys.add(key));
+      if (!data.cancelledMovements.some((row) => row.id === movement.id)) {
+        data.cancelledMovements.push({ id: movement.id, keys, cancelledAt: now, cancelledBy, reason });
+      }
+      movement.estado = "rechazado";
+      movement.mensaje = reason || "Movimiento cancelado localmente por el administrador.";
+      movement.ultimoIntento = now;
+      count++;
+    }
+    if (count > 0) {
+      data.audit.unshift({ fecha: now, accion: "movement_cancelled", total: count, ids, reason, cancelledBy });
+      await this.write(data);
+    }
+    return count;
+  }
+
+  async cancelledKeys(): Promise<Set<string>> {
+    const data = await this.read();
+    return new Set(data.cancelledMovements.flatMap((row) => row.keys || []).filter(Boolean));
+  }
+
   async replaceMappings(mappings: ProductMapping[]): Promise<void> {
     const data = await this.read();
     data.mappings = mappings;
@@ -148,8 +185,53 @@ export class LocalStore {
       approved: data.movements.filter((row) => row.estado === "aprobado").length,
       synced: data.movements.filter((row) => row.estado === "sincronizado").length,
       errors: data.movements.filter((row) => row.estado === "error").length,
+      cancelled: data.cancelledMovements.length,
       mappings: data.mappings.length,
       audit: data.audit.length
     };
+  }
+
+  private movementKeys(movement: SyncMovement): string[] {
+    const raw = movement.raw || {};
+    return [
+      movement.id,
+      movement.idempotencyKey,
+      movement.movimientoIcgId,
+      raw.physicalSourceKey,
+      raw.PhysicalIcgKey,
+      raw.physicalIcgKey,
+      raw.ticket,
+      [raw.fo, raw.serie, raw.numero, raw.n, raw.numLinea].filter(Boolean).join("|")
+    ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+  }
+
+  private isCancelled(cancelled: CancelledMovement[], movement: SyncMovement): boolean {
+    const keys = new Set(cancelled.flatMap((row) => row.keys || []));
+    return this.movementKeys(movement).some((key) => keys.has(key));
+  }
+
+  private compareMovementsNewestFirst(a: SyncMovement, b: SyncMovement): number {
+    const timeA = this.movementTime(a);
+    const timeB = this.movementTime(b);
+    if (timeA !== timeB) return timeB - timeA;
+    return String(b.id || b.idempotencyKey || "").localeCompare(String(a.id || a.idempotencyKey || ""));
+  }
+
+  private movementTime(movement: SyncMovement): number {
+    const raw = movement.raw || {};
+    const candidates = [
+      movement.fecha,
+      raw.fechaHora,
+      raw.FechaHora,
+      raw.fecha,
+      raw.Fecha,
+      raw.createdAt,
+      raw.updatedAt
+    ];
+    for (const candidate of candidates) {
+      const parsed = Date.parse(String(candidate || "").trim().replace(" ", "T"));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
   }
 }

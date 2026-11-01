@@ -44,7 +44,7 @@
     })();
   </script>
   <script src="./firebase-config.js"></script>
-  <script>window.WTF_APP_VERSION = "20261031062149-deb1ce9";</script>
+  <script>window.WTF_APP_VERSION = "20261101072728-6dc5331";</script>
   <script src="./app-version.js" defer></script>
   <script src="./pwa.js" defer></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -2557,6 +2557,7 @@
   };
   const DATA_VERSION = "2026-06-13-sheet-migration-v2";
   const DATA_VERSION_KEY = "wtf_data_version";
+  const ICG_REMOTE_CACHE_STORAGE = "wtf_icg_frontrest_remote_cache_v1";
   function load(key, def) {
     try {
       const v = localStorage.getItem(key);
@@ -2564,6 +2565,20 @@
     } catch (e) {
       return def;
     }
+  }
+  function loadIcgFrontRestInitial() {
+    const remoteCache = load(ICG_REMOTE_CACHE_STORAGE, null);
+    if (remoteCache && remoteCache.data && typeof remoteCache.data === "object") return remoteCache.data;
+    return load(KEYS.icgFrontRest, null);
+  }
+  function saveIcgFrontRestRemoteCache(value, signature) {
+    if (!value || typeof value !== "object") return;
+    save(ICG_REMOTE_CACHE_STORAGE, {
+      data: ensureIcgFrontRestData(value),
+      signature: String(signature || ""),
+      savedAt: Date.now(),
+      source: "firestore"
+    });
   }
   function save(key, val) {
     try {
@@ -5733,7 +5748,13 @@
     next.employeeCenterData = mergeEmployeeCenterData(localState && localState.employeeCenterData, remoteState && remoteState.employeeCenterData);
     next.financialData = mergeFinancialData(localState && localState.financialData, remoteState && remoteState.financialData);
     next.assetManagementData = ensureAssetManagementData(mergeGenericPersistedData(localState && localState.assetManagementData, remoteState && remoteState.assetManagementData));
-    next.icgFrontRestData = mergeFirebaseIcgExternalState(remoteState && remoteState.icgFrontRestData, localState && localState.icgFrontRestData);
+    // Una actualización remota de otro módulo puede no incluir ICG. Esa
+    // ausencia no significa que el documento ICG esté vacío: conservar la
+    // versión ya hidratada evita el ciclo 267 -> 0 al sincronizar.
+    const hasRemoteIcgState = Boolean(remoteState && Object.prototype.hasOwnProperty.call(remoteState, "icgFrontRestData"));
+    next.icgFrontRestData = hasRemoteIcgState
+      ? mergeFirebaseIcgExternalState(remoteState.icgFrontRestData, localState && localState.icgFrontRestData)
+      : ensureIcgFrontRestData(localState && localState.icgFrontRestData || {});
     next.neveras = mergeGenericPersistedRows(localState && localState.neveras, remoteState && remoteState.neveras);
     next.correos = mergeGenericPersistedRows(localState && localState.correos, remoteState && remoteState.correos);
     next.googleConfig = normalizeGoogleConfig(mergeGenericPersistedData(localState && localState.googleConfig, remoteState && remoteState.googleConfig));
@@ -6190,7 +6211,14 @@
       state = data.appState || null;
     }
     if (!state) return null;
-    const shardKeys = Array.isArray(data.appStateShardKeys) ? data.appStateShardKeys : [];
+    const shardKeys = Array.from(new Set(Array.isArray(data.appStateShardKeys) ? data.appStateShardKeys : []));
+    // ICG vive en un shard independiente. Si una versión antigua dejó el
+    // índice principal incompleto, el módulo debe leer su shard remoto antes
+    // de renderizar o fusionar la caché local. Esto evita el ciclo vacío ->
+    // dato remoto -> vacío sin descargar el resto del estado general.
+    if ((activePage === "icg" || activePage === "icgHost") && !shardKeys.includes("icgFrontRestData")) {
+      shardKeys.push("icgFrontRestData");
+    }
     if (docRef && shardKeys.length) {
       await Promise.all(shardKeys.map(async function(key) {
         try {
@@ -13127,7 +13155,7 @@
     const [histDecomisoCocina, setHistDecomisoCocina] = useState(() => normalizeMovementRows(loadSeeded(KEYS.histDecomisoCocina, initHistDecomisoCocina, []), initialMovementDeletedKeys.histDecomisoCocina));
     const [histEntradaRapida, setHistEntradaRapida] = useState(() => normalizeMovementRows(load(KEYS.histEntradaRapida, []), initialMovementDeletedKeys.histEntradaRapida));
     const [histSalidaRapida, setHistSalidaRapida] = useState(() => repairIcgMiseQuickExitUsers(normalizeMovementRows(load(KEYS.histSalidaRapida, []), initialMovementDeletedKeys.histSalidaRapida)));
-    const [icgFrontRestData, setIcgFrontRestData] = useState(() => ensureIcgFrontRestData(load(KEYS.icgFrontRest, null)));
+    const [icgFrontRestData, setIcgFrontRestDataState] = useState(() => ensureIcgFrontRestData(loadIcgFrontRestInitial()));
     const [assetManagementData, setAssetManagementData] = useState(() => ensureAssetManagementData(load(KEYS.assetManagement, null)));
     const [employeeCenterData, setEmployeeCenterData] = useState(() => ensureEmployeeCenterData(load(KEYS.employeeCenter, null)));
     const [financialData, setFinancialData] = useState(() => ensureFinancialData(load(KEYS.financial, null)));
@@ -13198,9 +13226,11 @@
     const [pendingIcgControlAction, setPendingIcgControlAction] = useState(null);
     const [firebaseStatus, setFirebaseStatus] = useState(() => firebaseCfg.enabled ? "connecting" : "disabled");
     const [firebaseMessage, setFirebaseMessage] = useState(() => firebaseCfg.enabled ? "Conectando Firebase..." : "Solo local");
+    const [firebaseDocReadyVersion, setFirebaseDocReadyVersion] = useState(0);
     const [firebaseCooldownUntil, setFirebaseCooldownUntil] = useState(() => getFirebaseCooldownUntil());
     const [lastSyncedAt, setLastSyncedAt] = useState("");
     const firebaseDocRef = useRef(null);
+    const refreshIcgFrontRestFromServerRef = useRef(null);
     const icgControlDocRef = useRef(null);
     const firestorePersistenceConfiguredRef = useRef(false);
     const authorizedUsersHydratedRef = useRef("");
@@ -13219,6 +13249,12 @@
     const firebaseWriteInFlightRef = useRef(false);
     const firebaseWriteQueuedRef = useRef(false);
     const firebaseExternalDocSignaturesRef = useRef({});
+    const icgFrontRestRemoteReadyRef = useRef(false);
+    const icgFrontRestLocalMutationRef = useRef(false);
+    function setIcgFrontRestData(nextValue) {
+      icgFrontRestLocalMutationRef.current = true;
+      setIcgFrontRestDataState(nextValue);
+    }
     const systemLogsMetaUnsubscribeRef = useRef(null);
     const systemLogsMetaRevisionRef = useRef(Number(load(SYSTEM_LOG_EVENT_REVISION_KEY, 0)) || 0);
     const systemLogsLastDocRef = useRef(null);
@@ -14065,6 +14101,13 @@
           delete firebaseState[key];
           return;
         }
+        if (key === "icgFrontRestData" && (!icgFrontRestRemoteReadyRef.current || !icgFrontRestLocalMutationRef.current)) {
+          // ICG solo se publica después de una modificación explícita. La
+          // hidratación remota, la navegación y la caché nunca pueden volver
+          // a publicar una copia antigua o vacía.
+          delete firebaseState[key];
+          return;
+        }
         const externalValue = firebaseState[key];
         delete firebaseState[key];
         const safeExternalValue = externalValue || (key === "systemLogs" ? [] : {});
@@ -14273,6 +14316,9 @@
           setFirebaseStatus("connected");
           setFirebaseMessage("Cambios sincronizados");
           setLastSyncedAt(formatDatetime(/* @__PURE__ */ new Date()));
+          if (writeDoc.externalDocs && writeDoc.externalDocs.some(function(externalDoc) { return externalDoc && externalDoc.key === "icgFrontRestData"; })) {
+            icgFrontRestLocalMutationRef.current = false;
+          }
           clearFirebaseWritePending();
         } catch (error) {
           console.error("Firebase write error:", error);
@@ -14288,8 +14334,16 @@
         }
       }, delay);
     }
-    function applyRemoteState(nextState) {
+    function applyRemoteState(nextState, options) {
       if (!nextState || typeof nextState !== "object") return;
+      const remoteApplyOptions = options && typeof options === "object" ? options : {};
+      // ICG FrontRest has its own authoritative document and listener. The
+      // general state document may contain an old/empty projection; it must
+      // never reset the dedicated ICG view while that module is synchronizing.
+      if (!remoteApplyOptions.allowIcgFrontRestData && Object.prototype.hasOwnProperty.call(nextState, "icgFrontRestData")) {
+        nextState = Object.assign({}, nextState);
+        delete nextState.icgFrontRestData;
+      }
       const currentState = getCurrentAppState();
       const preferRemoteOperationalData = shouldPreferRemoteOperationalData(nextState);
       nextState = mergeRemoteAppStateWithLocal(
@@ -14334,7 +14388,7 @@
       if (Array.isArray(nextState.histDecomisoCocina)) setHistDecomisoCocina(normalizeMovementRows(nextState.histDecomisoCocina, nextMovementDeletedKeys.histDecomisoCocina));
       if (Array.isArray(nextState.histEntradaRapida)) setHistEntradaRapida(normalizeMovementRows(nextState.histEntradaRapida, nextMovementDeletedKeys.histEntradaRapida));
       if (Array.isArray(nextState.histSalidaRapida)) setHistSalidaRapida(repairIcgMiseQuickExitUsers(normalizeMovementRows(nextState.histSalidaRapida, nextMovementDeletedKeys.histSalidaRapida)));
-      if (nextState.icgFrontRestData && typeof nextState.icgFrontRestData === "object") setIcgFrontRestData(ensureIcgFrontRestData(nextState.icgFrontRestData));
+      if (nextState.icgFrontRestData && typeof nextState.icgFrontRestData === "object") setIcgFrontRestDataState(ensureIcgFrontRestData(nextState.icgFrontRestData));
       if (nextState.assetManagementData && typeof nextState.assetManagementData === "object") setAssetManagementData(ensureAssetManagementData(nextState.assetManagementData));
       if (nextState.employeeCenterData && typeof nextState.employeeCenterData === "object") setEmployeeCenterData(ensureEmployeeCenterData(nextState.employeeCenterData));
       if (nextState.financialData && typeof nextState.financialData === "object") setFinancialData(ensureFinancialData(nextState.financialData));
@@ -14389,7 +14443,7 @@
     function applyIcgControlState(control) {
       const normalizedControl = normalizeIcgControlDoc(control);
       setIcgControl(normalizedControl);
-      setIcgFrontRestData(function(prev) {
+      setIcgFrontRestDataState(function(prev) {
         const normalized = ensureIcgFrontRestData(prev);
         const nextPaused = normalizedControl.paused;
         const nextReason = nextPaused ? normalizedControl.message : "";
@@ -14554,7 +14608,30 @@
         }
       }
     }
+    async function refreshIcgFrontRestFromServer(reason) {
+      if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseDocRef.current.parent || !firebaseAuthReady || !firebaseAuthEmail) return;
+      const key = "icgFrontRestData";
+      const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS[key] || key);
+      const snapshot = await ref.get({ source: "server" });
+      if (!snapshot || !snapshot.exists) {
+        icgFrontRestRemoteReadyRef.current = true;
+        return;
+      }
+      const data = snapshot.data() || {};
+      const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
+      if (!value || typeof value !== "object") return;
+      const remoteSignature = String(data.syncMeta && data.syncMeta.signature || quickHashText(JSON.stringify(value)));
+      icgFrontRestRemoteReadyRef.current = true;
+      saveIcgFrontRestRemoteCache(value, remoteSignature);
+      firebaseExternalDocSignaturesRef.current[key] = remoteSignature;
+      firebaseExternalDocSignaturesCache[key] = remoteSignature;
+      saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
+      skipAutomaticFirebaseWriteRef.current = true;
+      applyRemoteState({ icgFrontRestData: ensureIcgFrontRestData(value) }, { allowIcgFrontRestData: true });
+      setFirebaseMessage(reason === "manual-sync" ? "ICG leído desde Firestore" : "ICG actualizado desde Firestore");
+    }
     pullLatestFirebaseSnapshotRef.current = pullLatestFirebaseSnapshot;
+    refreshIcgFrontRestFromServerRef.current = refreshIcgFrontRestFromServer;
     function retryOfflineSynchronization(reason) {
       const syncReason = reason || "offline-reconnect";
       if (hasPersistedFirebaseWritePending()) scheduleFirebaseWrite(null, "", 0, syncReason);
@@ -14775,6 +14852,9 @@
       toast("Tu sesion de administrador fue cerrada por seguridad. Inicia sesion nuevamente si necesitas continuar.", "error", 9e3);
     }, [currentUser, appSecurity]);
     useEffect(() => {
+      // ICG FrontRest mantiene su listener dedicado durante toda la sesión;
+      // volver a entrar no debe disparar otra lectura de estadoGeneral.
+      if (page === "icg" || page === "icgHost") return;
       if (!firebaseCfg.enabled || !firebaseDocRef.current || !firebaseBootstrappedRef.current) return;
       if (!firebaseAuthEmail || !currentUser || !isAdminUser(currentUser) || authorizedUsersHydratedRef.current === firebaseAuthEmail) return;
       let active = true;
@@ -15189,6 +15269,7 @@
         const icgDocRef = db.collection(firebaseCfg.collection).doc("icgControl");
         firebaseDocRef.current = docRef;
         icgControlDocRef.current = icgDocRef;
+        setFirebaseDocReadyVersion(function(value) { return value + 1; });
         setFirebaseStatus("connecting");
         setFirebaseMessage("Sincronizando con Firebase...");
         const unsubscribeIcgControl = icgDocRef.onSnapshot(function(snapshot) {
@@ -15425,27 +15506,35 @@
       };
     }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus, page]);
     useEffect(() => {
-      if ((page !== "icg" && page !== "icgHost") || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
+      // El listener queda activo durante la sesión autenticada. Así cambiar de
+      // módulo no lo desmonta ni provoca una nueva lectura inicial de ICG.
+      if (!firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       const key = "icgFrontRestData";
       const ref = firebaseDocRef.current.parent.doc(FIREBASE_EXTERNAL_STATE_DOCS[key] || key);
       let active = true;
       const applyRemoteIcgSnapshot = function(snapshot) {
-        if (!active || !snapshot || !snapshot.exists || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        if (!active || !snapshot || (snapshot.metadata && snapshot.metadata.fromCache)) return;
+        if (!snapshot.exists) {
+          icgFrontRestRemoteReadyRef.current = true;
+          return;
+        }
         const data = snapshot.data() || {};
         const value = data.appStateCompressed ? decodeFirebaseCompressedState(data.appStateCompressed) : data.appState;
         if (!value || typeof value !== "object") return;
         const remoteSignature = String(data.syncMeta && data.syncMeta.signature || quickHashText(JSON.stringify(value)));
+        icgFrontRestRemoteReadyRef.current = true;
+        saveIcgFrontRestRemoteCache(value, remoteSignature);
         if (firebaseExternalDocSignaturesRef.current[key] === remoteSignature && serializeAppState(getCurrentAppState().icgFrontRestData) === serializeAppState(value)) return;
         firebaseExternalDocSignaturesRef.current[key] = remoteSignature;
         firebaseExternalDocSignaturesCache[key] = remoteSignature;
         saveFirebaseExternalDocSignatures(firebaseExternalDocSignaturesRef.current);
         skipAutomaticFirebaseWriteRef.current = true;
-        applyRemoteState({ icgFrontRestData: ensureIcgFrontRestData(value) });
+        applyRemoteState({ icgFrontRestData: ensureIcgFrontRestData(value) }, { allowIcgFrontRestData: true });
         setFirebaseMessage("ICG actualizado desde Firebase");
       };
-      ref.get({ source: "server" }).then(applyRemoteIcgSnapshot).catch(function(error) {
-        if (active) console.warn("No se pudo leer ICG desde el servidor:", error);
-      });
+      // onSnapshot performs the initial server read and then keeps the module
+      // live. A separate get({source:"server"}) here duplicated that read on
+      // every entry to ICG FrontRest.
       const unsubscribe = typeof ref.onSnapshot === "function" ? ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteIcgSnapshot, function(error) {
         if (active) console.warn("No se pudo escuchar ICG desde Firebase:", error);
       }) : null;
@@ -15453,7 +15542,7 @@
         active = false;
         if (typeof unsubscribe === "function") unsubscribe();
       };
-    }, [page, firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseStatus]);
+    }, [firebaseCfg, firebaseAuthReady, firebaseAuthEmail, firebaseDocReadyVersion]);
     useEffect(() => {
       if (page !== "recuento" || !firebaseCfg.enabled || !firebaseAuthReady || !firebaseAuthEmail || !firebaseDocRef.current || !firebaseDocRef.current.parent) return;
       let active = true;
@@ -15497,9 +15586,8 @@
           applyRemoteState({ [key]: value });
           setFirebaseMessage("Registros actualizados desde Firebase");
         };
-        ref.get({ source: "server" }).then(applyRemoteRecordsSnapshot).catch(function(error) {
-          if (active) console.warn("No se pudo leer desde servidor el historial remoto de Registros:", key, error);
-        });
+        // onSnapshot realiza la lectura inicial y mantiene el historial en
+        // tiempo real; no duplicar con un get({ source: "server" }).
         const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, applyRemoteRecordsSnapshot, function(error) {
           if (active) console.warn("No se pudo escuchar el historial remoto de Registros:", key, error);
         });
@@ -15539,11 +15627,8 @@
         const docId = FIREBASE_EXTERNAL_STATE_DOCS[key] || key;
         const ref = firebaseDocRef.current.parent && firebaseDocRef.current.parent.doc(docId);
         if (!ref) return;
-        ref.get({ source: "server" }).then(function(snapshot) {
-          applyRemoteMiseHistorySnapshot(key, snapshot);
-        }).catch(function(error) {
-          if (active) console.warn("No se pudo leer desde servidor el historial remoto de Mise:", key, error);
-        });
+        // La primera entrega del listener es la lectura remota inicial. La
+        // caché solo se conserva en el estado visual mientras llega.
         if (typeof ref.onSnapshot === "function") {
           const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, function(snapshot) {
             applyRemoteMiseHistorySnapshot(key, snapshot);
@@ -16039,6 +16124,12 @@
       setFirebaseStatus("connecting");
       setFirebaseMessage("Forzando lectura del servidor...");
       pullLatestFirebaseSnapshot("manual-sync");
+      if ((page === "icg" || page === "icgHost") && refreshIcgFrontRestFromServerRef.current) {
+        refreshIcgFrontRestFromServerRef.current("manual-sync").catch(function(error) {
+          console.warn("No se pudo leer ICG FrontRest directamente desde Firestore:", error);
+          setFirebaseMessage(error && error.message ? error.message : "No se pudo leer ICG FrontRest desde Firestore");
+        });
+      }
       if (window.WTF_PWA && typeof window.WTF_PWA.syncNow === "function") {
         window.WTF_PWA.syncNow("manual-sync");
       }
@@ -24657,7 +24748,14 @@
       });
     }, [selectedClosureDetail, ticketRows.length, data]);
     const purchaseRows = useMemo(() => buildIcgPurchaseDays(normalized), [data]);
-    const bridgeRows = icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow);
+    // Los vinculos pueden existir en el dataset central o dentro de icgLinks
+    // de los productos. Mostrar ambos origenes evita que el contador quede en
+    // cero cuando el dataset central este vacio, sin escribir una reconstruccion
+    // automatica en Firestore.
+    const bridgeRows = mergeIcgBridgeRows(
+      icgRows(normalized, "VinculosMiseICG").filter(Boolean).map(sanitizeIcgBridgeRow),
+      buildIcgBridgeRowsFromTargets(inventoryTargets)
+    );
     const normalizedWithBridgeRows = withMergedIcgBridgeRows(normalized, bridgeRows);
     const appliedImportKeys = new Set(Array.isArray(normalized.appliedImports) ? normalized.appliedImports : []);
     const appliedPhysicalIcgKeys = new Set([...(Array.isArray(normalized.appliedPhysicalIcgKeys) ? normalized.appliedPhysicalIcgKeys : []), ...loadIcgLocalAppliedPhysicalKeys()].map(canonicalizeIcgPhysicalKey).filter(Boolean));
@@ -25702,7 +25800,10 @@
     const toast = useToast();
     const normalizedIcg = ensureIcgFrontRestData(icgData);
     const [tab, setTab] = useState("dashboard");
-    const hostBridgeRows = icgRows(normalizedIcg, "VinculosMiseICG");
+    const hostBridgeRows = mergeIcgBridgeRows(
+      icgRows(normalizedIcg, "VinculosMiseICG"),
+      buildIcgBridgeRowsFromTargets(inventoryTargets)
+    );
     const normalizedHostIcg = withMergedIcgBridgeRows(normalizedIcg, hostBridgeRows);
     const icgSalesRows = buildIcgSalesConsumption(normalizedHostIcg);
     const activeBridgeRows = hostBridgeRows.filter(isIcgLinkActive);
